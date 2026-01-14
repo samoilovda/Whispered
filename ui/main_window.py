@@ -318,7 +318,8 @@ class MainWindow(QMainWindow):
     
     def _reset_ui(self):
         """Reset UI to ready state."""
-        self.transcribe_btn.setEnabled(True)
+        # Only enable transcribe button if a file is still selected
+        self.transcribe_btn.setEnabled(self.file_selector.get_file() is not None)
         self.transcribe_btn.setVisible(True)
         self.cancel_btn.setVisible(False)
         self.progress_bar.setVisible(False)

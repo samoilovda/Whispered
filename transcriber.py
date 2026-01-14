@@ -4,6 +4,7 @@ Wrapper for pywhispercpp to handle transcription tasks
 """
 
 import os
+import threading
 from dataclasses import dataclass
 from typing import Callable, Optional, List
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
@@ -55,11 +56,11 @@ class TranscriptionWorker(QThread):
         self.model_name = model_name
         self.language = language
         self.translate = translate
-        self._cancelled = False
+        self._cancelled = threading.Event()
     
     def cancel(self):
         """Request cancellation of the transcription."""
-        self._cancelled = True
+        self._cancelled.set()
     
     def run(self):
         """Run the transcription in a separate thread."""
@@ -79,7 +80,7 @@ class TranscriptionWorker(QThread):
                 self.error.emit(f"Failed to load model '{self.model_name}': {str(e)}")
                 return
             
-            if self._cancelled:
+            if self._cancelled.is_set():
                 return
             
             self.progress.emit(15, "Preparing transcription...")
@@ -101,14 +102,14 @@ class TranscriptionWorker(QThread):
             if self.translate:
                 params['translate'] = True
             
-            if self._cancelled:
+            if self._cancelled.is_set():
                 return
             
             # Run transcription
             self.progress.emit(20, "Transcribing audio...")
             segments_raw = model.transcribe(self.filepath, **params)
             
-            if self._cancelled:
+            if self._cancelled.is_set():
                 return
             
             self.progress.emit(90, "Processing results...")
@@ -127,8 +128,8 @@ class TranscriptionWorker(QThread):
                 self.error.emit("No speech detected in the audio file.")
                 return
             
-            # Calculate total duration
-            duration = segments[-1].end if segments else 0.0
+            # Calculate total duration (segments is guaranteed non-empty here)
+            duration = segments[-1].end
             
             # Create result
             result = TranscriptionResult(

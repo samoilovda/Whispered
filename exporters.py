@@ -3,9 +3,7 @@ Whisper Fedora UI - Export Functions
 Export transcription results to various formats
 """
 
-import os
-from typing import List
-from transcriber import TranscriptionResult, Segment
+from transcriber import TranscriptionResult
 from utils import format_timestamp_srt, format_timestamp_vtt
 
 
