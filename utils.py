@@ -148,7 +148,8 @@ WHISPER_MODELS = [
     ('medium', 'Medium (~1.5GB) - High accuracy'),
     ('large-v3', 'Large v3 (~3GB) - Highest accuracy'),
     ('large-v3-turbo', 'Turbo (~1.6GB) - Fast, high accuracy'),
-    ('large-v3-turbo-q5_0', 'Turbo Q5 (~809MB) - Optimized turbo'),
+    ('large-v3-turbo-q5_0', 'Turbo Q5 (~547MB) - Smallest, fastest'),
+    ('large-v3-turbo-q8_0', 'Turbo Q8 (~834MB) - Better quality'),
 ]
 
 # Supported languages (subset of most common)
@@ -174,3 +175,37 @@ WHISPER_LANGUAGES = [
     ('th', 'Thai'),
     ('id', 'Indonesian'),
 ]
+
+
+# Performance modes for energy/speed tradeoff
+# (mode_key, display_name, thread_multiplier, description)
+# thread_multiplier: fraction of CPU cores to use
+PERFORMANCE_MODES = [
+    ('efficiency', '🔋 Efficiency', 0.25, 'Low CPU, battery-friendly'),
+    ('balanced', '⚡ Balanced', 0.50, 'Moderate CPU usage'),
+    ('performance', '🚀 Performance', 1.0, 'Maximum speed, high CPU'),
+]
+
+
+def get_thread_count(mode: str = 'balanced') -> int:
+    """
+    Get optimal thread count based on performance mode.
+    
+    Args:
+        mode: 'efficiency', 'balanced', or 'performance'
+    
+    Returns:
+        Number of threads to use for transcription
+    """
+    import os
+    cpu_count = os.cpu_count() or 4
+    
+    # Find the mode's thread multiplier
+    for mode_key, _, multiplier, _ in PERFORMANCE_MODES:
+        if mode_key == mode:
+            # Calculate threads: minimum 1, maximum cpu_count
+            threads = max(1, int(cpu_count * multiplier))
+            return min(threads, cpu_count)
+    
+    # Default to balanced if mode not found
+    return max(2, cpu_count // 2)

@@ -169,12 +169,12 @@ class TranscriptionWorker(QThread):
             self.progress.emit(90, "Processing results...")
             
             # Convert to our Segment format
-            # pywhispercpp returns t0/t1 in milliseconds
+            # pywhispercpp returns t0/t1 in centiseconds (1/100th of a second)
             segments = []
             for seg in segments_raw:
                 segments.append(Segment(
-                    start=seg.t0 / 1000.0,  # Convert from milliseconds to seconds
-                    end=seg.t1 / 1000.0,
+                    start=seg.t0 / 100.0,  # Convert from centiseconds to seconds
+                    end=seg.t1 / 100.0,
                     text=seg.text
                 ))
             

@@ -16,7 +16,7 @@ from ui.transcript_view import TranscriptView
 from ui.icons import IconLabel, get_icon, IconColors
 from transcriber import Transcriber, TranscriptionResult
 from exporters import export_result, EXPORT_FORMATS
-from utils import WHISPER_MODELS, WHISPER_LANGUAGES, detect_gpu
+from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, detect_gpu, get_thread_count
 
 
 class MainWindow(QMainWindow):
@@ -131,6 +131,23 @@ class MainWindow(QMainWindow):
         self.translate_checkbox.setStyleSheet("color: #888; font-size: 11px;")
         self.translate_checkbox.setToolTip("Translate to English")
         header_layout.addWidget(self.translate_checkbox)
+        
+        header_layout.addSpacing(12)
+        
+        # Performance mode selector
+        perf_label = QLabel("Mode:")
+        perf_label.setStyleSheet("color: #888; font-size: 12px;")
+        header_layout.addWidget(perf_label)
+        
+        self.perf_combo = self._create_header_combo(
+            [(mode[0], mode[1]) for mode in PERFORMANCE_MODES], 145
+        )
+        self.perf_combo.setCurrentIndex(1)  # Default to 'Balanced'
+        self.perf_combo.setToolTip("Energy vs Speed tradeoff\n\n"
+            "🔋 Efficiency: Low CPU, saves battery\n"
+            "⚡ Balanced: Moderate CPU usage\n"
+            "🚀 Performance: Max speed, high CPU")
+        header_layout.addWidget(self.perf_combo)
         
         header_layout.addStretch()
         
@@ -353,10 +370,10 @@ class MainWindow(QMainWindow):
         model = self.model_combo.currentData()
         language = self.language_combo.currentData()
         translate = self.translate_checkbox.isChecked()
+        perf_mode = self.perf_combo.currentData()
         
-        # Determine thread count (balanced mode)
-        cpu_count = os.cpu_count() or 4
-        n_threads = max(2, cpu_count // 2)
+        # Determine thread count based on performance mode
+        n_threads = get_thread_count(perf_mode)
         
         # Start transcription
         self.transcriber.transcribe(
