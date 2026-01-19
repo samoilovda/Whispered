@@ -146,10 +146,12 @@ class LMStudioClient:
                 return result['choices'][0]['message']['content']
                 
         except urllib.error.URLError as e:
-            print(f"LM Studio connection error: {e}")
+            # Silenced - these errors can be frequent during connection checks
+            # print(f"LM Studio connection error: {e}")
             return None
         except Exception as e:
-            print(f"LM Studio API error: {e}")
+            # Silenced - avoid console spam
+            # print(f"LM Studio API error: {e}")
             return None
 
 

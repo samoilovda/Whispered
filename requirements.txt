@@ -1,3 +1,7 @@
 PyQt6>=6.6.0
 pyqtdarktheme>=2.1.0
 pywhispercpp>=1.2.0
+
+# Optional: Speaker diarization (requires HF token setup)
+# pyannote.audio>=3.1
+# torch>=2.0

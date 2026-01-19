@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.github.whisper-fedora</id>
-  <name>Whisper Fedora</name>
+  <id>io.github.whispered</id>
+  <name>Whispered</name>
   <summary>Speech-to-text transcription using OpenAI Whisper</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <description>
     <p>
-      Whisper Fedora is a modern desktop application for transcribing audio and
+      Whispered is a modern desktop application for transcribing audio and
       video files using OpenAI's Whisper speech recognition model via whisper.cpp.
     </p>
     <p>Features:</p>
@@ -16,21 +16,24 @@
       <li>Multiple Whisper models (tiny to large)</li>
       <li>99+ language support with auto-detection</li>
       <li>Translation to English</li>
-      <li>GPU acceleration (CUDA/ROCm) with CPU fallback</li>
+      <li>GPU acceleration (CUDA/ROCm/Metal) with CPU fallback</li>
+      <li>AI-powered text cleaning and article generation</li>
+      <li>Speaker diarization</li>
+      <li>Batch processing</li>
       <li>Export to TXT, SRT, VTT, and JSON formats</li>
       <li>Modern dark theme interface</li>
     </ul>
   </description>
-  <launchable type="desktop-id">whisper-fedora.desktop</launchable>
-  <url type="homepage">https://github.com/whisper-fedora</url>
+  <launchable type="desktop-id">whispered.desktop</launchable>
+  <url type="homepage">https://github.com/whispered</url>
   <provides>
-    <binary>whisper-fedora</binary>
+    <binary>whispered</binary>
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
-    <release version="1.0.0" date="2026-01-14">
+    <release version="1.0.0" date="2026-01-20">
       <description>
-        <p>Initial release with full transcription support.</p>
+        <p>Initial release with full transcription, AI processing, and batch support.</p>
       </description>
     </release>
   </releases>

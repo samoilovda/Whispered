@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Whisper UI - Main Entry Point
+Whispered - Main Entry Point
 A modern desktop transcription application using whisper.cpp
 """
 
@@ -23,8 +23,8 @@ def main():
     os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
     
     app = QApplication(sys.argv)
-    app.setApplicationName("Whisper UI")
-    app.setApplicationDisplayName("Whisper UI")
+    app.setApplicationName("Whispered")
+    app.setApplicationDisplayName("Whispered")
     
     # Set modern font
     font = QFont("Inter", 10)

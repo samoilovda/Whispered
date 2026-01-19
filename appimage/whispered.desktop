@@ -1,12 +1,12 @@
 [Desktop Entry]
 Type=Application
-Name=Whisper Fedora
+Name=Whispered
 GenericName=Speech-to-Text Transcription
 Comment=Transcribe audio and video files using OpenAI Whisper
-Exec=whisper-fedora
-Icon=whisper-fedora
+Exec=whispered
+Icon=whispered
 Terminal=false
 Categories=AudioVideo;Audio;Utility;
 Keywords=whisper;transcription;speech;text;audio;video;subtitles;
 MimeType=audio/mpeg;audio/ogg;audio/flac;audio/wav;audio/x-wav;video/mp4;video/x-matroska;video/webm;
-StartupWMClass=whisper-fedora
+StartupWMClass=whispered

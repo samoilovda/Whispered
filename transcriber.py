@@ -59,6 +59,7 @@ class Segment:
     start: float  # Start time in seconds
     end: float    # End time in seconds
     text: str     # Transcribed text
+    speaker: Optional[str] = None  # Speaker label (e.g., "Speaker 1")
 
 
 @dataclass
@@ -89,6 +90,8 @@ class TranscriptionWorker(QThread):
         language: str = 'auto',
         translate: bool = False,
         n_threads: int = 4,
+        enable_diarization: bool = False,
+        num_speakers: Optional[int] = None,
         parent: Optional[QObject] = None
     ):
         super().__init__(parent)
@@ -97,6 +100,8 @@ class TranscriptionWorker(QThread):
         self.language = language
         self.translate = translate
         self.n_threads = n_threads
+        self.enable_diarization = enable_diarization
+        self.num_speakers = num_speakers
         self._cancelled = threading.Event()
     
     def cancel(self):
@@ -175,8 +180,13 @@ class TranscriptionWorker(QThread):
                 segments.append(Segment(
                     start=seg.t0 / 100.0,  # Convert from centiseconds to seconds
                     end=seg.t1 / 100.0,
-                    text=seg.text
+                    text=seg.text,
+                    speaker=None
                 ))
+            
+            # Run diarization if enabled
+            if self.enable_diarization and not self._cancelled.is_set():
+                segments = self._add_speaker_labels(segments, audio_path)
             
             if not segments:
                 self.error.emit("No speech detected in the audio file.")
@@ -207,6 +217,40 @@ class TranscriptionWorker(QThread):
                     os.remove(temp_wav_path)
                 except:
                     pass
+    
+    def _add_speaker_labels(self, segments: List[Segment], audio_path: str) -> List[Segment]:
+        """Add speaker labels to segments using diarization."""
+        try:
+            from diarizer import Diarizer
+            
+            self.progress.emit(85, "Identifying speakers...")
+            
+            diarizer = Diarizer()
+            if not diarizer.is_available():
+                self.progress.emit(90, "Diarization not available, skipping...")
+                return segments
+            
+            # Run diarization
+            diarization = diarizer.diarize(
+                audio_path,
+                num_speakers=self.num_speakers,
+                on_progress=lambda p, m: self.progress.emit(85 + int(p * 0.1), m)
+            )
+            
+            # Merge speaker labels with segments
+            for seg in segments:
+                midpoint = (seg.start + seg.end) / 2
+                speaker = diarization.get_speaker_at(midpoint)
+                if speaker is None:
+                    speaker = diarization.get_speaker_at(seg.start)
+                seg.speaker = speaker
+            
+            self.progress.emit(95, f"Found {diarization.num_speakers} speakers")
+            return segments
+            
+        except Exception as e:
+            self.progress.emit(90, f"Diarization error: {str(e)[:30]}...")
+            return segments  # Return original segments without speaker labels
 
 
 class Transcriber:
@@ -227,6 +271,8 @@ class Transcriber:
         language: str = 'auto',
         translate: bool = False,
         n_threads: int = 4,
+        enable_diarization: bool = False,
+        num_speakers: Optional[int] = None,
         on_progress: Optional[Callable[[int, str], None]] = None,
         on_finished: Optional[Callable[[TranscriptionResult], None]] = None,
         on_error: Optional[Callable[[str], None]] = None
@@ -240,6 +286,8 @@ class Transcriber:
             language: Language code or 'auto' for auto-detection
             translate: If True, translate to English
             n_threads: Number of CPU threads to use
+            enable_diarization: If True, identify speakers
+            num_speakers: Number of speakers (None = auto-detect)
             on_progress: Callback for progress updates (percentage, message)
             on_finished: Callback when transcription completes
             on_error: Callback for errors
@@ -258,7 +306,9 @@ class Transcriber:
             model_name=model_name,
             language=language,
             translate=translate,
-            n_threads=n_threads
+            n_threads=n_threads,
+            enable_diarization=enable_diarization,
+            num_speakers=num_speakers
         )
         
         # Connect signals

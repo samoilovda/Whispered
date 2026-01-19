@@ -1,5 +1,5 @@
 """
-Whisper Fedora UI - Main Window
+Whispered - Main Window
 Main application window with compact header-bar layout and AI processing
 """
 
@@ -15,10 +15,12 @@ from ui.file_selector import FileSelector
 from ui.transcript_view import TranscriptView
 from ui.ai_panel import AIProcessingPanel
 from ui.article_view import ArticleView, CleanedTextView
+from ui.batch_panel import BatchPanel
 from ui.icons import IconLabel, get_icon, IconColors
 from transcriber import Transcriber, TranscriptionResult
 from exporters import export_result, EXPORT_FORMATS
 from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, detect_gpu, get_thread_count
+from config import get_config
 
 
 # ============================================================================
@@ -117,6 +119,28 @@ class MainWindow(QMainWindow):
         self._setup_ui()
         self._connect_signals()
     
+    def closeEvent(self, event):
+        """Handle window close - cleanup resources."""
+        # Stop any running transcription
+        if self.transcriber.is_busy():
+            self.transcriber.cancel()
+        
+        # Stop AI worker if running
+        if self._ai_worker and self._ai_worker.isRunning():
+            self._ai_worker.cancel()
+            self._ai_worker.wait()
+        
+        # Cleanup AI panel timers
+        if hasattr(self, 'ai_panel'):
+            self.ai_panel.cleanup()
+        
+        # Cleanup batch processing
+        if hasattr(self, 'batch_panel') and self.batch_panel.processor.is_processing:
+            self.batch_panel.cancel_processing()
+        
+        event.accept()
+    
+    
     def _create_header_combo(self, items: list, width: int = 150) -> QComboBox:
         """Create a compact combo box for the header bar."""
         combo = QComboBox()
@@ -165,7 +189,7 @@ class MainWindow(QMainWindow):
     
     def _setup_ui(self):
         """Set up the main window UI with header-bar layout."""
-        self.setWindowTitle("Whisper UI")
+        self.setWindowTitle("Whispered")
         self.setMinimumSize(1000, 650)
         self.resize(1200, 750)
         
@@ -186,7 +210,7 @@ class MainWindow(QMainWindow):
         logo = IconLabel('microphone', IconColors.PRIMARY, 28)
         header_layout.addWidget(logo)
         
-        title = QLabel("Whisper UI")
+        title = QLabel("Whispered")
         title.setStyleSheet("font-size: 18px; font-weight: bold;")
         header_layout.addWidget(title)
         
@@ -234,12 +258,22 @@ class MainWindow(QMainWindow):
             "🚀 Performance: Max speed, high CPU")
         header_layout.addWidget(self.perf_combo)
         
+        header_layout.addSpacing(8)
+        
+        # Diarization toggle
+        self.diarization_checkbox = QCheckBox("👥 Speakers")
+        self.diarization_checkbox.setStyleSheet("color: #888; font-size: 11px;")
+        self.diarization_checkbox.setToolTip("Identify different speakers (requires setup)")
+        self.diarization_checkbox.setChecked(get_config().diarization_enabled)
+        header_layout.addWidget(self.diarization_checkbox)
+        
         header_layout.addStretch()
         
         # Clickable device toggle button
         self.device_btn = QPushButton()
         self.device_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.device_btn.setToolTip("Click to toggle between GPU and CPU")
+        self.device_btn.setMinimumWidth(130)  # Prevent truncation
         self.device_btn.clicked.connect(self._toggle_device)
         self._update_device_badge()
         header_layout.addWidget(self.device_btn)
@@ -292,6 +326,11 @@ class MainWindow(QMainWindow):
         # AI Processing Panel
         self.ai_panel = AIProcessingPanel()
         left_layout.addWidget(self.ai_panel)
+        
+        # Batch Processing Panel
+        self.batch_panel = BatchPanel()
+        self.batch_panel.start_requested.connect(self._start_batch_processing)
+        left_layout.addWidget(self.batch_panel)
         
         left_layout.addStretch()
         
@@ -516,6 +555,9 @@ class MainWindow(QMainWindow):
         # Determine thread count based on performance mode
         n_threads = get_thread_count(perf_mode)
         
+        # Get diarization settings
+        enable_diarization = self.diarization_checkbox.isChecked()
+        
         # Start transcription
         self.transcriber.transcribe(
             filepath=filepath,
@@ -523,6 +565,8 @@ class MainWindow(QMainWindow):
             language=language,
             translate=translate,
             n_threads=n_threads,
+            enable_diarization=enable_diarization,
+            num_speakers=None,  # Auto-detect
             on_progress=self._on_progress,
             on_finished=self._on_finished,
             on_error=self._on_error
@@ -541,6 +585,26 @@ class MainWindow(QMainWindow):
             self.status_label.setText("Transcription cancelled")
         
         self._reset_ui()
+    
+    def _start_batch_processing(self):
+        """Start batch processing with current settings."""
+        model = self.model_combo.currentData()
+        language = self.language_combo.currentData()
+        translate = self.translate_checkbox.isChecked()
+        perf_mode = self.perf_combo.currentData()
+        n_threads = get_thread_count(perf_mode)
+        enable_diarization = self.diarization_checkbox.isChecked()
+        
+        self.status_label.setText("Starting batch processing...")
+        
+        self.batch_panel.start_processing(
+            model_name=model,
+            language=language,
+            translate=translate,
+            n_threads=n_threads,
+            enable_diarization=enable_diarization,
+            num_speakers=None
+        )
     
     def _on_progress(self, percentage: int, message: str):
         """Handle progress updates."""

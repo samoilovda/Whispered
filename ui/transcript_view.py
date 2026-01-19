@@ -1,6 +1,6 @@
 """
 Whisper Fedora UI - Transcript View Widget
-Display transcription results with timestamps
+Display transcription results with timestamps and speaker labels
 """
 
 from PyQt6.QtWidgets import (
@@ -8,12 +8,24 @@ from PyQt6.QtWidgets import (
     QPushButton, QFrame
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QTextCharFormat, QColor, QTextCursor
 
 from transcriber import TranscriptionResult
 from utils import format_timestamp_vtt
 from ui.icons import get_icon, IconColors
 
+
+# Speaker color palette
+SPEAKER_COLORS = {
+    "Speaker 1": "#6366f1",  # Purple
+    "Speaker 2": "#22c55e",  # Green
+    "Speaker 3": "#f59e0b",  # Orange
+    "Speaker 4": "#ef4444",  # Red
+    "Speaker 5": "#06b6d4",  # Cyan
+    "Speaker 6": "#ec4899",  # Pink
+    "Speaker 7": "#84cc16",  # Lime
+    "Speaker 8": "#8b5cf6",  # Violet
+}
 
 class TranscriptView(QWidget):
     """Widget to display transcription results."""
@@ -26,6 +38,7 @@ class TranscriptView(QWidget):
         super().__init__(parent)
         self._result: TranscriptionResult | None = None
         self._show_timestamps = True
+        self._show_speakers = True
         self._setup_ui()
     
     def _setup_ui(self):
@@ -69,6 +82,32 @@ class TranscriptView(QWidget):
         self.timestamps_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.timestamps_btn.clicked.connect(self._toggle_timestamps)
         header_layout.addWidget(self.timestamps_btn)
+        
+        # Toggle speakers button
+        self.speakers_btn = QPushButton("Speakers")
+        self.speakers_btn.setIcon(get_icon('user', IconColors.DEFAULT, 14))
+        self.speakers_btn.setCheckable(True)
+        self.speakers_btn.setChecked(True)
+        self.speakers_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: 1px solid #4a4a4a;
+                border-radius: 4px;
+                padding: 4px 12px;
+                color: #888;
+            }
+            QPushButton:checked {
+                border-color: #22c55e;
+                color: #22c55e;
+            }
+            QPushButton:hover {
+                background-color: rgba(34, 197, 94, 0.1);
+            }
+        """)
+        self.speakers_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.speakers_btn.clicked.connect(self._toggle_speakers)
+        self.speakers_btn.setVisible(False)  # Only show when diarization available
+        header_layout.addWidget(self.speakers_btn)
         
         # Copy button with vector icon
         self.copy_btn = QPushButton("Copy")
@@ -157,11 +196,35 @@ class TranscriptView(QWidget):
         self._show_timestamps = self.timestamps_btn.isChecked()
         self._update_display()
     
+    def _toggle_speakers(self):
+        """Toggle speaker label display."""
+        self._show_speakers = self.speakers_btn.isChecked()
+        self._update_display()
+    
+    def _get_speaker_color(self, speaker: str) -> str:
+        """Get color for a speaker."""
+        if speaker in SPEAKER_COLORS:
+            return SPEAKER_COLORS[speaker]
+        # Generate color for unknown speakers
+        return "#888888"
+    
     def _update_display(self):
         """Update the text display based on current settings."""
         if not self._result:
             return
         
+        # Check if any segments have speaker labels
+        has_speakers = any(seg.speaker for seg in self._result.segments)
+        self.speakers_btn.setVisible(has_speakers)
+        
+        # Build display text with optional HTML formatting
+        if has_speakers and self._show_speakers:
+            self._update_display_with_speakers()
+        else:
+            self._update_display_plain()
+    
+    def _update_display_plain(self):
+        """Update display without speaker colors."""
         lines = []
         if self._show_timestamps:
             for seg in self._result.segments:
@@ -172,6 +235,31 @@ class TranscriptView(QWidget):
                 lines.append(seg.text.strip())
         
         self.text_edit.setText('\n'.join(lines))
+    
+    def _update_display_with_speakers(self):
+        """Update display with colored speaker labels."""
+        html_lines = []
+        
+        for seg in self._result.segments:
+            parts = []
+            
+            # Timestamp
+            if self._show_timestamps:
+                timestamp = format_timestamp_vtt(seg.start)
+                parts.append(f'<span style="color: #666;">[{timestamp}]</span>')
+            
+            # Speaker label
+            speaker = seg.speaker or "Unknown"
+            color = self._get_speaker_color(speaker)
+            parts.append(f'<span style="color: {color}; font-weight: bold;">[{speaker}]</span>')
+            
+            # Text
+            parts.append(f'<span style="color: #e0e0e0;">{seg.text.strip()}</span>')
+            
+            html_lines.append(' '.join(parts))
+        
+        html = '<br>'.join(html_lines)
+        self.text_edit.setHtml(html)
     
     def set_result(self, result: TranscriptionResult):
         """Set the transcription result to display."""

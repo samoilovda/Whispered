@@ -5,13 +5,14 @@ Controls for AI-powered text processing and article generation
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
-    QLabel, QComboBox, QProgressBar, QFrame
+    QLabel, QComboBox, QProgressBar, QFrame, QCheckBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont
 
 from text_processor import TextProcessor
 from article_generator import ArticleGenerator, ArticleFormat, ARTICLE_FORMAT_INFO
+from lm_studio_manager import LMStudioManager
 
 
 class StatusIndicator(QWidget):
@@ -75,9 +76,18 @@ class AIProcessingPanel(QWidget):
         super().__init__(parent)
         self._processor = TextProcessor()
         self._generator = ArticleGenerator()
+        self._manager = LMStudioManager()
         self._processing = False
+        self._has_transcription = False
+        self.check_timer = None  # Initialize timer reference
         self._setup_ui()
         self._start_connection_check()
+        self._refresh_models()
+    
+    def cleanup(self):
+        """Stop timers and cleanup resources."""
+        if self.check_timer:
+            self.check_timer.stop()
     
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -99,6 +109,56 @@ class AIProcessingPanel(QWidget):
         # Connection status
         self.status_indicator = StatusIndicator()
         layout.addWidget(self.status_indicator)
+        
+        # Model selector (only visible when CLI available)
+        model_layout = QHBoxLayout()
+        model_layout.setSpacing(4)
+        
+        model_label = QLabel("Model:")
+        model_label.setStyleSheet("color: #888; font-size: 11px;")
+        model_layout.addWidget(model_label)
+        
+        self.model_combo = QComboBox()
+        self.model_combo.setStyleSheet("""
+            QComboBox {
+                padding: 4px 6px;
+                padding-right: 18px;
+                border: 1px solid #3a3a3a;
+                border-radius: 4px;
+                background-color: #2a2a2a;
+                color: #e0e0e0;
+                font-size: 10px;
+            }
+            QComboBox:hover { border-color: #5a5a5a; }
+            QComboBox::drop-down { width: 14px; border: none; }
+            QComboBox::down-arrow { border-left: 3px solid transparent; border-right: 3px solid transparent; border-top: 3px solid #888; }
+            QComboBox QAbstractItemView { background-color: #2a2a2a; border: 1px solid #3a3a3a; selection-background-color: #6366f1; color: #e0e0e0; }
+        """)
+        self.model_combo.currentIndexChanged.connect(self._on_model_selected)
+        model_layout.addWidget(self.model_combo, stretch=1)
+        
+        self.model_row = QWidget()
+        self.model_row.setLayout(model_layout)
+        self.model_row.setVisible(False)  # Hidden until CLI available
+        layout.addWidget(self.model_row)
+        
+        # Start server button (only visible when offline)
+        self.start_server_btn = QPushButton("▶ Start LM Studio Server")
+        self.start_server_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6366f1;
+                border: none;
+                border-radius: 6px;
+                padding: 6px 12px;
+                color: white;
+                font-size: 11px;
+            }
+            QPushButton:hover { background-color: #818cf8; }
+            QPushButton:disabled { background-color: #3a3a3a; color: #666; }
+        """)
+        self.start_server_btn.clicked.connect(self._start_server)
+        self.start_server_btn.setVisible(False)
+        layout.addWidget(self.start_server_btn)
         
         # Progress bar (hidden by default)
         self.progress_bar = QProgressBar()
@@ -125,11 +185,11 @@ class AIProcessingPanel(QWidget):
         self.progress_label.setVisible(False)
         layout.addWidget(self.progress_label)
         
-        # Button style
+        # Button style - use solid backgrounds to prevent bleed-through
         button_style = """
             QPushButton {
-                background-color: #2a2a2a;
-                border: 1px solid #3a3a3a;
+                background-color: #2d2d2d;
+                border: 1px solid #404040;
                 border-radius: 6px;
                 padding: 8px 12px;
                 color: #e0e0e0;
@@ -144,9 +204,9 @@ class AIProcessingPanel(QWidget):
                 background-color: #4a4a4a;
             }
             QPushButton:disabled {
-                background-color: #1a1a1a;
-                color: #555;
-                border-color: #2a2a2a;
+                background-color: #252525;
+                color: #606060;
+                border-color: #333333;
             }
         """
         
@@ -243,15 +303,100 @@ class AIProcessingPanel(QWidget):
         connected = self._processor.is_available()
         model_name = self._processor.get_model_name() if connected else None
         self.status_indicator.set_connected(connected, model_name)
+        
+        # Update UI based on connection and CLI availability
+        cli_available = self._manager.is_cli_available()
+        self.model_row.setVisible(cli_available and connected)
+        self.start_server_btn.setVisible(cli_available and not connected)
+        
+        # Update button states
+        self._update_button_states()
     
-    def set_has_transcription(self, has_transcription: bool):
-        """Enable/disable buttons based on transcription availability."""
+    def _refresh_models(self):
+        """Refresh the model dropdown list."""
+        if not self._manager.is_cli_available():
+            return
+        
+        self.model_combo.blockSignals(True)
+        self.model_combo.clear()
+        
+        models = self._manager.list_downloaded_models()
+        current_model = self._manager.get_current_model()
+        
+        current_index = 0
+        for i, model in enumerate(models):
+            self.model_combo.addItem(model.display_name, model.path)
+            if current_model and model.path in current_model:
+                current_index = i
+        
+        if self.model_combo.count() > 0:
+            self.model_combo.setCurrentIndex(current_index)
+        
+        self.model_combo.blockSignals(False)
+    
+    def _on_model_selected(self, index: int):
+        """Handle model selection change."""
+        if index < 0:
+            return
+        
+        model_path = self.model_combo.itemData(index)
+        if not model_path:
+            return
+        
+        # Check if this model is already loaded
+        current = self._manager.get_current_model()
+        if current and model_path in current:
+            return  # Already loaded
+        
+        # Load the selected model
+        self.status_indicator.label.setText("Loading model...")
+        self.status_indicator.label.setStyleSheet("color: #f59e0b; font-size: 11px;")
+        
+        # Use a timer to avoid blocking UI
+        QTimer.singleShot(100, lambda: self._load_model(model_path))
+    
+    def _load_model(self, model_path: str):
+        """Load a model in background."""
+        success = self._manager.load_model(model_path, gpu="auto")
+        
+        if success:
+            self._check_connection()
+        else:
+            self.status_indicator.label.setText("Failed to load model")
+            self.status_indicator.label.setStyleSheet("color: #ef4444; font-size: 11px;")
+    
+    def _start_server(self):
+        """Start LM Studio server."""
+        self.start_server_btn.setEnabled(False)
+        self.start_server_btn.setText("Starting...")
+        
+        # Use timer to avoid blocking UI
+        QTimer.singleShot(100, self._do_start_server)
+    
+    def _do_start_server(self):
+        """Actually start the server."""
+        success = self._manager.start_server(wait=True, timeout=30)
+        
+        if success:
+            self._check_connection()
+            self._refresh_models()
+        else:
+            self.start_server_btn.setText("Failed - Retry")
+            self.start_server_btn.setEnabled(True)
+    
+    def _update_button_states(self):
+        """Update button enabled states."""
         connected = self.status_indicator.is_connected
-        enabled = has_transcription and connected and not self._processing
+        enabled = self._has_transcription and connected and not self._processing
         
         self.clean_btn.setEnabled(enabled)
         self.generate_btn.setEnabled(enabled)
         self.generate_all_btn.setEnabled(enabled)
+    
+    def set_has_transcription(self, has_transcription: bool):
+        """Enable/disable buttons based on transcription availability."""
+        self._has_transcription = has_transcription
+        self._update_button_states()
     
     def set_processing(self, processing: bool):
         """Set processing state."""
@@ -263,10 +408,7 @@ class AIProcessingPanel(QWidget):
             self.progress_bar.setValue(0)
             self.progress_label.setText("")
         
-        # Update button states
-        self.clean_btn.setEnabled(not processing and self.status_indicator.is_connected)
-        self.generate_btn.setEnabled(not processing and self.status_indicator.is_connected)
-        self.generate_all_btn.setEnabled(not processing and self.status_indicator.is_connected)
+        self._update_button_states()
     
     def update_progress(self, percentage: int, message: str):
         """Update progress display."""
