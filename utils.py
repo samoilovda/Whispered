@@ -133,9 +133,22 @@ def get_audio_duration(filepath: str) -> Optional[float]:
 
 
 def get_models_dir() -> str:
-    """Get the models directory path."""
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    models_dir = os.path.join(base_dir, 'models')
+    """
+    Get the models directory path.
+    Handles 'frozen' state (PyInstaller) by using Application Support.
+    """
+    import sys
+    
+    if getattr(sys, 'frozen', False):
+        # Running as compiled app - use user data directory
+        # This ensures we have write permission and persistence
+        app_support = os.path.expanduser("~/Library/Application Support/WhisperFedora")
+        models_dir = os.path.join(app_support, "models")
+    else:
+        # Running from source - use local models directory
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        models_dir = os.path.join(base_dir, 'models')
+    
     os.makedirs(models_dir, exist_ok=True)
     return models_dir
 
