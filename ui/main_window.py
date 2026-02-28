@@ -7,7 +7,7 @@ import os
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QPushButton, QProgressBar, QLabel, QFileDialog, QMessageBox,
-    QApplication, QComboBox, QCheckBox, QTabWidget
+    QApplication, QComboBox, QCheckBox, QTabWidget, QScrollArea, QFrame
 )
 from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal
 
@@ -190,8 +190,8 @@ class MainWindow(QMainWindow):
     def _setup_ui(self):
         """Set up the main window UI with header-bar layout."""
         self.setWindowTitle("Whispered")
-        self.setMinimumSize(1000, 650)
-        self.resize(1200, 750)
+        self.setMinimumSize(900, 550)
+        self.resize(1100, 700)
         
         # Central widget
         central = QWidget()
@@ -222,7 +222,7 @@ class MainWindow(QMainWindow):
         header_layout.addWidget(model_label)
         
         self.model_combo = self._create_header_combo(WHISPER_MODELS, 180)
-        self.model_combo.setCurrentIndex(1)  # Default to 'base'
+        self.model_combo.setCurrentIndex(6)  # Default to 'large-v3-turbo-q5_0'
         header_layout.addWidget(self.model_combo)
         
         header_layout.addSpacing(8)
@@ -285,7 +285,12 @@ class MainWindow(QMainWindow):
         content_splitter.setHandleWidth(1)
         content_splitter.setStyleSheet("QSplitter::handle { background-color: #3a3a3a; }")
         
-        # Left: File selector and AI Panel
+        # Left: File selector and AI Panel (Scrollable)
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        left_scroll.setStyleSheet("QScrollArea { background-color: transparent; border: none; } QScrollArea > QWidget > QWidget { background: transparent; }")
+        
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 12, 0)
@@ -333,8 +338,9 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.batch_panel)
         
         left_layout.addStretch()
+        left_scroll.setWidget(left_panel)
         
-        content_splitter.addWidget(left_panel)
+        content_splitter.addWidget(left_scroll)
         
         # Right: Tabbed Content View
         right_panel = QWidget()
