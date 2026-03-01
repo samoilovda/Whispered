@@ -1,5 +1,5 @@
 """
-Whisper Fedora - Configuration Management
+Whispered - Configuration Management
 Store and load user settings
 """
 
@@ -8,6 +8,10 @@ import json
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 from pathlib import Path
+
+from core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 # Config directory
@@ -47,7 +51,7 @@ class Config:
             
             return True
         except Exception as e:
-            print(f"Failed to save config: {e}")
+            logger.warning("Failed to save config: %s", e)
             return False
     
     @classmethod
@@ -66,7 +70,7 @@ class Config:
             
             return cls(**filtered_data)
         except Exception as e:
-            print(f"Failed to load config: {e}")
+            logger.warning("Failed to load config: %s", e)
             return cls()
     
     def has_hf_token(self) -> bool:

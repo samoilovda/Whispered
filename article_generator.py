@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Callable
 from enum import Enum
 
-from text_processor import LMStudioClient, DEFAULT_LM_STUDIO_URL
+from core.lm_client import LMStudioClient, DEFAULT_LM_STUDIO_URL
 
 
 # ============================================================================

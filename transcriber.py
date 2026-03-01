@@ -1,9 +1,10 @@
 """
-Whisper Fedora UI - Transcription Backend
+Whispered - Transcription Backend
 Wrapper for pywhispercpp to handle transcription tasks
 """
 
 import os
+import gc
 import threading
 import tempfile
 import subprocess
@@ -15,6 +16,9 @@ from PyQt6.QtCore import QObject, pyqtSignal, QThread
 from pywhispercpp.model import Model
 
 from utils import get_models_dir, detect_gpu
+from core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def _convert_to_wav(input_path: str) -> Optional[str]:
@@ -127,8 +131,14 @@ class TranscriptionWorker(QThread):
                 if temp_wav_path:
                     audio_path = temp_wav_path
                 else:
-                    # FFmpeg not available or conversion failed, try direct if possible
-                    self.progress.emit(5, "Conversion failed or FFmpeg not found. Trying direct transcription (may fail)...")
+                    import platform
+                    hint = "brew install ffmpeg" if platform.system() == "Darwin" else "sudo apt install ffmpeg"
+                    self.error.emit(
+                        f"Cannot process {file_ext} files: FFmpeg is not installed.\n\n"
+                        f"Install it with:\n  {hint}\n\n"
+                        "Then restart the application."
+                    )
+                    return
             
             if self._cancelled.is_set():
                 return
@@ -139,6 +149,13 @@ class TranscriptionWorker(QThread):
             models_dir = get_models_dir()
             try:
                 model = Model(self.model_name, models_dir=models_dir)
+            except MemoryError:
+                self.error.emit(
+                    f"Not enough memory to load model '{self.model_name}'.\n\n"
+                    "Try selecting a smaller model (e.g. 'base' or 'small') "
+                    "in the Model dropdown."
+                )
+                return
             except Exception as e:
                 self.error.emit(f"Failed to load model '{self.model_name}': {str(e)}")
                 return
@@ -217,6 +234,8 @@ class TranscriptionWorker(QThread):
                     os.remove(temp_wav_path)
                 except:
                     pass
+            # Release model from memory
+            gc.collect()
     
     def _add_speaker_labels(self, segments: List[Segment], audio_path: str) -> List[Segment]:
         """Add speaker labels to segments using diarization."""
@@ -299,6 +318,28 @@ class Transcriber:
         if self.current_worker and self.current_worker.isRunning():
             self.current_worker.cancel()
             self.current_worker.wait()
+            
+        # Ensure models are downloaded before starting the background thread
+        try:
+            from ui.model_downloader import ensure_whisper_model, ensure_diarization_models
+            from config import get_config
+            
+            # Check Whisper model
+            if not ensure_whisper_model(model_name):
+                if on_error:
+                    on_error("Whisper model download was cancelled or failed.")
+                return None  # Type hint says returns worker, returning None is acceptable on fail 
+            
+            # Check Diarization models if enabled
+            if enable_diarization:
+                config = get_config()
+                if config.has_hf_token():
+                    if not ensure_diarization_models(config.hf_token):
+                        if on_error:
+                            on_error("Speaker diarization model download was cancelled or failed.")
+                        return None
+        except Exception as e:
+            logger.warning("Model downloader check failed: %s", e)
         
         # Create new worker
         worker = TranscriptionWorker(

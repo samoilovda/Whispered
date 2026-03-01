@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QProgressBar, QLabel, QFileDialog, QMessageBox,
     QApplication, QComboBox, QCheckBox, QTabWidget, QScrollArea, QFrame
 )
-from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QSize
 
 from ui.file_selector import FileSelector
 from ui.transcript_view import TranscriptView
@@ -21,83 +21,10 @@ from transcriber import Transcriber, TranscriptionResult
 from exporters import export_result, EXPORT_FORMATS
 from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, detect_gpu, get_thread_count
 from config import get_config
+from core.ai_worker import AIProcessingWorker
+from core.logger import get_logger
 
-
-# ============================================================================
-# BACKGROUND WORKER FOR AI PROCESSING
-# ============================================================================
-
-class AIProcessingWorker(QThread):
-    """Background worker for AI processing tasks."""
-    
-    progress = pyqtSignal(int, str)  # percentage, message
-    finished = pyqtSignal(object)    # result object
-    error = pyqtSignal(str)          # error message
-    
-    def __init__(self, task: str, text: str, **kwargs):
-        super().__init__()
-        self.task = task
-        self.text = text
-        self.kwargs = kwargs
-        self._cancelled = False
-    
-    def run(self):
-        try:
-            if self.task == "clean":
-                self._run_clean()
-            elif self.task == "generate":
-                self._run_generate()
-            elif self.task == "generate_all":
-                self._run_generate_all()
-        except Exception as e:
-            self.error.emit(str(e))
-    
-    def cancel(self):
-        self._cancelled = True
-    
-    def _run_clean(self):
-        from text_processor import TextProcessor
-        
-        processor = TextProcessor()
-        
-        def on_progress(pct, msg):
-            if not self._cancelled:
-                self.progress.emit(pct, msg)
-        
-        result = processor.process(self.text, use_ai=True, on_progress=on_progress)
-        
-        if not self._cancelled:
-            self.finished.emit(result)
-    
-    def _run_generate(self):
-        from article_generator import ArticleGenerator, ArticleFormat
-        
-        generator = ArticleGenerator()
-        format_key = self.kwargs.get('format', 'blog')
-        format_enum = ArticleFormat(format_key)
-        
-        def on_progress(pct, msg):
-            if not self._cancelled:
-                self.progress.emit(pct, msg)
-        
-        article = generator.generate_article(self.text, format_enum, on_progress=on_progress)
-        
-        if not self._cancelled:
-            self.finished.emit(article)
-    
-    def _run_generate_all(self):
-        from article_generator import ArticleGenerator
-        
-        generator = ArticleGenerator()
-        
-        def on_progress(pct, msg):
-            if not self._cancelled:
-                self.progress.emit(pct, msg)
-        
-        result = generator.generate_all_formats(self.text, on_progress=on_progress)
-        
-        if not self._cancelled:
-            self.finished.emit(result)
+logger = get_logger(__name__)
 
 
 # ============================================================================
@@ -202,51 +129,72 @@ class MainWindow(QMainWindow):
         
         # ===== Header Bar with Settings =====
         header = QWidget()
-        header_layout = QHBoxLayout(header)
+        header_layout = QVBoxLayout(header)
         header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(16)
+        header_layout.setSpacing(12)
+        
+        # Row 1: Logo, Title, and Device Toggle
+        row1_layout = QHBoxLayout()
+        row1_layout.setContentsMargins(0, 0, 0, 0)
+        row1_layout.setSpacing(16)
         
         # Logo and title
         logo = IconLabel('microphone', IconColors.PRIMARY, 28)
-        header_layout.addWidget(logo)
+        row1_layout.addWidget(logo)
         
         title = QLabel("Whispered")
         title.setStyleSheet("font-size: 18px; font-weight: bold;")
-        header_layout.addWidget(title)
+        row1_layout.addWidget(title)
         
-        header_layout.addSpacing(20)
+        row1_layout.addStretch()
+        
+        # Clickable device toggle button
+        self.device_btn = QPushButton()
+        self.device_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.device_btn.setToolTip("Click to toggle between GPU and CPU")
+        self.device_btn.setMinimumWidth(130)  # Prevent truncation
+        self.device_btn.clicked.connect(self._toggle_device)
+        self._update_device_badge()
+        row1_layout.addWidget(self.device_btn)
+        
+        header_layout.addLayout(row1_layout)
+        
+        # Row 2: Settings (Model, Language, Mode, Diarization)
+        row2_layout = QHBoxLayout()
+        row2_layout.setContentsMargins(0, 0, 0, 0)
+        row2_layout.setSpacing(16)
         
         # Model selector
         model_label = QLabel("Model:")
         model_label.setStyleSheet("color: #888; font-size: 12px;")
-        header_layout.addWidget(model_label)
+        row2_layout.addWidget(model_label)
         
         self.model_combo = self._create_header_combo(WHISPER_MODELS, 180)
         self.model_combo.setCurrentIndex(6)  # Default to 'large-v3-turbo-q5_0'
-        header_layout.addWidget(self.model_combo)
+        row2_layout.addWidget(self.model_combo)
         
-        header_layout.addSpacing(8)
+        row2_layout.addSpacing(8)
         
         # Language selector
         lang_label = QLabel("Language:")
         lang_label.setStyleSheet("color: #888; font-size: 12px;")
-        header_layout.addWidget(lang_label)
+        row2_layout.addWidget(lang_label)
         
         self.language_combo = self._create_header_combo(WHISPER_LANGUAGES, 120)
-        header_layout.addWidget(self.language_combo)
+        row2_layout.addWidget(self.language_combo)
         
         # Translate checkbox
         self.translate_checkbox = QCheckBox("→ EN")
         self.translate_checkbox.setStyleSheet("color: #888; font-size: 11px;")
         self.translate_checkbox.setToolTip("Translate to English")
-        header_layout.addWidget(self.translate_checkbox)
+        row2_layout.addWidget(self.translate_checkbox)
         
-        header_layout.addSpacing(12)
+        row2_layout.addSpacing(12)
         
         # Performance mode selector
         perf_label = QLabel("Mode:")
         perf_label.setStyleSheet("color: #888; font-size: 12px;")
-        header_layout.addWidget(perf_label)
+        row2_layout.addWidget(perf_label)
         
         self.perf_combo = self._create_header_combo(
             [(mode[0], mode[1]) for mode in PERFORMANCE_MODES], 145
@@ -256,27 +204,20 @@ class MainWindow(QMainWindow):
             "🔋 Efficiency: Low CPU, saves battery\n"
             "⚡ Balanced: Moderate CPU usage\n"
             "🚀 Performance: Max speed, high CPU")
-        header_layout.addWidget(self.perf_combo)
+        row2_layout.addWidget(self.perf_combo)
         
-        header_layout.addSpacing(8)
+        row2_layout.addSpacing(8)
         
         # Diarization toggle
         self.diarization_checkbox = QCheckBox("👥 Speakers")
         self.diarization_checkbox.setStyleSheet("color: #888; font-size: 11px;")
         self.diarization_checkbox.setToolTip("Identify different speakers (requires setup)")
         self.diarization_checkbox.setChecked(get_config().diarization_enabled)
-        header_layout.addWidget(self.diarization_checkbox)
+        row2_layout.addWidget(self.diarization_checkbox)
         
-        header_layout.addStretch()
+        row2_layout.addStretch()
         
-        # Clickable device toggle button
-        self.device_btn = QPushButton()
-        self.device_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.device_btn.setToolTip("Click to toggle between GPU and CPU")
-        self.device_btn.setMinimumWidth(130)  # Prevent truncation
-        self.device_btn.clicked.connect(self._toggle_device)
-        self._update_device_badge()
-        header_layout.addWidget(self.device_btn)
+        header_layout.addLayout(row2_layout)
         
         main_layout.addWidget(header)
         

@@ -1,4 +1,6 @@
+# ========================================
 # Python
+# ========================================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -6,27 +8,59 @@ __pycache__/
 .Python
 *.egg-info/
 .eggs/
-dist/
-build/
 *.egg
 
-# Virtual environments
+# ========================================
+# Virtual Environments
+# ========================================
 .venv/
 venv/
 ENV/
+env/
 
-# IDE
+# ========================================
+# IDE / Editor
+# ========================================
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
 
-# Project specific
+# ========================================
+# PyInstaller Build Artifacts
+# ========================================
+build/
+dist/
+*.spec
+
+# ========================================
+# ML Models & Weights (downloaded dynamically)
+# ========================================
 models/
 *.bin
-.gpu_type
+*.pt
+*.pth
+*.gguf
+*.onnx
+*.h5
+*.safetensors
 
-# OS
+# ========================================
+# Transcription Output (user-generated)
+# ========================================
+output/
+output_full/
+
+# ========================================
+# OS-specific
+# ========================================
 .DS_Store
 Thumbs.db
+.gpu_type
+
+# ========================================
+# Logs & Runtime Data
+# ========================================
+*.log
+.whispered/

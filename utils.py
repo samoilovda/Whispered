@@ -135,20 +135,20 @@ def get_audio_duration(filepath: str) -> Optional[float]:
 def get_models_dir() -> str:
     """
     Get the models directory path.
-    Handles 'frozen' state (PyInstaller) by using Application Support.
+    Uses cross-platform user data directories to keep models outside the app bundle.
     """
-    import sys
+    system = platform.system()
     
-    if getattr(sys, 'frozen', False):
-        # Running as compiled app - use user data directory
-        # This ensures we have write permission and persistence
-        app_support = os.path.expanduser("~/Library/Application Support/WhisperFedora")
-        models_dir = os.path.join(app_support, "models")
-    else:
-        # Running from source - use local models directory
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        models_dir = os.path.join(base_dir, 'models')
+    if system == 'Windows':
+        app_data = os.environ.get('APPDATA', os.path.expanduser('~\\AppData\\Roaming'))
+        base_dir = os.path.join(app_data, 'Whispered')
+    elif system == 'Darwin':
+        base_dir = os.path.expanduser('~/Library/Application Support/Whispered')
+    else:  # Linux and others
+        base_dir = os.environ.get('XDG_DATA_HOME', os.path.expanduser('~/.local/share'))
+        base_dir = os.path.join(base_dir, 'Whispered')
     
+    models_dir = os.path.join(base_dir, 'models')
     os.makedirs(models_dir, exist_ok=True)
     return models_dir
 

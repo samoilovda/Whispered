@@ -1,8 +1,9 @@
 """
-Whisper Fedora - Speaker Diarization
+Whispered - Speaker Diarization
 Identify and label different speakers using pyannote-audio
 """
 
+import gc
 import os
 import warnings
 from dataclasses import dataclass, field
@@ -12,6 +13,9 @@ from typing import Optional, Callable, List, Tuple
 warnings.filterwarnings("ignore", message=".*torchaudio.*")
 
 from config import get_config
+from core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 # ============================================================================
@@ -127,6 +131,13 @@ class Diarizer:
             # else stays on CPU
             
         except Exception as e:
+            error_msg = str(e)
+            if '401' in error_msg or 'token' in error_msg.lower():
+                raise RuntimeError(
+                    "Invalid Hugging Face token. Please update your token "
+                    "at huggingface.co/settings/tokens and reconfigure it "
+                    "via Settings → Diarization."
+                )
             raise RuntimeError(f"Failed to load diarization pipeline: {e}")
     
     def diarize(
@@ -209,6 +220,20 @@ class Diarizer:
             num_speakers=len(speakers_seen),
             duration=duration
         )
+
+    def release(self) -> None:
+        """Release the pipeline and free GPU/CPU memory."""
+        self._pipeline = None
+        gc.collect()
+        try:
+            import torch
+            if torch.backends.mps.is_available():
+                torch.mps.empty_cache()
+            elif torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+        logger.debug("Diarization pipeline released from memory")
 
 
 def merge_transcription_with_diarization(
