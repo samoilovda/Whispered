@@ -114,7 +114,8 @@ fi
 # Install PyQt6 and dark theme
 echo ""
 echo -e "${YELLOW}→ Installing PyQt6 and theme...${NC}"
-pip install 'PyQt6>=6.6.0' 'pyqtdarktheme>=2.1.0' > /dev/null
+pip install 'PyQt6>=6.6.0' > /dev/null
+pip install 'pyqtdarktheme>=2.1.0' --ignore-requires-python > /dev/null
 echo -e "  ${GREEN}✓${NC} PyQt6 and pyqtdarktheme installed"
 
 # Install pywhispercpp with appropriate GPU support

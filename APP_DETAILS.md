@@ -11,6 +11,20 @@ Unlike most AI transcription services, **Whispered operates entirely offline**. 
 
 ## ✨ Key Features
 - **State-of-the-Art Transcription**: Powered by `whisper.cpp`, providing near-instant transcription with support for **Apple Metal**, **NVIDIA CUDA**, and **AMD ROCm** acceleration.
+
+### 🔴 AMD GPU (ROCm) Support on Fedora
+To enable hardware acceleration for AMD Radeon GPUs, install the ROCm stack before running the setup script:
+
+1. Install ROCm dependencies:
+   ```bash
+   sudo dnf install rocm-opencl rocm-hip rocm-runtime rocminfo
+   ```
+2. Add your user to the `render` and `video` groups to access the GPU:
+   ```bash
+   sudo usermod -aG render,video $USER
+   ```
+3. Log out and log back in, or restart your computer.
+4. Run `./setup.sh`. The script will detect ROCm and compile Whisper with AMD support.
 - **Smart Diarization (Speaker ID)**: Automatically identify and label different speakers using `pyannote.audio`, turning a wall of text into a readable script.
 - **AI Content Engine**: Integration with **LM Studio** allows you to:
   - ✨ **Clean Text**: Remove fillers ("um", "uh"), fix grammar, and restore natural paragraph flow.

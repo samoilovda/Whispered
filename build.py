@@ -46,6 +46,8 @@ def main():
         args.append('--icon=macos/whisper-fedora.icns')
     elif sys.platform == 'win32' and os.path.exists('windows/whisper-fedora.ico'):
         args.append('--icon=windows/whisper-fedora.ico')
+    elif sys.platform == 'linux' and os.path.exists('appimage/whisper-fedora.png'):
+        args.append('--icon=appimage/whisper-fedora.png')
         
     # 3. Aggressive Exclusions to reduce bloat
     excludes = [

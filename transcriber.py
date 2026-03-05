@@ -79,6 +79,161 @@ class TranscriptionResult:
         return ' '.join(seg.text.strip() for seg in self.segments)
 
 
+import multiprocessing as mp
+import queue
+
+def _run_transcription_process(
+    filepath: str,
+    model_name: str,
+    language: str,
+    translate: bool,
+    n_threads: int,
+    enable_diarization: bool,
+    num_speakers: Optional[int],
+    q: mp.Queue
+):
+    """Run transcription in a separate process to allow hard cancellation."""
+    temp_wav_path = None
+    try:
+        # Check if file exists
+        if not os.path.isfile(filepath):
+            q.put(('error', f"File not found: {filepath}"))
+            return
+            
+        # Check if we need to convert the file
+        file_ext = os.path.splitext(filepath)[1].lower()
+        audio_path = filepath
+        
+        if file_ext in FORMATS_NEEDING_CONVERSION:
+            q.put(('progress', 5, "Converting audio format..."))
+            temp_wav_path = _convert_to_wav(filepath)
+            if temp_wav_path:
+                audio_path = temp_wav_path
+            else:
+                import platform
+                if platform.system() == "Darwin":
+                    hint = "brew install ffmpeg"
+                elif os.path.exists("/etc/fedora-release") or shutil.which("dnf"):
+                    hint = "sudo dnf install ffmpeg"
+                else:
+                    hint = "sudo apt install ffmpeg"
+                q.put(('error',
+                    f"Cannot process {file_ext} files: FFmpeg is not installed.\n\n"
+                    f"Install it with:\n  {hint}\n\n"
+                    "Then restart the application."
+                ))
+                return
+        
+        q.put(('progress', 10, "Loading model (downloading if needed)..."))
+        
+        # Load the model (will download if not present)
+        from utils import get_models_dir
+        models_dir = get_models_dir()
+        try:
+            from pywhispercpp.model import Model
+            model = Model(model_name, models_dir=models_dir)
+        except MemoryError:
+            q.put(('error',
+                f"Not enough memory to load model '{model_name}'.\n\n"
+                "Try selecting a smaller model (e.g. 'base' or 'small') "
+                "in the Model dropdown."
+            ))
+            return
+        except Exception as e:
+            q.put(('error', f"Failed to load model '{model_name}': {str(e)}"))
+            return
+            
+        q.put(('progress', 15, "Preparing transcription..."))
+        
+        # Use thread count from settings
+        params = {
+            'n_threads': n_threads,
+        }
+        
+        # Set language if not auto-detect
+        if language != 'auto':
+            params['language'] = language
+        
+        # Enable translation if requested
+        if translate:
+            params['translate'] = True
+            
+        # Run transcription
+        q.put(('progress', 20, "Transcribing audio..."))
+        segments_raw = model.transcribe(audio_path, **params)
+        
+        q.put(('progress', 90, "Processing results..."))
+        
+        # Convert to our Segment format
+        segments = []
+        for seg in segments_raw:
+            segments.append(Segment(
+                start=seg.t0 / 100.0,
+                end=seg.t1 / 100.0,
+                text=seg.text,
+                speaker=None
+            ))
+            
+        # Run diarization if enabled
+        if enable_diarization:
+            q.put(('progress', 85, "Identifying speakers..."))
+            try:
+                from diarizer import Diarizer
+                diarizer = Diarizer()
+                if not diarizer.is_available():
+                    q.put(('progress', 90, "Diarization not available, skipping..."))
+                else:
+                    # Run diarization
+                    diarization = diarizer.diarize(
+                        audio_path,
+                        num_speakers=num_speakers,
+                        on_progress=lambda p, m: q.put(('progress', 85 + int(p * 0.1), m))
+                    )
+                    
+                    # Merge speaker labels with segments
+                    for seg in segments:
+                        midpoint = (seg.start + seg.end) / 2
+                        speaker = diarization.get_speaker_at(midpoint)
+                        if speaker is None:
+                            speaker = diarization.get_speaker_at(seg.start)
+                        seg.speaker = speaker
+                    
+                    q.put(('progress', 95, f"Found {diarization.num_speakers} speakers"))
+            except Exception as e:
+                q.put(('progress', 90, f"Diarization error: {str(e)[:30]}..."))
+        
+        if not segments:
+            q.put(('error', "No speech detected in the audio file."))
+            return
+            
+        # Calculate total duration
+        duration = segments[-1].end
+        
+        # Create result
+        result = TranscriptionResult(
+            segments=segments,
+            language=language if language != 'auto' else 'detected',
+            duration=duration
+        )
+        
+        q.put(('progress', 100, "Complete!"))
+        q.put(('result', result))
+        
+    except Exception as e:
+        error_msg = str(e)
+        if 'CUDA' in error_msg or 'cuda' in error_msg:
+            error_msg += "\n\nTip: Try selecting CPU mode in settings."
+        q.put(('error', error_msg))
+    finally:
+        # Clean up temporary WAV file
+        if temp_wav_path and os.path.exists(temp_wav_path):
+            try:
+                os.remove(temp_wav_path)
+            except:
+                pass
+        import gc
+        gc.collect()
+
 class TranscriptionWorker(QThread):
     """Worker thread for running transcription in background."""
     
@@ -107,169 +262,80 @@ class TranscriptionWorker(QThread):
         self.enable_diarization = enable_diarization
         self.num_speakers = num_speakers
         self._cancelled = threading.Event()
+        self._process = None
     
     def cancel(self):
         """Request cancellation of the transcription."""
         self._cancelled.set()
     
     def run(self):
-        """Run the transcription in a separate thread."""
-        temp_wav_path = None
+        """Run the transcription in a separate thread, spawning a child process."""
+        import multiprocessing as mp
+        ctx = mp.get_context('spawn')  # Use spawn so CUDA/Qt don't conflict
+        q = ctx.Queue()
+
+        self._process = ctx.Process(
+            target=_run_transcription_process,
+            args=(
+                self.filepath,
+                self.model_name,
+                self.language,
+                self.translate,
+                self.n_threads,
+                self.enable_diarization,
+                self.num_speakers,
+                q
+            )
+        )
+        self._process.start()
+        
         try:
-            # Check if file exists
-            if not os.path.isfile(self.filepath):
-                self.error.emit(f"File not found: {self.filepath}")
-                return
-            
-            # Check if we need to convert the file
-            file_ext = os.path.splitext(self.filepath)[1].lower()
-            audio_path = self.filepath
-            
-            if file_ext in FORMATS_NEEDING_CONVERSION:
-                self.progress.emit(5, "Converting audio format...")
-                temp_wav_path = _convert_to_wav(self.filepath)
-                if temp_wav_path:
-                    audio_path = temp_wav_path
-                else:
-                    import platform
-                    hint = "brew install ffmpeg" if platform.system() == "Darwin" else "sudo apt install ffmpeg"
-                    self.error.emit(
-                        f"Cannot process {file_ext} files: FFmpeg is not installed.\n\n"
-                        f"Install it with:\n  {hint}\n\n"
-                        "Then restart the application."
-                    )
+            while self._process.is_alive():
+                if self._cancelled.is_set():
+                    self.progress.emit(0, "Cancelling...")
+                    q.close()
+                    self._process.terminate()
+                    self._process.join()  # wait to finish terminating
                     return
-            
-            if self._cancelled.is_set():
-                return
-            
-            self.progress.emit(10, "Loading model (downloading if needed)...")
-            
-            # Load the model (will download if not present)
-            models_dir = get_models_dir()
-            try:
-                model = Model(self.model_name, models_dir=models_dir)
-            except MemoryError:
-                self.error.emit(
-                    f"Not enough memory to load model '{self.model_name}'.\n\n"
-                    "Try selecting a smaller model (e.g. 'base' or 'small') "
-                    "in the Model dropdown."
-                )
-                return
-            except Exception as e:
-                self.error.emit(f"Failed to load model '{self.model_name}': {str(e)}")
-                return
-            
-            if self._cancelled.is_set():
-                return
-            
-            self.progress.emit(15, "Preparing transcription...")
-            
-            # Use thread count from settings
-            params = {
-                'n_threads': self.n_threads,
-            }
-            
-            # Set language if not auto-detect
-            if self.language != 'auto':
-                params['language'] = self.language
-            
-            # Enable translation if requested
-            if self.translate:
-                params['translate'] = True
-            
-            if self._cancelled.is_set():
-                return
-            
-            # Run transcription
-            self.progress.emit(20, "Transcribing audio...")
-            segments_raw = model.transcribe(audio_path, **params)
-            
-            if self._cancelled.is_set():
-                return
-            
-            self.progress.emit(90, "Processing results...")
-            
-            # Convert to our Segment format
-            # pywhispercpp returns t0/t1 in centiseconds (1/100th of a second)
-            segments = []
-            for seg in segments_raw:
-                segments.append(Segment(
-                    start=seg.t0 / 100.0,  # Convert from centiseconds to seconds
-                    end=seg.t1 / 100.0,
-                    text=seg.text,
-                    speaker=None
-                ))
-            
-            # Run diarization if enabled
-            if self.enable_diarization and not self._cancelled.is_set():
-                segments = self._add_speaker_labels(segments, audio_path)
-            
-            if not segments:
-                self.error.emit("No speech detected in the audio file.")
-                return
-            
-            # Calculate total duration (segments is guaranteed non-empty here)
-            duration = segments[-1].end
-            
-            # Create result
-            result = TranscriptionResult(
-                segments=segments,
-                language=self.language if self.language != 'auto' else 'detected',
-                duration=duration
-            )
-            
-            self.progress.emit(100, "Complete!")
-            self.finished.emit(result)
-            
-        except Exception as e:
-            error_msg = str(e)
-            if 'CUDA' in error_msg or 'cuda' in error_msg:
-                error_msg += "\n\nTip: Try selecting CPU mode in settings."
-            self.error.emit(error_msg)
-        finally:
-            # Clean up temporary WAV file
-            if temp_wav_path and os.path.exists(temp_wav_path):
+
                 try:
-                    os.remove(temp_wav_path)
-                except:
-                    pass
-            # Release model from memory
-            gc.collect()
-    
-    def _add_speaker_labels(self, segments: List[Segment], audio_path: str) -> List[Segment]:
-        """Add speaker labels to segments using diarization."""
-        try:
-            from diarizer import Diarizer
+                    # Poll queue with timeout allowing us to check is_alive
+                    msg = q.get(timeout=0.1)
+                    if msg[0] == 'progress':
+                        self.progress.emit(msg[1], msg[2])
+                    elif msg[0] == 'result':
+                        self.finished.emit(msg[1])
+                        return
+                    elif msg[0] == 'error':
+                        self.error.emit(msg[1])
+                        return
+                except queue.Empty:
+                    continue
             
-            self.progress.emit(85, "Identifying speakers...")
-            
-            diarizer = Diarizer()
-            if not diarizer.is_available():
-                self.progress.emit(90, "Diarization not available, skipping...")
-                return segments
-            
-            # Run diarization
-            diarization = diarizer.diarize(
-                audio_path,
-                num_speakers=self.num_speakers,
-                on_progress=lambda p, m: self.progress.emit(85 + int(p * 0.1), m)
-            )
-            
-            # Merge speaker labels with segments
-            for seg in segments:
-                midpoint = (seg.start + seg.end) / 2
-                speaker = diarization.get_speaker_at(midpoint)
-                if speaker is None:
-                    speaker = diarization.get_speaker_at(seg.start)
-                seg.speaker = speaker
-            
-            self.progress.emit(95, f"Found {diarization.num_speakers} speakers")
-            return segments
-            
-        except Exception as e:
-            self.progress.emit(90, f"Diarization error: {str(e)[:30]}...")
-            return segments  # Return original segments without speaker labels
+            # Subprocess died without posting result or error
+            # Check if there's anything left in queue
+            while not q.empty():
+                try:
+                    msg = q.get_nowait()
+                    if msg[0] == 'progress':
+                        self.progress.emit(msg[1], msg[2])
+                    elif msg[0] == 'result':
+                        self.finished.emit(msg[1])
+                        return
+                    elif msg[0] == 'error':
+                        self.error.emit(msg[1])
+                        return
+                except queue.Empty:
+                    break
+                    
+            if not self._cancelled.is_set():
+                if self._process.exitcode != 0:
+                     self.error.emit(f"Transcription process crashed with exit code {self._process.exitcode}")
+
+        finally:
+            if self._process and self._process.is_alive():
+                self._process.terminate()
+                self._process.join()
 
 
 class Transcriber:

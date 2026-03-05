@@ -20,7 +20,9 @@ python main.py
 
 - [ ] Application window opens without any exceptions in the terminal
 - [ ] Dark theme renders correctly (no white flashes)
-- [ ] Log file is created at `~/Library/Application Support/Whispered/logs/app.log`
+- [ ] Log file is created:
+  - macOS: `~/Library/Application Support/Whispered/logs/app.log`
+  - Linux: `~/.local/share/Whispered/logs/app.log`
 
 ## 3. Transcription
 
@@ -28,7 +30,9 @@ python main.py
 - [ ] **Non-WAV file** (e.g. `.mp4`, `.m4a`): Verify FFmpeg converts automatically
 - [ ] **FFmpeg missing**: Rename `ffmpeg` temporarily → Select an `.mp4` → Should show clear error with install instructions
 - [ ] **Cancel**: Start a long transcription → Cancel → UI resets without crash
-- [ ] **Model download**: Delete models from `~/Library/Application Support/Whispered/models/` → Start transcription → Model downloads with progress bar
+- [ ] **Model download**: Delete models directory → Start transcription → Model downloads with progress bar
+  - macOS: `~/Library/Application Support/Whispered/models/`
+  - Linux: `~/.local/share/Whispered/models/`
 
 ## 4. Speaker Diarization
 
@@ -62,6 +66,8 @@ python build.py
 ```
 
 - [ ] Build completes without errors
-- [ ] `dist/Whispered.app` launches successfully
+- [ ] Application launches successfully:
+  - macOS: `dist/Whispered.app`
+  - Linux: `dist/Whispered/Whispered`
 - [ ] Bundle size is < 100 MB (no model weights bundled)
 - [ ] Models download on first run from the built app

@@ -21,7 +21,13 @@ check_deps() {
     
     if [ -n "$missing" ]; then
         echo "❌ Missing dependencies:$missing"
-        echo "   Install with: brew install$missing"
+        if [[ "$(uname)" == "Darwin" ]]; then
+            echo "   Install with: brew install$missing"
+        elif command -v dnf &> /dev/null; then
+            echo "   Install with: sudo dnf install$missing"
+        else
+            echo "   Install with: sudo apt install$missing"
+        fi
         exit 1
     fi
 }

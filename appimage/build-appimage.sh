@@ -73,10 +73,18 @@ cp "$PROJECT_DIR/main.py" "$APPDIR/usr/lib/whisper-fedora/"
 cp "$PROJECT_DIR/transcriber.py" "$APPDIR/usr/lib/whisper-fedora/"
 cp "$PROJECT_DIR/exporters.py" "$APPDIR/usr/lib/whisper-fedora/"
 cp "$PROJECT_DIR/utils.py" "$APPDIR/usr/lib/whisper-fedora/"
+cp "$PROJECT_DIR/config.py" "$APPDIR/usr/lib/whisper-fedora/"
+cp "$PROJECT_DIR/diarizer.py" "$APPDIR/usr/lib/whisper-fedora/"
+cp "$PROJECT_DIR/lm_studio_manager.py" "$APPDIR/usr/lib/whisper-fedora/"
+cp "$PROJECT_DIR/text_processor.py" "$APPDIR/usr/lib/whisper-fedora/"
+cp "$PROJECT_DIR/batch_processor.py" "$APPDIR/usr/lib/whisper-fedora/"
+cp "$PROJECT_DIR/article_generator.py" "$APPDIR/usr/lib/whisper-fedora/"
+cp "$PROJECT_DIR/setup_diarization.py" "$APPDIR/usr/lib/whisper-fedora/"
 cp -r "$PROJECT_DIR/ui" "$APPDIR/usr/lib/whisper-fedora/"
+cp -r "$PROJECT_DIR/core" "$APPDIR/usr/lib/whisper-fedora/"
 
 # Copy desktop file
-cp "$SCRIPT_DIR/whisper-fedora.desktop" "$APPDIR/usr/share/applications/"
+cp "$SCRIPT_DIR/whispered.desktop" "$APPDIR/usr/share/applications/"
 
 # Copy icon
 cp "$SCRIPT_DIR/whisper-fedora.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/" 2>/dev/null || \
@@ -108,7 +116,7 @@ EOF
 chmod +x "$APPDIR/AppRun"
 
 # Link desktop file and icon to AppDir root
-ln -sf usr/share/applications/whisper-fedora.desktop "$APPDIR/"
+ln -sf usr/share/applications/whispered.desktop "$APPDIR/"
 ln -sf usr/share/icons/hicolor/256x256/apps/whisper-fedora.png "$APPDIR/" 2>/dev/null || true
 
 # Create requirements for Python plugin
@@ -131,7 +139,7 @@ export DEPLOY_PYTHON_VERSION=3.11
 # Run linuxdeploy with Python plugin
 "$LINUXDEPLOY" \
     --appdir "$APPDIR" \
-    --desktop-file "$APPDIR/usr/share/applications/whisper-fedora.desktop" \
+    --desktop-file "$APPDIR/usr/share/applications/whispered.desktop" \
     --plugin python \
     --output appimage \
     2>&1 | tail -20
