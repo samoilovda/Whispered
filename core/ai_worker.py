@@ -50,6 +50,7 @@ class AIProcessingWorker(QThread):
         from text_processor import TextProcessor
 
         processor = TextProcessor()
+        processor.lm_client.is_cancelled = lambda: self._cancelled
 
         def on_progress(pct: int, msg: str) -> None:
             if not self._cancelled:
@@ -64,6 +65,7 @@ class AIProcessingWorker(QThread):
         from article_generator import ArticleGenerator, ArticleFormat
 
         generator = ArticleGenerator()
+        generator.lm_client.is_cancelled = lambda: self._cancelled
         format_key = self.kwargs.get('format', 'blog')
         format_enum = ArticleFormat(format_key)
 
@@ -82,6 +84,7 @@ class AIProcessingWorker(QThread):
         from article_generator import ArticleGenerator
 
         generator = ArticleGenerator()
+        generator.lm_client.is_cancelled = lambda: self._cancelled
 
         def on_progress(pct: int, msg: str) -> None:
             if not self._cancelled:

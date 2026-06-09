@@ -158,9 +158,27 @@ def _run_transcription_process(
         if translate:
             params['translate'] = True
             
+        # Tweaks for improving transcription quality
+        params['no_context'] = True  # Equivalent to condition_on_previous_text=False
+        params['no_speech_thold'] = 0.6 # no_speech_threshold
+            
+        # Get duration for progress bar
+        try:
+            import wave
+            with wave.open(audio_path, 'rb') as f:
+                duration = f.getnframes() / float(f.getframerate())
+        except Exception:
+            duration = 1.0
+            
+        def segment_cb(seg):
+            if duration > 1.0:
+                current_time = seg.t1 / 100.0
+                pct = min(89, int(20 + 70 * (current_time / duration)))
+                q.put(('progress', pct, f"Transcribing... {int(current_time)}s / {int(duration)}s"))
+
         # Run transcription
         q.put(('progress', 20, "Transcribing audio..."))
-        segments_raw = model.transcribe(audio_path, **params)
+        segments_raw = model.transcribe(audio_path, new_segment_callback=segment_cb, **params)
         
         q.put(('progress', 90, "Processing results..."))
         
@@ -296,6 +314,7 @@ class TranscriptionWorker(QThread):
                     q.close()
                     self._process.terminate()
                     self._process.join()  # wait to finish terminating
+                    self.error.emit("Cancelled")
                     return
 
                 try:
@@ -331,6 +350,8 @@ class TranscriptionWorker(QThread):
             if not self._cancelled.is_set():
                 if self._process.exitcode != 0:
                      self.error.emit(f"Transcription process crashed with exit code {self._process.exitcode}")
+            else:
+                 self.error.emit("Cancelled")
 
         finally:
             if self._process and self._process.is_alive():

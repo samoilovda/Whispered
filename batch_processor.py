@@ -88,17 +88,25 @@ class BatchWorker(QThread):
     
     def run(self):
         """Process all items in sequence."""
-        for i, item in enumerate(self.items):
-            if self._cancelled:
-                item.status = BatchStatus.CANCELLED
-                continue
+        while not self._cancelled:
+            next_index = -1
+            for i, item in enumerate(self.items):
+                if item.status == BatchStatus.PENDING:
+                    next_index = i
+                    break
             
-            if item.status != BatchStatus.PENDING:
-                continue
+            if next_index == -1:
+                break
+                
+            item = self.items[next_index]
+            self._current_index = next_index
+            self._process_item(next_index, item)
             
-            self._current_index = i
-            self._process_item(i, item)
-        
+        if self._cancelled:
+            for item in self.items:
+                if item.status == BatchStatus.PENDING:
+                    item.status = BatchStatus.CANCELLED
+                    
         self.batch_finished.emit()
     
     def _process_item(self, index: int, item: BatchItem):

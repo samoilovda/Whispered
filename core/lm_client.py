@@ -7,7 +7,7 @@ Extracted from text_processor.py for reuse across modules.
 import json
 import urllib.request
 import urllib.error
-from typing import Optional
+from typing import Optional, Callable
 
 from core.logger import get_logger
 
@@ -33,6 +33,7 @@ class LMStudioClient:
     def __init__(self, base_url: str = DEFAULT_LM_STUDIO_URL) -> None:
         self.base_url: str = base_url.rstrip('/')
         self._cached_model: Optional[str] = None
+        self.is_cancelled: Optional[Callable[[], bool]] = None
 
     def check_connection(self) -> bool:
         """Check if LM Studio server is running and accessible."""
@@ -100,9 +101,32 @@ class LMStudioClient:
                 headers={'Content-Type': 'application/json'}
             )
 
-            with urllib.request.urlopen(req, timeout=timeout) as response:
-                result = json.loads(response.read().decode('utf-8'))
-                return result['choices'][0]['message']['content']
+            def do_request():
+                try:
+                    with urllib.request.urlopen(req, timeout=timeout) as response:
+                        result = json.loads(response.read().decode('utf-8'))
+                        return result['choices'][0]['message']['content']
+                except Exception as e:
+                    return e
+
+            if self.is_cancelled is None:
+                res = do_request()
+                if isinstance(res, Exception):
+                    raise res
+                return res
+
+            import concurrent.futures
+            import time
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(do_request)
+                while not future.done():
+                    if self.is_cancelled():
+                        return None
+                    time.sleep(0.1)
+                res = future.result()
+                if isinstance(res, Exception):
+                    raise res
+                return res
 
         except urllib.error.URLError as e:
             logger.debug("LM Studio connection error: %s", e)
