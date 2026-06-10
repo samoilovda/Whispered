@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QCheckBox, QProgressBar, QFrame, QFileDialog, QListWidget,
     QListWidgetItem, QAbstractItemView, QLineEdit, QMessageBox,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QThread
 from PyQt6.QtGui import QColor
 
 from book_pipeline import BookPipeline, BookResult
@@ -54,6 +54,22 @@ BTN_PRIMARY = """
 
 
 # ============================================================================
+# Helpers
+# ============================================================================
+
+class ConnectionChecker(QThread):
+    status_changed = pyqtSignal(bool)
+
+    def __init__(self, pipeline: BookPipeline) -> None:
+        super().__init__()
+        self._pipeline = pipeline
+
+    def run(self) -> None:
+        connected = self._pipeline.is_available()
+        self.status_changed.emit(connected)
+
+
+# ============================================================================
 # BOOK PANEL
 # ============================================================================
 
@@ -74,7 +90,9 @@ class BookPanel(QWidget):
         super().__init__(parent)
         self._pipeline = BookPipeline()
         self._batch_worker: BookBatchWorker | None = None
+        self._checker: ConnectionChecker | None = None  # guard against duplicate checks
         self._has_transcript = False
+        self._connected = False
         self._setup_ui()
         self._start_connection_check()
 
@@ -279,13 +297,25 @@ class BookPanel(QWidget):
     # ------------------------------------------------------------------
 
     def _start_connection_check(self) -> None:
-        self._check_connection()
+        # Delay the very first check by 1.5 s so the main window finishes
+        # rendering and AIProcessingPanel's own startup check can complete
+        # first (both would otherwise fire back-to-back on the same LM Studio).
+        QTimer.singleShot(1500, self.refresh_connection)
         self._conn_timer = QTimer(self)
-        self._conn_timer.timeout.connect(self._check_connection)
-        self._conn_timer.start(15_000)
+        self._conn_timer.timeout.connect(self.refresh_connection)
+        self._conn_timer.start(10_000)   # recheck every 10 s
 
-    def _check_connection(self) -> None:
-        connected = self._pipeline.is_available()
+    def refresh_connection(self) -> None:
+        """Trigger an async LM Studio connection check (non-blocking)."""
+        if self._checker is not None and self._checker.isRunning():
+            return  # a check is already in flight, skip
+        self._checker = ConnectionChecker(self._pipeline)
+        self._checker.status_changed.connect(self._on_connection_result)
+        self._checker.finished.connect(lambda: setattr(self, '_checker', None))
+        self._checker.start()
+
+    def _on_connection_result(self, connected: bool) -> None:
+        self._connected = connected
         if connected:
             self.status_dot.setStyleSheet("color: #22c55e; font-size: 10px;")
             self.status_label.setText("LM Studio: подключено")
@@ -298,13 +328,11 @@ class BookPanel(QWidget):
         self._update_batch_btn()
 
     def _update_run_btn(self) -> None:
-        connected = "подключено" in self.status_label.text()
-        self.run_btn.setEnabled(self._has_transcript and connected)
+        self.run_btn.setEnabled(self._has_transcript and self._connected)
 
     def _update_batch_btn(self) -> None:
-        connected = "подключено" in self.status_label.text()
         has_files = bool(self._batch_files())
-        self.batch_start_btn.setEnabled(connected and has_files and self._batch_worker is None)
+        self.batch_start_btn.setEnabled(self._connected and has_files and self._batch_worker is None)
 
     def _batch_files(self) -> list[str]:
         folder = self.folder_edit.text().strip()

@@ -528,6 +528,10 @@ class MainWindow(QMainWindow):
         self.batch_panel.setVisible(not is_book)
         # Book mode panel
         self.book_panel.setVisible(is_book)
+        # Immediately recheck LM Studio when switching to Book mode
+        # (avoids waiting up to 10s for the next timer tick)
+        if is_book:
+            self.book_panel.refresh_connection()
 
     def _on_file_selected(self, filepath: str):
         """Handle file selection."""
