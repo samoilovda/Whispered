@@ -10,6 +10,7 @@ from enum import Enum
 
 from core.lm_client import LMStudioClient, DEFAULT_LM_STUDIO_URL
 from core.logger import get_logger
+from core.prompts import load_prompt
 
 logger = get_logger(__name__)
 
@@ -74,10 +75,15 @@ FILLER_PATTERNS = [
     "right ", "okay so ", "and so ",
 ]
 
-CLEANING_SYSTEM_PROMPT = """You are a text editor specializing in cleaning spoken transcriptions.
-Your task is to transform raw speech into clean, readable text while preserving the original meaning.
-Do NOT summarize, add new information, or change the speaker's intent.
-Output ONLY the cleaned text, no explanations or meta-commentary."""
+CLEANING_SYSTEM_PROMPT = load_prompt(
+    "cleaning",
+    fallback=(
+        "You are a text editor specializing in cleaning spoken transcriptions.\n"
+        "Your task is to transform raw speech into clean, readable text while preserving the original meaning.\n"
+        "Do NOT summarize, add new information, or change the speaker's intent.\n"
+        "Output ONLY the cleaned text, no explanations or meta-commentary."
+    ),
+)
 
 CLEANING_PROMPT_TEMPLATE = """Clean this spoken transcription into readable text by:
 
@@ -242,10 +248,15 @@ class TextCleaner:
 # COHERENCE PROCESSOR
 # ============================================================================
 
-COHERENCE_SYSTEM_PROMPT = """You are a text structure specialist.
-Your task is to organize cleaned transcription text into logical, coherent paragraphs.
-Identify topic shifts and create natural paragraph breaks.
-Do NOT change the content, only reorganize into clear paragraphs."""
+COHERENCE_SYSTEM_PROMPT = load_prompt(
+    "coherence",
+    fallback=(
+        "You are a text structure specialist.\n"
+        "Your task is to organize cleaned transcription text into logical, coherent paragraphs.\n"
+        "Identify topic shifts and create natural paragraph breaks.\n"
+        "Do NOT change the content, only reorganize into clear paragraphs."
+    ),
+)
 
 COHERENCE_PROMPT_TEMPLATE = """Organize this text into logical paragraphs:
 

@@ -73,6 +73,36 @@ def export_json(result: TranscriptionResult, filepath: str) -> None:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
+def export_md(result: TranscriptionResult, filepath: str) -> None:
+    """Export transcription as Markdown."""
+    import datetime
+    
+    minutes = int(result.duration // 60)
+    seconds = int(result.duration % 60)
+    duration_str = f"{minutes}m {seconds}s"
+    date_str = datetime.datetime.now().strftime('%Y-%m-%d')
+    
+    with open(filepath, 'w', encoding='utf-8') as f:
+        # YAML frontmatter
+        f.write('---\n')
+        f.write(f'date: {date_str}\n')
+        f.write(f'language: {result.language}\n')
+        f.write(f'duration: {duration_str}\n')
+        f.write('---\n\n')
+        
+        # Full transcript body
+        f.write('## Transcript\n\n')
+        f.write(result.full_text)
+        f.write('\n\n')
+        
+        # Timestamped segments section
+        f.write('## Segments\n\n')
+        for seg in result.segments:
+            start = format_timestamp_vtt(seg.start)
+            speaker = f'**{seg.speaker}**: ' if seg.speaker else ''
+            f.write(f'- `{start}` {speaker}{seg.text.strip()}\n')
+
+
 # Export format options
 EXPORT_FORMATS = {
     'txt': ('Plain Text (.txt)', export_txt),
@@ -80,6 +110,7 @@ EXPORT_FORMATS = {
     'srt': ('SRT Subtitles (.srt)', export_srt),
     'vtt': ('WebVTT Subtitles (.vtt)', export_vtt),
     'json': ('JSON (.json)', export_json),
+    'md': ('Markdown (.md)', export_md),
 }
 
 

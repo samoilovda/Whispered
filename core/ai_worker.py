@@ -34,6 +34,8 @@ class AIProcessingWorker(QThread):
                 self._run_generate()
             elif self.task == "generate_all":
                 self._run_generate_all()
+            elif self.task == "book_unwrap":
+                self._run_book_unwrap()
             else:
                 self.error.emit(f"Unknown AI task: {self.task}")
         except Exception as e:
@@ -92,6 +94,35 @@ class AIProcessingWorker(QThread):
 
         result = generator.generate_all_formats(
             self.text, on_progress=on_progress
+        )
+
+        if not self._cancelled:
+            self.finished.emit(result)
+
+    def _run_book_unwrap(self) -> None:
+        """Run the book pipeline (unwrap + optional custom prompt)."""
+        from book_pipeline import BookPipeline
+
+        pipeline = BookPipeline()
+        pipeline._client.is_cancelled = lambda: self._cancelled
+
+        do_unwrap = self.kwargs.get('do_unwrap', True)
+        do_custom = self.kwargs.get('do_custom', False)
+        custom_prompt_path = self.kwargs.get('custom_prompt_path', '')
+        source_path = self.kwargs.get('source_path', 'transcript')
+
+        def on_progress(pct: int, msg: str) -> None:
+            if not self._cancelled:
+                self.progress.emit(pct, msg)
+
+        result = pipeline.process(
+            transcript_text=self.text,
+            source_path=source_path,
+            do_unwrap=do_unwrap,
+            do_custom=do_custom,
+            custom_prompt_path=custom_prompt_path,
+            on_progress=on_progress,
+            is_cancelled=lambda: self._cancelled,
         )
 
         if not self._cancelled:

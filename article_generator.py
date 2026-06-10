@@ -9,6 +9,7 @@ from typing import Optional, Callable
 from enum import Enum
 
 from core.lm_client import LMStudioClient, DEFAULT_LM_STUDIO_URL
+from core.prompts import load_prompt
 
 
 # ============================================================================
@@ -103,7 +104,9 @@ class GenerationResult:
 # PROMPTS
 # ============================================================================
 
-TOPIC_EXTRACTION_PROMPT = """Analyze this transcription and extract key information.
+TOPIC_EXTRACTION_PROMPT = load_prompt(
+    "topic_extraction",
+    fallback="""Analyze this transcription and extract key information.
 
 Transcription:
 ---
@@ -118,10 +121,13 @@ Respond ONLY with valid JSON in this exact format:
   "titles": ["suggested title 1", "suggested title 2"]
 }}
 
-Extract 3-7 main topics, 2-5 key insights, 2-4 notable quotes, and 2-3 suggested article titles."""
+Extract 3-7 main topics, 2-5 key insights, 2-4 notable quotes, and 2-3 suggested article titles.""",
+)
 
 
-BLOG_POST_PROMPT = """Write a blog post based on this content and topics.
+BLOG_POST_PROMPT = load_prompt(
+    "blog_post",
+    fallback="""Write a blog post based on this content and topics.
 
 Topics: {topics}
 Key Insights: {insights}
@@ -139,10 +145,13 @@ Create a well-structured blog post with:
 5. Brief conclusion
 
 Write in a conversational but professional style. Use markdown formatting.
-Output ONLY the blog post, no meta-commentary."""
+Output ONLY the blog post, no meta-commentary.""",
+)
 
 
-FAQ_PROMPT = """Create an FAQ article from this content.
+FAQ_PROMPT = load_prompt(
+    "faq",
+    fallback="""Create an FAQ article from this content.
 
 Source Content:
 ---
@@ -162,10 +171,13 @@ Use this format:
 
 ...continue for all questions
 
-Extract real questions and answers from the content. Do NOT invent information."""
+Extract real questions and answers from the content. Do NOT invent information.""",
+)
 
 
-LISTICLE_PROMPT = """Create a listicle article from this content.
+LISTICLE_PROMPT = load_prompt(
+    "listicle",
+    fallback="""Create a listicle article from this content.
 
 Topics: {topics}
 
@@ -187,10 +199,13 @@ Format:
 
 ...continue for all points
 
-Each point should be actionable and insightful. Use markdown formatting."""
+Each point should be actionable and insightful. Use markdown formatting.""",
+)
 
 
-SUMMARY_PROMPT = """Write an executive summary of this content.
+SUMMARY_PROMPT = load_prompt(
+    "summary",
+    fallback="""Write an executive summary of this content.
 
 Source Content:
 ---
@@ -203,10 +218,13 @@ Create a brief summary with:
 - 1 paragraph conclusion/recommendation
 
 Keep it under 300 words. Be concise but comprehensive.
-Format with markdown (use **bold** for emphasis)."""
+Format with markdown (use **bold** for emphasis).""",
+)
 
 
-SOCIAL_PROMPT = """Create social media snippets from this content.
+SOCIAL_PROMPT = load_prompt(
+    "social",
+    fallback="""Create social media snippets from this content.
 
 Key Insights: {insights}
 Notable Quotes: {quotes}
@@ -225,7 +243,8 @@ Generate 5 short social media posts:
 Format as a numbered list:
 1. [first post]
 2. [second post]
-...etc"""
+...etc""",
+)
 
 
 QUALITY_SCORING_PROMPT = """Rate this article on a scale of 1-10 for each criterion:

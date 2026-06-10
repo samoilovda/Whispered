@@ -16,11 +16,12 @@ from ui.transcript_view import TranscriptView
 from ui.ai_panel import AIProcessingPanel
 from ui.article_view import ArticleView, CleanedTextView
 from ui.batch_panel import BatchPanel
+from ui.book_panel import BookPanel
 from ui.icons import IconLabel, get_icon, IconColors
 from transcriber import Transcriber, TranscriptionResult
 from exporters import export_result, EXPORT_FORMATS
 from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, detect_gpu, get_thread_count
-from config import get_config
+from config import get_config, save_config
 from core.ai_worker import AIProcessingWorker
 from core.logger import get_logger
 
@@ -40,6 +41,7 @@ class MainWindow(QMainWindow):
         self._current_result: TranscriptionResult | None = None
         self._cleaned_text: str | None = None
         self._ai_worker: AIProcessingWorker | None = None
+        self._source_filepath: str | None = None   # track source for book pipeline naming
         # Device toggle: True = use GPU (if available), False = force CPU
         self._use_gpu = True
         self._gpu_type, self._gpu_name = self.transcriber.gpu_type, self.transcriber.gpu_name
@@ -51,20 +53,29 @@ class MainWindow(QMainWindow):
         # Stop any running transcription
         if self.transcriber.is_busy():
             self.transcriber.cancel()
-        
+
         # Stop AI worker if running
         if self._ai_worker and self._ai_worker.isRunning():
             self._ai_worker.cancel()
             self._ai_worker.wait()
-        
+
         # Cleanup AI panel timers
         if hasattr(self, 'ai_panel'):
             self.ai_panel.cleanup()
-        
+
         # Cleanup batch processing
         if hasattr(self, 'batch_panel') and self.batch_panel.processor.is_processing:
             self.batch_panel.cancel_processing()
-        
+
+        # Cleanup book panel batch worker
+        if hasattr(self, 'book_panel') and self.book_panel._batch_worker:
+            self.book_panel._cancel_batch()
+
+        # Save current mode to config
+        cfg = get_config()
+        cfg.pipeline_mode = 'book' if self.mode_combo.currentData() == 'book' else 'posts'
+        save_config()
+
         event.accept()
     
     
@@ -148,6 +159,34 @@ class MainWindow(QMainWindow):
         
         row1_layout.addStretch()
         
+        # Mode switcher: Posts / Book
+        mode_label = QLabel("Режим:")
+        mode_label.setStyleSheet("color: #888; font-size: 12px;")
+        row1_layout.addWidget(mode_label)
+
+        self.mode_combo = QComboBox()
+        self.mode_combo.setFixedWidth(120)
+        self.mode_combo.setStyleSheet("""
+            QComboBox {
+                padding: 4px 8px; padding-right: 22px;
+                border: 1px solid #3a3a3a; border-radius: 6px;
+                background-color: #2a2a2a; color: #e0e0e0; font-size: 12px;
+            }
+            QComboBox:hover { border-color: #5a5a5a; }
+            QComboBox::drop-down { width: 16px; border: none; background: transparent; }
+            QComboBox::down-arrow { border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 4px solid #888; }
+            QComboBox QAbstractItemView { background-color: #2a2a2a; border: 1px solid #3a3a3a; selection-background-color: #6366f1; color: #e0e0e0; }
+        """)
+        self.mode_combo.addItem("📝 Посты", "posts")
+        self.mode_combo.addItem("📖 Книга", "book")
+        # Restore saved mode
+        saved_mode = get_config().pipeline_mode
+        self.mode_combo.setCurrentIndex(1 if saved_mode == 'book' else 0)
+        self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        row1_layout.addWidget(self.mode_combo)
+
+        row1_layout.addSpacing(8)
+
         # Clickable device toggle button
         self.device_btn = QPushButton()
         self.device_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -268,16 +307,26 @@ class MainWindow(QMainWindow):
         self.format_json = QCheckBox("JSON (.json)")
         self.format_json.setStyleSheet(checkbox_style)
         left_layout.addWidget(self.format_json)
+
+        self.format_md = QCheckBox("Markdown (.md)")
+        self.format_md.setStyleSheet(checkbox_style)
+        left_layout.addWidget(self.format_md)
         
         # AI Processing Panel
         self.ai_panel = AIProcessingPanel()
         left_layout.addWidget(self.ai_panel)
-        
-        # Batch Processing Panel
+
+        # Batch Processing Panel (posts mode)
         self.batch_panel = BatchPanel()
         self.batch_panel.start_requested.connect(self._start_batch_processing)
         left_layout.addWidget(self.batch_panel)
-        
+
+        # Book Pipeline Panel
+        self.book_panel = BookPanel()
+        self.book_panel.run_single_requested.connect(self._on_book_run)
+        self.book_panel.cancel_requested.connect(self._cancel_operation)
+        left_layout.addWidget(self.book_panel)
+
         left_layout.addStretch()
         left_scroll.setWidget(left_panel)
         
@@ -395,16 +444,19 @@ class MainWindow(QMainWindow):
         self.file_selector.file_selected.connect(self._on_file_selected)
         self.transcript_view.copy_requested.connect(self._copy_to_clipboard)
         self.transcript_view.export_requested.connect(self._export_result)
-        
+
         # AI Panel signals
         self.ai_panel.clean_requested.connect(self._start_text_cleaning)
         self.ai_panel.generate_requested.connect(self._start_article_generation)
         self.ai_panel.generate_all_requested.connect(self._start_generate_all)
-        
+
         # Article view signals
         self.article_view.copy_done.connect(lambda: self.status_label.setText("Copied to clipboard"))
         self.article_view.export_done.connect(lambda msg: self.status_label.setText(msg))
         self.cleaned_view.copy_requested.connect(lambda: self.status_label.setText("Copied to clipboard"))
+
+        # Apply initial mode visibility
+        self._on_mode_changed(self.mode_combo.currentIndex())
     
     def _toggle_device(self):
         """Toggle between GPU and CPU mode."""
@@ -468,8 +520,18 @@ class MainWindow(QMainWindow):
                 }
             """)
     
+    def _on_mode_changed(self, index: int):
+        """Switch between Posts and Book pipeline modes."""
+        is_book = self.mode_combo.currentData() == 'book'
+        # Posts mode panels
+        self.ai_panel.setVisible(not is_book)
+        self.batch_panel.setVisible(not is_book)
+        # Book mode panel
+        self.book_panel.setVisible(is_book)
+
     def _on_file_selected(self, filepath: str):
         """Handle file selection."""
+        self._source_filepath = filepath
         self.transcribe_btn.setEnabled(True)
         self.status_label.setText(f"Ready: {os.path.basename(filepath)}")
     
@@ -563,13 +625,15 @@ class MainWindow(QMainWindow):
         self._current_result = result
         self.transcript_view.set_result(result)
         self._reset_ui()
-        
-        # Enable AI panel now that we have a transcription
+
+        # Enable AI panel (posts mode)
         self.ai_panel.set_has_transcription(True)
-        
+        # Enable book panel (book mode)
+        self.book_panel.set_has_transcript(True)
+
         word_count = len(result.full_text.split())
         self.status_label.setText(f"Complete - {word_count} words")
-        
+
         # Switch to transcript tab
         self.content_tabs.setCurrentIndex(0)
     
@@ -606,6 +670,8 @@ class MainWindow(QMainWindow):
             formats.append('vtt')
         if self.format_json.isChecked():
             formats.append('json')
+        if self.format_md.isChecked():
+            formats.append('md')
         return formats if formats else ['txt']
     
     def _export_result(self):
@@ -781,6 +847,75 @@ class MainWindow(QMainWindow):
         self.ai_panel.set_processing(False)
         self._reset_ui()
         self._ai_worker = None
-        
+
         self.status_label.setText(f"AI Error: {error_message[:50]}...")
         QMessageBox.warning(self, "AI Processing Error", f"An error occurred:\n\n{error_message}")
+
+    # ===== Book Pipeline Methods =====
+
+    def _on_book_run(self, do_unwrap: bool, do_custom: bool, custom_prompt_path: str):
+        """Start book pipeline processing for the current transcript."""
+        if not self._current_result:
+            self.status_label.setText("Нет транскрипта для обработки")
+            return
+
+        text = self._current_result.full_text
+        source_path = self._source_filepath or "transcript"
+
+        self.book_panel.set_processing(True)
+        self.cancel_btn.setVisible(True)
+        self.transcribe_btn.setVisible(False)
+
+        self._ai_worker = AIProcessingWorker(
+            "book_unwrap", text,
+            do_unwrap=do_unwrap,
+            do_custom=do_custom,
+            custom_prompt_path=custom_prompt_path,
+            source_path=source_path,
+        )
+        self._ai_worker.progress.connect(self._on_book_progress)
+        self._ai_worker.finished.connect(self._on_book_finished)
+        self._ai_worker.error.connect(self._on_book_error)
+        self._ai_worker.start()
+
+    def _on_book_progress(self, percentage: int, message: str):
+        """Handle book pipeline progress."""
+        self.book_panel.update_progress(percentage, message)
+        self.status_label.setText(message)
+
+    def _on_book_finished(self, result):
+        """Handle book pipeline completion."""
+        from book_pipeline import BookResult
+
+        self.book_panel.set_processing(False)
+        self._reset_ui()
+        self._ai_worker = None
+
+        if isinstance(result, BookResult) and result.stages:
+            saved_paths = [s.output_path for s in result.stages if s.success and s.output_path]
+            if saved_paths:
+                self.status_label.setText(f"Сохранено: {', '.join(os.path.basename(p) for p in saved_paths)}")
+                # Show result in Cleaned tab
+                if result.final_text:
+                    self.cleaned_view.set_text(
+                        result.final_text,
+                        original_length=len(self._current_result.full_text) if self._current_result else 0,
+                        removed_fillers=0,
+                        paragraphs=result.final_text.count('\n\n') + 1,
+                    )
+                    self.content_tabs.setCurrentIndex(1)
+            else:
+                failed = [s.error for s in result.stages if not s.success]
+                self.status_label.setText(f"Ошибка: {failed[0] if failed else 'неизвестная ошибка'}")
+        else:
+            self.status_label.setText("Книжный конвейер завершён")
+
+    def _on_book_error(self, error_message: str):
+        """Handle book pipeline error."""
+        self.book_panel.set_processing(False)
+        self._reset_ui()
+        self._ai_worker = None
+
+        self.status_label.setText(f"Ошибка: {error_message[:60]}")
+        QMessageBox.warning(self, "Ошибка книжного конвейера", f"Произошла ошибка:\n\n{error_message}")
+
