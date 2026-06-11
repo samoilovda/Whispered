@@ -17,6 +17,32 @@ agent can act on it directly.
 
 ---
 
+## ✅ Implementation status (updated)
+
+**P0–P2 are implemented** on branch `claude/upbeat-mayer-gi043l`:
+
+- **P0.1–P0.4** done: untracked the committed transcripts (no history rewrite),
+  fixed LM cancellation, bounded `QThread.wait()`, removed all bare `except:`.
+- **P1.1–P1.8** done: `core/json_utils.extract_json` replaces fragile fence
+  parsing; explicit/configurable LM timeouts; `ai_panel` connection probe,
+  model load, and server start moved to QThread workers; `book_panel` timer
+  cleanup; clear-queue confirmation; file validation; tooltips/empty states;
+  safer system-probe / model-list parsing.
+- **P2.1–P2.5** done: removed `pipeline._client` access + factored the
+  cancellation guard; processors honor configured `lm_studio_url` /
+  `lm_request_timeout`; batch worker poll has a timeout + liveness check;
+  added a 28-test `pytest` suite, `pytest.ini`, GitHub Actions CI, and a
+  SessionStart hook.
+
+**Caveat:** PyQt6 is not installed in the dev container, so UI changes were
+**syntax-checked and import-checked but not runtime-verified**. Run the app on a
+machine with PyQt6 to confirm the threaded `ai_panel` paths and dialogs.
+
+**Remaining:** P3 (UI rework) and P4 (features) are **not started** — scoped for
+a follow-up.
+
+---
+
 ## P0 — Correctness, data loss & privacy
 
 ### P0.1 [VERIFIED] Committed real transcript data in the repo
