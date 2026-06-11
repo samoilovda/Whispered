@@ -36,6 +36,7 @@ class Config:
     
     # LM Studio settings
     lm_studio_url: str = "http://localhost:1234/v1"
+    lm_request_timeout: int = 300  # seconds; per-request timeout for AI calls
 
     # Book pipeline settings
     pipeline_mode: str = "posts"          # "posts" | "book"

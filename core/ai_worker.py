@@ -47,83 +47,69 @@ class AIProcessingWorker(QThread):
         self._cancelled = True
 
     # ------------------------------------------------------------------
+    # Shared helpers (single cancellation guard instead of one per task)
+    # ------------------------------------------------------------------
+
+    def _is_cancelled(self) -> bool:
+        return self._cancelled
+
+    def _emit_progress(self, pct: int, msg: str) -> None:
+        if not self._cancelled:
+            self.progress.emit(pct, msg)
+
+    def _emit_finished(self, result: object) -> None:
+        if not self._cancelled:
+            self.finished.emit(result)
+
+    # ------------------------------------------------------------------
 
     def _run_clean(self) -> None:
         from text_processor import TextProcessor
 
         processor = TextProcessor()
-        processor.lm_client.is_cancelled = lambda: self._cancelled
+        processor.lm_client.is_cancelled = self._is_cancelled
 
-        def on_progress(pct: int, msg: str) -> None:
-            if not self._cancelled:
-                self.progress.emit(pct, msg)
-
-        result = processor.process(self.text, use_ai=True, on_progress=on_progress)
-
-        if not self._cancelled:
-            self.finished.emit(result)
+        result = processor.process(self.text, use_ai=True, on_progress=self._emit_progress)
+        self._emit_finished(result)
 
     def _run_generate(self) -> None:
         from article_generator import ArticleGenerator, ArticleFormat
 
         generator = ArticleGenerator()
-        generator.lm_client.is_cancelled = lambda: self._cancelled
-        format_key = self.kwargs.get('format', 'blog')
-        format_enum = ArticleFormat(format_key)
-
-        def on_progress(pct: int, msg: str) -> None:
-            if not self._cancelled:
-                self.progress.emit(pct, msg)
+        generator.lm_client.is_cancelled = self._is_cancelled
+        format_enum = ArticleFormat(self.kwargs.get('format', 'blog'))
 
         article = generator.generate_article(
-            self.text, format_enum, on_progress=on_progress
+            self.text, format_enum, on_progress=self._emit_progress
         )
-
-        if not self._cancelled:
-            self.finished.emit(article)
+        self._emit_finished(article)
 
     def _run_generate_all(self) -> None:
         from article_generator import ArticleGenerator
 
         generator = ArticleGenerator()
-        generator.lm_client.is_cancelled = lambda: self._cancelled
-
-        def on_progress(pct: int, msg: str) -> None:
-            if not self._cancelled:
-                self.progress.emit(pct, msg)
+        generator.lm_client.is_cancelled = self._is_cancelled
 
         result = generator.generate_all_formats(
-            self.text, on_progress=on_progress
+            self.text, on_progress=self._emit_progress
         )
-
-        if not self._cancelled:
-            self.finished.emit(result)
+        self._emit_finished(result)
 
     def _run_book_unwrap(self) -> None:
         """Run the book pipeline (unwrap + optional custom prompt)."""
         from book_pipeline import BookPipeline
 
+        # BookPipeline.process() wires the cancel callback into its client
+        # internally via the is_cancelled argument, so no private access needed.
         pipeline = BookPipeline()
-        pipeline._client.is_cancelled = lambda: self._cancelled
-
-        do_unwrap = self.kwargs.get('do_unwrap', True)
-        do_custom = self.kwargs.get('do_custom', False)
-        custom_prompt_path = self.kwargs.get('custom_prompt_path', '')
-        source_path = self.kwargs.get('source_path', 'transcript')
-
-        def on_progress(pct: int, msg: str) -> None:
-            if not self._cancelled:
-                self.progress.emit(pct, msg)
 
         result = pipeline.process(
             transcript_text=self.text,
-            source_path=source_path,
-            do_unwrap=do_unwrap,
-            do_custom=do_custom,
-            custom_prompt_path=custom_prompt_path,
-            on_progress=on_progress,
-            is_cancelled=lambda: self._cancelled,
+            source_path=self.kwargs.get('source_path', 'transcript'),
+            do_unwrap=self.kwargs.get('do_unwrap', True),
+            do_custom=self.kwargs.get('do_custom', False),
+            custom_prompt_path=self.kwargs.get('custom_prompt_path', ''),
+            on_progress=self._emit_progress,
+            is_cancelled=self._is_cancelled,
         )
-
-        if not self._cancelled:
-            self.finished.emit(result)
+        self._emit_finished(result)

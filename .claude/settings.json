@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pip install -q pytest ruff >/dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ]
+  }
+}

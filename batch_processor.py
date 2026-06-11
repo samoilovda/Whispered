@@ -10,6 +10,9 @@ from enum import Enum
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
 
 from transcriber import Transcriber, TranscriptionResult
+from core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 # ============================================================================
@@ -147,9 +150,23 @@ class BatchWorker(QThread):
             on_error=on_error
         )
         
-        # Wait for completion
-        finished_event.wait()
-        
+        # Wait for completion. Poll with a timeout instead of blocking
+        # indefinitely so that (a) cancellation is responsive and (b) a
+        # transcriber that dies without firing a callback can't hang the
+        # worker forever.
+        while not finished_event.wait(timeout=0.5):
+            if self._cancelled:
+                self._transcriber.cancel()
+                break
+            if not self._transcriber.is_busy():
+                # The transcriber is no longer running but never signalled.
+                # Give any in-flight callback a moment, then treat as failure.
+                if finished_event.wait(timeout=1.0):
+                    break
+                error_holder[0] = error_holder[0] or \
+                    "Transcription ended unexpectedly without a result"
+                break
+
         if self._cancelled:
             item.status = BatchStatus.CANCELLED
             return
@@ -306,7 +323,10 @@ class BatchProcessor(QObject):
         """Cancel the current batch processing."""
         if self._worker and self._worker.isRunning():
             self._worker.cancel()
-            self._worker.wait()
+            if not self._worker.wait(10000):
+                logger.warning("Batch worker did not stop within 10s; terminating")
+                self._worker.terminate()
+                self._worker.wait(2000)
     
     def _on_batch_finished(self):
         """Handle batch completion."""
@@ -350,9 +370,9 @@ class BatchProcessor(QObject):
             try:
                 export_result(item.result, output_path, format_key)
                 created_files.append(output_path)
-            except Exception:
-                pass
-        
+            except Exception as e:
+                logger.warning("Failed to export %s: %s", output_path, e)
+
         return created_files
 
 

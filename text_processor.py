@@ -8,9 +8,10 @@ from dataclasses import dataclass, field
 from typing import Optional, Callable
 from enum import Enum
 
-from core.lm_client import LMStudioClient, DEFAULT_LM_STUDIO_URL
+from core.lm_client import LMStudioClient
 from core.logger import get_logger
 from core.prompts import load_prompt
+from config import get_config
 
 logger = get_logger(__name__)
 
@@ -390,11 +391,17 @@ class CoherenceProcessor:
 class TextProcessor:
     """Main text processing pipeline combining cleaning and coherence."""
     
-    def __init__(self, lm_studio_url: str = DEFAULT_LM_STUDIO_URL,
-                 timeout: int = LM_REQUEST_TIMEOUT):
-        self.lm_client = LMStudioClient(lm_studio_url)
-        self.cleaner = TextCleaner(self.lm_client, timeout=timeout)
-        self.coherence = CoherenceProcessor(self.lm_client, timeout=timeout)
+    def __init__(self, lm_studio_url: Optional[str] = None,
+                 timeout: Optional[int] = None):
+        # Fall back to user configuration so the AI panel honors the
+        # configured LM Studio URL / timeout instead of hardcoded defaults.
+        cfg = get_config()
+        url = lm_studio_url or cfg.lm_studio_url
+        resolved_timeout = timeout if timeout is not None else \
+            getattr(cfg, 'lm_request_timeout', LM_REQUEST_TIMEOUT)
+        self.lm_client = LMStudioClient(url)
+        self.cleaner = TextCleaner(self.lm_client, timeout=resolved_timeout)
+        self.coherence = CoherenceProcessor(self.lm_client, timeout=resolved_timeout)
     
     def is_available(self) -> bool:
         """Check if LM Studio is available for processing."""

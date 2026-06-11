@@ -3,14 +3,14 @@ Whisper Fedora - Article Generator Module
 Multi-format article generation from processed transcriptions using LM Studio
 """
 
-import json
 from dataclasses import dataclass, field
 from typing import Optional, Callable
 from enum import Enum
 
-from core.lm_client import LMStudioClient, DEFAULT_LM_STUDIO_URL
+from core.lm_client import LMStudioClient
 from core.prompts import load_prompt
 from core.json_utils import extract_json
+from config import get_config
 
 
 # ============================================================================
@@ -273,7 +273,8 @@ class ArticleGenerator:
     """Generate articles in multiple formats from transcribed text."""
     
     def __init__(self, lm_client: Optional[LMStudioClient] = None):
-        self.lm_client = lm_client or LMStudioClient()
+        # Honor the user-configured LM Studio URL when no client is injected.
+        self.lm_client = lm_client or LMStudioClient(get_config().lm_studio_url)
     
     def is_available(self) -> bool:
         """Check if LM Studio is available."""

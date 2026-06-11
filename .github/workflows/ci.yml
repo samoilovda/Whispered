@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test/lint tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest ruff
+
+      # The unit-test suite is deliberately limited to pure-logic modules that
+      # do not require PyQt6 / whisper.cpp / a running LM Studio, so it runs
+      # headless in CI.
+      - name: Lint (ruff)
+        run: ruff check . --output-format=github
+        continue-on-error: true
+
+      - name: Run tests
+        run: python -m pytest -q
