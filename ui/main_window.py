@@ -57,7 +57,10 @@ class MainWindow(QMainWindow):
         # Stop AI worker if running
         if self._ai_worker and self._ai_worker.isRunning():
             self._ai_worker.cancel()
-            self._ai_worker.wait()
+            if not self._ai_worker.wait(5000):
+                logger.warning("AI worker did not stop within 5s; terminating")
+                self._ai_worker.terminate()
+                self._ai_worker.wait(2000)
 
         # Cleanup AI panel timers
         if hasattr(self, 'ai_panel'):
@@ -589,7 +592,10 @@ class MainWindow(QMainWindow):
         """Cancel the current operation (transcription or AI processing)."""
         if self._ai_worker and self._ai_worker.isRunning():
             self._ai_worker.cancel()
-            self._ai_worker.wait()
+            if not self._ai_worker.wait(5000):
+                logger.warning("AI worker did not stop within 5s; terminating")
+                self._ai_worker.terminate()
+                self._ai_worker.wait(2000)
             self._ai_worker = None
             self.ai_panel.set_processing(False)
             self.status_label.setText("AI processing cancelled")
@@ -710,6 +716,7 @@ class MainWindow(QMainWindow):
             directory = QFileDialog.getExistingDirectory(self, "Select Export Directory")
             if directory:
                 count = 0
+                failed = []
                 for format_key in format_keys:
                     ext = 'txt' if format_key in ('txt', 'txt_ts') else format_key
                     suffix = '_ts' if format_key == 'txt_ts' else ''
@@ -717,9 +724,20 @@ class MainWindow(QMainWindow):
                     try:
                         export_result(result, filepath, format_key)
                         count += 1
-                    except:
-                        pass
-                self.status_label.setText(f"Exported {count} files")
+                    except Exception as e:
+                        logger.warning("Failed to export %s: %s", format_key, e)
+                        failed.append(format_key)
+                if failed:
+                    self.status_label.setText(
+                        f"Exported {count} files, {len(failed)} failed"
+                    )
+                    QMessageBox.warning(
+                        self, "Export Incomplete",
+                        "Some formats failed to export:\n"
+                        + "\n".join(f"  • {f}" for f in failed)
+                    )
+                else:
+                    self.status_label.setText(f"Exported {count} files")
     
     # ===== AI Processing Methods =====
     

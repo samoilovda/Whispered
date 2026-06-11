@@ -268,7 +268,7 @@ def check_lm_studio_connection(lm_studio_url: str = DEFAULT_LM_STUDIO_URL) -> bo
         req = urllib.request.Request(f"{lm_studio_url}/models")
         with urllib.request.urlopen(req, timeout=5) as response:
             return response.status == 200
-    except:
+    except Exception:
         return False
 
 

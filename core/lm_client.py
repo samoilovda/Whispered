@@ -5,6 +5,7 @@ Extracted from text_processor.py for reuse across modules.
 """
 
 import json
+import concurrent.futures
 import urllib.request
 import urllib.error
 from typing import Optional, Callable
@@ -101,32 +102,32 @@ class LMStudioClient:
                 headers={'Content-Type': 'application/json'}
             )
 
-            def do_request():
-                try:
-                    with urllib.request.urlopen(req, timeout=timeout) as response:
-                        result = json.loads(response.read().decode('utf-8'))
-                        return result['choices'][0]['message']['content']
-                except Exception as e:
-                    return e
+            def do_request() -> str:
+                with urllib.request.urlopen(req, timeout=timeout) as response:
+                    result = json.loads(response.read().decode('utf-8'))
+                    return result['choices'][0]['message']['content']
 
+            # No cancellation callback: run the request inline.
             if self.is_cancelled is None:
-                res = do_request()
-                if isinstance(res, Exception):
-                    raise res
-                return res
+                return do_request()
 
-            import concurrent.futures
-            import time
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            # Cancellable path: run the blocking request on a worker thread and
+            # poll the cancel callback. On cancel we shut the executor down
+            # WITHOUT waiting (shutdown(wait=False)) so this method returns
+            # promptly instead of blocking on the in-flight HTTP request.
+            executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            try:
                 future = executor.submit(do_request)
-                while not future.done():
+                while True:
                     if self.is_cancelled():
                         return None
-                    time.sleep(0.1)
-                res = future.result()
-                if isinstance(res, Exception):
-                    raise res
-                return res
+                    try:
+                        return future.result(timeout=0.1)
+                    except concurrent.futures.TimeoutError:
+                        continue
+            finally:
+                # Do not block on the worker if we are abandoning it.
+                executor.shutdown(wait=False)
 
         except urllib.error.URLError as e:
             logger.debug("LM Studio connection error: %s", e)

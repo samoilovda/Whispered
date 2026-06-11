@@ -138,7 +138,7 @@ class LMStudioManager:
             req = urllib.request.Request("http://localhost:1234/v1/models")
             with urllib.request.urlopen(req, timeout=2) as response:
                 return response.status == 200
-        except:
+        except Exception:
             pass
         
         # Fall back to CLI check

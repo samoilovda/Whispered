@@ -247,8 +247,8 @@ def _run_transcription_process(
         if temp_wav_path and os.path.exists(temp_wav_path):
             try:
                 os.remove(temp_wav_path)
-            except:
-                pass
+            except OSError as e:
+                logger.warning("Failed to remove temp file %s: %s", temp_wav_path, e)
         import gc
         gc.collect()
 

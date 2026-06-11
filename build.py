@@ -21,8 +21,8 @@ def main():
         if os.path.exists(spec_file):
             try:
                 os.remove(spec_file)
-            except:
-                pass
+            except OSError as e:
+                print(f"Warning: Could not remove {spec_file}: {e}")
         
     # 2. Base arguments for PyInstaller
     args = [

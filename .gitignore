@@ -52,6 +52,12 @@ models/
 output/
 output_full/
 
+# Ad-hoc transcripts / private working data (never commit real recordings)
+transcripts/
+samples/private/
+video1131745498.md
+video1131745498.txt
+
 # ========================================
 # OS-specific
 # ========================================
