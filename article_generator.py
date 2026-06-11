@@ -10,6 +10,7 @@ from enum import Enum
 
 from core.lm_client import LMStudioClient, DEFAULT_LM_STUDIO_URL
 from core.prompts import load_prompt
+from core.json_utils import extract_json
 
 
 # ============================================================================
@@ -309,26 +310,15 @@ class ArticleGenerator:
         if on_progress:
             on_progress(30, "Parsing topic analysis...")
         
-        if response:
-            try:
-                # Clean up response - handle markdown code blocks
-                clean_response = response.strip()
-                if clean_response.startswith("```"):
-                    clean_response = clean_response.split("```")[1]
-                    if clean_response.startswith("json"):
-                        clean_response = clean_response[4:]
-                
-                data = json.loads(clean_response)
-                return TopicAnalysis(
-                    main_topics=data.get("topics", []),
-                    key_insights=data.get("insights", []),
-                    notable_quotes=data.get("quotes", []),
-                    suggested_titles=data.get("titles", [])
-                )
-            except json.JSONDecodeError:
-                # Return basic analysis if parsing fails
-                pass
-        
+        data = extract_json(response)
+        if isinstance(data, dict):
+            return TopicAnalysis(
+                main_topics=data.get("topics", []),
+                key_insights=data.get("insights", []),
+                notable_quotes=data.get("quotes", []),
+                suggested_titles=data.get("titles", [])
+            )
+
         return TopicAnalysis(
             main_topics=["General Discussion"],
             key_insights=["Content analysis unavailable"],
@@ -472,21 +462,15 @@ class ArticleGenerator:
             max_tokens=256
         )
         
-        if response:
+        data = extract_json(response)
+        if isinstance(data, dict):
             try:
-                clean_response = response.strip()
-                if clean_response.startswith("```"):
-                    clean_response = clean_response.split("```")[1]
-                    if clean_response.startswith("json"):
-                        clean_response = clean_response[4:]
-                
-                data = json.loads(clean_response)
-                score = data.get("overall", 5.0)
-                article.quality_score = float(score)
-                return float(score)
-            except (json.JSONDecodeError, ValueError):
+                score = float(data.get("overall", 5.0))
+                article.quality_score = score
+                return score
+            except (TypeError, ValueError):
                 pass
-        
+
         return 5.0  # Default middle score
     
     def _get_format_prompt(

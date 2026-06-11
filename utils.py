@@ -88,7 +88,7 @@ def detect_gpu() -> Tuple[str, str]:
                 # Parse GPU name from rocminfo output
                 for line in result.stdout.split('\n'):
                     if 'Marketing Name:' in line:
-                        gpu_name = line.split(':')[1].strip()
+                        gpu_name = line.split(':', 1)[1].strip()
                         return ('rocm', f"AMD {gpu_name}")
                 return ('rocm', "AMD GPU (ROCm)")
         except (subprocess.TimeoutExpired, Exception):

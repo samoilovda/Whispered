@@ -26,6 +26,8 @@ from typing import Optional
 import urllib.request
 import urllib.error
 
+from core.json_utils import extract_json
+
 
 # ============================================================================
 # CONFIGURATION
@@ -284,22 +286,13 @@ def extract_topics(transcription: str, lm_studio_url: str) -> Optional[dict]:
     response = call_lm_studio(prompt, lm_studio_url)
     
     if response:
-        try:
-            # Try to parse JSON from response
-            # Handle case where response might have markdown code blocks
-            clean_response = response.strip()
-            if clean_response.startswith("```"):
-                clean_response = clean_response.split("```")[1]
-                if clean_response.startswith("json"):
-                    clean_response = clean_response[4:]
-            
-            topics = json.loads(clean_response)
+        topics = extract_json(response)
+        if isinstance(topics, dict):
             print(f"✅ Extracted {len(topics.get('topics', []))} topics")
             return topics
-        except json.JSONDecodeError:
-            # Return raw response if not valid JSON
-            return {"raw": response, "topics": [], "insights": [], "quotes": []}
-    
+        # Not valid JSON - return raw response so the caller still has content
+        return {"raw": response, "topics": [], "insights": [], "quotes": []}
+
     return None
 
 

@@ -22,6 +22,11 @@ logger = get_logger(__name__)
 TEXT_CHUNK_SIZE = 8000
 TEXT_CHUNK_OVERLAP = 500
 
+# Per-request timeout (seconds) for LM Studio calls. Long transcripts on a busy
+# local model can take minutes; this is passed explicitly so a stalled request
+# fails predictably instead of hanging on an implicit default.
+LM_REQUEST_TIMEOUT = 300
+
 
 # ============================================================================
 # DATA CLASSES
@@ -104,9 +109,11 @@ Output the cleaned text only:"""
 class TextCleaner:
     """Clean raw transcription text using LM Studio."""
     
-    def __init__(self, lm_client: Optional[LMStudioClient] = None):
+    def __init__(self, lm_client: Optional[LMStudioClient] = None,
+                 timeout: int = LM_REQUEST_TIMEOUT):
         self.lm_client = lm_client or LMStudioClient()
-    
+        self.timeout = timeout
+
     def _quick_clean(self, text: str) -> str:
         """Quick regex-based cleaning for when LM Studio is unavailable."""
         result = text
@@ -196,9 +203,10 @@ class TextCleaner:
             result = self.lm_client.chat_completion(
                 prompt=prompt,
                 system_prompt=CLEANING_SYSTEM_PROMPT,
-                temperature=0.3  # Lower temperature for more consistent cleaning
+                temperature=0.3,  # Lower temperature for more consistent cleaning
+                timeout=self.timeout
             )
-            
+
             return result if result else self._quick_clean(text)
         
         # For long texts, process in chunks
@@ -214,9 +222,10 @@ class TextCleaner:
             result = self.lm_client.chat_completion(
                 prompt=prompt,
                 system_prompt=CLEANING_SYSTEM_PROMPT,
-                temperature=0.3
+                temperature=0.3,
+                timeout=self.timeout
             )
-            
+
             cleaned_chunks.append(result if result else self._quick_clean(chunk))
         
         return "\n\n".join(cleaned_chunks)
@@ -277,9 +286,11 @@ Output the organized text with clear paragraph breaks:"""
 class CoherenceProcessor:
     """Process text for logical coherence and structure."""
     
-    def __init__(self, lm_client: Optional[LMStudioClient] = None):
+    def __init__(self, lm_client: Optional[LMStudioClient] = None,
+                 timeout: int = LM_REQUEST_TIMEOUT):
         self.lm_client = lm_client or LMStudioClient()
-    
+        self.timeout = timeout
+
     def process(
         self,
         text: str,
@@ -343,9 +354,10 @@ class CoherenceProcessor:
         result = self.lm_client.chat_completion(
             prompt=prompt,
             system_prompt=COHERENCE_SYSTEM_PROMPT,
-            temperature=0.3
+            temperature=0.3,
+            timeout=self.timeout
         )
-        
+
         return result if result else text
     
     def _basic_paragraph_split(self, text: str) -> str:
@@ -378,10 +390,11 @@ class CoherenceProcessor:
 class TextProcessor:
     """Main text processing pipeline combining cleaning and coherence."""
     
-    def __init__(self, lm_studio_url: str = DEFAULT_LM_STUDIO_URL):
+    def __init__(self, lm_studio_url: str = DEFAULT_LM_STUDIO_URL,
+                 timeout: int = LM_REQUEST_TIMEOUT):
         self.lm_client = LMStudioClient(lm_studio_url)
-        self.cleaner = TextCleaner(self.lm_client)
-        self.coherence = CoherenceProcessor(self.lm_client)
+        self.cleaner = TextCleaner(self.lm_client, timeout=timeout)
+        self.coherence = CoherenceProcessor(self.lm_client, timeout=timeout)
     
     def is_available(self) -> bool:
         """Check if LM Studio is available for processing."""
