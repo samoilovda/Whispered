@@ -7,12 +7,13 @@ import os
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QListWidget, QListWidgetItem, QProgressBar,
-    QFileDialog, QFrame, QAbstractItemView, QMessageBox
+    QFileDialog, QFrame, QAbstractItemView, QMessageBox, QComboBox
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QColor
 
 from batch_processor import BatchProcessor, BatchItem, BatchStatus
+from core.i18n import tr
 
 
 # ============================================================================
@@ -140,6 +141,11 @@ class BatchPanel(QWidget):
         self.processor = BatchProcessor()
         self._setup_ui()
         self._connect_signals()
+        
+        # Timer for ETA updates
+        self._eta_timer = QTimer(self)
+        self._eta_timer.timeout.connect(self._update_eta)
+        self._eta_timer.setInterval(1000)
     
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -155,43 +161,64 @@ class BatchPanel(QWidget):
         
         # Header
         header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
         
-        header_label = QLabel("📂 Batch Queue")
-        header_label.setStyleSheet("color: #888; font-size: 12px; font-weight: bold;")
-        header_layout.addWidget(header_label)
+        title_label = QLabel(tr("Batch Queue"))
+        title_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #e0e0e0;")
+        header_layout.addWidget(title_label)
         
-        self.count_label = QLabel("(0)")
-        self.count_label.setStyleSheet("color: #666; font-size: 11px;")
-        header_layout.addWidget(self.count_label)
+        # Mode selector
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems([tr("Posts Pipeline"), tr("Book Pipeline")])
+        self.mode_combo.setStyleSheet("color: #666; font-size: 11px;")
+        header_layout.addWidget(self.mode_combo)
         
         header_layout.addStretch()
         
-        # Add files button
-        self.add_btn = QPushButton("+")
-        self.add_btn.setFixedSize(24, 24)
-        self.add_btn.setToolTip("Add files to queue")
-        self.add_btn.setStyleSheet("""
+        # Action Buttons
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(8)
+        
+        self.add_btn = QPushButton(tr("Add Files"))
+        self.add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.add_btn.clicked.connect(self._add_files)
+        btn_layout.addWidget(self.add_btn)
+        
+        self.clear_btn = QPushButton(tr("Clear"))
+        self.clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.clear_btn.clicked.connect(self._clear_queue)
+        btn_layout.addWidget(self.clear_btn)
+        
+        self.pause_btn = QPushButton(tr("⏸️ Pause"))
+        self.pause_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.pause_btn.setCheckable(True)
+        self.pause_btn.clicked.connect(self._toggle_pause)
+        btn_layout.addWidget(self.pause_btn)
+        
+        self.start_btn = QPushButton(tr("Start All"))
+        self.start_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.start_btn.clicked.connect(self._start_batch)
+        self.start_btn.setStyleSheet("""
             QPushButton {
-                background-color: #2a2a2a;
-                border: 1px solid #3a3a3a;
-                border-radius: 4px;
-                color: #888;
-                font-size: 16px;
+                background-color: #6366f1;
+                color: white;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #3a3a3a;
-                color: #e0e0e0;
+                background-color: #4f46e5;
+            }
+            QPushButton:disabled {
+                background-color: #374151;
+                color: #9ca3af;
             }
         """)
-        self.add_btn.clicked.connect(self._add_files)
-        header_layout.addWidget(self.add_btn)
+        btn_layout.addWidget(self.start_btn)
         
         layout.addLayout(header_layout)
+        layout.addLayout(btn_layout)
         
         # File list
         self.file_list = QListWidget()
-        self.file_list.setMaximumHeight(150)
         self.file_list.setStyleSheet("""
             QListWidget {
                 background-color: #1e1e1e;
@@ -209,60 +236,12 @@ class BatchPanel(QWidget):
             }
         """)
         self.file_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.file_list.model().rowsMoved.connect(self._on_rows_moved)
         layout.addWidget(self.file_list)
         
-        # Action buttons
-        button_style = """
-            QPushButton {
-                background-color: #2a2a2a;
-                border: 1px solid #3a3a3a;
-                border-radius: 6px;
-                padding: 6px 12px;
-                color: #e0e0e0;
-                font-size: 11px;
-            }
-            QPushButton:hover {
-                background-color: #3a3a3a;
-            }
-            QPushButton:disabled {
-                background-color: #1a1a1a;
-                color: #555;
-            }
-        """
-        
-        actions_layout = QHBoxLayout()
-        actions_layout.setSpacing(4)
-        
-        self.start_btn = QPushButton("▶ Start All")
-        self.start_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #6366f1;
-                border: none;
-                border-radius: 6px;
-                padding: 6px 12px;
-                color: white;
-                font-size: 11px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818cf8;
-            }
-            QPushButton:disabled {
-                background-color: #3a3a3a;
-                color: #666;
-            }
-        """)
-        self.start_btn.clicked.connect(self._start_batch)
-        self.start_btn.setEnabled(False)
-        actions_layout.addWidget(self.start_btn)
-        
-        self.clear_btn = QPushButton("Clear")
-        self.clear_btn.setStyleSheet(button_style)
-        self.clear_btn.clicked.connect(self._clear_queue)
-        self.clear_btn.setEnabled(False)
-        actions_layout.addWidget(self.clear_btn)
-        
-        layout.addLayout(actions_layout)
+        self.eta_label = QLabel("")
+        self.eta_label.setStyleSheet("color: #888; font-size: 11px;")
+        layout.addWidget(self.eta_label)
     
     def _connect_signals(self):
         """Connect processor signals."""
@@ -276,9 +255,9 @@ class BatchPanel(QWidget):
         """Open file dialog to add files."""
         filepaths, _ = QFileDialog.getOpenFileNames(
             self,
-            "Add Audio/Video Files",
+            tr("Add Audio/Video Files"),
             "",
-            "Media Files (*.mp3 *.mp4 *.m4a *.wav *.ogg *.flac *.mkv *.avi *.mov *.webm);;All Files (*)"
+            tr("Media Files (*.mp3 *.mp4 *.m4a *.wav *.ogg *.flac *.mkv *.avi *.mov *.webm);;All Files (*)")
         )
         
         for path in filepaths:
@@ -299,11 +278,10 @@ class BatchPanel(QWidget):
             self.file_list.addItem(list_item)
             self.file_list.setItemWidget(list_item, widget)
         
-        # Update counts and buttons
         count = self.processor.count
-        self.count_label.setText(f"({count})")
         self.start_btn.setEnabled(count > 0 and not self.processor.is_processing)
         self.clear_btn.setEnabled(count > 0 and not self.processor.is_processing)
+        self.pause_btn.setEnabled(self.processor.is_processing)
     
     def _remove_item(self, index: int):
         """Remove an item from the queue."""
@@ -316,8 +294,8 @@ class BatchPanel(QWidget):
         if count == 0:
             return
         reply = QMessageBox.question(
-            self, "Clear Queue",
-            f"Remove all {count} file(s) from the batch queue?",
+            self, tr("Clear Queue"),
+            tr("Remove all files from the batch queue?"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
@@ -331,7 +309,39 @@ class BatchPanel(QWidget):
         self.start_btn.setEnabled(False)
         self.clear_btn.setEnabled(False)
         self.add_btn.setEnabled(False)
+        self.pause_btn.setEnabled(True)
+        self.pause_btn.setText(tr("⏸️ Pause"))
+        self._eta_timer.start()
         self.start_requested.emit()
+        
+    def _toggle_pause(self):
+        """Toggle pause/resume on processor."""
+        is_paused = self.processor.is_paused
+        if not is_paused:
+            self.pause_btn.setText(tr("▶️ Resume"))
+            self.pause_btn.setStyleSheet("background-color: #eab308; color: #000; font-weight: bold;")
+            self.processor.pause()
+            self.eta_label.setText(tr("Paused"))
+        else:
+            self.pause_btn.setText(tr("⏸️ Pause"))
+            self.pause_btn.setStyleSheet("")
+            self.processor.resume()
+            self.eta_label.setText("")
+            
+    def _update_eta(self):
+        """Update ETA label."""
+        eta = self.processor.get_eta_seconds()
+        if eta is not None:
+            mins, secs = divmod(int(eta), 60)
+            self.eta_label.setText(f"{tr('ETA')}: ~{mins}m {secs}s")
+        else:
+            self.eta_label.setText(f"{tr('ETA')}: {tr('calc...')}...")
+            
+    def _on_rows_moved(self, sourceParent, sourceStart, sourceEnd, destinationParent, destinationRow):
+        """Sync reordering from QListWidget to Processor."""
+        if sourceStart < destinationRow:
+            destinationRow -= 1
+        self.processor.reorder_items(sourceStart, destinationRow)
     
     def start_processing(
         self,
@@ -376,7 +386,10 @@ class BatchPanel(QWidget):
         """Handle batch completion."""
         self.start_btn.setEnabled(self.processor.count > 0)
         self.clear_btn.setEnabled(self.processor.count > 0)
+        self.pause_btn.setEnabled(False)
         self.add_btn.setEnabled(True)
+        self._eta_timer.stop()
+        self.eta_label.setText(tr("Complete"))
         self._refresh_list()
     
     def _update_item_widget(self, index: int):

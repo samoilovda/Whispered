@@ -10,6 +10,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QThread
 from PyQt6.QtGui import QFont
 
+from config import get_config
+from core.i18n import tr
 from text_processor import TextProcessor
 from article_generator import ArticleGenerator, ArticleFormat, ARTICLE_FORMAT_INFO
 from lm_studio_manager import LMStudioManager
@@ -95,11 +97,11 @@ class StatusIndicator(QWidget):
                 self.label.setText(f"LM Studio: {display_name}")
                 self.label.setStyleSheet("color: #22c55e; font-size: 11px;")
             else:
-                self.label.setText("LM Studio: Connected")
+                self.label.setText(tr("LM Studio: Connected"))
                 self.label.setStyleSheet("color: #22c55e; font-size: 11px;")
         else:
             self.dot.setStyleSheet("color: #ef4444; font-size: 10px;")  # Red
-            self.label.setText("LM Studio: Offline")
+            self.label.setText(tr("LM Studio: Offline"))
             self.label.setStyleSheet("color: #888; font-size: 11px;")
     
     @property
@@ -152,9 +154,13 @@ class AIProcessingPanel(QWidget):
         layout.addWidget(divider)
         
         # Section header
-        header = QLabel("🤖 AI Processing")
-        header.setStyleSheet("color: #888; font-size: 12px; font-weight: bold; margin-top: 4px;")
-        layout.addWidget(header)
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        
+        title_label = QLabel(tr("AI Processor"))
+        title_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #e0e0e0;")
+        header_layout.addWidget(title_label)
+        layout.addLayout(header_layout)
         
         # Connection status
         self.status_indicator = StatusIndicator()
@@ -164,7 +170,7 @@ class AIProcessingPanel(QWidget):
         model_layout = QHBoxLayout()
         model_layout.setSpacing(4)
         
-        model_label = QLabel("Model:")
+        model_label = QLabel(tr("Model:"))
         model_label.setStyleSheet("color: #888; font-size: 11px;")
         model_layout.addWidget(model_label)
         
@@ -188,8 +194,8 @@ class AIProcessingPanel(QWidget):
         model_layout.addWidget(self.model_combo, stretch=1)
         
         self.model_combo.setToolTip(
-            "Switch the model loaded in LM Studio. Shown only when the LM Studio "
-            "CLI is installed and the server is connected."
+            tr("Switch the model loaded in LM Studio. Shown only when the LM Studio "
+            "CLI is installed and the server is connected.")
         )
 
         self.model_row = QWidget()
@@ -198,7 +204,7 @@ class AIProcessingPanel(QWidget):
         layout.addWidget(self.model_row)
         
         # Start server button (only visible when offline)
-        self.start_server_btn = QPushButton("▶ Start LM Studio Server")
+        self.start_server_btn = QPushButton(tr("▶ Start LM Studio Server"))
         self.start_server_btn.setStyleSheet("""
             QPushButton {
                 background-color: #6366f1;
@@ -212,8 +218,8 @@ class AIProcessingPanel(QWidget):
             QPushButton:disabled { background-color: #3a3a3a; color: #666; }
         """)
         self.start_server_btn.setToolTip(
-            "LM Studio is installed but its local API server is not running. "
-            "Click to start it so AI cleaning and article generation become available."
+            tr("LM Studio is installed but its local API server is not running. "
+            "Click to start it so AI cleaning and article generation become available.")
         )
         self.start_server_btn.clicked.connect(self._start_server)
         self.start_server_btn.setVisible(False)
@@ -270,9 +276,9 @@ class AIProcessingPanel(QWidget):
         """
         
         # Clean Text button
-        self.clean_btn = QPushButton("✨ Clean Text")
+        self.clean_btn = QPushButton(tr("✨ Clean Text"))
         self.clean_btn.setStyleSheet(button_style)
-        self.clean_btn.setToolTip("Remove filler words, fix punctuation, create paragraphs")
+        self.clean_btn.setToolTip(tr("Remove filler words, fix punctuation, create paragraphs"))
         self.clean_btn.clicked.connect(self._on_clean_clicked)
         self.clean_btn.setEnabled(False)
         layout.addWidget(self.clean_btn)
@@ -281,9 +287,9 @@ class AIProcessingPanel(QWidget):
         articles_layout = QHBoxLayout()
         articles_layout.setSpacing(4)
         
-        self.generate_btn = QPushButton("📝 Generate")
+        self.generate_btn = QPushButton(tr("Generate"))
         self.generate_btn.setStyleSheet(button_style)
-        self.generate_btn.setToolTip("Generate article in selected format")
+        self.generate_btn.setToolTip(tr("Generate article in selected format"))
         self.generate_btn.clicked.connect(self._on_generate_clicked)
         self.generate_btn.setEnabled(False)
         articles_layout.addWidget(self.generate_btn, stretch=1)

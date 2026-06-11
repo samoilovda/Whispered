@@ -47,6 +47,7 @@ class Config:
     # UI preferences
     show_timestamps: bool = True
     show_speaker_labels: bool = True
+    ui_language: str = "en"
     
     def save(self) -> bool:
         """Save configuration to file."""

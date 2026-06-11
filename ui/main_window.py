@@ -9,7 +9,8 @@ from PyQt6.QtWidgets import (
     QPushButton, QProgressBar, QLabel, QFileDialog, QMessageBox,
     QApplication, QComboBox, QCheckBox, QTabWidget, QScrollArea, QFrame
 )
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QSettings
+from PyQt6.QtGui import QKeySequence, QShortcut
 
 from ui.file_selector import FileSelector
 from ui.transcript_view import TranscriptView
@@ -24,6 +25,9 @@ from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, detect_g
 from config import get_config, save_config
 from core.ai_worker import AIProcessingWorker
 from core.logger import get_logger
+from core.i18n import tr, set_language
+from ui.loading_spinner import LoadingSpinner
+from ui.progress_timeline import ProgressTimeline
 
 logger = get_logger(__name__)
 
@@ -37,6 +41,11 @@ class MainWindow(QMainWindow):
     
     def __init__(self):
         super().__init__()
+        
+        # Initialize localization
+        self.config = get_config()
+        set_language(self.config.ui_language)
+        
         self.transcriber = Transcriber()
         self._current_result: TranscriptionResult | None = None
         self._cleaned_text: str | None = None
@@ -46,6 +55,8 @@ class MainWindow(QMainWindow):
         self._use_gpu = True
         self._gpu_type, self._gpu_name = self.transcriber.gpu_type, self.transcriber.gpu_name
         self._setup_ui()
+        self._setup_shortcuts()
+        self._restore_state()
         self._connect_signals()
     
     def closeEvent(self, event):
@@ -81,7 +92,40 @@ class MainWindow(QMainWindow):
         cfg.pipeline_mode = 'book' if self.mode_combo.currentData() == 'book' else 'posts'
         save_config()
 
+        self._save_state()
+
         event.accept()
+    
+    def _setup_shortcuts(self):
+        """Set up global keyboard shortcuts."""
+        # Open: Ctrl+O
+        QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self.file_selector.browse_btn.click)
+        # Export: Ctrl+E
+        QShortcut(QKeySequence("Ctrl+E"), self).activated.connect(self._export_result)
+        # Copy: Ctrl+C (handled natively by text widgets usually, but we can hook it globally if we want)
+        # Actually, copy is handled by TranscriptView/ArticleView, but if we want a global fallback:
+        QShortcut(QKeySequence("Ctrl+C"), self).activated.connect(self._copy_to_clipboard)
+        # Quit: Ctrl+Q
+        QShortcut(QKeySequence("Ctrl+Q"), self).activated.connect(self.close)
+        
+    def _save_state(self):
+        """Save window geometry and state."""
+        settings = QSettings("Whispered", "App")
+        settings.setValue("geometry", self.saveGeometry())
+        settings.setValue("windowState", self.saveState())
+        if hasattr(self, "content_splitter"):
+            settings.setValue("splitterState", self.content_splitter.saveState())
+
+    def _restore_state(self):
+        """Restore window geometry and state."""
+        settings = QSettings("Whispered", "App")
+        if settings.value("geometry"):
+            self.restoreGeometry(settings.value("geometry"))
+        if settings.value("windowState"):
+            self.restoreState(settings.value("windowState"))
+        if hasattr(self, "content_splitter") and settings.value("splitterState"):
+            self.content_splitter.restoreState(settings.value("splitterState"))
+
     
     
     def _create_header_combo(self, items: list, width: int = 150) -> QComboBox:
@@ -201,11 +245,42 @@ class MainWindow(QMainWindow):
         self._update_device_badge()
         row1_layout.addWidget(self.device_btn)
         
+        row1_layout.addSpacing(8)
+        
+        # Settings toggle button
+        self.settings_btn = QPushButton(tr("Advanced Settings"))
+        self.settings_btn.setCheckable(True)
+        self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.settings_btn.setStyleSheet("""
+            QPushButton {
+                padding: 4px 12px; border-radius: 6px;
+                background-color: #2a2a2a; color: #e0e0e0;
+                border: 1px solid #3a3a3a; font-size: 13px;
+            }
+            QPushButton:hover { background-color: #3a3a3a; }
+            QPushButton:checked {
+                background-color: #3730a3; border: 1px solid #6366f1;
+            }
+        """)
+        self.settings_btn.clicked.connect(self._toggle_settings)
+        row1_layout.addWidget(self.settings_btn)
+        
         header_layout.addLayout(row1_layout)
         
         # Row 2: Settings (Model, Language, Mode, Diarization)
-        row2_layout = QHBoxLayout()
-        row2_layout.setContentsMargins(0, 0, 0, 0)
+        self.settings_widget = QWidget()
+        self.settings_widget.setVisible(False)
+        self.settings_widget.setStyleSheet("""
+            QWidget#SettingsWidget {
+                background-color: #1a1a1a;
+                border: 1px solid #333;
+                border-radius: 8px;
+            }
+        """)
+        self.settings_widget.setObjectName("SettingsWidget")
+        
+        row2_layout = QHBoxLayout(self.settings_widget)
+        row2_layout.setContentsMargins(12, 12, 12, 12)
         row2_layout.setSpacing(16)
         
         # Model selector
@@ -220,7 +295,7 @@ class MainWindow(QMainWindow):
         row2_layout.addSpacing(8)
         
         # Language selector
-        lang_label = QLabel("Language:")
+        lang_label = QLabel(tr("Language (Audio):"))
         lang_label.setStyleSheet("color: #888; font-size: 12px;")
         row2_layout.addWidget(lang_label)
         
@@ -228,7 +303,7 @@ class MainWindow(QMainWindow):
         row2_layout.addWidget(self.language_combo)
         
         # Translate checkbox
-        self.translate_checkbox = QCheckBox("→ EN")
+        self.translate_checkbox = QCheckBox(tr("→ EN"))
         self.translate_checkbox.setStyleSheet("color: #888; font-size: 11px;")
         self.translate_checkbox.setToolTip("Translate to English")
         row2_layout.addWidget(self.translate_checkbox)
@@ -253,26 +328,39 @@ class MainWindow(QMainWindow):
         row2_layout.addSpacing(8)
         
         # Diarization toggle
-        self.diarization_checkbox = QCheckBox("👥 Speakers")
+        self.diarization_checkbox = QCheckBox(tr("👥 Speakers"))
         self.diarization_checkbox.setStyleSheet("color: #888; font-size: 11px;")
         self.diarization_checkbox.setToolTip("Identify different speakers (requires setup)")
         self.diarization_checkbox.setChecked(get_config().diarization_enabled)
         row2_layout.addWidget(self.diarization_checkbox)
         
+        row2_layout.addSpacing(12)
+        
+        # UI Language selector
+        ui_lang_label = QLabel(tr("Language:"))
+        ui_lang_label.setStyleSheet("color: #888; font-size: 12px;")
+        row2_layout.addWidget(ui_lang_label)
+        
+        self.ui_lang_combo = self._create_header_combo([("en", "EN"), ("ru", "RU")], 60)
+        self.ui_lang_combo.setCurrentText("RU" if get_config().ui_language == "ru" else "EN")
+        self.ui_lang_combo.currentTextChanged.connect(self._on_ui_language_changed)
+        row2_layout.addWidget(self.ui_lang_combo)
+        
         row2_layout.addStretch()
         
-        header_layout.addLayout(row2_layout)
+        header_layout.addWidget(self.settings_widget)
         
         main_layout.addWidget(header)
         
         # ===== Main Content Area =====
-        content_splitter = QSplitter(Qt.Orientation.Horizontal)
-        content_splitter.setHandleWidth(1)
-        content_splitter.setStyleSheet("QSplitter::handle { background-color: #3a3a3a; }")
+        self.content_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.content_splitter.setHandleWidth(1)
+        self.content_splitter.setStyleSheet("QSplitter::handle { background-color: #3a3a3a; }")
         
-        # Left: File selector and AI Panel (Scrollable)
+        # Left: File selector and Batch Panel (Scrollable)
         left_scroll = QScrollArea()
         left_scroll.setWidgetResizable(True)
+        left_scroll.setMinimumWidth(240)
         left_scroll.setFrameShape(QFrame.Shape.NoFrame)
         left_scroll.setStyleSheet("QScrollArea { background-color: transparent; border: none; } QScrollArea > QWidget > QWidget { background: transparent; }")
         
@@ -285,7 +373,7 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.file_selector)
         
         # Export format checkboxes
-        export_label = QLabel("Export formats:")
+        export_label = QLabel(tr("Export formats:"))
         export_label.setStyleSheet("color: #888; font-size: 12px; font-weight: bold; margin-top: 8px;")
         left_layout.addWidget(export_label)
         
@@ -296,52 +384,37 @@ class MainWindow(QMainWindow):
             QCheckBox::indicator:checked { background: #6366f1; border-color: #6366f1; }
         """
         
-        self.format_txt = QCheckBox("Plain Text (.txt)")
+        self.format_txt = QCheckBox(tr("Plain Text (.txt)"))
         self.format_txt.setStyleSheet(checkbox_style)
         self.format_txt.setChecked(True)
         left_layout.addWidget(self.format_txt)
         
-        self.format_srt = QCheckBox("SRT (.srt)")
+        self.format_srt = QCheckBox(tr("SRT (.srt)"))
         self.format_srt.setStyleSheet(checkbox_style)
         left_layout.addWidget(self.format_srt)
         
-        self.format_vtt = QCheckBox("WebVTT (.vtt)")
+        self.format_vtt = QCheckBox(tr("WebVTT (.vtt)"))
         self.format_vtt.setStyleSheet(checkbox_style)
         left_layout.addWidget(self.format_vtt)
         
-        self.format_json = QCheckBox("JSON (.json)")
+        self.format_json = QCheckBox(tr("JSON (.json)"))
         self.format_json.setStyleSheet(checkbox_style)
         left_layout.addWidget(self.format_json)
 
-        self.format_md = QCheckBox("Markdown (.md)")
+        self.format_md = QCheckBox(tr("Markdown (.md)"))
         self.format_md.setStyleSheet(checkbox_style)
         left_layout.addWidget(self.format_md)
-        
-        # AI Processing Panel
-        self.ai_panel = AIProcessingPanel()
-        left_layout.addWidget(self.ai_panel)
-
-        # Batch Processing Panel (posts mode)
-        self.batch_panel = BatchPanel()
-        self.batch_panel.start_requested.connect(self._start_batch_processing)
-        left_layout.addWidget(self.batch_panel)
-
-        # Book Pipeline Panel
-        self.book_panel = BookPanel()
-        self.book_panel.run_single_requested.connect(self._on_book_run)
-        self.book_panel.cancel_requested.connect(self._cancel_operation)
-        left_layout.addWidget(self.book_panel)
 
         left_layout.addStretch()
         left_scroll.setWidget(left_panel)
         
-        content_splitter.addWidget(left_scroll)
+        self.content_splitter.addWidget(left_scroll)
         
-        # Right: Tabbed Content View
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(12, 0, 0, 0)
-        right_layout.setSpacing(0)
+        # Center: Tabbed Content View
+        center_panel = QWidget()
+        center_layout = QVBoxLayout(center_panel)
+        center_layout.setContentsMargins(12, 0, 12, 0)
+        center_layout.setSpacing(0)
         
         # Create tabbed view for different content types
         self.content_tabs = QTabWidget()
@@ -370,22 +443,56 @@ class MainWindow(QMainWindow):
         
         # Tab 1: Raw Transcription
         self.transcript_view = TranscriptView()
-        self.content_tabs.addTab(self.transcript_view, "📝 Transcript")
+        self.content_tabs.addTab(self.transcript_view, tr("📝 Transcript"))
         
         # Tab 2: Cleaned Text
         self.cleaned_view = CleanedTextView()
-        self.content_tabs.addTab(self.cleaned_view, "✨ Cleaned")
+        self.content_tabs.addTab(self.cleaned_view, tr("✨ Cleaned"))
         
         # Tab 3: Generated Articles
         self.article_view = ArticleView()
-        self.content_tabs.addTab(self.article_view, "📚 Articles")
+        self.article_view.regenerate_format_requested.connect(self._start_article_generation)
+        self.content_tabs.addTab(self.article_view, tr("📚 Articles"))
         
-        right_layout.addWidget(self.content_tabs)
+        center_layout.addWidget(self.content_tabs)
         
-        content_splitter.addWidget(right_panel)
-        content_splitter.setSizes([280, 720])
+        self.content_splitter.addWidget(center_panel)
         
-        main_layout.addWidget(content_splitter, stretch=1)
+        # Right: AI Processing and Book Pipeline Panel (Scrollable)
+        right_scroll = QScrollArea()
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setMinimumWidth(300)
+        right_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        right_scroll.setStyleSheet("QScrollArea { background-color: transparent; border: none; } QScrollArea > QWidget > QWidget { background: transparent; }")
+        
+        right_panel_inner = QWidget()
+        right_layout_inner = QVBoxLayout(right_panel_inner)
+        right_layout_inner.setContentsMargins(0, 0, 0, 0)
+        right_layout_inner.setSpacing(12)
+        
+        # AI Processing Panel
+        self.ai_panel = AIProcessingPanel()
+        right_layout_inner.addWidget(self.ai_panel)
+        
+        # Batch Processing Panel (posts mode)
+        self.batch_panel = BatchPanel()
+        self.batch_panel.start_requested.connect(self._start_batch_processing)
+        right_layout_inner.addWidget(self.batch_panel)
+        
+        # Book Pipeline Panel
+        self.book_panel = BookPanel()
+        self.book_panel.run_single_requested.connect(self._on_book_run)
+        self.book_panel.cancel_requested.connect(self._cancel_operation)
+        right_layout_inner.addWidget(self.book_panel)
+        
+        right_layout_inner.addStretch()
+        right_scroll.setWidget(right_panel_inner)
+        
+        self.content_splitter.addWidget(right_scroll)
+        
+        self.content_splitter.setSizes([260, 500, 320])
+        
+        main_layout.addWidget(self.content_splitter, stretch=1)
         
         # ===== Bottom Action Bar =====
         action_bar = QWidget()
@@ -399,19 +506,22 @@ class MainWindow(QMainWindow):
         status_layout.setContentsMargins(0, 0, 0, 0)
         status_layout.setSpacing(4)
         
+        status_top = QHBoxLayout()
+        status_top.setSpacing(8)
+        
+        self.loading_spinner = LoadingSpinner(size=14)
+        status_top.addWidget(self.loading_spinner)
+        
         self.status_label = QLabel("Ready")
         self.status_label.setStyleSheet("color: #888; font-size: 12px;")
-        status_layout.addWidget(self.status_label)
+        status_top.addWidget(self.status_label)
+        status_top.addStretch()
         
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar { border: none; border-radius: 3px; background-color: #2a2a2a; height: 4px; }
-            QProgressBar::chunk { background-color: #6366f1; border-radius: 3px; }
-        """)
-        self.progress_bar.setTextVisible(False)
-        self.progress_bar.setFixedHeight(4)
-        status_layout.addWidget(self.progress_bar)
+        status_layout.addLayout(status_top)
+        
+        self.progress_timeline = ProgressTimeline()
+        self.progress_timeline.setVisible(False)
+        status_layout.addWidget(self.progress_timeline)
         
         action_layout.addWidget(status_section, stretch=1)
         action_layout.addSpacing(16)
@@ -538,11 +648,26 @@ class MainWindow(QMainWindow):
         if is_book:
             self.book_panel.refresh_connection()
 
+    def _on_ui_language_changed(self, text: str):
+        """Handle UI language change."""
+        lang = "ru" if text == "RU" else "en"
+        config = get_config()
+        if config.ui_language != lang:
+            config.ui_language = lang
+            save_config()
+            QMessageBox.information(self, "Restart Required", "Please restart the application to apply the language change.")
+
+    def _toggle_settings(self, checked):
+        """Toggle the visibility of the advanced settings panel."""
+        self.settings_widget.setVisible(checked)
+
     def _on_file_selected(self, filepath: str):
         """Handle file selection."""
         self._source_filepath = filepath
         self.transcribe_btn.setEnabled(True)
         self.status_label.setText(f"Ready: {os.path.basename(filepath)}")
+        self.progress_timeline.setVisible(True)
+        self.progress_timeline.set_stage(0)
     
     def _start_transcription(self):
         """Start the transcription process."""
@@ -554,8 +679,9 @@ class MainWindow(QMainWindow):
         self.transcribe_btn.setEnabled(False)
         self.transcribe_btn.setVisible(False)
         self.cancel_btn.setVisible(True)
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setValue(0)
+        self.progress_timeline.setVisible(True)
+        self.progress_timeline.set_stage(2, 0) # Transcribe stage
+        self.loading_spinner.start()
         self.transcript_view.clear()
         self.cleaned_view.clear()
         self.article_view.clear()
@@ -629,7 +755,7 @@ class MainWindow(QMainWindow):
     
     def _on_progress(self, percentage: int, message: str):
         """Handle progress updates."""
-        self.progress_bar.setValue(percentage)
+        self.progress_timeline.set_progress(percentage)
         self.status_label.setText(message)
     
     def _on_finished(self, result: TranscriptionResult):
@@ -645,6 +771,7 @@ class MainWindow(QMainWindow):
 
         word_count = len(result.full_text.split())
         self.status_label.setText(f"Complete - {word_count} words")
+        self.progress_timeline.set_stage(3 if result.segments and any(s.speaker for s in result.segments) else 2, 100)
 
         # Switch to transcript tab
         self.content_tabs.setCurrentIndex(0)
@@ -653,6 +780,7 @@ class MainWindow(QMainWindow):
         """Handle transcription error."""
         self._reset_ui()
         self.status_label.setText(f"Error: {error_message[:50]}...")
+        self.progress_timeline.set_error(self.progress_timeline.current_stage)
         
         QMessageBox.critical(self, "Transcription Error", f"An error occurred:\n\n{error_message}")
     
@@ -661,7 +789,7 @@ class MainWindow(QMainWindow):
         self.transcribe_btn.setEnabled(self.file_selector.get_file() is not None)
         self.transcribe_btn.setVisible(True)
         self.cancel_btn.setVisible(False)
-        self.progress_bar.setVisible(False)
+        self.loading_spinner.stop()
     
     def _copy_to_clipboard(self):
         """Copy transcription to clipboard."""
@@ -695,6 +823,7 @@ class MainWindow(QMainWindow):
         format_keys = self._get_export_formats()
         source_file = self.file_selector.get_file() or "transcript"
         default_name = os.path.splitext(os.path.basename(source_file))[0]
+        desktop_dir = os.path.join(os.path.expanduser('~'), 'Desktop')
         
         if len(format_keys) == 1:
             # Single format
@@ -702,8 +831,10 @@ class MainWindow(QMainWindow):
             format_name, _ = EXPORT_FORMATS[format_key]
             ext = 'txt' if format_key in ('txt', 'txt_ts') else format_key
             
+            default_path = os.path.join(desktop_dir, f"{default_name}.{ext}")
+            
             filepath, _ = QFileDialog.getSaveFileName(
-                self, f"Export as {format_name}", f"{default_name}.{ext}",
+                self, "Export", default_path,
                 f"{format_name} (*.{ext});;All Files (*)"
             )
             
@@ -715,7 +846,7 @@ class MainWindow(QMainWindow):
                     QMessageBox.critical(self, "Export Error", str(e))
         else:
             # Multiple formats - directory
-            directory = QFileDialog.getExistingDirectory(self, "Select Export Directory")
+            directory = QFileDialog.getExistingDirectory(self, "Select Export Directory", desktop_dir)
             if directory:
                 count = 0
                 failed = []
@@ -760,6 +891,9 @@ class MainWindow(QMainWindow):
         self.ai_panel.set_processing(True)
         self.cancel_btn.setVisible(True)
         self.transcribe_btn.setVisible(False)
+        self.loading_spinner.start()
+        self.progress_timeline.setVisible(True)
+        self.progress_timeline.set_stage(4, 0) # Clean stage
         
         self._ai_worker = AIProcessingWorker("clean", self._current_result.full_text)
         self._ai_worker.progress.connect(self._on_ai_progress)
@@ -777,6 +911,9 @@ class MainWindow(QMainWindow):
         self.ai_panel.set_processing(True)
         self.cancel_btn.setVisible(True)
         self.transcribe_btn.setVisible(False)
+        self.loading_spinner.start()
+        self.progress_timeline.setVisible(True)
+        self.progress_timeline.set_stage(5, 0) # Generate stage
         
         self._ai_worker = AIProcessingWorker("generate", text, format=format_key)
         self._ai_worker.progress.connect(self._on_ai_progress)
@@ -794,6 +931,9 @@ class MainWindow(QMainWindow):
         self.ai_panel.set_processing(True)
         self.cancel_btn.setVisible(True)
         self.transcribe_btn.setVisible(False)
+        self.loading_spinner.start()
+        self.progress_timeline.setVisible(True)
+        self.progress_timeline.set_stage(5, 0) # Generate stage
         
         self._ai_worker = AIProcessingWorker("generate_all", text)
         self._ai_worker.progress.connect(self._on_ai_progress)
@@ -817,8 +957,10 @@ class MainWindow(QMainWindow):
         if isinstance(result, ProcessingResult):
             self._cleaned_text = result.coherent.text
             
+            original_text = self._current_result.full_text if self._current_result else ""
             self.cleaned_view.set_text(
-                result.coherent.text,
+                cleaned_text=self._cleaned_text,
+                original_text=original_text,
                 original_length=len(result.original),
                 removed_fillers=result.cleaned.removed_fillers,
                 paragraphs=len(result.coherent.paragraphs)

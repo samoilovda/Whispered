@@ -81,17 +81,42 @@ class BatchWorker(QThread):
         self.enable_diarization = enable_diarization
         self.num_speakers = num_speakers
         self._cancelled = False
+        self._paused = False
+        import threading
+        self._pause_event = threading.Event()
+        self._pause_event.set()
         self._transcriber = Transcriber()
         self._current_index = -1
+        
+        # Stats tracking for ETA
+        self.processed_count = 0
+        self.start_time = None
+        self.total_time_taken = 0.0
     
     def cancel(self):
         """Cancel the batch processing."""
         self._cancelled = True
+        self._pause_event.set()  # Unblock if paused
         self._transcriber.cancel()
+        
+    def pause(self):
+        self._paused = True
+        self._pause_event.clear()
+        
+    def resume(self):
+        self._paused = False
+        self._pause_event.set()
     
     def run(self):
         """Process all items in sequence."""
+        import time
+        self.start_time = time.time()
+        
         while not self._cancelled:
+            self._pause_event.wait()
+            if self._cancelled:
+                break
+                
             next_index = -1
             for i, item in enumerate(self.items):
                 if item.status == BatchStatus.PENDING:
@@ -179,6 +204,9 @@ class BatchWorker(QThread):
             item.status = BatchStatus.COMPLETE
             item.result = result_holder[0]
             item.progress = 100
+            self.processed_count += 1
+            import time
+            self.total_time_taken = time.time() - self.start_time
             self.item_finished.emit(index, result_holder[0])
 
 
@@ -232,6 +260,18 @@ class BatchProcessor(QObject):
     def is_processing(self) -> bool:
         """Check if batch is currently processing."""
         return self._worker is not None and self._worker.isRunning()
+        
+    @property
+    def is_paused(self) -> bool:
+        """Check if batch is currently paused."""
+        return self._worker is not None and self._worker._paused
+        
+    def get_eta_seconds(self) -> Optional[float]:
+        """Get estimated time remaining in seconds."""
+        if not self._worker or self._worker.processed_count == 0:
+            return None
+        avg_time = self._worker.total_time_taken / self._worker.processed_count
+        return avg_time * self.pending_count
     
     def add_file(self, filepath: str) -> bool:
         """Add a file to the batch queue."""
@@ -264,6 +304,15 @@ class BatchProcessor(QObject):
             return False
         
         self._items.pop(index)
+        return True
+        
+    def reorder_items(self, from_idx: int, to_idx: int) -> bool:
+        """Reorder an item in the queue."""
+        if from_idx < 0 or from_idx >= len(self._items) or to_idx < 0 or to_idx >= len(self._items):
+            return False
+            
+        item = self._items.pop(from_idx)
+        self._items.insert(to_idx, item)
         return True
     
     def clear(self):
@@ -318,6 +367,16 @@ class BatchProcessor(QObject):
         self._worker.batch_finished.connect(self._on_batch_finished)
         
         self._worker.start()
+        
+    def pause(self):
+        """Pause the batch processing."""
+        if self._worker:
+            self._worker.pause()
+            
+    def resume(self):
+        """Resume the batch processing."""
+        if self._worker:
+            self._worker.resume()
     
     def cancel(self):
         """Cancel the current batch processing."""

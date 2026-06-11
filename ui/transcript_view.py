@@ -5,7 +5,7 @@ Display transcription results with timestamps and speaker labels
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTextEdit, QLabel, QHBoxLayout,
-    QPushButton, QFrame
+    QPushButton, QFrame, QStackedLayout
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QTextCharFormat, QColor, QTextCursor
@@ -13,6 +13,7 @@ from PyQt6.QtGui import QFont, QTextCharFormat, QColor, QTextCursor
 from transcriber import TranscriptionResult
 from utils import format_timestamp_vtt
 from ui.icons import get_icon, IconColors
+from ui.empty_state import EmptyStateWidget
 
 
 # Speaker color palette
@@ -156,6 +157,15 @@ class TranscriptView(QWidget):
         
         layout.addWidget(header)
         
+        # Content stack
+        self.content_stack = QStackedLayout()
+        
+        self.empty_state = EmptyStateWidget(
+            icon_name='file',
+            message="No transcription yet.\n\nSelect an audio or video file and click 'Transcribe'."
+        )
+        self.content_stack.addWidget(self.empty_state)
+        
         # Text display
         self.text_edit = QTextEdit()
         self.text_edit.setReadOnly(True)
@@ -169,8 +179,10 @@ class TranscriptView(QWidget):
                 line-height: 1.6;
             }
         """)
-        self.text_edit.setPlaceholderText("Transcription will appear here...")
-        layout.addWidget(self.text_edit, stretch=1)
+        self.content_stack.addWidget(self.text_edit)
+        
+        layout.addLayout(self.content_stack, stretch=1)
+        self.content_stack.setCurrentIndex(0)
         
         # Stats bar
         self.stats_bar = QWidget()
@@ -270,6 +282,7 @@ class TranscriptView(QWidget):
         self._result = result
         self._update_display()
         self._set_buttons_enabled(True)
+        self.content_stack.setCurrentIndex(1)
         
         # Update stats
         word_count = len(result.full_text.split())
@@ -287,6 +300,7 @@ class TranscriptView(QWidget):
         self.text_edit.clear()
         self._set_buttons_enabled(False)
         self.stats_bar.setVisible(False)
+        self.content_stack.setCurrentIndex(0)
     
     def get_text(self) -> str:
         """Get the current display text."""

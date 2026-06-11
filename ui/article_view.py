@@ -6,7 +6,7 @@ Display and export generated articles with tabbed interface
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QTabBar,
     QTextEdit, QPushButton, QLabel, QFileDialog, QScrollArea,
-    QFrame, QApplication, QMessageBox
+    QFrame, QApplication, QMessageBox, QStackedLayout, QSplitter, QToolTip
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -15,6 +15,9 @@ from article_generator import (
     Article, ArticleFormat, ARTICLE_FORMAT_INFO,
     export_article_md, export_article_html, export_all_articles
 )
+from ui.empty_state import EmptyStateWidget
+from core.i18n import tr
+from .icons import IconLabel, get_icon, IconColors
 
 
 class ArticleTab(QWidget):
@@ -22,6 +25,7 @@ class ArticleTab(QWidget):
     
     copy_requested = pyqtSignal()
     export_requested = pyqtSignal()
+    regenerate_requested = pyqtSignal(str)
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -36,7 +40,7 @@ class ArticleTab(QWidget):
         # Title and stats row
         header = QHBoxLayout()
         
-        self.title_label = QLabel("No article")
+        self.title_label = QLabel(tr("No article"))
         self.title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #e0e0e0;")
         self.title_label.setWordWrap(True)
         header.addWidget(self.title_label, stretch=1)
@@ -47,13 +51,22 @@ class ArticleTab(QWidget):
         
         layout.addLayout(header)
         
+        # Content stack
+        self.content_stack = QStackedLayout()
+        
+        empty_container = QWidget()
+        empty_layout = QVBoxLayout(empty_container)
+        empty_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        empty_label = QLabel(tr("No article yet."))
+        empty_label.setStyleSheet("color: #666; font-size: 14px;")
+        empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_layout.addWidget(empty_label)
+        self.content_stack.addWidget(empty_container)
+        
         # Content area
         self.content_edit = QTextEdit()
         self.content_edit.setReadOnly(True)
-        self.content_edit.setPlaceholderText(
-            "No article yet.\n\nTranscribe a file, then use “Generate” in the "
-            "AI panel to create an article in this format."
-        )
         self.content_edit.setStyleSheet("""
             QTextEdit {
                 background-color: #1e1e1e;
@@ -66,60 +79,43 @@ class ArticleTab(QWidget):
             }
         """)
         self.content_edit.setFont(QFont("SF Mono", 12))
-        layout.addWidget(self.content_edit, stretch=1)
+        self.content_stack.addWidget(self.content_edit)
+        
+        layout.addLayout(self.content_stack, stretch=1)
+        self.content_stack.setCurrentIndex(0)
         
         # Action buttons
-        actions = QHBoxLayout()
-        actions.setSpacing(8)
+        self.toolbar = QHBoxLayout()
+        self.toolbar.setSpacing(8)
         
-        button_style = """
-            QPushButton {
-                background-color: #2a2a2a;
-                border: 1px solid #3a3a3a;
-                border-radius: 6px;
-                padding: 8px 16px;
-                color: #e0e0e0;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #3a3a3a;
-                border-color: #5a5a5a;
-            }
-            QPushButton:pressed {
-                background-color: #4a4a4a;
-            }
-            QPushButton:disabled {
-                background-color: #1a1a1a;
-                color: #555;
-            }
-        """
-        
-        self.copy_btn = QPushButton("📋 Copy")
-        self.copy_btn.setStyleSheet(button_style)
+        self.copy_btn = QPushButton(tr("📋 Copy"))
+        self.copy_btn.setStyleSheet("padding: 4px 8px;")
         self.copy_btn.clicked.connect(self._on_copy)
-        self.copy_btn.setEnabled(False)
-        actions.addWidget(self.copy_btn)
+        self.toolbar.addWidget(self.copy_btn)
         
-        self.export_md_btn = QPushButton("💾 Export .md")
-        self.export_md_btn.setStyleSheet(button_style)
+        self.export_md_btn = QPushButton(tr("💾 Export .md"))
+        self.export_md_btn.setStyleSheet("padding: 4px 8px;")
         self.export_md_btn.clicked.connect(lambda: self._on_export('md'))
-        self.export_md_btn.setEnabled(False)
-        actions.addWidget(self.export_md_btn)
+        self.toolbar.addWidget(self.export_md_btn)
         
-        self.export_html_btn = QPushButton("🌐 Export .html")
-        self.export_html_btn.setStyleSheet(button_style)
+        self.export_html_btn = QPushButton(tr("🌐 Export .html"))
+        self.export_html_btn.setStyleSheet("padding: 4px 8px;")
         self.export_html_btn.clicked.connect(lambda: self._on_export('html'))
-        self.export_html_btn.setEnabled(False)
-        actions.addWidget(self.export_html_btn)
+        self.toolbar.addWidget(self.export_html_btn)
         
-        actions.addStretch()
+        self.regenerate_btn = QPushButton(tr("🔄 Regenerate"))
+        self.regenerate_btn.setStyleSheet("padding: 4px 8px;")
+        self.regenerate_btn.clicked.connect(self._on_regenerate)
+        self.regenerate_btn.setEnabled(False)
+        self.toolbar.addWidget(self.regenerate_btn)
+        self.toolbar.addStretch()
         
         # Quality score
         self.score_label = QLabel("")
         self.score_label.setStyleSheet("color: #888; font-size: 11px;")
-        actions.addWidget(self.score_label)
+        self.toolbar.addWidget(self.score_label)
         
-        layout.addLayout(actions)
+        layout.addLayout(self.toolbar)
     
     def set_article(self, article: Article):
         """Set the article to display."""
@@ -132,15 +128,16 @@ class ArticleTab(QWidget):
         if article.quality_score > 0:
             self.score_label.setText(f"Quality: {article.quality_score:.1f}/10")
         
-        # Enable buttons
         self.copy_btn.setEnabled(True)
         self.export_md_btn.setEnabled(True)
         self.export_html_btn.setEnabled(True)
+        self.regenerate_btn.setEnabled(True)
+        self.content_stack.setCurrentIndex(1)
     
     def clear(self):
         """Clear the article display."""
         self._article = None
-        self.title_label.setText("No article")
+        self.title_label.setText(tr("No article"))
         self.content_edit.clear()
         self.stats_label.setText("")
         self.score_label.setText("")
@@ -148,6 +145,8 @@ class ArticleTab(QWidget):
         self.copy_btn.setEnabled(False)
         self.export_md_btn.setEnabled(False)
         self.export_html_btn.setEnabled(False)
+        self.regenerate_btn.setEnabled(False)
+        self.content_stack.setCurrentIndex(0)
     
     def get_article(self) -> Article | None:
         """Get the current article."""
@@ -156,9 +155,16 @@ class ArticleTab(QWidget):
     def _on_copy(self):
         """Copy article content to clipboard."""
         if self._article:
-            clipboard = QApplication.clipboard()
-            clipboard.setText(self._article.content)
+            QApplication.clipboard().setText(self._article.content)
+            # Show tooltip confirmation
+            pos = self.copy_btn.mapToGlobal(self.copy_btn.rect().bottomLeft())
+            QToolTip.showText(pos, tr("Copied to clipboard"), self.copy_btn)
             self.copy_requested.emit()
+            
+    def _on_regenerate(self):
+        """Request regeneration of just this format."""
+        if self._article:
+            self.regenerate_requested.emit(self._article.format.value)
     
     def _on_export(self, format: str):
         """Export article to file."""
@@ -168,30 +174,33 @@ class ArticleTab(QWidget):
         # Create safe filename
         safe_title = "".join(c if c.isalnum() or c in ' -_' else '_' for c in self._article.title)
         safe_title = safe_title[:50].strip()
+        desktop_dir = __import__('os').path.join(__import__('os').path.expanduser('~'), 'Desktop')
         
         if format == 'md':
+            default_path = __import__('os').path.join(desktop_dir, f"{safe_title}.md")
             filepath, _ = QFileDialog.getSaveFileName(
-                self, "Export Markdown", f"{safe_title}.md",
-                "Markdown Files (*.md);;All Files (*)"
+                self, tr("Export Markdown"), default_path,
+                tr("Markdown Files (*.md);;All Files (*)")
             )
             if filepath:
                 try:
                     export_article_md(self._article, filepath)
                     self.export_requested.emit()
                 except Exception as e:
-                    QMessageBox.critical(self, "Export Error", str(e))
+                    QMessageBox.critical(self, tr("Export Error"), str(e))
         
         elif format == 'html':
+            default_path = __import__('os').path.join(desktop_dir, f"{safe_title}.html")
             filepath, _ = QFileDialog.getSaveFileName(
-                self, "Export HTML", f"{safe_title}.html",
-                "HTML Files (*.html);;All Files (*)"
+                self, tr("Export HTML"), default_path,
+                tr("HTML Files (*.html);;All Files (*)")
             )
             if filepath:
                 try:
                     export_article_html(self._article, filepath)
                     self.export_requested.emit()
                 except Exception as e:
-                    QMessageBox.critical(self, "Export Error", str(e))
+                    QMessageBox.critical(self, tr("Export Error"), str(e))
 
 
 class ArticleView(QWidget):
@@ -199,6 +208,7 @@ class ArticleView(QWidget):
     
     copy_done = pyqtSignal()
     export_done = pyqtSignal(str)  # filename
+    regenerate_format_requested = pyqtSignal(str)
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -242,7 +252,8 @@ class ArticleView(QWidget):
             info = ARTICLE_FORMAT_INFO[fmt]
             tab = ArticleTab()
             tab.copy_requested.connect(lambda: self.copy_done.emit())
-            tab.export_requested.connect(lambda: self.export_done.emit("exported"))
+            tab.export_requested.connect(lambda: self.export_done.emit(tr("exported")))
+            tab.regenerate_requested.connect(self.regenerate_format_requested.emit)
             
             self.tabs.addTab(tab, f"{info['icon']} {info['name'].split()[1]}")
             self.format_tabs[fmt] = tab
@@ -254,7 +265,7 @@ class ArticleView(QWidget):
         export_all_layout.setContentsMargins(0, 8, 0, 0)
         export_all_layout.addStretch()
         
-        self.export_all_btn = QPushButton("📦 Export All to Folder")
+        self.export_all_btn = QPushButton(tr("📦 Export All to Folder"))
         self.export_all_btn.setStyleSheet("""
             QPushButton {
                 background-color: #6366f1;
@@ -327,14 +338,15 @@ class ArticleView(QWidget):
         if not self._articles:
             return
         
-        directory = QFileDialog.getExistingDirectory(self, "Select Export Folder")
+        desktop_dir = __import__('os').path.join(__import__('os').path.expanduser('~'), 'Desktop')
+        directory = QFileDialog.getExistingDirectory(self, tr("Select Export Folder"), desktop_dir)
         if directory:
             try:
                 articles = list(self._articles.values())
                 created_files = export_all_articles(articles, directory)
-                self.export_done.emit(f"Exported {len(created_files)} files")
+                self.export_done.emit(tr("Exported {} files").format(len(created_files)))
             except Exception as e:
-                QMessageBox.critical(self, "Export Error", str(e))
+                QMessageBox.critical(self, tr("Export Error"), str(e))
 
 
 class CleanedTextView(QWidget):
@@ -345,6 +357,7 @@ class CleanedTextView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._cleaned_text = ""
+        self._original_text = ""
         self._setup_ui()
     
     def _setup_ui(self):
@@ -355,7 +368,7 @@ class CleanedTextView(QWidget):
         # Stats row
         stats = QHBoxLayout()
         
-        self.stats_label = QLabel("No processed text")
+        self.stats_label = QLabel(tr("No processed text"))
         self.stats_label.setStyleSheet("color: #888; font-size: 12px;")
         stats.addWidget(self.stats_label)
         
@@ -367,9 +380,37 @@ class CleanedTextView(QWidget):
         
         layout.addLayout(stats)
         
-        # Content
+        # Content stack
+        self.content_stack = QStackedLayout()
+        
+        self.empty_state = EmptyStateWidget(
+            icon_name='file',
+            message="No cleaned text yet.\n\nTranscribe a file, then click 'Clean Text' in the AI panel."
+        )
+        self.content_stack.addWidget(self.empty_state)
+        
+        # Splitter for Original vs Cleaned Text
+        self.split_view = QSplitter(Qt.Orientation.Horizontal)
+        
+        # Original text view
+        self.original_edit = QTextEdit()
+        self.original_edit.setReadOnly(True)
+        self.original_edit.setStyleSheet("""
+            QTextEdit {
+                background-color: #1e1e1e;
+                border: 1px solid #3a3a3a;
+                border-radius: 8px;
+                padding: 12px;
+                color: #888;
+                font-size: 13px;
+                line-height: 1.6;
+            }
+        """)
+        self.split_view.addWidget(self.original_edit)
+        
+        # Cleaned text view
         self.content_edit = QTextEdit()
-        self.content_edit.setReadOnly(True)
+        self.content_edit.setReadOnly(False)
         self.content_edit.setStyleSheet("""
             QTextEdit {
                 background-color: #1e1e1e;
@@ -381,7 +422,12 @@ class CleanedTextView(QWidget):
                 line-height: 1.6;
             }
         """)
-        layout.addWidget(self.content_edit, stretch=1)
+        self.split_view.addWidget(self.content_edit)
+        
+        self.content_stack.addWidget(self.split_view)
+        
+        layout.addLayout(self.content_stack, stretch=1)
+        self.content_stack.setCurrentIndex(0)
         
         # Actions
         actions = QHBoxLayout()
@@ -411,14 +457,22 @@ class CleanedTextView(QWidget):
         self.copy_btn.setEnabled(False)
         actions.addWidget(self.copy_btn)
         
+        self.revert_btn = QPushButton("⏪ Revert to Original")
+        self.revert_btn.setStyleSheet(button_style)
+        self.revert_btn.clicked.connect(self._on_revert)
+        self.revert_btn.setEnabled(False)
+        actions.addWidget(self.revert_btn)
+        
         actions.addStretch()
         
         layout.addLayout(actions)
     
-    def set_text(self, cleaned_text: str, original_length: int = 0, 
+    def set_text(self, cleaned_text: str, original_text: str = "", original_length: int = 0, 
                  removed_fillers: int = 0, paragraphs: int = 0):
-        """Set the cleaned text with stats."""
+        """Set the cleaned text and original text with stats."""
         self._cleaned_text = cleaned_text
+        self._original_text = original_text
+        self.original_edit.setPlainText(original_text)
         self.content_edit.setPlainText(cleaned_text)
         
         # Update stats
@@ -432,18 +486,28 @@ class CleanedTextView(QWidget):
             )
         
         self.copy_btn.setEnabled(True)
+        self.revert_btn.setEnabled(True)
+        self.content_stack.setCurrentIndex(1)
     
     def clear(self):
         """Clear the view."""
         self._cleaned_text = ""
+        self._original_text = ""
+        self.original_edit.clear()
         self.content_edit.clear()
         self.stats_label.setText("No processed text")
         self.improvement_label.setText("")
         self.copy_btn.setEnabled(False)
+        self.revert_btn.setEnabled(False)
+        self.content_stack.setCurrentIndex(0)
     
     def get_text(self) -> str:
         """Get the cleaned text."""
-        return self._cleaned_text
+        return self.content_edit.toPlainText()
+        
+    def _on_revert(self):
+        """Revert edits to original text."""
+        self.content_edit.setPlainText(self._original_text)
     
     def _on_copy(self):
         """Copy cleaned text to clipboard."""

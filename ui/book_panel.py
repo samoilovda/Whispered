@@ -168,6 +168,13 @@ class BookPanel(QWidget):
         self.custom_prompt_browse.clicked.connect(self._browse_custom_prompt)
         cp_layout.addWidget(self.custom_prompt_edit, stretch=1)
         cp_layout.addWidget(self.custom_prompt_browse)
+        
+        self.custom_prompt_validation = QLabel("")
+        self.custom_prompt_validation.setStyleSheet("font-size: 14px;")
+        cp_layout.addWidget(self.custom_prompt_validation)
+        
+        self.custom_prompt_edit.textChanged.connect(self._validate_custom_prompt)
+        
         self.custom_prompt_row.setVisible(False)
         layout.addWidget(self.custom_prompt_row)
 
@@ -358,6 +365,28 @@ class BookPanel(QWidget):
         )
         if path:
             self.custom_prompt_edit.setText(path)
+            
+    def _validate_custom_prompt(self, text: str) -> None:
+        path = text.strip()
+        if not path:
+            self.custom_prompt_validation.setText("")
+            self.custom_prompt_validation.setToolTip("")
+            return
+            
+        if os.path.isfile(path):
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    chars = len(content)
+                    words = len(content.split())
+                    self.custom_prompt_validation.setText("✅")
+                    self.custom_prompt_validation.setToolTip(f"Файл найден: {words} слов, {chars} символов")
+            except Exception:
+                self.custom_prompt_validation.setText("⚠️")
+                self.custom_prompt_validation.setToolTip("Файл найден, но не читается")
+        else:
+            self.custom_prompt_validation.setText("❌")
+            self.custom_prompt_validation.setToolTip("Файл не найден")
 
     def _browse_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Выбрать папку с транскриптами")
