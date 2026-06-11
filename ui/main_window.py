@@ -70,9 +70,11 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'batch_panel') and self.batch_panel.processor.is_processing:
             self.batch_panel.cancel_processing()
 
-        # Cleanup book panel batch worker
-        if hasattr(self, 'book_panel') and self.book_panel._batch_worker:
-            self.book_panel._cancel_batch()
+        # Cleanup book panel batch worker and connection timer
+        if hasattr(self, 'book_panel'):
+            if self.book_panel._batch_worker:
+                self.book_panel._cancel_batch()
+            self.book_panel.cleanup()
 
         # Save current mode to config
         cfg = get_config()

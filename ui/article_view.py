@@ -50,6 +50,10 @@ class ArticleTab(QWidget):
         # Content area
         self.content_edit = QTextEdit()
         self.content_edit.setReadOnly(True)
+        self.content_edit.setPlaceholderText(
+            "No article yet.\n\nTranscribe a file, then use “Generate” in the "
+            "AI panel to create an article in this format."
+        )
         self.content_edit.setStyleSheet("""
             QTextEdit {
                 background-color: #1e1e1e;

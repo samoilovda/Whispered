@@ -5,13 +5,18 @@ Drag-and-drop file upload with format validation
 
 import os
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QPushButton, QFileDialog, QHBoxLayout
+    QWidget, QVBoxLayout, QLabel, QPushButton, QFileDialog, QHBoxLayout,
+    QMessageBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 
 from utils import is_supported_format, SUPPORTED_FORMATS, get_audio_duration, format_duration
 from ui.icons import IconLabel, get_icon, IconColors
+
+# Warn the user before transcribing very large media files (transcription of a
+# multi-GB file can take a long time / lots of memory).
+LARGE_FILE_WARN_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB
 
 
 class FileSelector(QWidget):
@@ -203,8 +208,38 @@ class FileSelector(QWidget):
         """Set the selected file."""
         # Verify file exists
         if not os.path.isfile(filepath):
+            QMessageBox.warning(self, "File Not Found",
+                                f"The file no longer exists:\n{filepath}")
             return
-        
+
+        # Validate format (the browse dialog allows "All Files", and a drop
+        # could slip through, so re-check here as the single gate).
+        if not is_supported_format(filepath):
+            supported = ', '.join(sorted(SUPPORTED_FORMATS))
+            QMessageBox.warning(
+                self, "Unsupported File",
+                f"'{os.path.basename(filepath)}' is not a supported media file.\n\n"
+                f"Supported formats: {supported}"
+            )
+            return
+
+        # Warn (but allow) on very large files.
+        try:
+            size = os.path.getsize(filepath)
+        except OSError:
+            size = 0
+        if size >= LARGE_FILE_WARN_BYTES:
+            gb = size / (1024 ** 3)
+            reply = QMessageBox.question(
+                self, "Large File",
+                f"This file is {gb:.1f} GB. Transcription may take a long time "
+                f"and use significant memory.\n\nContinue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
         self.selected_file = filepath
         
         # Update display

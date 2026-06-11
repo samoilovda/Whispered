@@ -7,7 +7,7 @@ import os
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QListWidget, QListWidgetItem, QProgressBar,
-    QFileDialog, QFrame, QAbstractItemView
+    QFileDialog, QFrame, QAbstractItemView, QMessageBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
@@ -311,7 +311,18 @@ class BatchPanel(QWidget):
         self._refresh_list()
     
     def _clear_queue(self):
-        """Clear all items from the queue."""
+        """Clear all items from the queue (with confirmation)."""
+        count = self.processor.count
+        if count == 0:
+            return
+        reply = QMessageBox.question(
+            self, "Clear Queue",
+            f"Remove all {count} file(s) from the batch queue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
         self.processor.clear()
         self._refresh_list()
     

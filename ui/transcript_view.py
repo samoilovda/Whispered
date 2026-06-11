@@ -105,6 +105,10 @@ class TranscriptView(QWidget):
             }
         """)
         self.speakers_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.speakers_btn.setToolTip(
+            "Toggle speaker labels. Available only when the transcript was "
+            "processed with speaker diarization enabled."
+        )
         self.speakers_btn.clicked.connect(self._toggle_speakers)
         self.speakers_btn.setVisible(False)  # Only show when diarization available
         header_layout.addWidget(self.speakers_btn)

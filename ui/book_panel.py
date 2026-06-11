@@ -296,6 +296,14 @@ class BookPanel(QWidget):
     # Private helpers
     # ------------------------------------------------------------------
 
+    def cleanup(self) -> None:
+        """Stop the connection-check timer and any in-flight checker thread."""
+        if getattr(self, '_conn_timer', None) is not None:
+            self._conn_timer.stop()
+        if self._checker is not None and self._checker.isRunning():
+            self._checker.quit()
+            self._checker.wait(2000)
+
     def _start_connection_check(self) -> None:
         # Delay the very first check by 1.5 s so the main window finishes
         # rendering and AIProcessingPanel's own startup check can complete

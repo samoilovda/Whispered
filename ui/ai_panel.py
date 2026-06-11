@@ -7,12 +7,55 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
     QLabel, QComboBox, QProgressBar, QFrame, QCheckBox
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QThread
 from PyQt6.QtGui import QFont
 
 from text_processor import TextProcessor
 from article_generator import ArticleGenerator, ArticleFormat, ARTICLE_FORMAT_INFO
 from lm_studio_manager import LMStudioManager
+
+
+# ============================================================================
+# Background workers (keep blocking network / CLI work off the UI thread)
+# ============================================================================
+
+class _ConnectionWorker(QThread):
+    """Probe LM Studio connection + loaded model name without blocking the UI."""
+    result = pyqtSignal(bool, str)  # (connected, model_name)
+
+    def __init__(self, processor: TextProcessor) -> None:
+        super().__init__()
+        self._processor = processor
+
+    def run(self) -> None:
+        connected = self._processor.is_available()
+        model = self._processor.get_model_name() if connected else ""
+        self.result.emit(connected, model or "")
+
+
+class _ModelLoadWorker(QThread):
+    """Load a model into LM Studio via its CLI (can take a while)."""
+    done = pyqtSignal(bool)
+
+    def __init__(self, manager: LMStudioManager, model_path: str) -> None:
+        super().__init__()
+        self._manager = manager
+        self._model_path = model_path
+
+    def run(self) -> None:
+        self.done.emit(self._manager.load_model(self._model_path, gpu="auto"))
+
+
+class _ServerStartWorker(QThread):
+    """Start the LM Studio local server (blocks until ready or timeout)."""
+    done = pyqtSignal(bool)
+
+    def __init__(self, manager: LMStudioManager) -> None:
+        super().__init__()
+        self._manager = manager
+
+    def run(self) -> None:
+        self.done.emit(self._manager.start_server(wait=True, timeout=30))
 
 
 class StatusIndicator(QWidget):
@@ -80,14 +123,21 @@ class AIProcessingPanel(QWidget):
         self._processing = False
         self._has_transcription = False
         self.check_timer = None  # Initialize timer reference
+        self._conn_worker = None  # in-flight connection probe
+        self._load_worker = None  # in-flight model load
+        self._server_worker = None  # in-flight server start
         self._setup_ui()
         self._start_connection_check()
         self._refresh_models()
-    
+
     def cleanup(self):
         """Stop timers and cleanup resources."""
         if self.check_timer:
             self.check_timer.stop()
+        for worker in (self._conn_worker, self._load_worker, self._server_worker):
+            if worker is not None and worker.isRunning():
+                worker.quit()
+                worker.wait(2000)
     
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -137,6 +187,11 @@ class AIProcessingPanel(QWidget):
         self.model_combo.currentIndexChanged.connect(self._on_model_selected)
         model_layout.addWidget(self.model_combo, stretch=1)
         
+        self.model_combo.setToolTip(
+            "Switch the model loaded in LM Studio. Shown only when the LM Studio "
+            "CLI is installed and the server is connected."
+        )
+
         self.model_row = QWidget()
         self.model_row.setLayout(model_layout)
         self.model_row.setVisible(False)  # Hidden until CLI available
@@ -156,6 +211,10 @@ class AIProcessingPanel(QWidget):
             QPushButton:hover { background-color: #818cf8; }
             QPushButton:disabled { background-color: #3a3a3a; color: #666; }
         """)
+        self.start_server_btn.setToolTip(
+            "LM Studio is installed but its local API server is not running. "
+            "Click to start it so AI cleaning and article generation become available."
+        )
         self.start_server_btn.clicked.connect(self._start_server)
         self.start_server_btn.setVisible(False)
         layout.addWidget(self.start_server_btn)
@@ -296,19 +355,28 @@ class AIProcessingPanel(QWidget):
         self.check_timer.start(10000)
     
     def _check_connection(self):
-        """Check LM Studio connection status."""
+        """Kick off an async LM Studio connection check (non-blocking)."""
         if self._processing:
             return  # Don't check while processing
-        
-        connected = self._processor.is_available()
-        model_name = self._processor.get_model_name() if connected else None
-        self.status_indicator.set_connected(connected, model_name)
-        
+        if self._conn_worker is not None and self._conn_worker.isRunning():
+            return  # a probe is already in flight
+
+        self._conn_worker = _ConnectionWorker(self._processor)
+        self._conn_worker.result.connect(self._on_connection_result)
+        self._conn_worker.finished.connect(
+            lambda: setattr(self, '_conn_worker', None)
+        )
+        self._conn_worker.start()
+
+    def _on_connection_result(self, connected: bool, model_name: str):
+        """Apply the result of an async connection probe to the UI."""
+        self.status_indicator.set_connected(connected, model_name or None)
+
         # Update UI based on connection and CLI availability
         cli_available = self._manager.is_cli_available()
         self.model_row.setVisible(cli_available and connected)
         self.start_server_btn.setVisible(cli_available and not connected)
-        
+
         # Update button states
         self._update_button_states()
     
@@ -351,14 +419,22 @@ class AIProcessingPanel(QWidget):
         # Load the selected model
         self.status_indicator.label.setText("Loading model...")
         self.status_indicator.label.setStyleSheet("color: #f59e0b; font-size: 11px;")
-        
-        # Use a timer to avoid blocking UI
-        QTimer.singleShot(100, lambda: self._load_model(model_path))
-    
+
+        self._load_model(model_path)
+
     def _load_model(self, model_path: str):
-        """Load a model in background."""
-        success = self._manager.load_model(model_path, gpu="auto")
-        
+        """Load a model on a background thread (CLI call can be slow)."""
+        if self._load_worker is not None and self._load_worker.isRunning():
+            return
+        self._load_worker = _ModelLoadWorker(self._manager, model_path)
+        self._load_worker.done.connect(self._on_model_loaded)
+        self._load_worker.finished.connect(
+            lambda: setattr(self, '_load_worker', None)
+        )
+        self._load_worker.start()
+
+    def _on_model_loaded(self, success: bool):
+        """Handle completion of an async model load."""
         if success:
             self._check_connection()
         else:
@@ -366,18 +442,23 @@ class AIProcessingPanel(QWidget):
             self.status_indicator.label.setStyleSheet("color: #ef4444; font-size: 11px;")
     
     def _start_server(self):
-        """Start LM Studio server."""
+        """Start LM Studio server on a background thread."""
+        if self._server_worker is not None and self._server_worker.isRunning():
+            return
         self.start_server_btn.setEnabled(False)
         self.start_server_btn.setText("Starting...")
-        
-        # Use timer to avoid blocking UI
-        QTimer.singleShot(100, self._do_start_server)
-    
-    def _do_start_server(self):
-        """Actually start the server."""
-        success = self._manager.start_server(wait=True, timeout=30)
-        
+
+        self._server_worker = _ServerStartWorker(self._manager)
+        self._server_worker.done.connect(self._on_server_started)
+        self._server_worker.finished.connect(
+            lambda: setattr(self, '_server_worker', None)
+        )
+        self._server_worker.start()
+
+    def _on_server_started(self, success: bool):
+        """Handle completion of an async server start."""
         if success:
+            self.start_server_btn.setText("▶ Start LM Studio Server")
             self._check_connection()
             self._refresh_models()
         else:
