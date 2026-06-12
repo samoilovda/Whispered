@@ -19,6 +19,7 @@ from ui.article_view import ArticleView, CleanedTextView
 from ui.batch_panel import BatchPanel
 from ui.book_panel import BookPanel
 from ui.icons import IconLabel, get_icon, IconColors
+from ui.player_widget import PlayerWidget, multimedia_available
 from transcriber import Transcriber, TranscriptionResult
 from exporters import export_result, EXPORT_FORMATS
 from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, detect_gpu, get_thread_count
@@ -297,11 +298,15 @@ class MainWindow(QMainWindow):
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(12, 0, 0, 0)
-        right_layout.setSpacing(0)
-        
+        right_layout.setSpacing(4)
+
+        # Audio player (hidden when multimedia backend unavailable)
+        self.player = PlayerWidget()
+        right_layout.addWidget(self.player)
+
         # Create tabbed view for different content types
         self.content_tabs = QTabWidget()
-        
+
         # Tab 1: Raw Transcription
         self.transcript_view = TranscriptView()
         self.content_tabs.addTab(self.transcript_view, "📝 Transcript")
@@ -384,6 +389,10 @@ class MainWindow(QMainWindow):
 
         # Apply initial mode visibility
         self._on_mode_changed(self.mode_combo.currentIndex())
+
+        # Player ↔ transcript sync
+        self.player.position_changed_sec.connect(self._on_player_position)
+        self.transcript_view.seek_requested.connect(self.player.seek_to)
 
         # Keyboard shortcut: Ctrl+, → settings
         settings_sc = QShortcut(QKeySequence("Ctrl+,"), self)
@@ -470,11 +479,16 @@ class MainWindow(QMainWindow):
         dlg = SettingsDialog(self)
         dlg.exec()
 
+    def _on_player_position(self, seconds: float):
+        """Forward player position to transcript highlight (throttled by player timer)."""
+        self.transcript_view.highlight_at(seconds)
+
     def _on_file_selected(self, filepath: str):
         """Handle file selection."""
         self._source_filepath = filepath
         self.transcribe_btn.setEnabled(True)
         self.status_label.setText(f"Ready: {os.path.basename(filepath)}")
+        self.player.load(filepath)
     
     def _start_transcription(self):
         """Start the transcription process."""

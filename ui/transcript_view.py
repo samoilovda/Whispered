@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTextEdit, QLabel, QHBoxLayout,
     QPushButton, QFrame
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QPoint
 from PyQt6.QtGui import QFont, QTextCharFormat, QColor, QTextCursor
 
 from transcriber import TranscriptionResult
@@ -29,16 +29,19 @@ SPEAKER_COLORS = {
 
 class TranscriptView(QWidget):
     """Widget to display transcription results."""
-    
-    # Signal emitted when copy button is clicked
+
     copy_requested = pyqtSignal()
     export_requested = pyqtSignal()
+    seek_requested = pyqtSignal(float)   # emitted when user clicks a segment timestamp
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self._result: TranscriptionResult | None = None
         self._show_timestamps = True
         self._show_speakers = True
+        # List of (start_sec, end_sec, block_position_in_document) for player sync
+        self._segment_positions: list[tuple[float, float, int]] = []
+        self._highlighted_block: int = -1   # block start position of current highlight
         self._setup_ui()
     
     def _setup_ui(self):
@@ -103,6 +106,8 @@ class TranscriptView(QWidget):
         self.text_edit.setReadOnly(True)
         self.text_edit.setFont(QFont("Monospace", 11))
         self.text_edit.setPlaceholderText("Transcription will appear here...")
+        # Override mouse press to enable seek-by-click
+        self.text_edit.mousePressEvent = self._on_transcript_click
         layout.addWidget(self.text_edit, stretch=1)
         
         # Stats bar
@@ -172,6 +177,8 @@ class TranscriptView(QWidget):
                 lines.append(seg.text.strip())
         
         self.text_edit.setText('\n'.join(lines))
+        self._highlighted_block = -1
+        self._build_segment_map()
     
     def _update_display_with_speakers(self):
         """Update display with colored speaker labels."""
@@ -197,6 +204,8 @@ class TranscriptView(QWidget):
         
         html = '<br>'.join(html_lines)
         self.text_edit.setHtml(html)
+        self._highlighted_block = -1
+        self._build_segment_map()
     
     def set_result(self, result: TranscriptionResult):
         """Set the transcription result to display."""
@@ -228,3 +237,87 @@ class TranscriptView(QWidget):
     def get_result(self) -> TranscriptionResult | None:
         """Get the current transcription result."""
         return self._result
+
+    # ------------------------------------------------------------------ player sync
+
+    def highlight_at(self, seconds: float):
+        """Highlight the segment that covers *seconds* (called by player ticker)."""
+        if not self._segment_positions or not self._result:
+            return
+
+        target_block = -1
+        for start, end, block_pos in self._segment_positions:
+            if start <= seconds < end:
+                target_block = block_pos
+                break
+
+        if target_block == self._highlighted_block:
+            return   # nothing changed
+
+        doc = self.text_edit.document()
+        cursor = self.text_edit.textCursor()
+
+        # Clear previous highlight
+        if self._highlighted_block >= 0:
+            prev_block = doc.findBlock(self._highlighted_block)
+            if prev_block.isValid():
+                fmt = QTextCharFormat()
+                fmt.setBackground(QColor("transparent"))
+                c = QTextCursor(prev_block)
+                c.select(QTextCursor.SelectionType.BlockUnderCursor)
+                c.mergeCharFormat(fmt)
+
+        # Apply new highlight
+        self._highlighted_block = target_block
+        if target_block >= 0:
+            block = doc.findBlock(target_block)
+            if block.isValid():
+                fmt = QTextCharFormat()
+                fmt.setBackground(QColor(99, 102, 241, 40))   # accent at ~16% opacity
+                c = QTextCursor(block)
+                c.select(QTextCursor.SelectionType.BlockUnderCursor)
+                c.mergeCharFormat(fmt)
+
+                # Auto-scroll if the block is not visible
+                self.text_edit.setTextCursor(QTextCursor(block))
+                self.text_edit.ensureCursorVisible()
+
+    def _on_transcript_click(self, event):
+        """Forward mouse-press to QTextEdit default handler, then check for seek."""
+        # Call original handler first
+        QTextEdit.mousePressEvent(self.text_edit, event)
+
+        # Determine which line was clicked
+        cursor = self.text_edit.cursorForPosition(event.pos())
+        block = cursor.block()
+        block_pos = block.position()
+
+        for start, _end, seg_block_pos in self._segment_positions:
+            if seg_block_pos == block_pos:
+                self.seek_requested.emit(start)
+                break
+
+    def _build_segment_map(self):
+        """Populate _segment_positions after rendering text."""
+        if not self._result:
+            self._segment_positions = []
+            return
+
+        self._segment_positions = []
+        doc = self.text_edit.document()
+        block = doc.begin()
+        seg_idx = 0
+        segments = self._result.segments
+
+        while block.isValid() and seg_idx < len(segments):
+            text = block.text()
+            seg = segments[seg_idx]
+            # Match by checking if the segment text fragment appears in this block
+            seg_fragment = seg.text.strip()[:20]
+            if seg_fragment and seg_fragment in text:
+                self._segment_positions.append((seg.start, seg.end, block.position()))
+                seg_idx += 1
+            elif not text.strip():
+                block = block.next()
+                continue
+            block = block.next()
