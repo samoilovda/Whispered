@@ -63,89 +63,35 @@ class TranscriptView(QWidget):
         self.timestamps_btn.setIcon(get_icon('clock', IconColors.DEFAULT, 14))
         self.timestamps_btn.setCheckable(True)
         self.timestamps_btn.setChecked(True)
-        self.timestamps_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                border: 1px solid #4a4a4a;
-                border-radius: 4px;
-                padding: 4px 12px;
-                color: #888;
-            }
-            QPushButton:checked {
-                border-color: #6366f1;
-                color: #6366f1;
-            }
-            QPushButton:hover {
-                background-color: rgba(99, 102, 241, 0.1);
-            }
-        """)
         self.timestamps_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.timestamps_btn.clicked.connect(self._toggle_timestamps)
         header_layout.addWidget(self.timestamps_btn)
-        
-        # Toggle speakers button
+
+        # Toggle speakers button — unique: checked color is green (#22c55e) not accent
         self.speakers_btn = QPushButton("Speakers")
         self.speakers_btn.setIcon(get_icon('user', IconColors.DEFAULT, 14))
         self.speakers_btn.setCheckable(True)
         self.speakers_btn.setChecked(True)
         self.speakers_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                border: 1px solid #4a4a4a;
-                border-radius: 4px;
-                padding: 4px 12px;
-                color: #888;
-            }
-            QPushButton:checked {
-                border-color: #22c55e;
-                color: #22c55e;
-            }
-            QPushButton:hover {
-                background-color: rgba(34, 197, 94, 0.1);
-            }
+            QPushButton:checkable:checked { border-color: #22c55e; color: #22c55e; }
+            QPushButton:checkable:hover { background-color: rgba(34, 197, 94, 0.1); }
         """)
         self.speakers_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.speakers_btn.clicked.connect(self._toggle_speakers)
-        self.speakers_btn.setVisible(False)  # Only show when diarization available
+        self.speakers_btn.setVisible(False)
         header_layout.addWidget(self.speakers_btn)
-        
-        # Copy button with vector icon
+
+        # Copy button
         self.copy_btn = QPushButton("Copy")
         self.copy_btn.setIcon(get_icon('clipboard', IconColors.DEFAULT, 14))
-        self.copy_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                border: 1px solid #4a4a4a;
-                border-radius: 4px;
-                padding: 4px 12px;
-                color: #888;
-            }
-            QPushButton:hover {
-                border-color: #6366f1;
-                color: #6366f1;
-                background-color: rgba(99, 102, 241, 0.1);
-            }
-        """)
         self.copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.copy_btn.clicked.connect(self.copy_requested.emit)
         header_layout.addWidget(self.copy_btn)
-        
-        # Export button with vector icon
+
+        # Export button
         self.export_btn = QPushButton("Export")
         self.export_btn.setIcon(get_icon('save', IconColors.WHITE, 14))
-        self.export_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #6366f1;
-                border: none;
-                border-radius: 4px;
-                padding: 4px 12px;
-                color: white;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818cf8;
-            }
-        """)
+        self.export_btn.setProperty("variant", "primary")
         self.export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.export_btn.clicked.connect(self.export_requested.emit)
         header_layout.addWidget(self.export_btn)
@@ -156,15 +102,6 @@ class TranscriptView(QWidget):
         self.text_edit = QTextEdit()
         self.text_edit.setReadOnly(True)
         self.text_edit.setFont(QFont("Monospace", 11))
-        self.text_edit.setStyleSheet("""
-            QTextEdit {
-                background-color: #1e1e1e;
-                border: 1px solid #3a3a3a;
-                border-radius: 8px;
-                padding: 12px;
-                line-height: 1.6;
-            }
-        """)
         self.text_edit.setPlaceholderText("Transcription will appear here...")
         layout.addWidget(self.text_edit, stretch=1)
         

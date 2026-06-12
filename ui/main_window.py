@@ -83,41 +83,6 @@ class MainWindow(QMainWindow):
         """Create a compact combo box for the header bar."""
         combo = QComboBox()
         combo.setFixedWidth(width)
-        combo.setStyleSheet("""
-            QComboBox {
-                padding: 6px 10px;
-                padding-right: 25px;
-                border: 1px solid #3a3a3a;
-                border-radius: 6px;
-                background-color: #2a2a2a;
-                color: #e0e0e0;
-                font-size: 12px;
-            }
-            QComboBox:hover {
-                border-color: #5a5a5a;
-            }
-            QComboBox::drop-down {
-                subcontrol-origin: padding;
-                subcontrol-position: center right;
-                width: 18px;
-                border: none;
-                background: transparent;
-            }
-            QComboBox::down-arrow {
-                width: 0;
-                height: 0;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 4px solid #888;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #2a2a2a;
-                border: 1px solid #3a3a3a;
-                selection-background-color: #6366f1;
-                color: #e0e0e0;
-                outline: none;
-            }
-        """)
         for item in items:
             if isinstance(item, tuple):
                 combo.addItem(item[1], item[0])
@@ -154,29 +119,18 @@ class MainWindow(QMainWindow):
         row1_layout.addWidget(logo)
         
         title = QLabel("Whispered")
-        title.setStyleSheet("font-size: 18px; font-weight: bold;")
+        title.setStyleSheet("font-size: 18px; font-weight: bold; background: transparent;")
         row1_layout.addWidget(title)
         
         row1_layout.addStretch()
         
         # Mode switcher: Posts / Book
         mode_label = QLabel("Режим:")
-        mode_label.setStyleSheet("color: #888; font-size: 12px;")
+        mode_label.setStyleSheet("color: #888888;")
         row1_layout.addWidget(mode_label)
 
         self.mode_combo = QComboBox()
         self.mode_combo.setFixedWidth(120)
-        self.mode_combo.setStyleSheet("""
-            QComboBox {
-                padding: 4px 8px; padding-right: 22px;
-                border: 1px solid #3a3a3a; border-radius: 6px;
-                background-color: #2a2a2a; color: #e0e0e0; font-size: 12px;
-            }
-            QComboBox:hover { border-color: #5a5a5a; }
-            QComboBox::drop-down { width: 16px; border: none; background: transparent; }
-            QComboBox::down-arrow { border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 4px solid #888; }
-            QComboBox QAbstractItemView { background-color: #2a2a2a; border: 1px solid #3a3a3a; selection-background-color: #6366f1; color: #e0e0e0; }
-        """)
         self.mode_combo.addItem("📝 Посты", "posts")
         self.mode_combo.addItem("📖 Книга", "book")
         # Restore saved mode
@@ -205,7 +159,7 @@ class MainWindow(QMainWindow):
         
         # Model selector
         model_label = QLabel("Model:")
-        model_label.setStyleSheet("color: #888; font-size: 12px;")
+        model_label.setStyleSheet("color: #888888;")
         row2_layout.addWidget(model_label)
         
         self.model_combo = self._create_header_combo(WHISPER_MODELS, 180)
@@ -216,7 +170,7 @@ class MainWindow(QMainWindow):
         
         # Language selector
         lang_label = QLabel("Language:")
-        lang_label.setStyleSheet("color: #888; font-size: 12px;")
+        lang_label.setStyleSheet("color: #888888;")
         row2_layout.addWidget(lang_label)
         
         self.language_combo = self._create_header_combo(WHISPER_LANGUAGES, 120)
@@ -224,7 +178,7 @@ class MainWindow(QMainWindow):
         
         # Translate checkbox
         self.translate_checkbox = QCheckBox("→ EN")
-        self.translate_checkbox.setStyleSheet("color: #888; font-size: 11px;")
+        self.translate_checkbox.setStyleSheet("")
         self.translate_checkbox.setToolTip("Translate to English")
         row2_layout.addWidget(self.translate_checkbox)
         
@@ -232,7 +186,7 @@ class MainWindow(QMainWindow):
         
         # Performance mode selector
         perf_label = QLabel("Mode:")
-        perf_label.setStyleSheet("color: #888; font-size: 12px;")
+        perf_label.setStyleSheet("color: #888888;")
         row2_layout.addWidget(perf_label)
         
         self.perf_combo = self._create_header_combo(
@@ -249,7 +203,7 @@ class MainWindow(QMainWindow):
         
         # Diarization toggle
         self.diarization_checkbox = QCheckBox("👥 Speakers")
-        self.diarization_checkbox.setStyleSheet("color: #888; font-size: 11px;")
+        self.diarization_checkbox.setStyleSheet("")
         self.diarization_checkbox.setToolTip("Identify different speakers (requires setup)")
         self.diarization_checkbox.setChecked(get_config().diarization_enabled)
         row2_layout.addWidget(self.diarization_checkbox)
@@ -263,13 +217,11 @@ class MainWindow(QMainWindow):
         # ===== Main Content Area =====
         content_splitter = QSplitter(Qt.Orientation.Horizontal)
         content_splitter.setHandleWidth(1)
-        content_splitter.setStyleSheet("QSplitter::handle { background-color: #3a3a3a; }")
         
         # Left: File selector and AI Panel (Scrollable)
         left_scroll = QScrollArea()
         left_scroll.setWidgetResizable(True)
         left_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        left_scroll.setStyleSheet("QScrollArea { background-color: transparent; border: none; } QScrollArea > QWidget > QWidget { background: transparent; }")
         
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
@@ -281,35 +233,23 @@ class MainWindow(QMainWindow):
         
         # Export format checkboxes
         export_label = QLabel("Export formats:")
-        export_label.setStyleSheet("color: #888; font-size: 12px; font-weight: bold; margin-top: 8px;")
+        export_label.setStyleSheet("font-weight: bold; margin-top: 8px;")
         left_layout.addWidget(export_label)
-        
-        checkbox_style = """
-            QCheckBox { color: #aaa; font-size: 11px; }
-            QCheckBox:checked { color: #e0e0e0; }
-            QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid #4a4a4a; border-radius: 3px; background: #2a2a2a; }
-            QCheckBox::indicator:checked { background: #6366f1; border-color: #6366f1; }
-        """
-        
+
         self.format_txt = QCheckBox("Plain Text (.txt)")
-        self.format_txt.setStyleSheet(checkbox_style)
         self.format_txt.setChecked(True)
         left_layout.addWidget(self.format_txt)
-        
+
         self.format_srt = QCheckBox("SRT (.srt)")
-        self.format_srt.setStyleSheet(checkbox_style)
         left_layout.addWidget(self.format_srt)
-        
+
         self.format_vtt = QCheckBox("WebVTT (.vtt)")
-        self.format_vtt.setStyleSheet(checkbox_style)
         left_layout.addWidget(self.format_vtt)
-        
+
         self.format_json = QCheckBox("JSON (.json)")
-        self.format_json.setStyleSheet(checkbox_style)
         left_layout.addWidget(self.format_json)
 
         self.format_md = QCheckBox("Markdown (.md)")
-        self.format_md.setStyleSheet(checkbox_style)
         left_layout.addWidget(self.format_md)
         
         # AI Processing Panel
@@ -340,28 +280,6 @@ class MainWindow(QMainWindow):
         
         # Create tabbed view for different content types
         self.content_tabs = QTabWidget()
-        self.content_tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: none;
-                background-color: transparent;
-            }
-            QTabBar::tab {
-                background-color: #2a2a2a;
-                color: #888;
-                padding: 10px 20px;
-                margin-right: 2px;
-                border-top-left-radius: 8px;
-                border-top-right-radius: 8px;
-                font-size: 12px;
-            }
-            QTabBar::tab:selected {
-                background-color: #3a3a3a;
-                color: #e0e0e0;
-            }
-            QTabBar::tab:hover {
-                background-color: #333;
-            }
-        """)
         
         # Tab 1: Raw Transcription
         self.transcript_view = TranscriptView()
@@ -395,15 +313,11 @@ class MainWindow(QMainWindow):
         status_layout.setSpacing(4)
         
         self.status_label = QLabel("Ready")
-        self.status_label.setStyleSheet("color: #888; font-size: 12px;")
+        self.status_label.setStyleSheet("color: #888888;")
         status_layout.addWidget(self.status_label)
         
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar { border: none; border-radius: 3px; background-color: #2a2a2a; height: 4px; }
-            QProgressBar::chunk { background-color: #6366f1; border-radius: 3px; }
-        """)
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setFixedHeight(4)
         status_layout.addWidget(self.progress_bar)
@@ -415,10 +329,7 @@ class MainWindow(QMainWindow):
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.setIcon(get_icon('close', IconColors.MUTED, 14))
         self.cancel_btn.setVisible(False)
-        self.cancel_btn.setStyleSheet("""
-            QPushButton { background: transparent; border: 1px solid #4a4a4a; border-radius: 6px; padding: 8px 16px; color: #888; font-weight: bold; }
-            QPushButton:hover { border-color: #f87171; color: #f87171; }
-        """)
+        self.cancel_btn.setProperty("variant", "danger")
         self.cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.cancel_btn.clicked.connect(self._cancel_operation)
         action_layout.addWidget(self.cancel_btn)
@@ -427,12 +338,7 @@ class MainWindow(QMainWindow):
         self.transcribe_btn = QPushButton("Transcribe")
         self.transcribe_btn.setIcon(get_icon('play', IconColors.WHITE, 14))
         self.transcribe_btn.setEnabled(False)
-        self.transcribe_btn.setStyleSheet("""
-            QPushButton { background-color: #6366f1; border: none; border-radius: 6px; padding: 10px 24px; color: white; font-weight: bold; font-size: 13px; }
-            QPushButton:hover { background-color: #818cf8; }
-            QPushButton:pressed { background-color: #4f46e5; }
-            QPushButton:disabled { background-color: #3a3a3a; color: #666; }
-        """)
+        self.transcribe_btn.setProperty("variant", "primary")
         self.transcribe_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.transcribe_btn.clicked.connect(self._start_transcription)
         action_layout.addWidget(self.transcribe_btn)

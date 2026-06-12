@@ -22,35 +22,6 @@ from core.logger import get_logger
 
 logger = get_logger(__name__)
 
-# ---------------------------------------------------------------------------
-# Shared styles
-# ---------------------------------------------------------------------------
-
-CHECKBOX_STYLE = """
-    QCheckBox { color: #ccc; font-size: 12px; spacing: 6px; }
-    QCheckBox:checked { color: #e0e0e0; }
-    QCheckBox::indicator { width: 15px; height: 15px; border: 1px solid #4a4a4a; border-radius: 3px; background: #2a2a2a; }
-    QCheckBox::indicator:checked { background: #6366f1; border-color: #6366f1; }
-"""
-
-BTN_SECONDARY = """
-    QPushButton {
-        background-color: #2d2d2d; border: 1px solid #404040;
-        border-radius: 6px; padding: 7px 12px; color: #e0e0e0; font-size: 12px;
-    }
-    QPushButton:hover { background-color: #3a3a3a; border-color: #5a5a5a; }
-    QPushButton:disabled { background-color: #1e1e1e; color: #555; border-color: #333; }
-"""
-
-BTN_PRIMARY = """
-    QPushButton {
-        background-color: #6366f1; border: none;
-        border-radius: 6px; padding: 9px 20px; color: white;
-        font-size: 13px; font-weight: bold;
-    }
-    QPushButton:hover { background-color: #818cf8; }
-    QPushButton:disabled { background-color: #3a3a3a; color: #666; }
-"""
 
 
 # ============================================================================
@@ -133,13 +104,13 @@ class BookPanel(QWidget):
         layout.addWidget(stages_label)
 
         self.chk_transcribe = QCheckBox("Транскрипция (whisper.cpp)")
-        self.chk_transcribe.setStyleSheet(CHECKBOX_STYLE)
+        self.chk_transcribe.setStyleSheet("")
         self.chk_transcribe.setChecked(True)
         self.chk_transcribe.setEnabled(False)  # always on — result comes from transcriber
         layout.addWidget(self.chk_transcribe)
 
         self.chk_unwrap = QCheckBox("Расшивка устной речи")
-        self.chk_unwrap.setStyleSheet(CHECKBOX_STYLE)
+        self.chk_unwrap.setStyleSheet("")
         self.chk_unwrap.setChecked(True)
         layout.addWidget(self.chk_unwrap)
 
@@ -147,7 +118,7 @@ class BookPanel(QWidget):
         custom_row = QHBoxLayout()
         custom_row.setSpacing(6)
         self.chk_custom = QCheckBox("Произвольный промпт из файла")
-        self.chk_custom.setStyleSheet(CHECKBOX_STYLE)
+        self.chk_custom.setStyleSheet("")
         self.chk_custom.toggled.connect(self._on_custom_toggled)
         custom_row.addWidget(self.chk_custom)
         layout.addLayout(custom_row)
@@ -158,13 +129,8 @@ class BookPanel(QWidget):
         cp_layout.setSpacing(4)
         self.custom_prompt_edit = QLineEdit()
         self.custom_prompt_edit.setPlaceholderText("путь к файлу промпта (.md / .txt)")
-        self.custom_prompt_edit.setStyleSheet(
-            "background: #1e1e1e; border: 1px solid #3a3a3a; border-radius: 4px; "
-            "color: #ccc; font-size: 11px; padding: 4px 6px;"
-        )
         self.custom_prompt_browse = QPushButton("…")
         self.custom_prompt_browse.setFixedSize(26, 26)
-        self.custom_prompt_browse.setStyleSheet(BTN_SECONDARY)
         self.custom_prompt_browse.clicked.connect(self._browse_custom_prompt)
         cp_layout.addWidget(self.custom_prompt_edit, stretch=1)
         cp_layout.addWidget(self.custom_prompt_browse)
@@ -174,10 +140,6 @@ class BookPanel(QWidget):
         # ----- Progress for single file -----
         self.single_progress = QProgressBar()
         self.single_progress.setVisible(False)
-        self.single_progress.setStyleSheet(
-            "QProgressBar { border: none; border-radius: 3px; background: #2a2a2a; height: 4px; }"
-            "QProgressBar::chunk { background: #6366f1; border-radius: 3px; }"
-        )
         self.single_progress.setTextVisible(False)
         self.single_progress.setFixedHeight(4)
         layout.addWidget(self.single_progress)
@@ -190,13 +152,12 @@ class BookPanel(QWidget):
         # ----- Run / Cancel buttons -----
         run_row = QHBoxLayout()
         self.run_btn = QPushButton("▶ Запустить")
-        self.run_btn.setStyleSheet(BTN_PRIMARY)
+        self.run_btn.setProperty("variant", "primary")
         self.run_btn.setEnabled(False)
         self.run_btn.clicked.connect(self._on_run_clicked)
         run_row.addWidget(self.run_btn)
 
         self.cancel_btn = QPushButton("Отмена")
-        self.cancel_btn.setStyleSheet(BTN_SECONDARY)
         self.cancel_btn.setVisible(False)
         self.cancel_btn.clicked.connect(self._on_cancel_clicked)
         run_row.addWidget(self.cancel_btn)
@@ -218,14 +179,9 @@ class BookPanel(QWidget):
         folder_row.setSpacing(4)
         self.folder_edit = QLineEdit()
         self.folder_edit.setPlaceholderText("папка с .md файлами транскриптов")
-        self.folder_edit.setStyleSheet(
-            "background: #1e1e1e; border: 1px solid #3a3a3a; border-radius: 4px; "
-            "color: #ccc; font-size: 11px; padding: 4px 6px;"
-        )
         self.folder_edit.textChanged.connect(self._on_folder_changed)
         self.folder_browse = QPushButton("…")
         self.folder_browse.setFixedSize(26, 26)
-        self.folder_browse.setStyleSheet(BTN_SECONDARY)
         self.folder_browse.clicked.connect(self._browse_folder)
         folder_row.addWidget(self.folder_edit, stretch=1)
         folder_row.addWidget(self.folder_browse)
@@ -239,10 +195,6 @@ class BookPanel(QWidget):
         # Batch progress
         self.batch_progress = QProgressBar()
         self.batch_progress.setVisible(False)
-        self.batch_progress.setStyleSheet(
-            "QProgressBar { border: none; border-radius: 3px; background: #2a2a2a; height: 6px; }"
-            "QProgressBar::chunk { background: #22c55e; border-radius: 3px; }"
-        )
         self.batch_progress.setTextVisible(False)
         self.batch_progress.setFixedHeight(6)
         layout.addWidget(self.batch_progress)
@@ -255,13 +207,12 @@ class BookPanel(QWidget):
         # Batch start / cancel
         batch_btn_row = QHBoxLayout()
         self.batch_start_btn = QPushButton("▶ Запустить все")
-        self.batch_start_btn.setStyleSheet(BTN_PRIMARY)
+        self.batch_start_btn.setProperty("variant", "primary")
         self.batch_start_btn.setEnabled(False)
         self.batch_start_btn.clicked.connect(self._start_batch)
         batch_btn_row.addWidget(self.batch_start_btn)
 
         self.batch_cancel_btn = QPushButton("Остановить")
-        self.batch_cancel_btn.setStyleSheet(BTN_SECONDARY)
         self.batch_cancel_btn.setVisible(False)
         self.batch_cancel_btn.clicked.connect(self._cancel_batch)
         batch_btn_row.addWidget(self.batch_cancel_btn)

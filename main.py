@@ -17,19 +17,19 @@ setup_logging()
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
-import qdarktheme
-
 from ui.main_window import MainWindow
+from ui.theme import apply_theme
+from config import get_config
 
 
 def main():
     # Enable high DPI scaling
     os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
-    
+
     app = QApplication(sys.argv)
     app.setApplicationName("Whispered")
     app.setApplicationDisplayName("Whispered")
-    
+
     # Set modern font
     font = QFont("Inter", 10)
     if not font.exactMatch():
@@ -37,17 +37,9 @@ def main():
     if not font.exactMatch():
         font = QFont("Sans Serif", 10)
     app.setFont(font)
-    
-    # Apply dark theme
-    qdarktheme.setup_theme(
-        theme="dark",
-        custom_colors={
-            "[dark]": {
-                "primary": "#6366f1",  # Indigo accent
-                "primary>button.hoverBackground": "#818cf8",
-            }
-        }
-    )
+
+    # Apply theme from config (falls back to qdarktheme on error)
+    apply_theme(app, get_config().theme)
     
     # Create and show main window
     window = MainWindow()

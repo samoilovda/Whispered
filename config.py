@@ -44,6 +44,7 @@ class Config:
     book_temperature: float = 0.3         # low temp for precision, not creativity
 
     # UI preferences
+    theme: str = "dark"
     show_timestamps: bool = True
     show_speaker_labels: bool = True
     

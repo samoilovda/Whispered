@@ -72,35 +72,13 @@ class BatchItemWidget(QWidget):
         self.progress_bar.setFixedWidth(80)
         self.progress_bar.setFixedHeight(8)
         self.progress_bar.setTextVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar { 
-                border: none; 
-                border-radius: 4px; 
-                background-color: #2a2a2a; 
-            }
-            QProgressBar::chunk { 
-                background-color: #6366f1; 
-                border-radius: 4px; 
-            }
-        """)
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
         
         # Remove button
         self.remove_btn = QPushButton("×")
         self.remove_btn.setFixedSize(20, 20)
-        self.remove_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                border: none;
-                color: #888;
-                font-size: 14px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                color: #ef4444;
-            }
-        """)
+        self.remove_btn.setProperty("variant", "danger")
         self.remove_btn.clicked.connect(lambda: self.remove_requested.emit(self.index))
         layout.addWidget(self.remove_btn)
     
@@ -170,20 +148,6 @@ class BatchPanel(QWidget):
         self.add_btn = QPushButton("+")
         self.add_btn.setFixedSize(24, 24)
         self.add_btn.setToolTip("Add files to queue")
-        self.add_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #2a2a2a;
-                border: 1px solid #3a3a3a;
-                border-radius: 4px;
-                color: #888;
-                font-size: 16px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #3a3a3a;
-                color: #e0e0e0;
-            }
-        """)
         self.add_btn.clicked.connect(self._add_files)
         header_layout.addWidget(self.add_btn)
         
@@ -192,72 +156,20 @@ class BatchPanel(QWidget):
         # File list
         self.file_list = QListWidget()
         self.file_list.setMaximumHeight(150)
-        self.file_list.setStyleSheet("""
-            QListWidget {
-                background-color: #1e1e1e;
-                border: 1px solid #3a3a3a;
-                border-radius: 6px;
-                padding: 4px;
-            }
-            QListWidget::item {
-                background: transparent;
-                border-radius: 4px;
-                padding: 2px;
-            }
-            QListWidget::item:selected {
-                background-color: #2a2a2a;
-            }
-        """)
         self.file_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         layout.addWidget(self.file_list)
         
         # Action buttons
-        button_style = """
-            QPushButton {
-                background-color: #2a2a2a;
-                border: 1px solid #3a3a3a;
-                border-radius: 6px;
-                padding: 6px 12px;
-                color: #e0e0e0;
-                font-size: 11px;
-            }
-            QPushButton:hover {
-                background-color: #3a3a3a;
-            }
-            QPushButton:disabled {
-                background-color: #1a1a1a;
-                color: #555;
-            }
-        """
-        
         actions_layout = QHBoxLayout()
         actions_layout.setSpacing(4)
-        
+
         self.start_btn = QPushButton("▶ Start All")
-        self.start_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #6366f1;
-                border: none;
-                border-radius: 6px;
-                padding: 6px 12px;
-                color: white;
-                font-size: 11px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818cf8;
-            }
-            QPushButton:disabled {
-                background-color: #3a3a3a;
-                color: #666;
-            }
-        """)
+        self.start_btn.setProperty("variant", "primary")
         self.start_btn.clicked.connect(self._start_batch)
         self.start_btn.setEnabled(False)
         actions_layout.addWidget(self.start_btn)
-        
+
         self.clear_btn = QPushButton("Clear")
-        self.clear_btn.setStyleSheet(button_style)
         self.clear_btn.clicked.connect(self._clear_queue)
         self.clear_btn.setEnabled(False)
         actions_layout.addWidget(self.clear_btn)
