@@ -52,6 +52,9 @@ class Config:
     theme: str = "dark"
     show_timestamps: bool = True
     show_speaker_labels: bool = True
+
+    # History / privacy
+    history_enabled: bool = True
     
     def save(self) -> bool:
         """Save configuration to file."""

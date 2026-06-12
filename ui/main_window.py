@@ -18,8 +18,9 @@ from ui.ai_panel import AIProcessingPanel
 from ui.article_view import ArticleView, CleanedTextView
 from ui.batch_panel import BatchPanel
 from ui.book_panel import BookPanel
+from ui.history_panel import HistoryPanel
 from ui.icons import IconLabel, get_icon, IconColors
-from ui.player_widget import PlayerWidget, multimedia_available
+from ui.player_widget import PlayerWidget
 from transcriber import Transcriber, TranscriptionResult
 from exporters import export_result, EXPORT_FORMATS
 from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, detect_gpu, get_thread_count
@@ -318,7 +319,11 @@ class MainWindow(QMainWindow):
         # Tab 3: Generated Articles
         self.article_view = ArticleView()
         self.content_tabs.addTab(self.article_view, "📚 Articles")
-        
+
+        # Tab 4: History
+        self.history_panel = HistoryPanel()
+        self.content_tabs.addTab(self.history_panel, "🕒 History")
+
         right_layout.addWidget(self.content_tabs)
         
         content_splitter.addWidget(right_panel)
@@ -393,6 +398,9 @@ class MainWindow(QMainWindow):
         # Player ↔ transcript sync
         self.player.position_changed_sec.connect(self._on_player_position)
         self.transcript_view.seek_requested.connect(self.player.seek_to)
+
+        # History panel
+        self.history_panel.open_record.connect(self._load_from_history)
 
         # Keyboard shortcut: Ctrl+, → settings
         settings_sc = QShortcut(QKeySequence("Ctrl+,"), self)
@@ -589,8 +597,70 @@ class MainWindow(QMainWindow):
         word_count = len(result.full_text.split())
         self.status_label.setText(f"Complete - {word_count} words")
 
+        # Auto-save to history
+        self._save_to_history(result)
+
         # Switch to transcript tab
         self.content_tabs.setCurrentIndex(0)
+
+    def _save_to_history(self, result: TranscriptionResult):
+        """Persist result to history (if enabled)."""
+        cfg = get_config()
+        if not getattr(cfg, "history_enabled", True):
+            return
+        try:
+            from core.history import get_history_store
+            model = self.model_combo.currentData() or ""
+            speaker_names = getattr(self.transcript_view, "_speaker_names", {})
+            get_history_store().add(
+                result,
+                source_path=self._source_filepath or "",
+                model=model,
+                speaker_names=speaker_names,
+            )
+            self.history_panel.refresh()
+        except Exception as e:
+            logger.warning("Failed to save history: %s", e)
+
+    def _load_from_history(self, record_id: int):
+        """Restore a TranscriptionResult from a history record."""
+        try:
+            from core.history import get_history_store
+            from transcriber import TranscriptionResult, Segment
+            payload = get_history_store().get(record_id)
+            if payload is None:
+                return
+
+            segments = [
+                Segment(
+                    start=s["start"],
+                    end=s["end"],
+                    text=s["text"],
+                    speaker=s.get("speaker"),
+                )
+                for s in payload.get("segments", [])
+            ]
+            result = TranscriptionResult(
+                segments=segments,
+                language=payload.get("language", ""),
+                duration=payload.get("duration", 0.0),
+            )
+            self._current_result = result
+            self.transcript_view.set_result(result)
+
+            # Restore speaker names
+            speaker_names = payload.get("speaker_names") or {}
+            if speaker_names:
+                self.transcript_view._speaker_names = speaker_names
+                self.transcript_view._update_display()
+
+            self.ai_panel.set_has_transcription(True)
+            self.book_panel.set_has_transcript(True)
+            word_count = len(result.full_text.split())
+            self.status_label.setText(f"Loaded from history – {word_count} words")
+            self.content_tabs.setCurrentIndex(0)
+        except Exception as e:
+            logger.warning("Failed to load history record %d: %s", record_id, e)
     
     def _on_error(self, error_message: str):
         """Handle transcription error."""
