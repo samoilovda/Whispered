@@ -43,6 +43,11 @@ class Config:
     book_model_name: str = ""             # empty = auto-detect
     book_temperature: float = 0.3         # low temp for precision, not creativity
 
+    # Transcription defaults (used by settings dialog)
+    default_model: str = "large-v3-turbo-q5_0"
+    default_language: str = "auto"
+    performance_mode: str = "balanced"
+
     # UI preferences
     theme: str = "dark"
     show_timestamps: bool = True

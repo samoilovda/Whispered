@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QApplication, QComboBox, QCheckBox, QTabWidget, QScrollArea, QFrame
 )
 from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import QKeySequence, QShortcut
 
 from ui.file_selector import FileSelector
 from ui.transcript_view import TranscriptView
@@ -163,7 +164,11 @@ class MainWindow(QMainWindow):
         row2_layout.addWidget(model_label)
         
         self.model_combo = self._create_header_combo(WHISPER_MODELS, 180)
-        self.model_combo.setCurrentIndex(6)  # Default to 'large-v3-turbo-q5_0'
+        cfg = get_config()
+        _model_idx = next(
+            (i for i, (k, _) in enumerate(WHISPER_MODELS) if k == cfg.default_model), 6
+        )
+        self.model_combo.setCurrentIndex(_model_idx)
         row2_layout.addWidget(self.model_combo)
         
         row2_layout.addSpacing(8)
@@ -174,6 +179,10 @@ class MainWindow(QMainWindow):
         row2_layout.addWidget(lang_label)
         
         self.language_combo = self._create_header_combo(WHISPER_LANGUAGES, 120)
+        _lang_idx = next(
+            (i for i, (k, _) in enumerate(WHISPER_LANGUAGES) if k == cfg.default_language), 0
+        )
+        self.language_combo.setCurrentIndex(_lang_idx)
         row2_layout.addWidget(self.language_combo)
         
         # Translate checkbox
@@ -192,7 +201,10 @@ class MainWindow(QMainWindow):
         self.perf_combo = self._create_header_combo(
             [(mode[0], mode[1]) for mode in PERFORMANCE_MODES], 145
         )
-        self.perf_combo.setCurrentIndex(1)  # Default to 'Balanced'
+        _perf_idx = next(
+            (i for i, (k, *_) in enumerate(PERFORMANCE_MODES) if k == cfg.performance_mode), 1
+        )
+        self.perf_combo.setCurrentIndex(_perf_idx)
         self.perf_combo.setToolTip("Energy vs Speed tradeoff\n\n"
             "🔋 Efficiency: Low CPU, saves battery\n"
             "⚡ Balanced: Moderate CPU usage\n"
@@ -209,6 +221,15 @@ class MainWindow(QMainWindow):
         row2_layout.addWidget(self.diarization_checkbox)
         
         row2_layout.addStretch()
+
+        # Settings button (⚙) — opens the settings dialog
+        self.settings_btn = QPushButton("⚙")
+        self.settings_btn.setToolTip("Settings  (Ctrl+,)")
+        self.settings_btn.setFixedSize(28, 28)
+        self.settings_btn.setProperty("variant", "ghost")
+        self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.settings_btn.clicked.connect(self._open_settings)
+        row2_layout.addWidget(self.settings_btn)
         
         header_layout.addLayout(row2_layout)
         
@@ -363,6 +384,10 @@ class MainWindow(QMainWindow):
 
         # Apply initial mode visibility
         self._on_mode_changed(self.mode_combo.currentIndex())
+
+        # Keyboard shortcut: Ctrl+, → settings
+        settings_sc = QShortcut(QKeySequence("Ctrl+,"), self)
+        settings_sc.activated.connect(self._open_settings)
     
     def _toggle_device(self):
         """Toggle between GPU and CPU mode."""
@@ -438,6 +463,12 @@ class MainWindow(QMainWindow):
         # (avoids waiting up to 10s for the next timer tick)
         if is_book:
             self.book_panel.refresh_connection()
+
+    def _open_settings(self):
+        """Open the Settings dialog."""
+        from ui.settings_dialog import SettingsDialog
+        dlg = SettingsDialog(self)
+        dlg.exec()
 
     def _on_file_selected(self, filepath: str):
         """Handle file selection."""
