@@ -31,9 +31,12 @@ jobs:
       - name: Syntax check (py_compile)
         run: |
           python -m py_compile \
-            main.py config.py utils.py exporters.py \
-            core/logger.py core/prompts.py \
-            ui/theme.py ui/icons.py ui/settings_dialog.py
+            main.py config.py utils.py exporters.py transcriber.py \
+            batch_processor.py \
+            core/logger.py core/prompts.py core/history.py \
+            ui/theme.py ui/icons.py ui/settings_dialog.py \
+            ui/transcript_view.py ui/main_window.py \
+            ui/player_widget.py ui/history_panel.py
 
       - name: Run unit tests
         run: python -m pytest tests/ -v

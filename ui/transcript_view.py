@@ -88,8 +88,15 @@ class TranscriptView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._result: Optional[TranscriptionResult] = None
-        self._show_timestamps = True
-        self._show_speakers = True
+        # Initial visibility comes from user settings.
+        try:
+            from config import get_config
+            _cfg = get_config()
+            self._show_timestamps = _cfg.show_timestamps
+            self._show_speakers = _cfg.show_speaker_labels
+        except Exception:
+            self._show_timestamps = True
+            self._show_speakers = True
         self._edit_mode = False
         # speaker_id → display name (e.g. {"Speaker 1": "Alice"})
         self._speaker_names: dict[str, str] = {}
@@ -120,7 +127,7 @@ class TranscriptView(QWidget):
         self.timestamps_btn = QPushButton("Timestamps")
         self.timestamps_btn.setIcon(get_icon('clock', IconColors.DEFAULT, 14))
         self.timestamps_btn.setCheckable(True)
-        self.timestamps_btn.setChecked(True)
+        self.timestamps_btn.setChecked(self._show_timestamps)
         self.timestamps_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.timestamps_btn.clicked.connect(self._toggle_timestamps)
         header_layout.addWidget(self.timestamps_btn)
@@ -129,7 +136,7 @@ class TranscriptView(QWidget):
         self.speakers_btn = QPushButton("Speakers")
         self.speakers_btn.setIcon(get_icon('user', IconColors.DEFAULT, 14))
         self.speakers_btn.setCheckable(True)
-        self.speakers_btn.setChecked(True)
+        self.speakers_btn.setChecked(self._show_speakers)
         self.speakers_btn.setStyleSheet(
             "QPushButton:checkable:checked { border-color: #22c55e; color: #22c55e; }"
             "QPushButton:checkable:hover { background-color: rgba(34, 197, 94, 0.1); }"
@@ -245,9 +252,12 @@ class TranscriptView(QWidget):
 
     def set_result(self, result: TranscriptionResult):
         self._result = result
-        # Build initial speaker_names from result (identity mapping)
+        # Seed speaker names, honouring any names already on the result
+        # (e.g. restored from history); default to identity mapping.
+        existing = getattr(result, "speaker_names", None) or {}
         speakers = sorted({seg.speaker for seg in result.segments if seg.speaker})
-        self._speaker_names = {s: s for s in speakers}
+        self._speaker_names = {s: existing.get(s, s) for s in speakers}
+        result.speaker_names = dict(self._speaker_names)
         self._update_display()
         self._set_buttons_enabled(True)
 
@@ -274,6 +284,20 @@ class TranscriptView(QWidget):
 
     def get_speaker_names(self) -> dict:
         return dict(self._speaker_names)
+
+    def apply_display_settings(self):
+        """Re-read show timestamps / speaker labels from config and refresh."""
+        try:
+            from config import get_config
+            cfg = get_config()
+        except Exception:
+            return
+        self._show_timestamps = cfg.show_timestamps
+        self._show_speakers = cfg.show_speaker_labels
+        self.timestamps_btn.setChecked(cfg.show_timestamps)
+        self.speakers_btn.setChecked(cfg.show_speaker_labels)
+        if self._result and not self._edit_mode:
+            self._update_display()
 
     # ------------------------------------------------------------------ display
 
@@ -437,6 +461,9 @@ class TranscriptView(QWidget):
         dlg = _SpeakerRenameDialog(self._speaker_names, self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._speaker_names = dlg.get_names()
+            # Propagate to the result so renames reach export / copy / history.
+            if self._result is not None:
+                self._result.speaker_names = dict(self._speaker_names)
             self._update_display()
 
     # ------------------------------------------------------------------ find & replace

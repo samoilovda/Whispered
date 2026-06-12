@@ -31,6 +31,7 @@ class _TranscriptionResult:
     segments: List[_Segment]
     language: str
     duration: float
+    speaker_names: dict = field(default_factory=dict)
 
     @property
     def full_text(self) -> str:
@@ -181,6 +182,56 @@ class TestExportMd:
         out = str(tmp_path / "out.md")
         export_md(_make_result(has_speakers=True), out)
         assert "Speaker" in open(out, encoding="utf-8").read()
+
+
+def _make_named_result() -> _TranscriptionResult:
+    """Result with speakers renamed via speaker_names."""
+    r = _make_result(has_speakers=True)
+    r.speaker_names = {"Speaker 1": "Alice", "Speaker 2": "Bob"}
+    return r
+
+
+class TestSpeakerNamesInExport:
+    def test_md_uses_display_name(self, tmp_path):
+        out = str(tmp_path / "out.md")
+        export_md(_make_named_result(), out)
+        content = open(out, encoding="utf-8").read()
+        assert "Alice" in content and "Bob" in content
+        assert "Speaker 1" not in content
+
+    def test_txt_ts_uses_display_name(self, tmp_path):
+        out = str(tmp_path / "out_ts.txt")
+        export_txt_with_timestamps(_make_named_result(), out)
+        content = open(out, encoding="utf-8").read()
+        assert "Alice:" in content
+        assert "Speaker 1" not in content
+
+    def test_srt_uses_display_name(self, tmp_path):
+        out = str(tmp_path / "out.srt")
+        export_srt(_make_named_result(), out)
+        content = open(out, encoding="utf-8").read()
+        assert "Alice:" in content
+
+    def test_vtt_voice_tag(self, tmp_path):
+        out = str(tmp_path / "out.vtt")
+        export_vtt(_make_named_result(), out)
+        content = open(out, encoding="utf-8").read()
+        assert "<v Alice>" in content
+
+    def test_json_includes_speaker_fields(self, tmp_path):
+        out = str(tmp_path / "out.json")
+        export_json(_make_named_result(), out)
+        data = json.load(open(out, encoding="utf-8"))
+        assert data["speaker_names"] == {"Speaker 1": "Alice", "Speaker 2": "Bob"}
+        seg0 = data["segments"][0]
+        assert seg0["speaker"] == "Alice"
+        assert seg0["speaker_id"] == "Speaker 1"
+
+    def test_no_speakers_no_prefix(self, tmp_path):
+        out = str(tmp_path / "out_ts.txt")
+        export_txt_with_timestamps(_make_result(has_speakers=False), out)
+        content = open(out, encoding="utf-8").read()
+        assert ":" not in content.split("]")[1].split("\n")[0]  # no "Name:" prefix
 
 
 class TestExportResult:

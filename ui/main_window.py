@@ -402,6 +402,9 @@ class MainWindow(QMainWindow):
         # History panel
         self.history_panel.open_record.connect(self._load_from_history)
 
+        # Auto-save each completed batch item to history
+        self.batch_panel.processor.item_finished.connect(self._on_batch_item_finished)
+
         # Keyboard shortcut: Ctrl+, → settings
         settings_sc = QShortcut(QKeySequence("Ctrl+,"), self)
         settings_sc.activated.connect(self._open_settings)
@@ -482,10 +485,30 @@ class MainWindow(QMainWindow):
             self.book_panel.refresh_connection()
 
     def _open_settings(self):
-        """Open the Settings dialog."""
+        """Open the Settings dialog and apply any changes to the live UI."""
         from ui.settings_dialog import SettingsDialog
         dlg = SettingsDialog(self)
         dlg.exec()
+        # Settings only persist on OK/Apply; re-seeding is a no-op on Cancel.
+        self._apply_config_defaults()
+        self.transcript_view.apply_display_settings()
+
+    def _apply_config_defaults(self):
+        """Re-seed header controls from the saved config (after settings change)."""
+        cfg = get_config()
+        idx = next((i for i, (k, _) in enumerate(WHISPER_MODELS)
+                    if k == cfg.default_model), None)
+        if idx is not None:
+            self.model_combo.setCurrentIndex(idx)
+        idx = next((i for i, (k, _) in enumerate(WHISPER_LANGUAGES)
+                    if k == cfg.default_language), None)
+        if idx is not None:
+            self.language_combo.setCurrentIndex(idx)
+        idx = next((i for i, (k, *_) in enumerate(PERFORMANCE_MODES)
+                    if k == cfg.performance_mode), None)
+        if idx is not None:
+            self.perf_combo.setCurrentIndex(idx)
+        self.diarization_checkbox.setChecked(cfg.diarization_enabled)
 
     def _on_player_position(self, seconds: float):
         """Forward player position to transcript highlight (throttled by player timer)."""
@@ -598,29 +621,46 @@ class MainWindow(QMainWindow):
         self.status_label.setText(f"Complete - {word_count} words")
 
         # Auto-save to history
-        self._save_to_history(result)
+        self._save_to_history(
+            result,
+            source_path=self._source_filepath or "",
+            model=self.model_combo.currentData() or "",
+            speaker_names=getattr(self.transcript_view, "_speaker_names", {}),
+        )
 
         # Switch to transcript tab
         self.content_tabs.setCurrentIndex(0)
 
-    def _save_to_history(self, result: TranscriptionResult):
-        """Persist result to history (if enabled)."""
+    def _save_to_history(self, result: TranscriptionResult, source_path: str,
+                         model: str, speaker_names: dict):
+        """Persist a result to history (if enabled)."""
         cfg = get_config()
         if not getattr(cfg, "history_enabled", True):
             return
         try:
             from core.history import get_history_store
-            model = self.model_combo.currentData() or ""
-            speaker_names = getattr(self.transcript_view, "_speaker_names", {})
             get_history_store().add(
                 result,
-                source_path=self._source_filepath or "",
+                source_path=source_path,
                 model=model,
-                speaker_names=speaker_names,
+                speaker_names=speaker_names or {},
             )
             self.history_panel.refresh()
         except Exception as e:
             logger.warning("Failed to save history: %s", e)
+
+    def _on_batch_item_finished(self, index: int, result):
+        """Persist each completed batch item to history."""
+        if result is None:
+            return
+        items = self.batch_panel.processor.items
+        source_path = items[index].filepath if 0 <= index < len(items) else ""
+        self._save_to_history(
+            result,
+            source_path=source_path,
+            model=self.model_combo.currentData() or "",
+            speaker_names=getattr(result, "speaker_names", {}) or {},
+        )
 
     def _load_from_history(self, record_id: int):
         """Restore a TranscriptionResult from a history record."""
@@ -644,15 +684,11 @@ class MainWindow(QMainWindow):
                 segments=segments,
                 language=payload.get("language", ""),
                 duration=payload.get("duration", 0.0),
+                speaker_names=payload.get("speaker_names") or {},
             )
             self._current_result = result
+            # set_result honours result.speaker_names, restoring renames.
             self.transcript_view.set_result(result)
-
-            # Restore speaker names
-            speaker_names = payload.get("speaker_names") or {}
-            if speaker_names:
-                self.transcript_view._speaker_names = speaker_names
-                self.transcript_view._update_display()
 
             self.ai_panel.set_has_transcription(True)
             self.book_panel.set_has_transcript(True)

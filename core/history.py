@@ -45,11 +45,13 @@ def _result_to_payload(result: Any, model: str = "", speaker_names: dict | None 
         }
         for seg in result.segments
     ]
+    # Prefer explicit names; fall back to whatever the result carries.
+    names = speaker_names or getattr(result, "speaker_names", None) or {}
     data = {
         "language": result.language,
         "duration": result.duration,
         "model": model,
-        "speaker_names": speaker_names or {},
+        "speaker_names": names,
         "segments": segments,
     }
     return json.dumps(data, ensure_ascii=False)
