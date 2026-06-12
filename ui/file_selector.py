@@ -64,6 +64,7 @@ class FileSelector(QWidget):
         # Browse button
         self.browse_btn = QPushButton("Browse Files")
         self.browse_btn.setProperty("variant", "primary")
+        self.browse_btn.setToolTip("Open file  (Ctrl+O)")
         self.browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.browse_btn.clicked.connect(self._browse_files)
         drop_layout.addWidget(self.browse_btn, alignment=Qt.AlignmentFlag.AlignCenter)

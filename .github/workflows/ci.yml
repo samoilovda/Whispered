@@ -36,7 +36,8 @@ jobs:
             core/logger.py core/prompts.py core/history.py \
             ui/theme.py ui/icons.py ui/settings_dialog.py \
             ui/transcript_view.py ui/main_window.py \
-            ui/player_widget.py ui/history_panel.py
+            ui/player_widget.py ui/history_panel.py \
+            ui/toast.py ui/file_selector.py
 
       - name: Run unit tests
         run: python -m pytest tests/ -v

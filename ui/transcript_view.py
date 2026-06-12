@@ -163,6 +163,7 @@ class TranscriptView(QWidget):
         # Copy
         self.copy_btn = QPushButton("Copy")
         self.copy_btn.setIcon(get_icon('clipboard', IconColors.DEFAULT, 14))
+        self.copy_btn.setToolTip("Copy transcript  (Ctrl+Shift+C)")
         self.copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.copy_btn.clicked.connect(self.copy_requested.emit)
         header_layout.addWidget(self.copy_btn)
@@ -171,6 +172,7 @@ class TranscriptView(QWidget):
         self.export_btn = QPushButton("Export")
         self.export_btn.setIcon(get_icon('save', IconColors.WHITE, 14))
         self.export_btn.setProperty("variant", "primary")
+        self.export_btn.setToolTip("Export transcript  (Ctrl+E)")
         self.export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.export_btn.clicked.connect(self.export_requested.emit)
         header_layout.addWidget(self.export_btn)

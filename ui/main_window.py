@@ -4,14 +4,16 @@ Main application window with compact header-bar layout and AI processing
 """
 
 import os
+import time
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QPushButton, QProgressBar, QLabel, QFileDialog, QMessageBox,
     QApplication, QComboBox, QCheckBox, QTabWidget, QScrollArea, QFrame
 )
 from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QKeySequence, QShortcut
+from PyQt6.QtGui import QKeySequence, QShortcut, QDragEnterEvent, QDropEvent
 
+from ui.toast import show_toast
 from ui.file_selector import FileSelector
 from ui.transcript_view import TranscriptView
 from ui.ai_panel import AIProcessingPanel
@@ -23,7 +25,7 @@ from ui.icons import IconLabel, get_icon, IconColors
 from ui.player_widget import PlayerWidget
 from transcriber import Transcriber, TranscriptionResult
 from exporters import export_result, EXPORT_FORMATS
-from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, detect_gpu, get_thread_count
+from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, detect_gpu, get_thread_count, is_supported_format
 from config import get_config, save_config
 from core.ai_worker import AIProcessingWorker
 from core.logger import get_logger
@@ -44,12 +46,14 @@ class MainWindow(QMainWindow):
         self._current_result: TranscriptionResult | None = None
         self._cleaned_text: str | None = None
         self._ai_worker: AIProcessingWorker | None = None
-        self._source_filepath: str | None = None   # track source for book pipeline naming
-        # Device toggle: True = use GPU (if available), False = force CPU
+        self._source_filepath: str | None = None
         self._use_gpu = True
         self._gpu_type, self._gpu_name = self.transcriber.gpu_type, self.transcriber.gpu_name
+        # ETA tracking
+        self._transcription_start: float = 0.0
         self._setup_ui()
         self._connect_signals()
+        self.setAcceptDrops(True)
     
     def closeEvent(self, event):
         """Handle window close - cleanup resources."""
@@ -370,6 +374,7 @@ class MainWindow(QMainWindow):
         self.transcribe_btn.setIcon(get_icon('play', IconColors.WHITE, 14))
         self.transcribe_btn.setEnabled(False)
         self.transcribe_btn.setProperty("variant", "primary")
+        self.transcribe_btn.setToolTip("Transcribe  (Ctrl+T)")
         self.transcribe_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.transcribe_btn.clicked.connect(self._start_transcription)
         action_layout.addWidget(self.transcribe_btn)
@@ -388,9 +393,9 @@ class MainWindow(QMainWindow):
         self.ai_panel.generate_all_requested.connect(self._start_generate_all)
 
         # Article view signals
-        self.article_view.copy_done.connect(lambda: self.status_label.setText("Copied to clipboard"))
-        self.article_view.export_done.connect(lambda msg: self.status_label.setText(msg))
-        self.cleaned_view.copy_requested.connect(lambda: self.status_label.setText("Copied to clipboard"))
+        self.article_view.copy_done.connect(lambda: show_toast(self, "Copied to clipboard", kind="success"))
+        self.article_view.export_done.connect(lambda msg: show_toast(self, msg, kind="success"))
+        self.cleaned_view.copy_requested.connect(lambda: show_toast(self, "Copied to clipboard", kind="success"))
 
         # Apply initial mode visibility
         self._on_mode_changed(self.mode_combo.currentIndex())
@@ -405,9 +410,18 @@ class MainWindow(QMainWindow):
         # Auto-save each completed batch item to history
         self.batch_panel.processor.item_finished.connect(self._on_batch_item_finished)
 
-        # Keyboard shortcut: Ctrl+, → settings
-        settings_sc = QShortcut(QKeySequence("Ctrl+,"), self)
-        settings_sc.activated.connect(self._open_settings)
+        # ── Keyboard shortcuts ────────────────────────────────────
+        def _sc(seq, slot):
+            s = QShortcut(QKeySequence(seq), self)
+            s.activated.connect(slot)
+
+        _sc("Ctrl+,",       self._open_settings)
+        _sc("Ctrl+O",       self.file_selector.browse_btn.click)
+        _sc("Ctrl+T",       self._start_transcription)
+        _sc("Ctrl+E",       self._export_result)
+        _sc("Ctrl+Shift+C", self._copy_to_clipboard)
+        # Space: play/pause only when focus is not inside a text input
+        _sc("Space",        self._space_play_pause)
     
     def _toggle_device(self):
         """Toggle between GPU and CPU mode."""
@@ -510,6 +524,71 @@ class MainWindow(QMainWindow):
             self.perf_combo.setCurrentIndex(idx)
         self.diarization_checkbox.setChecked(cfg.diarization_enabled)
 
+    # ------------------------------------------------------------------ drag & drop
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            if urls and urls[0].isLocalFile() and is_supported_format(urls[0].toLocalFile()):
+                event.acceptProposedAction()
+                self._show_drop_overlay(True)
+                return
+        event.ignore()
+
+    def dragLeaveEvent(self, event):
+        self._show_drop_overlay(False)
+
+    def dropEvent(self, event: QDropEvent):
+        self._show_drop_overlay(False)
+        if event.mimeData().hasUrls():
+            url = event.mimeData().urls()[0]
+            if url.isLocalFile():
+                filepath = url.toLocalFile()
+                if is_supported_format(filepath):
+                    self.file_selector._set_file(filepath)
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def _show_drop_overlay(self, visible: bool):
+        if not hasattr(self, "_drop_overlay"):
+            overlay = QLabel("Drop file to transcribe", self)
+            overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            overlay.setStyleSheet("""
+                QLabel {
+                    background-color: rgba(99, 102, 241, 0.18);
+                    border: 2px dashed #6366f1;
+                    border-radius: 12px;
+                    color: #6366f1;
+                    font-size: 20px;
+                    font-weight: bold;
+                }
+            """)
+            overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            self._drop_overlay = overlay
+        ov = self._drop_overlay
+        if visible:
+            ov.setGeometry(self.centralWidget().geometry())
+            ov.raise_()
+            ov.show()
+        else:
+            ov.hide()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "_drop_overlay") and self._drop_overlay.isVisible():
+            self._drop_overlay.setGeometry(self.centralWidget().geometry())
+
+    # ------------------------------------------------------------------ helpers
+
+    def _space_play_pause(self):
+        """Space play/pause — only fires when focus is not in a text field."""
+        focused = QApplication.focusWidget()
+        from PyQt6.QtWidgets import QTextEdit, QLineEdit, QPlainTextEdit
+        if isinstance(focused, (QTextEdit, QLineEdit, QPlainTextEdit)):
+            return
+        self.player.toggle_play()
+
     def _on_player_position(self, seconds: float):
         """Forward player position to transcript highlight (throttled by player timer)."""
         self.transcript_view.highlight_at(seconds)
@@ -553,6 +632,7 @@ class MainWindow(QMainWindow):
         # Get diarization settings
         enable_diarization = self.diarization_checkbox.isChecked()
         
+        self._transcription_start = time.monotonic()
         # Start transcription
         self.transcriber.transcribe(
             filepath=filepath,
@@ -602,9 +682,19 @@ class MainWindow(QMainWindow):
         )
     
     def _on_progress(self, percentage: int, message: str):
-        """Handle progress updates."""
+        """Handle progress updates with ETA calculation."""
         self.progress_bar.setValue(percentage)
-        self.status_label.setText(message)
+        if percentage > 5 and self._transcription_start > 0:
+            elapsed = time.monotonic() - self._transcription_start
+            eta_sec = (elapsed / percentage) * (100 - percentage)
+            eta_min, eta_s = divmod(int(eta_sec), 60)
+            if eta_min:
+                eta_str = f"~{eta_min}m {eta_s}s left"
+            else:
+                eta_str = f"~{eta_s}s left"
+            self.status_label.setText(f"{message}  ·  {eta_str}")
+        else:
+            self.status_label.setText(message)
     
     def _on_finished(self, result: TranscriptionResult):
         """Handle transcription completion."""
@@ -617,8 +707,10 @@ class MainWindow(QMainWindow):
         # Enable book panel (book mode)
         self.book_panel.set_has_transcript(True)
 
+        elapsed = time.monotonic() - self._transcription_start if self._transcription_start else 0
         word_count = len(result.full_text.split())
-        self.status_label.setText(f"Complete - {word_count} words")
+        self.status_label.setText(f"Complete — {word_count} words in {elapsed:.0f}s")
+        show_toast(self, f"Transcription complete — {word_count} words", kind="success")
 
         # Auto-save to history
         self._save_to_history(
@@ -718,7 +810,7 @@ class MainWindow(QMainWindow):
         if text:
             clipboard = QApplication.clipboard()
             clipboard.setText(text)
-            self.status_label.setText("Copied to clipboard")
+            show_toast(self, "Copied to clipboard", kind="success")
     
     def _get_export_formats(self) -> list[str]:
         """Get list of selected export formats."""
@@ -759,7 +851,7 @@ class MainWindow(QMainWindow):
             if filepath:
                 try:
                     export_result(result, filepath, format_key)
-                    self.status_label.setText(f"Exported: {os.path.basename(filepath)}")
+                    show_toast(self, f"Exported: {os.path.basename(filepath)}", kind="success")
                 except Exception as e:
                     QMessageBox.critical(self, "Export Error", str(e))
         else:
@@ -774,9 +866,9 @@ class MainWindow(QMainWindow):
                     try:
                         export_result(result, filepath, format_key)
                         count += 1
-                    except:
+                    except Exception:
                         pass
-                self.status_label.setText(f"Exported {count} files")
+                show_toast(self, f"Exported {count} files", kind="success")
     
     # ===== AI Processing Methods =====
     
