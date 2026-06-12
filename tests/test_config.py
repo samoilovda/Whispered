@@ -6,20 +6,21 @@ import types
 from pathlib import Path
 import pytest
 
-# Stub Qt and heavy core imports before config pulls them in through core/__init__
+# Stub Qt before config pulls it in through core/__init__
 for _mod in ("PyQt6", "PyQt6.QtCore", "PyQt6.QtWidgets", "PyQt6.QtGui"):
     sys.modules.setdefault(_mod, types.ModuleType(_mod))
 
-# Stub the Qt-dependent parts of core so config.py can import core.logger
-_core_stub = types.ModuleType("core")
-_core_stub.get_logger = lambda name: __import__("logging").getLogger(name)
-_core_stub.setup_logging = lambda *a, **k: None
-sys.modules.setdefault("core", _core_stub)
-sys.modules.setdefault("core.logger", types.ModuleType("core.logger"))
-sys.modules["core.logger"].get_logger = lambda name: __import__("logging").getLogger(name)
-sys.modules["core.logger"].setup_logging = lambda *a, **k: None
-sys.modules.setdefault("core.ai_worker", types.ModuleType("core.ai_worker"))
-sys.modules.setdefault("core.lm_client", types.ModuleType("core.lm_client"))
+# Stub only the Qt-dependent core submodules so the *real* core package and
+# core.logger still load. Replacing the whole `core` package with a plain
+# ModuleType would break sibling test modules that import e.g. core.history.
+_lm_stub = types.ModuleType("core.lm_client")
+_lm_stub.LMStudioClient = object
+_lm_stub.DEFAULT_LM_STUDIO_URL = "http://localhost:1234/v1"
+sys.modules.setdefault("core.lm_client", _lm_stub)
+
+_ai_stub = types.ModuleType("core.ai_worker")
+_ai_stub.AIProcessingWorker = object
+sys.modules.setdefault("core.ai_worker", _ai_stub)
 
 import config as config_module
 from config import Config

@@ -379,40 +379,55 @@ class TranscriptView(QWidget):
         self._update_display()
 
     def _parse_edited_text(self):
-        """Parse edited plaintext back into segment list."""
+        """Parse edited plaintext back into a fresh segment list.
+
+        Rebuilding (rather than mutating in place) keeps the result consistent
+        when the user adds, removes or splits lines: deleted lines drop their
+        segments and split lines create new ones, with no stale leftovers.
+        """
+        from transcriber import Segment
+
         lines = self.text_edit.toPlainText().splitlines()
-        segments = self._result.segments
-        seg_idx = 0
-        accumulated: list[str] = []
-        current_ts: Optional[float] = None
-        current_speaker: Optional[str] = None
-
-        def _flush():
-            nonlocal seg_idx
-            if current_ts is not None and seg_idx < len(segments):
-                segments[seg_idx].start = current_ts
-                segments[seg_idx].speaker = current_speaker
-                segments[seg_idx].text = ' '.join(accumulated).strip()
-                seg_idx += 1
-
+        # Collect (start, speaker, [text parts]) per timestamped line.
+        parsed: list[list] = []
         for line in lines:
             line = line.strip()
             if not line:
                 continue
             m = _EDIT_LINE_RE.match(line)
             if m:
-                _flush()
-                accumulated = [m.group(3)]
-                current_ts = _parse_vtt_to_seconds(m.group(1))
-                current_speaker = m.group(2) or None
+                parsed.append([
+                    _parse_vtt_to_seconds(m.group(1)),
+                    m.group(2) or None,
+                    [m.group(3)],
+                ])
+            elif parsed:
+                # continuation of the previous segment
+                parsed[-1][2].append(line)
+            # else: stray text before any timestamp → ignored
+
+        if not parsed:
+            return
+
+        orig = self._result.segments
+        new_segments: list = []
+        for i, (start, speaker, text_parts) in enumerate(parsed):
+            # End time: next segment's start, else preserve original / duration.
+            if i + 1 < len(parsed):
+                end = max(parsed[i + 1][0], start)
+            elif i < len(orig):
+                end = max(orig[i].end, start)
             else:
-                # continuation of previous segment
-                accumulated.append(line)
+                end = max(getattr(self._result, "duration", start), start)
+            new_segments.append(Segment(
+                start=start,
+                end=end,
+                text=' '.join(text_parts).strip(),
+                speaker=speaker,
+            ))
 
-        _flush()
-
-        # Rebuild full_text — TranscriptionResult.full_text is a property,
-        # so we patch the segments' text and it auto-updates.
+        # full_text is a property over segments, so export/AI/copy auto-update.
+        self._result.segments = new_segments
 
     # ------------------------------------------------------------------ speakers
 
