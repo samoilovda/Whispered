@@ -294,6 +294,12 @@ class MainWindow(QMainWindow):
 
         self.format_md = QCheckBox("Markdown (.md)")
         left_layout.addWidget(self.format_md)
+
+        self.format_html = QCheckBox("HTML (.html)")
+        left_layout.addWidget(self.format_html)
+
+        self.format_docx = QCheckBox("Word (.docx)")
+        left_layout.addWidget(self.format_docx)
         
         # AI Processing Panel
         self.ai_panel = AIProcessingPanel()
@@ -868,6 +874,10 @@ class MainWindow(QMainWindow):
             formats.append('json')
         if self.format_md.isChecked():
             formats.append('md')
+        if self.format_html.isChecked():
+            formats.append('html')
+        if self.format_docx.isChecked():
+            formats.append('docx')
         return formats if formats else ['txt']
     
     def _export_result(self):
@@ -885,7 +895,6 @@ class MainWindow(QMainWindow):
             format_key = format_keys[0]
             format_name, _ = EXPORT_FORMATS[format_key]
             ext = 'txt' if format_key in ('txt', 'txt_ts') else format_key
-            
             filepath, _ = QFileDialog.getSaveFileName(
                 self, f"Export as {format_name}", f"{default_name}.{ext}",
                 f"{format_name} (*.{ext});;All Files (*)"

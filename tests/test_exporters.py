@@ -55,6 +55,8 @@ from exporters import (   # noqa: E402  (after stub setup)
     export_vtt,
     export_json,
     export_md,
+    export_html,
+    export_docx,
     export_result,
     EXPORT_FORMATS,
 )
@@ -249,10 +251,64 @@ class TestSpeakerNamesInExport:
         assert ":" not in content.split("]")[1].split("\n")[0]  # no "Name:" prefix
 
 
+class TestExportHtml:
+    def test_creates_html_file(self, tmp_path):
+        out = str(tmp_path / "out.html")
+        export_html(_make_result(), out)
+        assert os.path.exists(out)
+
+    def test_html_contains_doctype(self, tmp_path):
+        out = str(tmp_path / "out.html")
+        export_html(_make_result(), out)
+        assert "<!DOCTYPE html>" in open(out, encoding="utf-8").read()
+
+    def test_html_contains_cyrillic(self, tmp_path):
+        out = str(tmp_path / "out.html")
+        export_html(_make_result(), out)
+        assert "Привет" in open(out, encoding="utf-8").read()
+
+    def test_html_speaker_bold(self, tmp_path):
+        out = str(tmp_path / "out.html")
+        export_html(_make_named_result(), out)
+        content = open(out, encoding="utf-8").read()
+        assert "<strong" in content
+        assert "Alice" in content
+
+
+class TestExportDocx:
+    def test_creates_docx_file(self, tmp_path):
+        out = str(tmp_path / "out.docx")
+        export_docx(_make_result(), out)
+        assert os.path.exists(out)
+        assert os.path.getsize(out) > 0
+
+    def test_docx_readable(self, tmp_path):
+        pytest.importorskip("docx")
+        import docx as docx_lib
+        out = str(tmp_path / "out.docx")
+        export_docx(_make_result(), out)
+        doc = docx_lib.Document(out)
+        full_text = "\n".join(p.text for p in doc.paragraphs)
+        assert "Привет" in full_text
+
+    def test_docx_speaker_names(self, tmp_path):
+        pytest.importorskip("docx")
+        import docx as docx_lib
+        out = str(tmp_path / "out.docx")
+        export_docx(_make_named_result(), out)
+        doc = docx_lib.Document(out)
+        full_text = "\n".join(p.text for p in doc.paragraphs)
+        assert "Alice" in full_text
+
+
 class TestExportResult:
     def test_all_format_keys(self, tmp_path):
         result = _make_result()
+        # PDF requires Qt display — skip in headless CI
+        skip_formats = {"pdf"}
         for key in EXPORT_FORMATS:
+            if key in skip_formats:
+                continue
             ext = "txt" if key in ("txt", "txt_ts") else key
             out = str(tmp_path / f"out_{key}.{ext}")
             export_result(result, out, key)
