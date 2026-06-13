@@ -27,6 +27,13 @@ from core.logger import get_logger
 
 logger = get_logger(__name__)
 
+try:
+    import numpy as np
+    _NUMPY_AVAILABLE = True
+except ImportError:
+    np = None  # type: ignore[assignment]
+    _NUMPY_AVAILABLE = False
+
 _SAMPLE_RATE = 16_000      # Whisper's native sample rate
 _CHANNELS = 1              # Mono
 _DTYPE = "int16"           # 16-bit PCM
@@ -36,7 +43,6 @@ _DATA_DIR = Path.home() / ".whisper-fedora" / "recordings"
 
 def _rms(block) -> float:
     """Root-mean-square of a numpy int16 block, normalised to [0, 1]."""
-    import numpy as np
     arr = block.astype("float32") / 32768.0
     return float(np.sqrt(np.mean(arr ** 2)))
 
@@ -194,8 +200,12 @@ class Recorder(QObject):
         if status:
             logger.debug("Audio stream status: %s", status)
         if not self._paused.is_set():
-            self._q.put(bytes(indata))
-            self.level_changed.emit(_rms(indata))
+            try:
+                self._q.put(bytes(indata))
+                if _NUMPY_AVAILABLE:
+                    self.level_changed.emit(_rms(indata))
+            except Exception as exc:
+                logger.debug("Audio callback error: %s", exc)
 
     def _writer(self):
         """Background thread: drains queue and writes to WAV."""
