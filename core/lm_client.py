@@ -58,6 +58,68 @@ class LMStudioClient:
             pass
         return None
 
+    def complete(
+        self,
+        messages: list[dict],
+        *,
+        stream: bool = True,
+        on_token: Optional[Callable[[str], None]] = None,
+        is_cancelled: Optional[Callable[[], bool]] = None,
+        temperature: float = DEFAULT_TEMPERATURE,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        timeout: int = DEFAULT_TIMEOUT,
+    ) -> Optional[str]:
+        """Unified chat completion.
+
+        Returns the full response text, ``""`` for a valid empty response,
+        or ``None`` on network error / cancellation.
+
+        Parameters
+        ----------
+        stream:       Use SSE streaming (default True).  Non-streaming blocks
+                      until the full response arrives; no token callbacks.
+        on_token:     Called for each SSE token when stream=True.
+        is_cancelled: Callable returning True when the caller wants to abort.
+                      Checked between SSE chunks (streaming) or before the
+                      request (non-streaming).
+        """
+        if stream:
+            return self.chat_completion_stream(
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                timeout=timeout,
+                on_token=on_token,
+                is_cancelled=is_cancelled,
+            )
+        # Non-streaming path — no ThreadPoolExecutor needed; cancellation is
+        # checked before sending since urllib has no mid-request abort.
+        if is_cancelled and is_cancelled():
+            return None
+        endpoint = f"{self.base_url}/chat/completions"
+        payload = {
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": False,
+        }
+        try:
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                endpoint,
+                data=data,
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                result = json.loads(response.read().decode("utf-8"))
+                return result["choices"][0]["message"]["content"]
+        except urllib.error.URLError as exc:
+            logger.debug("LM Studio connection error: %s", exc)
+            return None
+        except Exception as exc:
+            logger.warning("LM Studio API error: %s", exc)
+            return None
+
     def chat_completion(
         self,
         prompt: str,
@@ -66,74 +128,24 @@ class LMStudioClient:
         temperature: float = DEFAULT_TEMPERATURE,
         timeout: int = DEFAULT_TIMEOUT
     ) -> Optional[str]:
+        """Non-streaming chat completion (legacy interface).
+
+        Prefer ``complete()`` for new code.  Cancellation via the
+        ``self.is_cancelled`` attribute is supported for backwards
+        compatibility with callers that set it externally.
         """
-        Send a chat completion request to LM Studio.
-
-        Args:
-            prompt: The user prompt.
-            system_prompt: Optional system prompt for context.
-            max_tokens: Maximum tokens in response.
-            temperature: Sampling temperature (0-1).
-            timeout: Request timeout in seconds.
-
-        Returns:
-            The model's response text, or None on error.
-        """
-        endpoint = f"{self.base_url}/chat/completions"
-
         messages: list[dict] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
-
-        payload = {
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "stream": False
-        }
-
-        try:
-            data = json.dumps(payload).encode('utf-8')
-            req = urllib.request.Request(
-                endpoint,
-                data=data,
-                headers={'Content-Type': 'application/json'}
-            )
-
-            def do_request():
-                try:
-                    with urllib.request.urlopen(req, timeout=timeout) as response:
-                        result = json.loads(response.read().decode('utf-8'))
-                        return result['choices'][0]['message']['content']
-                except Exception as e:
-                    return e
-
-            if self.is_cancelled is None:
-                res = do_request()
-                if isinstance(res, Exception):
-                    raise res
-                return res
-
-            import concurrent.futures
-            import time
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(do_request)
-                while not future.done():
-                    if self.is_cancelled():
-                        return None
-                    time.sleep(0.1)
-                res = future.result()
-                if isinstance(res, Exception):
-                    raise res
-                return res
-
-        except urllib.error.URLError as e:
-            logger.debug("LM Studio connection error: %s", e)
-            return None
-        except Exception as e:
-            logger.warning("LM Studio API error: %s", e)
-            return None
+        return self.complete(
+            messages,
+            stream=False,
+            is_cancelled=self.is_cancelled,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+        )
 
     def chat_completion_stream(
         self,
