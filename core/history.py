@@ -93,7 +93,8 @@ def _payload_to_dict(payload: str) -> dict:
     """Deserialize stored JSON payload."""
     try:
         return json.loads(payload)
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to deserialize history payload: %s", exc)
         return {}
 
 
@@ -236,8 +237,8 @@ class HistoryStore:
                     conn.execute(
                         "INSERT INTO transcripts_fts(transcripts_fts) VALUES ('rebuild')"
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("FTS5 rebuild after clear failed (non-critical): %s", exc)
             return cur.rowcount
 
     def search(self, text: str, limit: int = 100) -> list[HistoryRecord]:

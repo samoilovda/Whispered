@@ -140,8 +140,8 @@ class Recorder(QObject):
             if self._wav is not None:
                 try:
                     self._wav.close()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("WAV close during stream-open failure: %s", exc)
                 self._wav = None
             self.error_occurred.emit(f"Cannot open audio device: {exc}")
             return
@@ -167,8 +167,8 @@ class Recorder(QObject):
             try:
                 self._stream.stop()
                 self._stream.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Audio stream close error: %s", exc)
             self._stream = None
 
         # Signal writer thread to finish

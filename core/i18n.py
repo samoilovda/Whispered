@@ -13,9 +13,12 @@ from __future__ import annotations
 
 import json
 import locale
+import logging
 import os
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 _LOCALE_DIR = Path(__file__).parent.parent / "locales"
 _SUPPORTED = {"en", "ru"}
@@ -33,8 +36,9 @@ def _detect_system_lang() -> str:
         lang, _ = locale.getlocale()
         if lang and lang.lower().startswith("ru"):
             return "ru"
-    except Exception:
-        pass
+    except Exception as exc:
+        # locale.getlocale() can raise on misconfigured systems; default to 'en'
+        logger.debug("locale detection failed: %s", exc)
     return "en"
 
 
@@ -57,7 +61,8 @@ def load_locale(lang: str = "auto") -> None:
         with open(path, encoding="utf-8") as f:
             _STRINGS = json.load(f)
         _CURRENT_LANG = lang
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to load locale file %s: %s", path, exc)
         _STRINGS = {}
         _CURRENT_LANG = "en"
 
@@ -71,8 +76,8 @@ def tr(key: str, **kwargs) -> str:
     if kwargs:
         try:
             text = text.format_map(kwargs)
-        except (KeyError, ValueError):
-            pass
+        except (KeyError, ValueError) as exc:
+            logger.debug("tr(%r) placeholder substitution failed: %s", key, exc)
     return text
 
 
