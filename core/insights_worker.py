@@ -103,6 +103,8 @@ class InsightsWorker(QThread):
             temperature=0.2,
         )
         if self._cancelled.is_set():
+            # Emit empty list so InsightsPanel can decrement _pending cleanly
+            self.finished.emit(self._type, [])
             return
         if raw is None:
             self.error_occurred.emit(

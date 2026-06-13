@@ -113,12 +113,11 @@ class Recorder(QObject):
 
         self._recording.set()
         self._paused.clear()
+        # Fresh queue — discard any stale sentinel from a previous stop() call
+        self._q = queue.Queue()
 
-        # Writer thread drains the queue and writes WAV frames
-        self._writer_thread = threading.Thread(target=self._writer, daemon=True)
-        self._writer_thread.start()
-
-        # Audio stream
+        # Open the audio stream BEFORE starting the writer thread so that a
+        # failed InputStream() doesn't leave an unkillable thread behind.
         try:
             self._stream = sd.InputStream(
                 device=device,
@@ -129,10 +128,21 @@ class Recorder(QObject):
                 callback=self._audio_callback,
             )
             self._stream.start()
-            logger.info("Recording started: %s", self._output_path)
         except Exception as exc:
             self._recording.clear()
+            if self._wav is not None:
+                try:
+                    self._wav.close()
+                except Exception:
+                    pass
+                self._wav = None
             self.error_occurred.emit(f"Cannot open audio device: {exc}")
+            return
+
+        # Writer thread — started only after the stream is confirmed open
+        self._writer_thread = threading.Thread(target=self._writer, daemon=True)
+        self._writer_thread.start()
+        logger.info("Recording started: %s", self._output_path)
 
     def pause(self) -> None:
         """Pause recording (frames are discarded while paused)."""

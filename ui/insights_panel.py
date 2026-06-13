@@ -208,7 +208,13 @@ class InsightsPanel(QWidget):
         for w in list(self._workers.values()):
             if w and w.isRunning():
                 w.cancel()
-                w.wait()
+                # Disconnect before waiting so stale signals don't fire after reset
+                try:
+                    w.finished.disconnect(self._on_finished)
+                    w.error_occurred.disconnect(self._on_error)
+                except RuntimeError:
+                    pass
+                w.wait(2000)  # 2 s timeout; thread finishes on its own if slow
         self._workers.clear()
         self._pending = 0
         self._placeholder.setText(tr("insights_placeholder"))
