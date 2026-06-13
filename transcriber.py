@@ -91,6 +91,22 @@ class TranscriptionResult:
 import multiprocessing as mp
 import queue
 
+def _build_initial_prompt(vocabulary: list[str]) -> Optional[str]:
+    """Build an initial-prompt string from a vocabulary list.
+
+    Whisper uses the prompt as prior context (~200 tokens max).
+    Terms are joined by comma-space; long lists are truncated.
+    """
+    if not vocabulary:
+        return None
+    # Roughly 4 chars/token; 200 tokens ≈ 800 chars
+    joined = ", ".join(t.strip() for t in vocabulary if t.strip())
+    if len(joined) > 800:
+        logger.warning("Custom vocabulary truncated to ~200 tokens for whisper prompt")
+        joined = joined[:800].rsplit(",", 1)[0]
+    return joined or None
+
+
 def _run_transcription_process(
     filepath: str,
     model_name: str,
@@ -99,7 +115,8 @@ def _run_transcription_process(
     n_threads: int,
     enable_diarization: bool,
     num_speakers: Optional[int],
-    q: mp.Queue
+    q: mp.Queue,
+    initial_prompt: Optional[str] = None,
 ):
     """Run transcription in a separate process to allow hard cancellation."""
     temp_wav_path = None
@@ -166,7 +183,12 @@ def _run_transcription_process(
         # Enable translation if requested
         if translate:
             params['translate'] = True
-            
+
+        # Custom vocabulary / initial prompt
+        if initial_prompt:
+            params['initial_prompt'] = initial_prompt
+            logger.info("Using initial prompt (%d chars): %.60s…", len(initial_prompt), initial_prompt)
+
         # Tweaks for improving transcription quality
         params['no_context'] = True  # Equivalent to condition_on_previous_text=False
         params['no_speech_thold'] = 0.6 # no_speech_threshold
@@ -278,6 +300,7 @@ class TranscriptionWorker(QThread):
         n_threads: int = 4,
         enable_diarization: bool = False,
         num_speakers: Optional[int] = None,
+        initial_prompt: Optional[str] = None,
         parent: Optional[QObject] = None
     ):
         super().__init__(parent)
@@ -288,6 +311,7 @@ class TranscriptionWorker(QThread):
         self.n_threads = n_threads
         self.enable_diarization = enable_diarization
         self.num_speakers = num_speakers
+        self.initial_prompt = initial_prompt
         self._cancelled = threading.Event()
         self._process = None
     
@@ -311,7 +335,8 @@ class TranscriptionWorker(QThread):
                 self.n_threads,
                 self.enable_diarization,
                 self.num_speakers,
-                q
+                q,
+                self.initial_prompt,
             )
         )
         self._process.start()
@@ -388,6 +413,7 @@ class Transcriber:
         n_threads: int = 4,
         enable_diarization: bool = False,
         num_speakers: Optional[int] = None,
+        initial_prompt: Optional[str] = None,
         on_progress: Optional[Callable[[int, str], None]] = None,
         on_finished: Optional[Callable[[TranscriptionResult], None]] = None,
         on_error: Optional[Callable[[str], None]] = None
@@ -445,7 +471,8 @@ class Transcriber:
             translate=translate,
             n_threads=n_threads,
             enable_diarization=enable_diarization,
-            num_speakers=num_speakers
+            num_speakers=num_speakers,
+            initial_prompt=initial_prompt,
         )
         
         # Connect signals

@@ -56,6 +56,9 @@ class Config:
     # UI language
     ui_language: str = "auto"   # "auto" | "en" | "ru"
 
+    # Custom vocabulary / initial prompt for whisper
+    custom_vocabulary: list = field(default_factory=list)   # list[str]
+
     # History / privacy
     history_enabled: bool = True
     

@@ -57,6 +57,8 @@
   "settings_history_enabled": "Save transcription history",
   "settings_clear_history": "Clear history…",
   "settings_ui_language": "Interface language:",
+  "settings_vocab": "Custom vocabulary:",
+  "settings_vocab_hint": "One term per line — proper names, abbreviations, domain terms…",
 
   "toast_copied": "Copied to clipboard",
   "toast_exported_one": "Exported: {name}",

@@ -31,6 +31,7 @@ from config import get_config, save_config
 from core.ai_worker import AIProcessingWorker
 from core.logger import get_logger
 from core.i18n import tr
+from transcriber import _build_initial_prompt
 
 logger = get_logger(__name__)
 
@@ -634,6 +635,9 @@ class MainWindow(QMainWindow):
         enable_diarization = self.diarization_checkbox.isChecked()
         
         self._transcription_start = time.monotonic()
+        # Build initial prompt from custom vocabulary
+        vocab = getattr(get_config(), "custom_vocabulary", []) or []
+        prompt = _build_initial_prompt(vocab) if vocab else None
         # Start transcription
         self.transcriber.transcribe(
             filepath=filepath,
@@ -643,6 +647,7 @@ class MainWindow(QMainWindow):
             n_threads=n_threads,
             enable_diarization=enable_diarization,
             num_speakers=None,  # Auto-detect
+            initial_prompt=prompt,
             on_progress=self._on_progress,
             on_finished=self._on_finished,
             on_error=self._on_error

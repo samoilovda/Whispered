@@ -57,6 +57,8 @@
   "settings_history_enabled": "Сохранять историю транскрипций",
   "settings_clear_history": "Очистить историю…",
   "settings_ui_language": "Язык интерфейса:",
+  "settings_vocab": "Пользовательский словарь:",
+  "settings_vocab_hint": "По одному термину на строку — имена, аббревиатуры, термины…",
 
   "toast_copied": "Скопировано в буфер",
   "toast_exported_one": "Экспортировано: {name}",

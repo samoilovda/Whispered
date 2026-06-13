@@ -98,6 +98,41 @@ class TestHistorySearch:
         records = store.search("xyzzy_not_found")
         assert len(records) == 0
 
+    def test_search_empty_string_returns_all(self, store):
+        result = _make_result()
+        store.add(result, "/tmp/audio.wav")
+        store.add(result, "/tmp/other.wav")
+        records = store.search("")
+        assert len(records) == 2
+
+    def test_search_by_filename(self, store):
+        result = _make_result()
+        store.add(result, "/tmp/meeting_notes.wav")
+        store.add(result, "/tmp/other.wav")
+        records = store.search("meeting_notes")
+        assert len(records) == 1
+        assert records[0].source_name == "meeting_notes.wav"
+
+    def test_search_returns_record_with_preview(self, store):
+        result = _make_result()
+        store.add(result, "/tmp/audio.wav")
+        records = store.search("Hello")
+        assert len(records) == 1
+        # preview should be populated
+        assert records[0].preview is not None
+
+    def test_fts_or_like_available(self, store):
+        # At minimum the store should report FTS availability
+        assert isinstance(store.fts_available, bool)
+
+    def test_search_cyrillic(self, store):
+        from types import SimpleNamespace
+        ru_segments = [SimpleNamespace(start=0.0, end=5.0, text="Привет мир", speaker=None)]
+        result = SimpleNamespace(segments=ru_segments, language="ru", duration=5.0)
+        store.add(result, "/tmp/ru_audio.wav")
+        records = store.search("Привет")
+        assert len(records) == 1
+
 
 class TestSpeakerNames:
     def test_speaker_names_round_trip(self, store):

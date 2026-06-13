@@ -6,6 +6,7 @@ Browse, open and delete past transcription results.
 from __future__ import annotations
 
 import math
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -37,6 +38,20 @@ def _fmt_date(iso: str) -> str:
         return dt.strftime("%d %b %Y, %H:%M")
     except Exception:
         return iso
+
+
+_JSON_KEY_RE = re.compile(r'"[^"]+"\s*:\s*')
+
+
+def _clean_snippet(raw: str) -> str:
+    """Strip JSON structure from an FTS5 snippet to produce readable text."""
+    # Remove JSON key-value punctuation like "text": "
+    text = _JSON_KEY_RE.sub("", raw)
+    # Remove leftover JSON delimiters
+    text = re.sub(r'[\[{}\],"]', " ", text)
+    # Collapse whitespace
+    text = " ".join(text.split())
+    return text
 
 
 class HistoryPanel(QWidget):
@@ -124,6 +139,7 @@ class HistoryPanel(QWidget):
 
     def _populate(self):
         self._list.clear()
+        is_search = bool(self._search_edit.text().strip())
         for rec in self._records:
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, rec.id)
@@ -133,7 +149,15 @@ class HistoryPanel(QWidget):
             dur = _fmt_duration(rec.duration)
             lang = rec.language.upper() if rec.language else "?"
 
-            item.setText(f"{name}\n{date}  ·  {dur}  ·  {lang}")
+            meta = f"{date}  ·  {dur}  ·  {lang}"
+            if is_search and rec.preview:
+                snippet = _clean_snippet(rec.preview)
+                if snippet:
+                    item.setText(f"{name}\n{meta}\n{snippet}")
+                else:
+                    item.setText(f"{name}\n{meta}")
+            else:
+                item.setText(f"{name}\n{meta}")
             item.setFont(QFont("Sans", 10))
             self._list.addItem(item)
 

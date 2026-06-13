@@ -1,6 +1,7 @@
 """
 Whispered – Transcription History Store
 SQLite-backed persistence for past transcription results.
+FTS5 full-text search with unicode61 tokeniser (Cyrillic-aware).
 """
 
 from __future__ import annotations
@@ -31,6 +32,37 @@ CREATE TABLE IF NOT EXISTS transcripts (
     json_payload TEXT   NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_transcripts_created ON transcripts(created_at DESC);
+"""
+
+# FTS5 schema — created separately so failures (no FTS5 compile) are handled gracefully.
+_CREATE_FTS_SQL = """
+CREATE VIRTUAL TABLE IF NOT EXISTS transcripts_fts USING fts5(
+    source_name,
+    json_payload,
+    content=transcripts,
+    content_rowid=id,
+    tokenize="unicode61"
+);
+
+CREATE TRIGGER IF NOT EXISTS transcripts_fts_ai
+AFTER INSERT ON transcripts BEGIN
+    INSERT INTO transcripts_fts(rowid, source_name, json_payload)
+    VALUES (new.id, new.source_name, new.json_payload);
+END;
+
+CREATE TRIGGER IF NOT EXISTS transcripts_fts_ad
+AFTER DELETE ON transcripts BEGIN
+    INSERT INTO transcripts_fts(transcripts_fts, rowid, source_name, json_payload)
+    VALUES ('delete', old.id, old.source_name, old.json_payload);
+END;
+
+CREATE TRIGGER IF NOT EXISTS transcripts_fts_au
+AFTER UPDATE ON transcripts BEGIN
+    INSERT INTO transcripts_fts(transcripts_fts, rowid, source_name, json_payload)
+    VALUES ('delete', old.id, old.source_name, old.json_payload);
+    INSERT INTO transcripts_fts(rowid, source_name, json_payload)
+    VALUES (new.id, new.source_name, new.json_payload);
+END;
 """
 
 
@@ -65,8 +97,22 @@ def _payload_to_dict(payload: str) -> dict:
         return {}
 
 
+def _fts_query(text: str) -> str:
+    """Build a safe FTS5 query from user input.
+
+    Appends '*' for prefix matching; escapes double-quotes.
+    """
+    # FTS5 phrase queries use double-quotes; escape any stray ones.
+    clean = text.replace('"', '""').strip()
+    if not clean:
+        return '""'
+    # Each whitespace-separated token is prefix-matched
+    tokens = clean.split()
+    return " ".join(f'"{t}"*' for t in tokens)
+
+
 class HistoryRecord:
-    """Lightweight metadata record returned by list().
+    """Lightweight metadata record returned by list()/search().
 
     Uses sqlite3.Row (dict-like) so field access is by name, not position.
     This is robust to future changes in SQL column order.
@@ -90,11 +136,13 @@ class HistoryStore:
     """
     Thin SQLite wrapper for transcription history.
     Thread-safe via check_same_thread=False (caller must not share connections).
+    FTS5 is used when available (compiled in); falls back to LIKE search.
     """
 
     def __init__(self, db_path: Path = _DB_PATH):
         self._db_path = db_path
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._fts_available: bool = False
         self._init_db()
 
     # ------------------------------------------------------------------ init
@@ -102,6 +150,19 @@ class HistoryStore:
     def _init_db(self):
         with self._connect() as conn:
             conn.executescript(_CREATE_SQL)
+        self._init_fts()
+
+    def _init_fts(self):
+        """Attempt to create the FTS5 index; set _fts_available accordingly."""
+        try:
+            with self._connect() as conn:
+                conn.executescript(_CREATE_FTS_SQL)
+                # Rebuild index to cover any rows inserted before FTS was created.
+                conn.execute("INSERT INTO transcripts_fts(transcripts_fts) VALUES ('rebuild')")
+            self._fts_available = True
+        except sqlite3.OperationalError as exc:
+            logger.warning("FTS5 not available — falling back to LIKE search: %s", exc)
+            self._fts_available = False
 
     @contextmanager
     def _connect(self) -> Generator[sqlite3.Connection, None, None]:
@@ -167,26 +228,66 @@ class HistoryStore:
         """Delete all records. Returns the number of rows removed."""
         with self._connect() as conn:
             cur = conn.execute("DELETE FROM transcripts")
+            if self._fts_available:
+                try:
+                    # Rebuild the empty index to free disk space
+                    conn.execute(
+                        "INSERT INTO transcripts_fts(transcripts_fts) VALUES ('rebuild')"
+                    )
+                except Exception:
+                    pass
             return cur.rowcount
 
     def search(self, text: str, limit: int = 100) -> list[HistoryRecord]:
-        """Simple LIKE search across json_payload; returns metadata rows."""
+        """Search across transcripts; uses FTS5 when available, else LIKE."""
+        if not text.strip():
+            return self.list(limit=limit)
+        if self._fts_available:
+            return self._search_fts(text, limit)
+        return self._search_like(text, limit)
+
+    def _search_fts(self, text: str, limit: int) -> list[HistoryRecord]:
+        query = _fts_query(text)
+        # snippet() highlights column 1 (json_payload); column 0 is source_name
+        sql = """
+            SELECT t.id, t.created_at, t.source_path, t.source_name,
+                   t.duration, t.language, t.model,
+                   snippet(transcripts_fts, 1, '**', '**', '…', 20) AS preview
+            FROM transcripts_fts
+            JOIN transcripts t ON t.id = transcripts_fts.rowid
+            WHERE transcripts_fts MATCH ?
+            ORDER BY rank
+            LIMIT ?
+        """
+        try:
+            with self._connect() as conn:
+                rows = conn.execute(sql, (query, limit)).fetchall()
+            return [HistoryRecord(r) for r in rows]
+        except sqlite3.OperationalError as exc:
+            logger.warning("FTS5 search failed, falling back to LIKE: %s", exc)
+            return self._search_like(text, limit)
+
+    def _search_like(self, text: str, limit: int) -> list[HistoryRecord]:
         pattern = f"%{text}%"
         sql = """
             SELECT id, created_at, source_path, source_name, duration, language, model,
                    substr(json_payload, 1, 300) AS preview
             FROM transcripts
-            WHERE json_payload LIKE ?
+            WHERE json_payload LIKE ? OR source_name LIKE ?
             ORDER BY created_at DESC, id DESC
             LIMIT ?
         """
         with self._connect() as conn:
-            rows = conn.execute(sql, (pattern, limit)).fetchall()
+            rows = conn.execute(sql, (pattern, pattern, limit)).fetchall()
         return [HistoryRecord(r) for r in rows]
 
     def count(self) -> int:
         with self._connect() as conn:
             return conn.execute("SELECT COUNT(*) FROM transcripts").fetchone()[0]
+
+    @property
+    def fts_available(self) -> bool:
+        return self._fts_available
 
 
 # Module-level singleton (lazy)

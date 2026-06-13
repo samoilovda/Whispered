@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget,
     QPushButton, QLabel, QComboBox, QCheckBox, QLineEdit,
     QDialogButtonBox, QSpinBox, QGroupBox, QFormLayout,
-    QDoubleSpinBox, QMessageBox, QFileDialog
+    QDoubleSpinBox, QMessageBox, QFileDialog, QPlainTextEdit
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QKeySequence, QShortcut
@@ -173,6 +173,12 @@ class SettingsDialog(QDialog):
         models_container.setLayout(models_row)
         layout.addRow(tr("settings_models_dir"), models_container)
 
+        # Custom vocabulary
+        self._vocab_edit = QPlainTextEdit()
+        self._vocab_edit.setPlaceholderText(tr("settings_vocab_hint"))
+        self._vocab_edit.setMaximumHeight(90)
+        layout.addRow(tr("settings_vocab"), self._vocab_edit)
+
         return tab
 
     def _build_diarization_tab(self) -> QWidget:
@@ -282,6 +288,8 @@ class SettingsDialog(QDialog):
         self._lang_combo.setCurrentIndex(idx if idx >= 0 else 0)
         idx = self._perf_combo.findData(getattr(cfg, "performance_mode", "balanced"))
         self._perf_combo.setCurrentIndex(idx if idx >= 0 else 1)
+        vocab = getattr(cfg, "custom_vocabulary", []) or []
+        self._vocab_edit.setPlainText("\n".join(vocab))
 
         # Diarization
         self._diarization_chk.setChecked(cfg.diarization_enabled)
@@ -310,6 +318,8 @@ class SettingsDialog(QDialog):
         cfg.default_model = self._model_combo.currentData() or "large-v3-turbo"
         cfg.default_language = self._lang_combo.currentData() or "auto"
         cfg.performance_mode = self._perf_combo.currentData() or "balanced"
+        raw_vocab = self._vocab_edit.toPlainText()
+        cfg.custom_vocabulary = [t.strip() for t in raw_vocab.splitlines() if t.strip()]
 
         # Diarization
         cfg.diarization_enabled = self._diarization_chk.isChecked()
