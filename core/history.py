@@ -14,11 +14,11 @@ from pathlib import Path
 from typing import Any, Generator, Optional
 
 from core.logger import get_logger
+from core.paths import data_dir
 
 logger = get_logger(__name__)
 
-# Placed next to the models directory, inside the Whispered data dir
-_DB_PATH = Path.home() / ".whisper-fedora" / "history.db"
+_DB_PATH = data_dir() / "history.db"
 
 _CREATE_SQL = """
 CREATE TABLE IF NOT EXISTS transcripts (

@@ -24,6 +24,7 @@ from typing import Callable, Optional
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from core.logger import get_logger
+from core.paths import data_dir
 
 logger = get_logger(__name__)
 
@@ -38,7 +39,7 @@ _SAMPLE_RATE = 16_000      # Whisper's native sample rate
 _CHANNELS = 1              # Mono
 _DTYPE = "int16"           # 16-bit PCM
 _BLOCKSIZE = 1_600         # 100 ms chunks → level at 10 Hz
-_DATA_DIR = Path.home() / ".whisper-fedora" / "recordings"
+_DATA_DIR = data_dir() / "recordings"
 
 
 def _rms(block) -> float:

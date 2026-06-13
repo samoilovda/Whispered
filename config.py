@@ -10,12 +10,11 @@ from typing import Optional
 from pathlib import Path
 
 from core.logger import get_logger
+from core.paths import data_dir
 
 logger = get_logger(__name__)
 
-
-# Config directory
-CONFIG_DIR = Path.home() / ".whisper-fedora"
+CONFIG_DIR = data_dir()
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 
