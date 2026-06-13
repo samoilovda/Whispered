@@ -75,8 +75,8 @@ def _make_segments(n: int, chars_each: int = 100) -> list[dict]:
 
 def test_build_prompt_text_truncates_long_transcript(monkeypatch):
     """Long segment lists must produce a prompt within the transcript limit."""
-    monkeypatch.setattr("core.prompts.load_prompt", lambda *a, **kw: "SYS")
     from core.insights_worker import _build_prompt_text
+    monkeypatch.setattr("core.insights_worker.load_prompt", lambda *a, **kw: "SYS")
 
     max_chars = 500
     segs = _make_segments(100, chars_each=100)   # 10 000 chars of transcript
@@ -92,8 +92,8 @@ def test_build_prompt_text_truncates_long_transcript(monkeypatch):
 
 def test_build_prompt_text_short_transcript_unchanged(monkeypatch):
     """Short transcripts must not be modified."""
-    monkeypatch.setattr("core.prompts.load_prompt", lambda *a, **kw: "")
     from core.insights_worker import _build_prompt_text
+    monkeypatch.setattr("core.insights_worker.load_prompt", lambda *a, **kw: "")
 
     segs = _make_segments(2, chars_each=10)
     prompt = _build_prompt_text("chapters", segs, max_transcript_chars=48_000)
