@@ -34,8 +34,8 @@ jobs:
             main.py config.py utils.py exporters.py transcriber.py \
             batch_processor.py \
             core/logger.py core/prompts.py core/history.py core/i18n.py \
-            core/recorder.py core/lm_client.py core/chat_worker.py \
-            core/insights_worker.py \
+            core/recorder.py core/lm_client.py core/base_worker.py \
+            core/chat_worker.py core/insights_worker.py core/llm_text.py \
             ui/theme.py ui/icons.py ui/settings_dialog.py \
             ui/transcript_view.py ui/main_window.py \
             ui/player_widget.py ui/history_panel.py \

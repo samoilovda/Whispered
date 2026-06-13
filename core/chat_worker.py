@@ -6,11 +6,11 @@ as system context and streams tokens back to the UI.
 
 from __future__ import annotations
 
-import threading
 from typing import Optional
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 
+from core.base_worker import BaseWorker
 from core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -33,7 +33,7 @@ def _build_system_prompt(transcript: str, max_chars: int = _CONTEXT_CHARS) -> st
     return _SYSTEM_TEMPLATE.format(transcript=transcript) + suffix
 
 
-class ChatWorker(QThread):
+class ChatWorker(BaseWorker):
     """Streams one chat turn.
 
     Signals
@@ -58,12 +58,11 @@ class ChatWorker(QThread):
         self._messages = messages
         self._lm_url = lm_url
         self._max_context_chars = max_context_chars
-        self._cancelled = threading.Event()
 
-    def cancel(self):
-        self._cancelled.set()
+    def _on_error(self, msg: str) -> None:
+        self.error_occurred.emit(msg)
 
-    def run(self):
+    def _execute(self) -> None:
         from core.lm_client import LMStudioClient
         client = LMStudioClient(self._lm_url)
 

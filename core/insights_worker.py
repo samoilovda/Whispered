@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import json
 import re
-import threading
 from typing import Optional
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 
+from core.base_worker import BaseWorker
 from core.logger import get_logger
 from core.llm_text import fit_to_context
 from core.prompts import load_prompt
@@ -76,7 +76,7 @@ def _build_prompt_text(
     return system_prompt + "\n" + transcript
 
 
-class InsightsWorker(QThread):
+class InsightsWorker(BaseWorker):
     """Generate one insight type from a transcript.
 
     Parameters
@@ -96,12 +96,11 @@ class InsightsWorker(QThread):
         self._type = insight_type
         self._segments = segments
         self._lm_url = lm_url
-        self._cancelled = threading.Event()
 
-    def cancel(self):
-        self._cancelled.set()
+    def _on_error(self, msg: str) -> None:
+        self.error_occurred.emit(self._type, msg)
 
-    def run(self):
+    def _execute(self):
         from core.lm_client import LMStudioClient
         client = LMStudioClient(self._lm_url)
 
