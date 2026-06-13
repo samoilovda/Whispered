@@ -26,6 +26,7 @@ from ui.icons import IconLabel, get_icon, IconColors
 from ui.player_widget import PlayerWidget
 from ui.recorder_widget import RecorderWidget
 from ui.chat_panel import ChatPanel
+from ui.insights_panel import InsightsPanel
 from transcriber import Transcriber, TranscriptionResult
 from exporters import export_result, EXPORT_FORMATS
 from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, detect_gpu, get_thread_count, is_supported_format
@@ -350,7 +351,11 @@ class MainWindow(QMainWindow):
         self.chat_panel = ChatPanel()
         self.content_tabs.addTab(self.chat_panel, tr("tab_chat"))
 
-        # Tab 5: History
+        # Tab 5: Insights
+        self.insights_panel = InsightsPanel()
+        self.content_tabs.addTab(self.insights_panel, tr("tab_insights"))
+
+        # Tab 6: History
         self.history_panel = HistoryPanel()
         self.content_tabs.addTab(self.history_panel, tr("tab_history"))
 
@@ -429,6 +434,9 @@ class MainWindow(QMainWindow):
         # Player ↔ transcript sync
         self.player.position_changed_sec.connect(self._on_player_position)
         self.transcript_view.seek_requested.connect(self.player.seek_to)
+
+        # Insights panel
+        self.insights_panel.seek_requested.connect(self.player.seek_to)
 
         # History panel
         self.history_panel.open_record.connect(self._load_from_history)
@@ -652,6 +660,7 @@ class MainWindow(QMainWindow):
         self.cleaned_view.clear()
         self.article_view.clear()
         self.chat_panel.clear_transcript()
+        self.insights_panel.clear()
         self._cleaned_text = None
         
         # Disable AI panel during transcription
@@ -761,8 +770,9 @@ class MainWindow(QMainWindow):
             speaker_names=getattr(self.transcript_view, "_speaker_names", {}),
         )
 
-        # Feed transcript into chat panel
+        # Feed transcript into chat and insights panels
         self.chat_panel.set_transcript(result.full_text)
+        self.insights_panel.set_segments(result.segments)
 
         # Switch to transcript tab
         self.content_tabs.setCurrentIndex(0)
@@ -829,6 +839,7 @@ class MainWindow(QMainWindow):
             self.ai_panel.set_has_transcription(True)
             self.book_panel.set_has_transcript(True)
             self.chat_panel.set_transcript(result.full_text)
+            self.insights_panel.set_segments(result.segments)
             word_count = len(result.full_text.split())
             self.status_label.setText(tr("toast_loaded_history", words=word_count))
             self.content_tabs.setCurrentIndex(0)

@@ -132,6 +132,7 @@
 
   "language_auto": "Авто-определение",
 
+  "tab_insights": "💡 Инсайты",
   "tab_chat": "💬 Чат",
   "chat_placeholder": "Сначала транскрибируйте запись, затем задавайте вопросы.",
   "chat_ready": "Спросите что-нибудь об этой записи…",
@@ -139,5 +140,16 @@
   "chat_send": "Отправить",
   "chat_stop": "Стоп",
   "chat_no_transcript": "Пожалуйста, сначала транскрибируйте запись.",
-  "chat_clear_confirm": "Очистить историю чата?"
+  "chat_clear_confirm": "Очистить историю чата?",
+
+  "insights_placeholder": "Сначала транскрибируйте запись для генерации инсайтов.",
+  "insights_generate": "Сгенерировать инсайты",
+  "insights_generating": "Генерирую…",
+  "insights_chapters": "Главы",
+  "insights_action_items": "Задачи",
+  "insights_key_moments": "Ключевые моменты",
+  "insights_owner": "Ответственный:",
+  "insights_deadline": "Срок:",
+  "insights_error": "Ошибка:",
+  "insights_no_lm": "Укажите адрес LM Studio в настройках."
 }
