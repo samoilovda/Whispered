@@ -53,6 +53,9 @@ class Config:
     show_timestamps: bool = True
     show_speaker_labels: bool = True
 
+    # UI language
+    ui_language: str = "auto"   # "auto" | "en" | "ru"
+
     # History / privacy
     history_enabled: bool = True
     

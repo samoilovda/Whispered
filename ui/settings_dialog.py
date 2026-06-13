@@ -21,6 +21,7 @@ from config import get_config, save_config, Config
 from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, get_models_dir
 from ui.theme import apply_theme, THEMES, get_theme
 from core.logger import get_logger
+from core.i18n import tr
 
 logger = get_logger(__name__)
 
@@ -76,10 +77,10 @@ class SettingsDialog(QDialog):
         self._tabs = QTabWidget()
         root.addWidget(self._tabs, stretch=1)
 
-        self._tabs.addTab(self._build_general_tab(),        "General")
-        self._tabs.addTab(self._build_transcription_tab(),  "Transcription")
-        self._tabs.addTab(self._build_diarization_tab(),    "Diarization")
-        self._tabs.addTab(self._build_ai_tab(),             "AI / LM Studio")
+        self._tabs.addTab(self._build_general_tab(),        tr("tab_settings_general"))
+        self._tabs.addTab(self._build_transcription_tab(),  tr("tab_settings_transcription"))
+        self._tabs.addTab(self._build_diarization_tab(),    tr("tab_settings_diarization"))
+        self._tabs.addTab(self._build_ai_tab(),             tr("tab_settings_ai"))
 
         # Button box
         btn_box = QDialogButtonBox(
@@ -103,18 +104,33 @@ class SettingsDialog(QDialog):
 
         # Theme
         self._theme_combo = QComboBox()
-        self._theme_combo.addItem("Dark", "dark")
-        self._theme_combo.addItem("Light", "light")
+        self._theme_combo.addItem(tr("settings_theme_dark"), "dark")
+        self._theme_combo.addItem(tr("settings_theme_light"), "light")
         self._theme_combo.currentIndexChanged.connect(self._on_theme_changed)
-        layout.addRow("Theme:", self._theme_combo)
+        layout.addRow(tr("settings_theme"), self._theme_combo)
 
         # Timestamps
-        self._timestamps_chk = QCheckBox("Show timestamps in transcript")
+        self._timestamps_chk = QCheckBox(tr("settings_show_timestamps"))
         layout.addRow(self._timestamps_chk)
 
         # Speaker labels
-        self._speakers_chk = QCheckBox("Show speaker labels in transcript")
+        self._speakers_chk = QCheckBox(tr("settings_show_speakers"))
         layout.addRow(self._speakers_chk)
+
+        # History
+        self._history_chk = QCheckBox(tr("settings_history_enabled"))
+        layout.addRow(self._history_chk)
+
+        clear_btn = QPushButton(tr("settings_clear_history"))
+        clear_btn.clicked.connect(self._clear_history)
+        layout.addRow(clear_btn)
+
+        # UI language
+        self._lang_ui_combo = QComboBox()
+        self._lang_ui_combo.addItem("Auto", "auto")
+        self._lang_ui_combo.addItem("English", "en")
+        self._lang_ui_combo.addItem("Русский", "ru")
+        layout.addRow(tr("settings_ui_language"), self._lang_ui_combo)
 
         return tab
 
@@ -128,19 +144,19 @@ class SettingsDialog(QDialog):
         self._model_combo = QComboBox()
         for key, label in WHISPER_MODELS:
             self._model_combo.addItem(label, key)
-        layout.addRow("Default model:", self._model_combo)
+        layout.addRow(tr("settings_default_model"), self._model_combo)
 
         # Default language
         self._lang_combo = QComboBox()
         for key, label in WHISPER_LANGUAGES:
             self._lang_combo.addItem(label, key)
-        layout.addRow("Default language:", self._lang_combo)
+        layout.addRow(tr("settings_default_language"), self._lang_combo)
 
         # Performance mode
         self._perf_combo = QComboBox()
         for key, label, *_ in PERFORMANCE_MODES:
             self._perf_combo.addItem(label, key)
-        layout.addRow("Performance mode:", self._perf_combo)
+        layout.addRow(tr("settings_performance"), self._perf_combo)
 
         # Models directory (read-only)
         models_row = QHBoxLayout()
@@ -149,13 +165,13 @@ class SettingsDialog(QDialog):
         self._models_dir_label.setText(get_models_dir())
         models_row.addWidget(self._models_dir_label, stretch=1)
 
-        open_btn = QPushButton("Open folder")
+        open_btn = QPushButton(tr("btn_open_folder"))
         open_btn.clicked.connect(self._open_models_dir)
         models_row.addWidget(open_btn)
 
         models_container = QWidget()
         models_container.setLayout(models_row)
-        layout.addRow("Models directory:", models_container)
+        layout.addRow(tr("settings_models_dir"), models_container)
 
         return tab
 
@@ -165,7 +181,7 @@ class SettingsDialog(QDialog):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        self._diarization_chk = QCheckBox("Enable speaker diarization")
+        self._diarization_chk = QCheckBox(tr("settings_diarization_enable"))
         layout.addRow(self._diarization_chk)
 
         # HF token
@@ -186,19 +202,16 @@ class SettingsDialog(QDialog):
 
         token_container = QWidget()
         token_container.setLayout(token_row)
-        layout.addRow("HuggingFace token:", token_container)
+        layout.addRow(tr("settings_hf_token"), token_container)
 
         # Number of speakers
         self._speakers_spin = QSpinBox()
-        self._speakers_spin.setSpecialValueText("Auto-detect")
+        self._speakers_spin.setSpecialValueText(tr("speakers_auto"))
         self._speakers_spin.setRange(0, 8)   # 0 = auto
         self._speakers_spin.setValue(0)
-        layout.addRow("Number of speakers:", self._speakers_spin)
+        layout.addRow(tr("settings_num_speakers"), self._speakers_spin)
 
-        note = QLabel(
-            "Diarization requires a HuggingFace token and model download.\n"
-            "Run setup_diarization.py to install pyannote models."
-        )
+        note = QLabel(tr("diarization_note"))
         note.setStyleSheet("color: #888888; font-size: 11px;")
         note.setWordWrap(True)
         layout.addRow(note)
@@ -214,10 +227,10 @@ class SettingsDialog(QDialog):
         # Posts / AI panel URL
         self._lm_url_edit = QLineEdit()
         self._lm_url_edit.setPlaceholderText("http://localhost:1234/v1")
-        layout.addRow("LM Studio URL:", self._lm_url_edit)
+        layout.addRow(tr("settings_lm_url"), self._lm_url_edit)
 
         check_row = QHBoxLayout()
-        self._check_btn = QPushButton("Test connection")
+        self._check_btn = QPushButton(tr("btn_test_connection"))
         self._check_btn.setProperty("variant", "primary")
         self._check_btn.clicked.connect(self._check_connection)
         check_row.addWidget(self._check_btn)
@@ -231,19 +244,19 @@ class SettingsDialog(QDialog):
         # Book pipeline URL
         self._book_lm_url_edit = QLineEdit()
         self._book_lm_url_edit.setPlaceholderText("http://localhost:1234/v1")
-        layout.addRow("Book pipeline URL:", self._book_lm_url_edit)
+        layout.addRow(tr("settings_book_lm_url"), self._book_lm_url_edit)
 
         # Book model name
         self._book_model_edit = QLineEdit()
         self._book_model_edit.setPlaceholderText("leave empty to auto-detect")
-        layout.addRow("Book model name:", self._book_model_edit)
+        layout.addRow(tr("settings_book_model"), self._book_model_edit)
 
         # Book temperature
         self._book_temp_spin = QDoubleSpinBox()
         self._book_temp_spin.setRange(0.0, 2.0)
         self._book_temp_spin.setSingleStep(0.1)
         self._book_temp_spin.setDecimals(1)
-        layout.addRow("Book temperature:", self._book_temp_spin)
+        layout.addRow(tr("settings_book_temp"), self._book_temp_spin)
 
         return tab
 
@@ -258,6 +271,9 @@ class SettingsDialog(QDialog):
         self._theme_combo.setCurrentIndex(idx if idx >= 0 else 0)
         self._timestamps_chk.setChecked(cfg.show_timestamps)
         self._speakers_chk.setChecked(cfg.show_speaker_labels)
+        self._history_chk.setChecked(cfg.history_enabled)
+        idx = self._lang_ui_combo.findData(getattr(cfg, "ui_language", "auto"))
+        self._lang_ui_combo.setCurrentIndex(idx if idx >= 0 else 0)
 
         # Transcription
         idx = self._model_combo.findData(getattr(cfg, "default_model", "large-v3-turbo"))
@@ -281,11 +297,14 @@ class SettingsDialog(QDialog):
     def _save_values(self):
         """Write widget values back to config."""
         cfg = self._cfg
+        prev_lang = getattr(cfg, "ui_language", "auto")
 
         # General
         cfg.theme = self._theme_combo.currentData() or "dark"
         cfg.show_timestamps = self._timestamps_chk.isChecked()
         cfg.show_speaker_labels = self._speakers_chk.isChecked()
+        cfg.history_enabled = self._history_chk.isChecked()
+        cfg.ui_language = self._lang_ui_combo.currentData() or "auto"
 
         # Transcription
         cfg.default_model = self._model_combo.currentData() or "large-v3-turbo"
@@ -306,6 +325,9 @@ class SettingsDialog(QDialog):
 
         save_config()
 
+        if cfg.ui_language != prev_lang:
+            self._lang_changed = True
+
     def _on_theme_changed(self, _index: int):
         """Apply theme immediately for preview."""
         from PyQt6.QtWidgets import QApplication
@@ -316,10 +338,24 @@ class SettingsDialog(QDialog):
         self._pending_theme = name
 
     def _on_apply(self):
+        self._lang_changed = False
         self._save_values()
+        if getattr(self, "_lang_changed", False):
+            QMessageBox.information(
+                self,
+                tr("app_title"),
+                "Restart the application to apply the language change.",
+            )
 
     def _on_ok(self):
+        self._lang_changed = False
         self._save_values()
+        if getattr(self, "_lang_changed", False):
+            QMessageBox.information(
+                self,
+                tr("app_title"),
+                "Restart the application to apply the language change.",
+            )
         self.accept()
 
     def reject(self):
@@ -345,7 +381,7 @@ class SettingsDialog(QDialog):
         if self._checker and self._checker.isRunning():
             return
         url = self._lm_url_edit.text().strip() or "http://localhost:1234/v1"
-        self._check_result.setText("Checking…")
+        self._check_result.setText(tr("connection_checking"))
         self._check_result.setStyleSheet("color: #888888; font-size: 11px;")
         self._check_btn.setEnabled(False)
 
@@ -356,8 +392,24 @@ class SettingsDialog(QDialog):
     def _on_check_result(self, connected: bool, detail: str):
         self._check_btn.setEnabled(True)
         if connected:
-            self._check_result.setText(f"✓ {detail}")
+            self._check_result.setText(tr("connection_ok", detail=detail))
             self._check_result.setStyleSheet("color: #22c55e; font-size: 11px;")
         else:
-            self._check_result.setText(f"✗ {detail[:60]}")
+            self._check_result.setText(tr("connection_fail", detail=detail[:60]))
             self._check_result.setStyleSheet("color: #ef4444; font-size: 11px;")
+
+    def _clear_history(self):
+        reply = QMessageBox.question(
+            self,
+            tr("history_clear_title"),
+            tr("history_clear_msg"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            from core.history import get_history_store
+            n = get_history_store().clear()
+            logger.info("History cleared from settings: %d records", n)
+        except Exception as e:
+            logger.warning("History clear failed: %s", e)

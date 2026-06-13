@@ -30,6 +30,7 @@ from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, detect_g
 from config import get_config, save_config
 from core.ai_worker import AIProcessingWorker
 from core.logger import get_logger
+from core.i18n import tr
 
 logger = get_logger(__name__)
 
@@ -133,14 +134,14 @@ class MainWindow(QMainWindow):
         row1_layout.addStretch()
         
         # Mode switcher: Posts / Book
-        mode_label = QLabel("Режим:")
+        mode_label = QLabel(tr("label_mode"))
         mode_label.setStyleSheet("color: #888888;")
         row1_layout.addWidget(mode_label)
 
         self.mode_combo = QComboBox()
         self.mode_combo.setFixedWidth(120)
-        self.mode_combo.addItem("📝 Посты", "posts")
-        self.mode_combo.addItem("📖 Книга", "book")
+        self.mode_combo.addItem(tr("label_mode_posts"), "posts")
+        self.mode_combo.addItem(tr("label_mode_book"), "book")
         # Restore saved mode
         saved_mode = get_config().pipeline_mode
         self.mode_combo.setCurrentIndex(1 if saved_mode == 'book' else 0)
@@ -152,7 +153,7 @@ class MainWindow(QMainWindow):
         # Clickable device toggle button
         self.device_btn = QPushButton()
         self.device_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.device_btn.setToolTip("Click to toggle between GPU and CPU")
+        self.device_btn.setToolTip(tr("tooltip_device"))
         self.device_btn.setMinimumWidth(130)  # Prevent truncation
         self.device_btn.clicked.connect(self._toggle_device)
         self._update_device_badge()
@@ -166,7 +167,7 @@ class MainWindow(QMainWindow):
         row2_layout.setSpacing(16)
         
         # Model selector
-        model_label = QLabel("Model:")
+        model_label = QLabel(tr("label_model"))
         model_label.setStyleSheet("color: #888888;")
         row2_layout.addWidget(model_label)
         
@@ -181,7 +182,7 @@ class MainWindow(QMainWindow):
         row2_layout.addSpacing(8)
         
         # Language selector
-        lang_label = QLabel("Language:")
+        lang_label = QLabel(tr("label_language"))
         lang_label.setStyleSheet("color: #888888;")
         row2_layout.addWidget(lang_label)
         
@@ -195,13 +196,13 @@ class MainWindow(QMainWindow):
         # Translate checkbox
         self.translate_checkbox = QCheckBox("→ EN")
         self.translate_checkbox.setStyleSheet("")
-        self.translate_checkbox.setToolTip("Translate to English")
+        self.translate_checkbox.setToolTip(tr("tooltip_translate"))
         row2_layout.addWidget(self.translate_checkbox)
         
         row2_layout.addSpacing(12)
         
         # Performance mode selector
-        perf_label = QLabel("Mode:")
+        perf_label = QLabel(tr("label_mode"))
         perf_label.setStyleSheet("color: #888888;")
         row2_layout.addWidget(perf_label)
         
@@ -221,7 +222,7 @@ class MainWindow(QMainWindow):
         row2_layout.addSpacing(8)
         
         # Diarization toggle
-        self.diarization_checkbox = QCheckBox("👥 Speakers")
+        self.diarization_checkbox = QCheckBox(tr("label_speakers"))
         self.diarization_checkbox.setStyleSheet("")
         self.diarization_checkbox.setToolTip("Identify different speakers (requires setup)")
         self.diarization_checkbox.setChecked(get_config().diarization_enabled)
@@ -231,7 +232,7 @@ class MainWindow(QMainWindow):
 
         # Settings button (⚙) — opens the settings dialog
         self.settings_btn = QPushButton("⚙")
-        self.settings_btn.setToolTip("Settings  (Ctrl+,)")
+        self.settings_btn.setToolTip(tr("tooltip_settings"))
         self.settings_btn.setFixedSize(28, 28)
         self.settings_btn.setProperty("variant", "ghost")
         self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -260,7 +261,7 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.file_selector)
         
         # Export format checkboxes
-        export_label = QLabel("Export formats:")
+        export_label = QLabel(tr("label_export_formats"))
         export_label.setStyleSheet("font-weight: bold; margin-top: 8px;")
         left_layout.addWidget(export_label)
 
@@ -315,19 +316,19 @@ class MainWindow(QMainWindow):
 
         # Tab 1: Raw Transcription
         self.transcript_view = TranscriptView()
-        self.content_tabs.addTab(self.transcript_view, "📝 Transcript")
-        
+        self.content_tabs.addTab(self.transcript_view, tr("tab_transcript"))
+
         # Tab 2: Cleaned Text
         self.cleaned_view = CleanedTextView()
-        self.content_tabs.addTab(self.cleaned_view, "✨ Cleaned")
-        
+        self.content_tabs.addTab(self.cleaned_view, tr("tab_cleaned"))
+
         # Tab 3: Generated Articles
         self.article_view = ArticleView()
-        self.content_tabs.addTab(self.article_view, "📚 Articles")
+        self.content_tabs.addTab(self.article_view, tr("tab_articles"))
 
         # Tab 4: History
         self.history_panel = HistoryPanel()
-        self.content_tabs.addTab(self.history_panel, "🕒 History")
+        self.content_tabs.addTab(self.history_panel, tr("tab_history"))
 
         right_layout.addWidget(self.content_tabs)
         
@@ -348,7 +349,7 @@ class MainWindow(QMainWindow):
         status_layout.setContentsMargins(0, 0, 0, 0)
         status_layout.setSpacing(4)
         
-        self.status_label = QLabel("Ready")
+        self.status_label = QLabel(tr("label_status_ready"))
         self.status_label.setStyleSheet("color: #888888;")
         status_layout.addWidget(self.status_label)
         
@@ -362,7 +363,7 @@ class MainWindow(QMainWindow):
         action_layout.addSpacing(16)
         
         # Cancel button
-        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn = QPushButton(tr("btn_cancel"))
         self.cancel_btn.setIcon(get_icon('close', IconColors.MUTED, 14))
         self.cancel_btn.setVisible(False)
         self.cancel_btn.setProperty("variant", "danger")
@@ -371,11 +372,11 @@ class MainWindow(QMainWindow):
         action_layout.addWidget(self.cancel_btn)
         
         # Transcribe button
-        self.transcribe_btn = QPushButton("Transcribe")
+        self.transcribe_btn = QPushButton(tr("btn_transcribe"))
         self.transcribe_btn.setIcon(get_icon('play', IconColors.WHITE, 14))
         self.transcribe_btn.setEnabled(False)
         self.transcribe_btn.setProperty("variant", "primary")
-        self.transcribe_btn.setToolTip("Transcribe  (Ctrl+T)")
+        self.transcribe_btn.setToolTip(tr("tooltip_transcribe"))
         self.transcribe_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.transcribe_btn.clicked.connect(self._start_transcription)
         action_layout.addWidget(self.transcribe_btn)
@@ -394,9 +395,9 @@ class MainWindow(QMainWindow):
         self.ai_panel.generate_all_requested.connect(self._start_generate_all)
 
         # Article view signals
-        self.article_view.copy_done.connect(lambda: show_toast(self, "Copied to clipboard", kind="success"))
+        self.article_view.copy_done.connect(lambda: show_toast(self, tr("toast_copied"), kind="success"))
         self.article_view.export_done.connect(lambda msg: show_toast(self, msg, kind="success"))
-        self.cleaned_view.copy_requested.connect(lambda: show_toast(self, "Copied to clipboard", kind="success"))
+        self.cleaned_view.copy_requested.connect(lambda: show_toast(self, tr("toast_copied"), kind="success"))
 
         # Apply initial mode visibility
         self._on_mode_changed(self.mode_combo.currentIndex())
@@ -428,14 +429,14 @@ class MainWindow(QMainWindow):
         """Toggle between GPU and CPU mode."""
         if self._gpu_type == 'cpu':
             # No GPU available, can't toggle
-            self.status_label.setText("No GPU available - CPU only mode")
+            self.status_label.setText(tr("status_no_gpu"))
             return
-        
+
         self._use_gpu = not self._use_gpu
         self._update_device_badge()
-        
+
         device_name = self._gpu_name if self._use_gpu else "CPU"
-        self.status_label.setText(f"Switched to: {device_name}")
+        self.status_label.setText(tr("status_switched_device", device=device_name))
     
     def _update_device_badge(self):
         """Update the device button appearance based on current selection."""
@@ -553,7 +554,7 @@ class MainWindow(QMainWindow):
 
     def _show_drop_overlay(self, visible: bool):
         if not hasattr(self, "_drop_overlay"):
-            overlay = QLabel("Drop file to transcribe", self)
+            overlay = QLabel(tr("drop_overlay"), self)
             overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
             overlay.setStyleSheet("""
                 QLabel {
@@ -597,7 +598,7 @@ class MainWindow(QMainWindow):
         """Handle file selection."""
         self._source_filepath = filepath
         self.transcribe_btn.setEnabled(True)
-        self.status_label.setText(f"Ready: {os.path.basename(filepath)}")
+        self.status_label.setText(tr("status_ready_file", name=os.path.basename(filepath)))
         self.player.load(filepath)
     
     def _start_transcription(self):
@@ -654,10 +655,10 @@ class MainWindow(QMainWindow):
             self._ai_worker.wait()
             self._ai_worker = None
             self.ai_panel.set_processing(False)
-            self.status_label.setText("AI processing cancelled")
+            self.status_label.setText(tr("status_ai_cancelled"))
         else:
             self.transcriber.cancel()
-            self.status_label.setText("Transcription cancelled")
+            self.status_label.setText(tr("status_cancelled"))
         
         self._reset_ui()
     
@@ -709,8 +710,8 @@ class MainWindow(QMainWindow):
 
         elapsed = time.monotonic() - self._transcription_start if self._transcription_start else 0
         word_count = len(result.full_text.split())
-        self.status_label.setText(f"Complete — {word_count} words in {elapsed:.0f}s")
-        show_toast(self, f"Transcription complete — {word_count} words", kind="success")
+        self.status_label.setText(tr("status_complete", words=word_count, seconds=int(elapsed)))
+        show_toast(self, tr("toast_complete", words=word_count), kind="success")
 
         # Auto-save to history
         self._save_to_history(
@@ -785,7 +786,7 @@ class MainWindow(QMainWindow):
             self.ai_panel.set_has_transcription(True)
             self.book_panel.set_has_transcript(True)
             word_count = len(result.full_text.split())
-            self.status_label.setText(f"Loaded from history – {word_count} words")
+            self.status_label.setText(tr("toast_loaded_history", words=word_count))
             self.content_tabs.setCurrentIndex(0)
         except Exception as e:
             logger.warning("Failed to load history record %d: %s", record_id, e)
@@ -794,8 +795,12 @@ class MainWindow(QMainWindow):
         """Handle transcription error."""
         self._reset_ui()
         self.status_label.setText(f"Error: {error_message[:50]}...")
-        
-        QMessageBox.critical(self, "Transcription Error", f"An error occurred:\n\n{error_message}")
+
+        QMessageBox.critical(
+            self,
+            tr("error_transcription"),
+            tr("error_occurred", detail=error_message),
+        )
     
     def _reset_ui(self):
         """Reset UI to ready state."""
@@ -810,7 +815,7 @@ class MainWindow(QMainWindow):
         if text:
             clipboard = QApplication.clipboard()
             clipboard.setText(text)
-            show_toast(self, "Copied to clipboard", kind="success")
+            show_toast(self, tr("toast_copied"), kind="success")
     
     def _get_export_formats(self) -> list[str]:
         """Get list of selected export formats."""
@@ -851,9 +856,9 @@ class MainWindow(QMainWindow):
             if filepath:
                 try:
                     export_result(result, filepath, format_key)
-                    show_toast(self, f"Exported: {os.path.basename(filepath)}", kind="success")
+                    show_toast(self, tr("toast_exported_one", name=os.path.basename(filepath)), kind="success")
                 except Exception as e:
-                    QMessageBox.critical(self, "Export Error", str(e))
+                    QMessageBox.critical(self, tr("error_export"), str(e))
         else:
             # Multiple formats - directory
             directory = QFileDialog.getExistingDirectory(self, "Select Export Directory")
@@ -868,7 +873,7 @@ class MainWindow(QMainWindow):
                         count += 1
                     except Exception:
                         pass
-                show_toast(self, f"Exported {count} files", kind="success")
+                show_toast(self, tr("toast_exported_many", count=count), kind="success")
     
     # ===== AI Processing Methods =====
     

@@ -20,11 +20,16 @@ from PyQt6.QtGui import QFont
 from ui.main_window import MainWindow
 from ui.theme import apply_theme
 from config import get_config
+from core.i18n import load_locale
 
 
 def main():
     # Enable high DPI scaling
     os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
+
+    # Load UI locale before any widget is constructed
+    cfg = get_config()
+    load_locale(cfg.ui_language)
 
     app = QApplication(sys.argv)
     app.setApplicationName("Whispered")
@@ -39,7 +44,7 @@ def main():
     app.setFont(font)
 
     # Apply theme from config (falls back to qdarktheme on error)
-    apply_theme(app, get_config().theme)
+    apply_theme(app, cfg.theme)
     
     # Create and show main window
     window = MainWindow()

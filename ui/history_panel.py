@@ -17,6 +17,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QPoint
 from PyQt6.QtGui import QFont
 
 from core.logger import get_logger
+from core.i18n import tr
 
 logger = get_logger(__name__)
 
@@ -63,7 +64,7 @@ class HistoryPanel(QWidget):
         toolbar = QHBoxLayout()
 
         self._search_edit = QLineEdit()
-        self._search_edit.setPlaceholderText("Search history…")
+        self._search_edit.setPlaceholderText(tr("history_search_placeholder"))
         self._search_edit.setClearButtonEnabled(True)
         self._search_edit.textChanged.connect(self._on_search)
         toolbar.addWidget(self._search_edit, stretch=1)
@@ -74,7 +75,7 @@ class HistoryPanel(QWidget):
         self._refresh_btn.clicked.connect(self.refresh)
         toolbar.addWidget(self._refresh_btn)
 
-        self._clear_btn = QPushButton("Clear All")
+        self._clear_btn = QPushButton(tr("history_clear_all"))
         self._clear_btn.setProperty("variant", "danger")
         self._clear_btn.clicked.connect(self._clear_all)
         toolbar.addWidget(self._clear_btn)
@@ -137,7 +138,8 @@ class HistoryPanel(QWidget):
             self._list.addItem(item)
 
         total = len(self._records)
-        self._status.setText(f"{total} record{'s' if total != 1 else ''}")
+        key = "history_status_plural" if total != 1 else "history_status"
+        self._status.setText(tr(key, count=total))
 
     def _on_search(self, text: str):
         self._load(text.strip())
@@ -153,9 +155,9 @@ class HistoryPanel(QWidget):
         record_id = item.data(Qt.ItemDataRole.UserRole)
 
         menu = QMenu(self)
-        open_act = menu.addAction("Open")
+        open_act = menu.addAction(tr("btn_open"))
         menu.addSeparator()
-        delete_act = menu.addAction("Delete")
+        delete_act = menu.addAction(tr("history_delete_title"))
 
         action = menu.exec(self._list.mapToGlobal(pos))
         if action == open_act:
@@ -165,8 +167,9 @@ class HistoryPanel(QWidget):
 
     def _delete_record(self, record_id: int):
         reply = QMessageBox.question(
-            self, "Delete",
-            "Delete this history entry? The original file is not affected.",
+            self,
+            tr("history_delete_title"),
+            tr("history_delete_msg"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
@@ -179,8 +182,9 @@ class HistoryPanel(QWidget):
 
     def _clear_all(self):
         reply = QMessageBox.question(
-            self, "Clear History",
-            "Delete ALL history entries? This cannot be undone.",
+            self,
+            tr("history_clear_title"),
+            tr("history_clear_msg"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
