@@ -16,6 +16,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QUrl
 from PyQt6.QtGui import QIcon
 
 from core.logger import get_logger
+from utils import format_duration
 
 logger = get_logger(__name__)
 
@@ -269,10 +270,4 @@ class PlayerWidget(QWidget):
         self.position_changed_sec.emit(pos_sec)
 
 
-def _fmt(seconds: float) -> str:
-    s = int(seconds)
-    m, s = divmod(s, 60)
-    h, m = divmod(m, 60)
-    if h:
-        return f"{h}:{m:02d}:{s:02d}"
-    return f"{m}:{s:02d}"
+_fmt = format_duration

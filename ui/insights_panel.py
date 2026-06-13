@@ -15,6 +15,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 
 from core.logger import get_logger
 from core.i18n import tr
+from utils import format_duration
 
 logger = get_logger(__name__)
 
@@ -37,7 +38,7 @@ class _ChapterRow(QWidget):
         layout.setContentsMargins(0, 1, 0, 1)
         layout.setSpacing(8)
 
-        ts = f"{start // 60:02d}:{start % 60:02d}"
+        ts = format_duration(start)
         ts_btn = QPushButton(ts)
         ts_btn.setFixedWidth(48)
         ts_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -81,7 +82,7 @@ class _MomentRow(QWidget):
         top = QHBoxLayout()
         top.setSpacing(8)
 
-        ts = f"{start // 60:02d}:{start % 60:02d}"
+        ts = format_duration(start)
         ts_btn = QPushButton(ts)
         ts_btn.setFixedWidth(48)
         ts_btn.setCursor(Qt.CursorShape.PointingHandCursor)

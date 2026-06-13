@@ -19,17 +19,12 @@ from PyQt6.QtGui import QFont
 
 from core.logger import get_logger
 from core.i18n import tr
+from utils import format_duration
 
 logger = get_logger(__name__)
 
 
-def _fmt_duration(seconds: float) -> str:
-    s = int(seconds)
-    m, s = divmod(s, 60)
-    h, m = divmod(m, 60)
-    if h:
-        return f"{h}:{m:02d}:{s:02d}"
-    return f"{m}:{s:02d}"
+_fmt_duration = format_duration
 
 
 def _fmt_date(iso: str) -> str:

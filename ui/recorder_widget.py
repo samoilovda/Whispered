@@ -16,6 +16,7 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 
 from core.logger import get_logger
 from core.i18n import tr
+from utils import format_duration
 
 logger = get_logger(__name__)
 
@@ -145,9 +146,7 @@ class RecorderWidget(QWidget):
     def _update_timer(self):
         rec = self._get_recorder()
         if rec.is_recording():
-            elapsed = int(rec.elapsed_seconds)
-            m, s = divmod(elapsed, 60)
-            self._timer_label.setText(f"{m:02d}:{s:02d}")
+            self._timer_label.setText(format_duration(rec.elapsed_seconds))
 
     def _on_level(self, rms: float):
         # Map RMS 0–0.3 → meter 0–100 (clamp)
