@@ -401,6 +401,14 @@ class TranscriptView(QWidget):
 
         if save and self._result:
             self._parse_edited_text()
+            # Re-sync _speaker_names: keep existing display names where the
+            # speaker id still exists; add identity entries for any new ids
+            # the user may have typed in edit mode.
+            existing = dict(self._speaker_names)
+            new_ids = {seg.speaker for seg in self._result.segments if seg.speaker}
+            self._speaker_names = {sid: existing.get(sid, sid) for sid in sorted(new_ids)}
+            if self._result is not None:
+                self._result.speaker_names = dict(self._speaker_names)
 
         self._update_display()
 
@@ -581,10 +589,15 @@ class TranscriptView(QWidget):
             text = block.text()
             seg = segments[seg_idx]
             fragment = seg.text.strip()[:20]
-            if fragment and fragment in text:
+            if not fragment:
+                # Segment with empty text: map to current block and move on.
+                self._segment_positions.append((seg.start, seg.end, block.position()))
+                seg_idx += 1
+            elif fragment in text:
                 self._segment_positions.append((seg.start, seg.end, block.position()))
                 seg_idx += 1
             elif not text.strip():
+                # Skip blank document blocks (e.g. HTML paragraph separators).
                 block = block.next()
                 continue
             block = block.next()

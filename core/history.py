@@ -66,14 +66,24 @@ def _payload_to_dict(payload: str) -> dict:
 
 
 class HistoryRecord:
-    """Lightweight metadata record returned by list()."""
+    """Lightweight metadata record returned by list().
+
+    Uses sqlite3.Row (dict-like) so field access is by name, not position.
+    This is robust to future changes in SQL column order.
+    """
 
     __slots__ = ("id", "created_at", "source_path", "source_name",
                  "duration", "language", "model", "preview")
 
-    def __init__(self, row: tuple):
-        (self.id, self.created_at, self.source_path, self.source_name,
-         self.duration, self.language, self.model, self.preview) = row
+    def __init__(self, row: sqlite3.Row):
+        self.id          = row["id"]
+        self.created_at  = row["created_at"]
+        self.source_path = row["source_path"]
+        self.source_name = row["source_name"]
+        self.duration    = row["duration"]
+        self.language    = row["language"]
+        self.model       = row["model"]
+        self.preview     = row["preview"]
 
 
 class HistoryStore:
@@ -96,6 +106,7 @@ class HistoryStore:
     @contextmanager
     def _connect(self) -> Generator[sqlite3.Connection, None, None]:
         conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
+        conn.row_factory = sqlite3.Row   # named-column access
         try:
             yield conn
             conn.commit()
@@ -127,7 +138,7 @@ class HistoryStore:
         """Return lightweight metadata rows, newest first."""
         sql = """
             SELECT id, created_at, source_path, source_name, duration, language, model,
-                   substr(json_payload, 1, 300)
+                   substr(json_payload, 1, 300) AS preview
             FROM transcripts
             ORDER BY created_at DESC, id DESC
             LIMIT ? OFFSET ?
@@ -144,7 +155,7 @@ class HistoryStore:
             ).fetchone()
         if row is None:
             return None
-        return _payload_to_dict(row[0])
+        return _payload_to_dict(row["json_payload"])
 
     def delete(self, record_id: int) -> bool:
         """Delete a single record. Returns True if a row was removed."""
@@ -163,7 +174,7 @@ class HistoryStore:
         pattern = f"%{text}%"
         sql = """
             SELECT id, created_at, source_path, source_name, duration, language, model,
-                   substr(json_payload, 1, 300)
+                   substr(json_payload, 1, 300) AS preview
             FROM transcripts
             WHERE json_payload LIKE ?
             ORDER BY created_at DESC, id DESC

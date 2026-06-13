@@ -8,7 +8,8 @@ import time
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QPushButton, QProgressBar, QLabel, QFileDialog, QMessageBox,
-    QApplication, QComboBox, QCheckBox, QTabWidget, QScrollArea, QFrame
+    QApplication, QComboBox, QCheckBox, QTabWidget, QScrollArea, QFrame,
+    QTextEdit, QLineEdit, QPlainTextEdit,
 )
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QKeySequence, QShortcut, QDragEnterEvent, QDropEvent
@@ -584,7 +585,6 @@ class MainWindow(QMainWindow):
     def _space_play_pause(self):
         """Space play/pause — only fires when focus is not in a text field."""
         focused = QApplication.focusWidget()
-        from PyQt6.QtWidgets import QTextEdit, QLineEdit, QPlainTextEdit
         if isinstance(focused, (QTextEdit, QLineEdit, QPlainTextEdit)):
             return
         self.player.toggle_play()

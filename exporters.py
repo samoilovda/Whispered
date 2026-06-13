@@ -62,8 +62,12 @@ def export_vtt(result: TranscriptionResult, filepath: str) -> None:
             end = format_timestamp_vtt(seg.end)
             speaker = _speaker_name(result, seg)
             text = seg.text.strip()
-            # WebVTT voice tag carries the speaker name when present.
-            cue = f"<v {speaker}>{text}</v>" if speaker else text
+            if speaker:
+                # WebVTT voice spans must not contain '<' or '>'.
+                safe_speaker = speaker.replace("<", "").replace(">", "").replace("\n", " ").strip()
+                cue = f"<v {safe_speaker}>{text}</v>" if safe_speaker else text
+            else:
+                cue = text
 
             f.write(f"{i}\n")
             f.write(f"{start} --> {end}\n")

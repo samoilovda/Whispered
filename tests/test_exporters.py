@@ -137,6 +137,21 @@ class TestExportVtt:
         export_vtt(_make_result(), out)
         assert "00:00:00.000" in open(out, encoding="utf-8").read()
 
+    def test_voice_tag_special_chars_sanitized(self, tmp_path):
+        """Speaker name with '<' or '>' must not corrupt the VTT cue."""
+        out = str(tmp_path / "bad_speaker.vtt")
+        r = _make_result(has_speakers=True)
+        r.speaker_names = {"Speaker 1": "Bob > Alice", "Speaker 2": "Eve<2>"}
+        export_vtt(r, out)
+        content = open(out, encoding="utf-8").read()
+        # The resulting voice tag must never contain a raw '>'  after <v
+        for line in content.splitlines():
+            if line.startswith("<v "):
+                # Everything between <v and the first closing > is the name
+                # The name itself must not contain '>'.
+                name_part = line[3:line.index(">")]
+                assert ">" not in name_part
+
 
 class TestExportJson:
     def test_valid_json(self, tmp_path):
