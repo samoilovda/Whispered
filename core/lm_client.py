@@ -183,7 +183,7 @@ class LMStudioClient:
                                 on_token(delta)
                     except (json.JSONDecodeError, KeyError, IndexError):
                         continue
-            return "".join(full_text) or None
+            return "".join(full_text)
         except urllib.error.URLError as exc:
             logger.debug("LM Studio stream error: %s", exc)
             return None
