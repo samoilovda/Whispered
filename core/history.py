@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Generator, Optional
 
@@ -168,6 +168,8 @@ class HistoryStore:
     def _connect(self) -> Generator[sqlite3.Connection, None, None]:
         conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
         conn.row_factory = sqlite3.Row   # named-column access
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         try:
             yield conn
             conn.commit()
@@ -183,7 +185,7 @@ class HistoryStore:
             speaker_names: dict | None = None) -> int:
         """Persist a TranscriptionResult; returns the new row id."""
         payload = _result_to_payload(result, model, speaker_names)
-        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
         source_name = Path(source_path).name
         with self._connect() as conn:
             cur = conn.execute(
