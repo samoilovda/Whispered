@@ -26,22 +26,15 @@ jobs:
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest
+          pip install pytest ruff
 
-      - name: Syntax check (py_compile)
+      - name: Syntax check (compileall)
         run: |
-          python -m py_compile \
-            main.py config.py utils.py exporters.py transcriber.py \
-            batch_processor.py \
-            core/logger.py core/prompts.py core/history.py core/i18n.py \
-            core/recorder.py core/lm_client.py core/base_worker.py \
-            core/chat_worker.py core/insights_worker.py core/llm_text.py \
-            core/paths.py \
-            ui/theme.py ui/icons.py ui/settings_dialog.py \
-            ui/transcript_view.py ui/main_window.py \
-            ui/player_widget.py ui/history_panel.py \
-            ui/toast.py ui/file_selector.py ui/recorder_widget.py \
-            ui/chat_panel.py ui/insights_panel.py
+          python -m compileall -q -x '__pycache__|\.git|venv|\.venv' .
+
+      - name: Lint (ruff)
+        run: |
+          ruff check --select=E,F,W --ignore=E501,E402,F401 . || true
 
       - name: Run unit tests
         run: python -m pytest tests/ -v
