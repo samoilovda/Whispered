@@ -73,6 +73,8 @@ class ChatPanel(QWidget):
         self._history: list[dict] = []   # [{role, content}, …]
         self._worker = None
         self._current_bubble: Optional[_Bubble] = None
+        self._token_buf: list[str] = []
+        self._scroll_timer: Optional[QTimer] = None
         self._setup_ui()
 
     # ------------------------------------------------------------------ UI
@@ -201,10 +203,17 @@ class ChatPanel(QWidget):
             lm_url=cfg.lm_studio_url,
             parent=self,
         )
+        self._token_buf = []
         self._worker.token_received.connect(self._on_token)
         self._worker.turn_finished.connect(self._on_finished)
         self._worker.error_occurred.connect(self._on_error)
         self._worker.start()
+
+        # Coalesce scroll-to-bottom at ~10 Hz so we don't scroll on every token
+        if self._scroll_timer is None:
+            self._scroll_timer = QTimer(self)
+            self._scroll_timer.timeout.connect(self._scroll_to_bottom)
+        self._scroll_timer.start(100)
 
         self._send_btn.setEnabled(False)
         self._stop_btn.setVisible(True)
@@ -212,32 +221,39 @@ class ChatPanel(QWidget):
 
     def _on_token(self, delta: str):
         if self._current_bubble:
-            # Replace placeholder "…" on first real token
-            if self._current_bubble.text() == "…":
-                self._current_bubble.setText(delta)
-            else:
-                self._current_bubble.setText(self._current_bubble.text() + delta)
-            self._scroll_to_bottom()
+            if self._token_buf or delta:  # replace placeholder on first real token
+                self._token_buf.append(delta)
+                self._current_bubble.setText("".join(self._token_buf))
 
     def _on_finished(self, full_text: str):
+        if self._scroll_timer:
+            self._scroll_timer.stop()
+        self._token_buf = []
         if self._current_bubble:
             self._current_bubble.setText(full_text)
         self._history.append({"role": "assistant", "content": full_text})
         self._current_bubble = None
+        self._scroll_to_bottom()
         self._reset_input()
 
     def _on_error(self, msg: str):
+        if self._scroll_timer:
+            self._scroll_timer.stop()
+        self._token_buf = []
         if self._current_bubble:
             self._current_bubble.setText(f"⚠ {msg}")
             self._current_bubble.setStyleSheet(
                 "background: rgba(239,68,68,0.12); border-radius: 8px;"
                 "padding: 8px 12px; color: #ef4444;"
             )
-        self._history.pop()   # remove the failed user turn
+        if self._history and self._history[-1]["role"] == "user":
+            self._history.pop()   # remove the failed user turn
         self._current_bubble = None
         self._reset_input()
 
     def _on_stop(self):
+        if self._scroll_timer:
+            self._scroll_timer.stop()
         if self._worker and self._worker.isRunning():
             self._worker.cancel()
             self._worker.wait()
