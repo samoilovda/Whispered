@@ -130,5 +130,14 @@
   "tooltip_record": "Запись с микрофона  (Ctrl+R)",
   "tooltip_record_pause": "Пауза записи",
 
-  "language_auto": "Авто-определение"
+  "language_auto": "Авто-определение",
+
+  "tab_chat": "💬 Чат",
+  "chat_placeholder": "Сначала транскрибируйте запись, затем задавайте вопросы.",
+  "chat_ready": "Спросите что-нибудь об этой записи…",
+  "chat_input_placeholder": "Введите вопрос…",
+  "chat_send": "Отправить",
+  "chat_stop": "Стоп",
+  "chat_no_transcript": "Пожалуйста, сначала транскрибируйте запись.",
+  "chat_clear_confirm": "Очистить историю чата?"
 }

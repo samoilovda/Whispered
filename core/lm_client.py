@@ -134,3 +134,59 @@ class LMStudioClient:
         except Exception as e:
             logger.warning("LM Studio API error: %s", e)
             return None
+
+    def chat_completion_stream(
+        self,
+        messages: list[dict],
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        temperature: float = DEFAULT_TEMPERATURE,
+        timeout: int = DEFAULT_TIMEOUT,
+        on_token: Optional[Callable[[str], None]] = None,
+        is_cancelled: Optional[Callable[[], bool]] = None,
+    ) -> Optional[str]:
+        """Send a streaming chat completion; call on_token for each delta.
+
+        Returns the full accumulated response, or None on error/cancel.
+        Uses SSE parsing (``data: {...}`` lines) as emitted by LM Studio.
+        """
+        endpoint = f"{self.base_url}/chat/completions"
+        payload = {
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+        try:
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                endpoint,
+                data=data,
+                headers={"Content-Type": "application/json"},
+            )
+            full_text = []
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                for raw_line in resp:
+                    if is_cancelled and is_cancelled():
+                        return None
+                    line = raw_line.decode("utf-8").strip()
+                    if not line.startswith("data:"):
+                        continue
+                    chunk = line[5:].strip()
+                    if chunk == "[DONE]":
+                        break
+                    try:
+                        obj = json.loads(chunk)
+                        delta = obj["choices"][0]["delta"].get("content", "")
+                        if delta:
+                            full_text.append(delta)
+                            if on_token:
+                                on_token(delta)
+                    except (json.JSONDecodeError, KeyError, IndexError):
+                        continue
+            return "".join(full_text) or None
+        except urllib.error.URLError as exc:
+            logger.debug("LM Studio stream error: %s", exc)
+            return None
+        except Exception as exc:
+            logger.warning("LM Studio stream API error: %s", exc)
+            return None

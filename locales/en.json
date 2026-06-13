@@ -130,5 +130,14 @@
   "tooltip_record": "Record from microphone  (Ctrl+R)",
   "tooltip_record_pause": "Pause recording",
 
-  "language_auto": "Auto-detect"
+  "language_auto": "Auto-detect",
+
+  "tab_chat": "💬 Chat",
+  "chat_placeholder": "Transcribe a recording first, then ask questions here.",
+  "chat_ready": "Ask anything about this recording…",
+  "chat_input_placeholder": "Ask a question…",
+  "chat_send": "Send",
+  "chat_stop": "Stop",
+  "chat_no_transcript": "Please transcribe a recording first.",
+  "chat_clear_confirm": "Clear chat history?"
 }

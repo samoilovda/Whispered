@@ -62,6 +62,9 @@ class Config:
     # Recording settings
     mic_device_index: Optional[int] = None   # None = system default
 
+    # AI Chat settings
+    chat_context_chars: int = 48_000   # max transcript chars sent as system context
+
     # History / privacy
     history_enabled: bool = True
     
