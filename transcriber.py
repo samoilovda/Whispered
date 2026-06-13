@@ -347,7 +347,11 @@ class TranscriptionWorker(QThread):
                     self.progress.emit(0, "Cancelling...")
                     q.close()
                     self._process.terminate()
-                    self._process.join()  # wait to finish terminating
+                    self._process.join(timeout=5)
+                    if self._process.is_alive():
+                        logger.warning("Transcription process did not exit after SIGTERM; sending SIGKILL")
+                        self._process.kill()
+                        self._process.join(timeout=3)
                     self.error.emit("Cancelled")
                     return
 
@@ -390,7 +394,11 @@ class TranscriptionWorker(QThread):
         finally:
             if self._process and self._process.is_alive():
                 self._process.terminate()
-                self._process.join()
+                self._process.join(timeout=5)
+                if self._process.is_alive():
+                    logger.warning("Transcription process still alive after SIGTERM in finally; sending SIGKILL")
+                    self._process.kill()
+                    self._process.join(timeout=3)
 
 
 class Transcriber:
