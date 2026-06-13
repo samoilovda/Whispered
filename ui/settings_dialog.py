@@ -59,6 +59,7 @@ class SettingsDialog(QDialog):
         self._cfg = get_config()
         self._checker: Optional[_ConnectionChecker] = None
         self._pending_theme: Optional[str] = None
+        self._lang_changed: bool = False
         self._setup_ui()
         self._load_values()
 
@@ -359,7 +360,7 @@ class SettingsDialog(QDialog):
     def _on_apply(self):
         self._lang_changed = False
         self._save_values()
-        if getattr(self, "_lang_changed", False):
+        if self._lang_changed:
             QMessageBox.information(
                 self,
                 tr("app_title"),
@@ -369,7 +370,7 @@ class SettingsDialog(QDialog):
     def _on_ok(self):
         self._lang_changed = False
         self._save_values()
-        if getattr(self, "_lang_changed", False):
+        if self._lang_changed:
             QMessageBox.information(
                 self,
                 tr("app_title"),
@@ -378,9 +379,16 @@ class SettingsDialog(QDialog):
         self.accept()
 
     def reject(self):
-        """Cancel: revert any theme preview changes."""
+        """Cancel: revert theme preview and stop any running connection check."""
+        if self._checker is not None and self._checker.isRunning():
+            try:
+                self._checker.result.disconnect(self._on_check_result)
+            except RuntimeError:
+                pass
+            self._checker.wait(1000)
+            self._checker = None
+
         if self._pending_theme is not None:
-            # Revert to original theme
             from PyQt6.QtWidgets import QApplication
             app = QApplication.instance()
             if app:
