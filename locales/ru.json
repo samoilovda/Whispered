@@ -59,6 +59,8 @@
   "settings_ui_language": "Язык интерфейса:",
   "settings_vocab": "Пользовательский словарь:",
   "settings_vocab_hint": "По одному термину на строку — имена, аббревиатуры, термины…",
+  "settings_mic_device": "Микрофон:",
+  "settings_mic_default": "По умолчанию",
 
   "toast_copied": "Скопировано в буфер",
   "toast_exported_one": "Экспортировано: {name}",
@@ -125,6 +127,8 @@
   "tooltip_rewind": "Назад 10 секунд",
   "tooltip_forward": "Вперёд 10 секунд",
   "tooltip_play": "Воспроизведение / Пауза  (Space)",
+  "tooltip_record": "Запись с микрофона  (Ctrl+R)",
+  "tooltip_record_pause": "Пауза записи",
 
   "language_auto": "Авто-определение"
 }

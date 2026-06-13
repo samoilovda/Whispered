@@ -59,6 +59,9 @@ class Config:
     # Custom vocabulary / initial prompt for whisper
     custom_vocabulary: list = field(default_factory=list)   # list[str]
 
+    # Recording settings
+    mic_device_index: Optional[int] = None   # None = system default
+
     # History / privacy
     history_enabled: bool = True
     

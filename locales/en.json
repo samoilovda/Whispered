@@ -59,6 +59,8 @@
   "settings_ui_language": "Interface language:",
   "settings_vocab": "Custom vocabulary:",
   "settings_vocab_hint": "One term per line — proper names, abbreviations, domain terms…",
+  "settings_mic_device": "Microphone:",
+  "settings_mic_default": "System default",
 
   "toast_copied": "Copied to clipboard",
   "toast_exported_one": "Exported: {name}",
@@ -125,6 +127,8 @@
   "tooltip_rewind": "Rewind 10 seconds",
   "tooltip_forward": "Forward 10 seconds",
   "tooltip_play": "Play / Pause  (Space)",
+  "tooltip_record": "Record from microphone  (Ctrl+R)",
+  "tooltip_record_pause": "Pause recording",
 
   "language_auto": "Auto-detect"
 }

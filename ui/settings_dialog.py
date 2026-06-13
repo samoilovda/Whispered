@@ -179,6 +179,11 @@ class SettingsDialog(QDialog):
         self._vocab_edit.setMaximumHeight(90)
         layout.addRow(tr("settings_vocab"), self._vocab_edit)
 
+        # Microphone device
+        self._mic_combo = QComboBox()
+        self._populate_mic_devices()
+        layout.addRow(tr("settings_mic_device"), self._mic_combo)
+
         return tab
 
     def _build_diarization_tab(self) -> QWidget:
@@ -290,6 +295,9 @@ class SettingsDialog(QDialog):
         self._perf_combo.setCurrentIndex(idx if idx >= 0 else 1)
         vocab = getattr(cfg, "custom_vocabulary", []) or []
         self._vocab_edit.setPlainText("\n".join(vocab))
+        saved_mic = getattr(cfg, "mic_device_index", None)
+        idx = self._mic_combo.findData(saved_mic)
+        self._mic_combo.setCurrentIndex(idx if idx >= 0 else 0)
 
         # Diarization
         self._diarization_chk.setChecked(cfg.diarization_enabled)
@@ -320,6 +328,7 @@ class SettingsDialog(QDialog):
         cfg.performance_mode = self._perf_combo.currentData() or "balanced"
         raw_vocab = self._vocab_edit.toPlainText()
         cfg.custom_vocabulary = [t.strip() for t in raw_vocab.splitlines() if t.strip()]
+        cfg.mic_device_index = self._mic_combo.currentData()
 
         # Diarization
         cfg.diarization_enabled = self._diarization_chk.isChecked()
@@ -407,6 +416,17 @@ class SettingsDialog(QDialog):
         else:
             self._check_result.setText(tr("connection_fail", detail=detail[:60]))
             self._check_result.setStyleSheet("color: #ef4444; font-size: 11px;")
+
+    def _populate_mic_devices(self):
+        """Fill the mic device combo with available input devices."""
+        self._mic_combo.clear()
+        self._mic_combo.addItem(tr("settings_mic_default"), None)
+        try:
+            from core.recorder import list_input_devices
+            for dev in list_input_devices():
+                self._mic_combo.addItem(dev["name"], dev["index"])
+        except Exception:
+            pass
 
     def _clear_history(self):
         reply = QMessageBox.question(

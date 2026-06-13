@@ -1,6 +1,8 @@
 PyQt6>=6.6.0
 pyqtdarktheme>=2.1.0
 pywhispercpp>=1.2.0
+sounddevice>=0.4.6
+numpy>=1.24
 
 # Optional: Speaker diarization (requires HF token setup)
 # pyannote.audio>=3.1

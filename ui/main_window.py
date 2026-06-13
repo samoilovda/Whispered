@@ -24,6 +24,7 @@ from ui.book_panel import BookPanel
 from ui.history_panel import HistoryPanel
 from ui.icons import IconLabel, get_icon, IconColors
 from ui.player_widget import PlayerWidget
+from ui.recorder_widget import RecorderWidget
 from transcriber import Transcriber, TranscriptionResult
 from exporters import export_result, EXPORT_FORMATS
 from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, detect_gpu, get_thread_count, is_supported_format
@@ -57,6 +58,9 @@ class MainWindow(QMainWindow):
         self._setup_ui()
         self._connect_signals()
         self.setAcceptDrops(True)
+        # Apply saved mic device
+        cfg = get_config()
+        self.recorder_widget.set_device(getattr(cfg, "mic_device_index", None))
     
     def closeEvent(self, event):
         """Handle window close - cleanup resources."""
@@ -231,6 +235,14 @@ class MainWindow(QMainWindow):
         
         row2_layout.addStretch()
 
+        # Recorder widget
+        self.recorder_widget = RecorderWidget()
+        self.recorder_widget.file_ready.connect(self._on_recording_ready)
+        self.recorder_widget.error.connect(self._on_recording_error)
+        row2_layout.addWidget(self.recorder_widget)
+
+        row2_layout.addSpacing(4)
+
         # Settings button (⚙) — opens the settings dialog
         self.settings_btn = QPushButton("⚙")
         self.settings_btn.setToolTip(tr("tooltip_settings"))
@@ -239,7 +251,7 @@ class MainWindow(QMainWindow):
         self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.settings_btn.clicked.connect(self._open_settings)
         row2_layout.addWidget(self.settings_btn)
-        
+
         header_layout.addLayout(row2_layout)
         
         main_layout.addWidget(header)
@@ -423,6 +435,7 @@ class MainWindow(QMainWindow):
         _sc("Ctrl+T",       self._start_transcription)
         _sc("Ctrl+E",       self._export_result)
         _sc("Ctrl+Shift+C", self._copy_to_clipboard)
+        _sc("Ctrl+R",       self.recorder_widget._toggle_recording)
         # Space: play/pause only when focus is not inside a text input
         _sc("Space",        self._space_play_pause)
     
@@ -509,6 +522,9 @@ class MainWindow(QMainWindow):
         # Settings only persist on OK/Apply; re-seeding is a no-op on Cancel.
         self._apply_config_defaults()
         self.transcript_view.apply_display_settings()
+        # Update recorder device from config
+        cfg = get_config()
+        self.recorder_widget.set_device(getattr(cfg, "mic_device_index", None))
 
     def _apply_config_defaults(self):
         """Re-seed header controls from the saved config (after settings change)."""
@@ -594,6 +610,13 @@ class MainWindow(QMainWindow):
     def _on_player_position(self, seconds: float):
         """Forward player position to transcript highlight (throttled by player timer)."""
         self.transcript_view.highlight_at(seconds)
+
+    def _on_recording_ready(self, filepath: str):
+        """Load a freshly-recorded WAV into the file selector."""
+        self.file_selector._set_file(filepath)
+
+    def _on_recording_error(self, msg: str):
+        QMessageBox.warning(self, tr("error_transcription"), msg)
 
     def _on_file_selected(self, filepath: str):
         """Handle file selection."""
