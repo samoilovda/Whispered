@@ -14,11 +14,13 @@ from typing import Optional
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from core.logger import get_logger
+from core.llm_text import fit_to_context
 from core.prompts import load_prompt
 
 logger = get_logger(__name__)
 
 _INSIGHT_TYPES = ("chapters", "action_items", "key_moments")
+_TRANSCRIPT_MAX_CHARS = 48_000   # ~12 k tokens; matches chat_worker._CONTEXT_CHARS
 
 
 def _strip_json_fences(text: str) -> str:
@@ -50,8 +52,16 @@ def _parse_json_response(raw: str, retry_hint: str = "") -> Optional[list]:
         return None
 
 
-def _build_prompt_text(insight_type: str, segments) -> str:
-    """Build the full prompt including the timestamped transcript."""
+def _build_prompt_text(
+    insight_type: str,
+    segments,
+    max_transcript_chars: int = _TRANSCRIPT_MAX_CHARS,
+) -> str:
+    """Build the full prompt including the timestamped transcript.
+
+    The transcript portion is capped at *max_transcript_chars* so the total
+    request stays within the model's context window.
+    """
     system_prompt = load_prompt(insight_type, fallback="")
     lines = []
     for seg in segments:
@@ -62,7 +72,8 @@ def _build_prompt_text(insight_type: str, segments) -> str:
         if speaker:
             prefix += f"{speaker}: "
         lines.append(f"{prefix}{text}")
-    return system_prompt + "\n" + "\n".join(lines)
+    transcript = fit_to_context("\n".join(lines), max_transcript_chars)
+    return system_prompt + "\n" + transcript
 
 
 class InsightsWorker(QThread):
