@@ -158,5 +158,16 @@
   "timeline_transcribe": "Transcribe",
   "timeline_diarize": "Diarize",
   "timeline_clean": "Clean",
-  "timeline_generate": "Generate"
+  "timeline_generate": "Generate",
+
+  "tab_youtube": "YouTube",
+  "youtube_placeholder": "Transcribe a recording first to generate a YouTube description.",
+  "youtube_generate": "Generate description",
+  "youtube_generating": "Generating…",
+  "youtube_copy": "Copy",
+  "youtube_copied": "Copied to clipboard",
+  "youtube_lang_auto": "Auto (transcript language)",
+  "youtube_empty": "No chapters were detected.",
+  "youtube_error": "Error:",
+  "youtube_no_lm": "Configure LM Studio URL in Settings first."
 }

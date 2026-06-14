@@ -158,5 +158,16 @@
   "timeline_transcribe": "Транскрипция",
   "timeline_diarize": "Спикеры",
   "timeline_clean": "Очистка",
-  "timeline_generate": "Генерация"
+  "timeline_generate": "Генерация",
+
+  "tab_youtube": "YouTube",
+  "youtube_placeholder": "Сначала транскрибируйте запись, чтобы сгенерировать описание для YouTube.",
+  "youtube_generate": "Сгенерировать описание",
+  "youtube_generating": "Генерирую…",
+  "youtube_copy": "Копировать",
+  "youtube_copied": "Скопировано в буфер обмена",
+  "youtube_lang_auto": "Авто (язык транскрипта)",
+  "youtube_empty": "Не удалось выделить темы.",
+  "youtube_error": "Ошибка:",
+  "youtube_no_lm": "Сначала укажите адрес LM Studio в настройках."
 }
