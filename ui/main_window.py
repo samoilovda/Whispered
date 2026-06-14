@@ -27,6 +27,7 @@ from ui.player_widget import PlayerWidget
 from ui.recorder_widget import RecorderWidget
 from ui.chat_panel import ChatPanel
 from ui.insights_panel import InsightsPanel
+from ui.youtube_panel import YouTubePanel
 from ui.progress_timeline import ProgressTimeline
 from transcriber import Transcriber, TranscriptionResult
 from exporters import export_result, EXPORT_FORMATS
@@ -356,7 +357,11 @@ class MainWindow(QMainWindow):
         self.insights_panel = InsightsPanel()
         self.content_tabs.addTab(self.insights_panel, tr("tab_insights"))
 
-        # Tab 6: History
+        # Tab 6: YouTube description
+        self.youtube_panel = YouTubePanel()
+        self.content_tabs.addTab(self.youtube_panel, tr("tab_youtube"))
+
+        # Tab 7: History
         self.history_panel = HistoryPanel()
         self.content_tabs.addTab(self.history_panel, tr("tab_history"))
 
@@ -673,6 +678,7 @@ class MainWindow(QMainWindow):
         self.article_view.clear()
         self.chat_panel.clear_transcript()
         self.insights_panel.clear()
+        self.youtube_panel.clear()
         self._cleaned_text = None
         
         # Disable AI panel during transcription
@@ -803,6 +809,7 @@ class MainWindow(QMainWindow):
         # Feed transcript into chat and insights panels
         self.chat_panel.set_transcript(result.full_text)
         self.insights_panel.set_segments(result.segments)
+        self.youtube_panel.set_segments(result.segments)
 
         # Switch to transcript tab
         self.content_tabs.setCurrentIndex(0)
@@ -870,6 +877,7 @@ class MainWindow(QMainWindow):
             self.book_panel.set_has_transcript(True)
             self.chat_panel.set_transcript(result.full_text)
             self.insights_panel.set_segments(result.segments)
+            self.youtube_panel.set_segments(result.segments)
             word_count = len(result.full_text.split())
             self.status_label.setText(tr("toast_loaded_history", words=word_count))
             self.content_tabs.setCurrentIndex(0)
