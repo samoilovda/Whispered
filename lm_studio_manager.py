@@ -138,7 +138,7 @@ class LMStudioManager:
             req = urllib.request.Request("http://localhost:1234/v1/models")
             with urllib.request.urlopen(req, timeout=2) as response:
                 return response.status == 200
-        except:
+        except Exception:
             pass
         
         # Fall back to CLI check
@@ -205,7 +205,17 @@ class LMStudioManager:
         try:
             data = json.loads(output)
             models = []
-            
+
+            # Accept either a bare list or a dict wrapping the list under a
+            # common key (e.g. {"data": [...]} / {"models": [...]}).
+            if isinstance(data, dict):
+                for key in ('data', 'models', 'items'):
+                    if isinstance(data.get(key), list):
+                        data = data[key]
+                        break
+                else:
+                    data = []
+
             for item in data:
                 # Handle different possible JSON structures
                 if isinstance(item, dict):
