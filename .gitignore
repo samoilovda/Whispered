@@ -64,3 +64,7 @@ Thumbs.db
 # ========================================
 *.log
 .whispered/
+
+# Ad-hoc transcripts / private working data (never commit real recordings)
+transcripts/
+samples/private/
