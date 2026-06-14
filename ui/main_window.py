@@ -27,6 +27,7 @@ from ui.player_widget import PlayerWidget
 from ui.recorder_widget import RecorderWidget
 from ui.chat_panel import ChatPanel
 from ui.insights_panel import InsightsPanel
+from ui.progress_timeline import ProgressTimeline
 from transcriber import Transcriber, TranscriptionResult
 from exporters import export_result, EXPORT_FORMATS
 from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, detect_gpu, get_thread_count, is_supported_format
@@ -381,7 +382,15 @@ class MainWindow(QMainWindow):
         self.status_label = QLabel(tr("label_status_ready"))
         self.status_label.setStyleSheet("color: #888888;")
         status_layout.addWidget(self.status_label)
-        
+
+        self.progress_timeline = ProgressTimeline()
+        self.progress_timeline.stages = [
+            tr("timeline_select"), tr("timeline_extract"), tr("timeline_transcribe"),
+            tr("timeline_diarize"), tr("timeline_clean"), tr("timeline_generate"),
+        ]
+        self.progress_timeline.setVisible(False)
+        status_layout.addWidget(self.progress_timeline)
+
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setTextVisible(False)
@@ -656,6 +665,9 @@ class MainWindow(QMainWindow):
         self.cancel_btn.setVisible(True)
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
+        # Select is done (file chosen); Extract is the first active stage
+        self.progress_timeline.setVisible(True)
+        self.progress_timeline.set_stage(1, 0)
         self.transcript_view.clear()
         self.cleaned_view.clear()
         self.article_view.clear()
@@ -734,6 +746,7 @@ class MainWindow(QMainWindow):
     def _on_progress(self, percentage: int, message: str):
         """Handle progress updates with ETA calculation."""
         self.progress_bar.setValue(percentage)
+        self._update_timeline(percentage, message)
         if percentage > 5 and self._transcription_start > 0:
             elapsed = time.monotonic() - self._transcription_start
             eta_sec = (elapsed / percentage) * (100 - percentage)
@@ -746,6 +759,23 @@ class MainWindow(QMainWindow):
         else:
             self.status_label.setText(message)
     
+    def _update_timeline(self, percentage: int, message: str):
+        """Map a transcription progress update to a timeline stage + local fill.
+
+        Stage indices: 1=Extract, 2=Transcribe, 3=Diarize. The transcriber's
+        global percentages are rescaled to a 0-100 fill within the active stage.
+        """
+        m = message.lower()
+        if "convert" in m or "extract" in m:
+            self.progress_timeline.set_stage(1, min(100, percentage * 10))  # ~5% global
+        elif "speaker" in m or "diariz" in m:
+            local = max(0, min(100, int((percentage - 85) / 10 * 100)))
+            self.progress_timeline.set_stage(3, local)
+        else:
+            # Loading / preparing / transcribing / processing results: 10-90% global
+            local = max(0, min(100, int((percentage - 10) / 80 * 100)))
+            self.progress_timeline.set_stage(2, local)
+
     def _on_finished(self, result: TranscriptionResult):
         """Handle transcription completion."""
         self._current_result = result
@@ -863,6 +893,7 @@ class MainWindow(QMainWindow):
         self.transcribe_btn.setVisible(True)
         self.cancel_btn.setVisible(False)
         self.progress_bar.setVisible(False)
+        self.progress_timeline.setVisible(False)
     
     def _copy_to_clipboard(self):
         """Copy transcription to clipboard."""
@@ -952,7 +983,9 @@ class MainWindow(QMainWindow):
         self.ai_panel.set_processing(True)
         self.cancel_btn.setVisible(True)
         self.transcribe_btn.setVisible(False)
-        
+        self.progress_timeline.setVisible(True)
+        self.progress_timeline.set_stage(4, 0)   # Clean
+
         self._ai_worker = AIProcessingWorker("clean", self._current_result.full_text)
         self._ai_worker.progress.connect(self._on_ai_progress)
         self._ai_worker.finished.connect(self._on_clean_finished)
@@ -969,7 +1002,9 @@ class MainWindow(QMainWindow):
         self.ai_panel.set_processing(True)
         self.cancel_btn.setVisible(True)
         self.transcribe_btn.setVisible(False)
-        
+        self.progress_timeline.setVisible(True)
+        self.progress_timeline.set_stage(5, 0)   # Generate
+
         self._ai_worker = AIProcessingWorker("generate", text, format=format_key)
         self._ai_worker.progress.connect(self._on_ai_progress)
         self._ai_worker.finished.connect(self._on_generate_finished)
@@ -986,7 +1021,9 @@ class MainWindow(QMainWindow):
         self.ai_panel.set_processing(True)
         self.cancel_btn.setVisible(True)
         self.transcribe_btn.setVisible(False)
-        
+        self.progress_timeline.setVisible(True)
+        self.progress_timeline.set_stage(5, 0)   # Generate
+
         self._ai_worker = AIProcessingWorker("generate_all", text)
         self._ai_worker.progress.connect(self._on_ai_progress)
         self._ai_worker.finished.connect(self._on_generate_all_finished)
@@ -996,6 +1033,7 @@ class MainWindow(QMainWindow):
     def _on_ai_progress(self, percentage: int, message: str):
         """Handle AI processing progress."""
         self.ai_panel.update_progress(percentage, message)
+        self.progress_timeline.set_progress(percentage)
         self.status_label.setText(message)
     
     def _on_clean_finished(self, result):

@@ -151,5 +151,12 @@
   "insights_owner": "Ответственный:",
   "insights_deadline": "Срок:",
   "insights_error": "Ошибка:",
-  "insights_no_lm": "Укажите адрес LM Studio в настройках."
+  "insights_no_lm": "Укажите адрес LM Studio в настройках.",
+
+  "timeline_select": "Выбор",
+  "timeline_extract": "Извлечение",
+  "timeline_transcribe": "Транскрипция",
+  "timeline_diarize": "Спикеры",
+  "timeline_clean": "Очистка",
+  "timeline_generate": "Генерация"
 }

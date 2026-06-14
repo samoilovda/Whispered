@@ -151,5 +151,12 @@
   "insights_owner": "Owner:",
   "insights_deadline": "Deadline:",
   "insights_error": "Error:",
-  "insights_no_lm": "Configure LM Studio URL in Settings first."
+  "insights_no_lm": "Configure LM Studio URL in Settings first.",
+
+  "timeline_select": "Select",
+  "timeline_extract": "Extract",
+  "timeline_transcribe": "Transcribe",
+  "timeline_diarize": "Diarize",
+  "timeline_clean": "Clean",
+  "timeline_generate": "Generate"
 }
