@@ -56,11 +56,14 @@ def _build_prompt_text(
     insight_type: str,
     segments,
     max_transcript_chars: int = _TRANSCRIPT_MAX_CHARS,
+    language: Optional[str] = None,
 ) -> str:
     """Build the full prompt including the timestamped transcript.
 
     The transcript portion is capped at *max_transcript_chars* so the total
     request stays within the model's context window.
+    If *language* is given, a directive is inserted after the system prompt
+    to force chapter titles into that language.
     """
     system_prompt = load_prompt(insight_type, fallback="")
     lines = []
@@ -73,7 +76,8 @@ def _build_prompt_text(
             prefix += f"{speaker}: "
         lines.append(f"{prefix}{text}")
     transcript = fit_to_context("\n".join(lines), max_transcript_chars)
-    return system_prompt + "\n" + transcript
+    lang_directive = f"Write all chapter titles in {language}.\n" if language else ""
+    return system_prompt + "\n" + lang_directive + transcript
 
 
 class InsightsWorker(BaseWorker):
@@ -89,13 +93,15 @@ class InsightsWorker(BaseWorker):
     finished = pyqtSignal(str, object)   # (insight_type, list_or_None)
     error_occurred = pyqtSignal(str, str)  # (insight_type, message)
 
-    def __init__(self, insight_type: str, segments, lm_url: str, parent=None):
+    def __init__(self, insight_type: str, segments, lm_url: str,
+                 language: Optional[str] = None, parent=None):
         super().__init__(parent)
         if insight_type not in _INSIGHT_TYPES:
             raise ValueError(f"Unknown insight type: {insight_type}")
         self._type = insight_type
         self._segments = segments
         self._lm_url = lm_url
+        self._language = language
 
     def _on_error(self, msg: str) -> None:
         self.error_occurred.emit(self._type, msg)
@@ -104,7 +110,7 @@ class InsightsWorker(BaseWorker):
         from core.lm_client import LMStudioClient
         client = LMStudioClient(self._lm_url)
 
-        prompt = _build_prompt_text(self._type, self._segments)
+        prompt = _build_prompt_text(self._type, self._segments, language=self._language)
         messages = [{"role": "user", "content": prompt}]
 
         raw = client.chat_completion_stream(
