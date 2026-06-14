@@ -277,6 +277,7 @@ class TestExportHtml:
 
 class TestExportDocx:
     def test_creates_docx_file(self, tmp_path):
+        pytest.importorskip("docx")
         out = str(tmp_path / "out.docx")
         export_docx(_make_result(), out)
         assert os.path.exists(out)
@@ -304,8 +305,13 @@ class TestExportDocx:
 class TestExportResult:
     def test_all_format_keys(self, tmp_path):
         result = _make_result()
-        # PDF requires Qt display — skip in headless CI
+        # PDF requires a Qt display; DOCX requires python-docx. Skip whichever
+        # is unavailable in headless CI so the rest of the formats are covered.
         skip_formats = {"pdf"}
+        try:
+            import docx  # noqa: F401
+        except ImportError:
+            skip_formats.add("docx")
         for key in EXPORT_FORMATS:
             if key in skip_formats:
                 continue
