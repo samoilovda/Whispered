@@ -37,10 +37,14 @@ class Config:
     lm_studio_url: str = "http://localhost:1234/v1"
 
     # Book pipeline settings
-    pipeline_mode: str = "posts"          # "posts" | "book"
+    pipeline_mode: str = "posts"          # "posts" | "book" | "video"
     book_lm_url: str = "http://localhost:1234/v1"
     book_model_name: str = ""             # empty = auto-detect
     book_temperature: float = 0.3         # low temp for precision, not creativity
+
+    # Video pipeline settings
+    video_fps: int = 30                   # 24 | 25 | 30 | 60
+    video_drop_frame: bool = False        # DF timecode (only meaningful for 30/60 == 29.97/59.94)
 
     # Transcription defaults (used by settings dialog)
     default_model: str = "large-v3-turbo-q5_0"

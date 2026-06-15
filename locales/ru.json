@@ -26,6 +26,7 @@
   "label_export_formats": "Форматы экспорта:",
   "label_mode_posts": "📝 Посты",
   "label_mode_book": "📖 Книга",
+  "label_mode_video": "🎬 Видео",
   "label_status_ready": "Готово",
 
   "tab_transcript": "📝 Транскрипт",
@@ -63,6 +64,7 @@
   "settings_mic_default": "По умолчанию",
 
   "toast_copied": "Скопировано в буфер",
+  "toast_edl_exported": "EDL сохранён: {name}",
   "toast_exported_one": "Экспортировано: {name}",
   "toast_exported_many": "Экспортировано файлов: {count}",
   "toast_complete": "Транскрипция завершена — {words} слов",
@@ -73,6 +75,7 @@
   "status_cancelled": "Транскрипция отменена",
   "status_ai_cancelled": "Обработка AI отменена",
   "status_no_gpu": "GPU не найден — только CPU",
+  "status_no_segments": "Нет выбранных сегментов для экспорта",
   "status_switched_device": "Переключено на: {device}",
 
   "drop_hint": "Перетащите аудио или видео файл",
@@ -160,6 +163,7 @@
   "timeline_clean": "Очистка",
   "timeline_generate": "Генерация",
 
+  "tab_cut": "✂️ Таймлайн / Нарезка",
   "tab_youtube": "YouTube",
   "youtube_placeholder": "Сначала транскрибируйте запись, чтобы сгенерировать описание для YouTube.",
   "youtube_generate": "Сгенерировать описание",
@@ -169,5 +173,29 @@
   "youtube_lang_auto": "Авто (язык транскрипта)",
   "youtube_empty": "Не удалось выделить темы.",
   "youtube_error": "Ошибка:",
-  "youtube_no_lm": "Сначала укажите адрес LM Studio в настройках."
+  "youtube_no_lm": "Сначала укажите адрес LM Studio в настройках.",
+  "yt_tab_chapters": "Главы",
+  "yt_tab_titles": "Заголовки",
+  "yt_tab_description": "Описание",
+  "yt_tab_tags": "Теги",
+
+  "video_panel_title": "Настройки видео",
+  "video_fps_label": "Частота кадров:",
+  "video_drop_frame_label": "Drop frame (29.97 / 59.94)",
+  "video_drop_frame_tooltip": "Использовать drop-frame таймкод (только для 30 или 60 fps)",
+  "video_export_edl": "Экспорт EDL…",
+  "video_pause_label": "Мин. пауза:",
+  "video_pause_threshold_tooltip": "Сегменты короче этого порога будут помечены для удаления",
+  "video_mark_pauses": "Отметить паузы и паразиты",
+  "video_assemble_draft": "Собрать черновик MP4…",
+
+  "cut_view_title": "Таймлайн / Нарезка",
+  "cut_placeholder": "Транскрибируйте видеофайл в режиме «Видео», чтобы увидеть сегменты.",
+  "cut_select_all": "Все",
+  "cut_select_none": "Ничего",
+  "cut_count": "Выбрано {kept} из {total}  ({duration})",
+
+  "toast_assembling": "Собираю черновик…",
+  "toast_assembled": "Черновик сохранён: {name}",
+  "toast_assemble_error": "Ошибка сборки: {detail}"
 }

@@ -1,13 +1,13 @@
 """
 Whispered – YouTube Panel
-Generates a YouTube-ready timecode block from a transcript.
+Generates YouTube-ready titles, description, tags, and chapter timecodes.
 """
 
 from __future__ import annotations
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QComboBox, QPlainTextEdit, QApplication,
+    QPushButton, QComboBox, QPlainTextEdit, QApplication, QTabWidget,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
@@ -19,14 +19,17 @@ from ui.toast import show_toast
 
 logger = get_logger(__name__)
 
+_YT_TYPES = ("chapters", "yt_titles", "yt_description", "yt_tags")
+
 
 class YouTubePanel(QWidget):
-    """YouTube description tab — generates a timecode list from chapters."""
+    """YouTube tab — generates titles, description, tags, and timecode chapters."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._segments = []
-        self._worker = None
+        self._workers: dict = {}   # insight_type → worker
+        self._pending = 0
         self._setup_ui()
 
     # ── UI ──────────────────────────────────────────────────────────
@@ -66,16 +69,41 @@ class YouTubePanel(QWidget):
 
         layout.addLayout(controls)
 
-        self._text_edit = QPlainTextEdit()
-        self._text_edit.setReadOnly(True)
+        # Inner tabs: Chapters | Titles | Description | Tags
+        self._tabs = QTabWidget()
+        self._tabs.setVisible(False)
+
         mono = QFont("Monospace")
         mono.setStyleHint(QFont.StyleHint.Monospace)
-        self._text_edit.setFont(mono)
-        self._text_edit.setStyleSheet(
+        _style = (
             "QPlainTextEdit { background: #1a1a1a; color: #d0d0d0;"
             " border: 1px solid #333; border-radius: 4px; }"
         )
-        layout.addWidget(self._text_edit, stretch=1)
+
+        self._chapters_edit = QPlainTextEdit()
+        self._chapters_edit.setReadOnly(True)
+        self._chapters_edit.setFont(mono)
+        self._chapters_edit.setStyleSheet(_style)
+        self._tabs.addTab(self._chapters_edit, tr("yt_tab_chapters"))
+
+        self._titles_edit = QPlainTextEdit()
+        self._titles_edit.setReadOnly(True)
+        self._titles_edit.setFont(mono)
+        self._titles_edit.setStyleSheet(_style)
+        self._tabs.addTab(self._titles_edit, tr("yt_tab_titles"))
+
+        self._desc_edit = QPlainTextEdit()
+        self._desc_edit.setReadOnly(True)
+        self._desc_edit.setStyleSheet(_style)
+        self._tabs.addTab(self._desc_edit, tr("yt_tab_description"))
+
+        self._tags_edit = QPlainTextEdit()
+        self._tags_edit.setReadOnly(True)
+        self._tags_edit.setFont(mono)
+        self._tags_edit.setStyleSheet(_style)
+        self._tabs.addTab(self._tags_edit, tr("yt_tab_tags"))
+
+        layout.addWidget(self._tabs, stretch=1)
 
     # ── Public API ──────────────────────────────────────────────────
 
@@ -91,16 +119,16 @@ class YouTubePanel(QWidget):
         self._segments = []
         self._gen_btn.setEnabled(False)
         self._copy_btn.setEnabled(False)
-        self._text_edit.clear()
-        if self._worker and self._worker.isRunning():
-            self._worker.cancel()
-            try:
-                self._worker.finished.disconnect(self._on_finished)
-                self._worker.error_occurred.disconnect(self._on_error)
-            except RuntimeError:
-                pass
-            self._worker.wait(2000)
-        self._worker = None
+        for edit in (self._chapters_edit, self._titles_edit,
+                     self._desc_edit, self._tags_edit):
+            edit.clear()
+        self._tabs.setVisible(False)
+        for w in self._workers.values():
+            if w and w.isRunning():
+                w.cancel()
+                w.wait(2000)
+        self._workers.clear()
+        self._pending = 0
         self._placeholder.setText(tr("youtube_placeholder"))
         self._placeholder.show()
 
@@ -108,48 +136,93 @@ class YouTubePanel(QWidget):
 
     def _generate(self):
         from config import get_config
+        from core.insights_worker import InsightsWorker
+
         lm_url = get_config().lm_studio_url
         if not lm_url:
-            self._text_edit.setPlainText(tr("youtube_no_lm"))
+            self._chapters_edit.setPlainText(tr("youtube_no_lm"))
+            self._tabs.setVisible(True)
+            self._placeholder.hide()
             return
+
+        # Cancel any in-progress workers
+        for w in self._workers.values():
+            if w and w.isRunning():
+                w.cancel()
+                w.wait(1000)
+        self._workers.clear()
 
         self._gen_btn.setEnabled(False)
         self._gen_btn.setText(tr("youtube_generating"))
         self._copy_btn.setEnabled(False)
-        self._text_edit.clear()
+        for edit in (self._chapters_edit, self._titles_edit,
+                     self._desc_edit, self._tags_edit):
+            edit.clear()
+        self._tabs.setVisible(True)
+        self._placeholder.hide()
 
         lang = self._lang_combo.currentData()
+        self._pending = len(_YT_TYPES)
 
-        from core.insights_worker import InsightsWorker
-        self._worker = InsightsWorker(
-            "chapters", self._segments, lm_url, language=lang, parent=self
-        )
-        self._worker.finished.connect(self._on_finished)
-        self._worker.error_occurred.connect(self._on_error)
-        self._worker.start()
+        for yt_type in _YT_TYPES:
+            worker = InsightsWorker(yt_type, self._segments, lm_url, language=lang, parent=self)
+            worker.finished.connect(self._on_finished)
+            worker.error_occurred.connect(self._on_error)
+            self._workers[yt_type] = worker
+            worker.start()
 
     def _on_finished(self, insight_type: str, data):
-        if isinstance(data, list):
-            text = format_youtube_description(data)
-            if text:
-                self._text_edit.setPlainText(text)
-                self._copy_btn.setEnabled(True)
+        self._pending = max(0, self._pending - 1)
+
+        if insight_type == "chapters":
+            if isinstance(data, list):
+                text = format_youtube_description(data)
+                self._chapters_edit.setPlainText(text or tr("youtube_empty"))
             else:
-                self._text_edit.setPlainText(tr("youtube_empty"))
-        else:
-            self._text_edit.setPlainText(f"{tr('youtube_error')} {data}")
-        self._reset_button()
+                self._chapters_edit.setPlainText(str(data) if data else tr("youtube_empty"))
+
+        elif insight_type == "yt_titles":
+            if isinstance(data, list):
+                self._titles_edit.setPlainText("\n\n".join(f"{i+1}. {t}" for i, t in enumerate(data)))
+            else:
+                self._titles_edit.setPlainText(str(data) if data else "")
+
+        elif insight_type == "yt_description":
+            if isinstance(data, list) and data:
+                self._desc_edit.setPlainText(data[0] if isinstance(data[0], str) else str(data[0]))
+            elif isinstance(data, str):
+                self._desc_edit.setPlainText(data)
+
+        elif insight_type == "yt_tags":
+            if isinstance(data, list):
+                self._tags_edit.setPlainText(", ".join(data))
+            elif isinstance(data, str):
+                self._tags_edit.setPlainText(data)
+
+        if self._pending == 0:
+            self._reset_button()
+            self._copy_btn.setEnabled(True)
 
     def _on_error(self, insight_type: str, msg: str):
-        self._text_edit.setPlainText(f"{tr('youtube_error')} {msg}")
-        self._reset_button()
+        logger.warning("YouTube worker error (%s): %s", insight_type, msg)
+        self._pending = max(0, self._pending - 1)
+        if self._pending == 0:
+            self._reset_button()
 
     def _reset_button(self):
         self._gen_btn.setEnabled(bool(self._segments))
         self._gen_btn.setText(tr("youtube_generate"))
 
     def _copy_to_clipboard(self):
-        text = self._text_edit.toPlainText()
+        """Copy the content of the currently-visible inner tab."""
+        edit_map = {
+            0: self._chapters_edit,
+            1: self._titles_edit,
+            2: self._desc_edit,
+            3: self._tags_edit,
+        }
+        edit = edit_map.get(self._tabs.currentIndex(), self._chapters_edit)
+        text = edit.toPlainText()
         if text:
             QApplication.clipboard().setText(text)
             show_toast(self, tr("youtube_copied"), kind="success")

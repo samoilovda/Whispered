@@ -19,7 +19,7 @@ from core.prompts import load_prompt
 
 logger = get_logger(__name__)
 
-_INSIGHT_TYPES = ("chapters", "action_items", "key_moments")
+_INSIGHT_TYPES = ("chapters", "action_items", "key_moments", "yt_titles", "yt_description", "yt_tags")
 _TRANSCRIPT_MAX_CHARS = 48_000   # ~12 k tokens; matches chat_worker._CONTEXT_CHARS
 
 
@@ -76,7 +76,7 @@ def _build_prompt_text(
             prefix += f"{speaker}: "
         lines.append(f"{prefix}{text}")
     transcript = fit_to_context("\n".join(lines), max_transcript_chars)
-    lang_directive = f"Write all chapter titles in {language}.\n" if language else ""
+    lang_directive = f"Write all output in {language}.\n" if language else ""
     return system_prompt + "\n" + lang_directive + transcript
 
 

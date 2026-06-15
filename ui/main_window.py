@@ -21,6 +21,8 @@ from ui.ai_panel import AIProcessingPanel
 from ui.article_view import ArticleView, CleanedTextView
 from ui.batch_panel import BatchPanel
 from ui.book_panel import BookPanel
+from ui.video_panel import VideoPanel
+from ui.cut_view import CutView
 from ui.history_panel import HistoryPanel
 from ui.icons import IconLabel, get_icon, IconColors
 from ui.player_widget import PlayerWidget
@@ -37,6 +39,9 @@ from core.ai_worker import AIProcessingWorker
 from core.logger import get_logger
 from core.i18n import tr
 from transcriber import _build_initial_prompt
+from timeline_export import write_edl
+from video_edit import mark_pauses, times_to_indices
+from video_cut import assemble_draft, VideoCutError
 
 logger = get_logger(__name__)
 
@@ -89,9 +94,9 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'book_panel') and self.book_panel._batch_worker:
             self.book_panel._cancel_batch()
 
-        # Save current mode to config
+        # Save current mode to config (posts / book / video)
         cfg = get_config()
-        cfg.pipeline_mode = 'book' if self.mode_combo.currentData() == 'book' else 'posts'
+        cfg.pipeline_mode = self.mode_combo.currentData() or 'posts'
         save_config()
 
         event.accept()
@@ -151,9 +156,15 @@ class MainWindow(QMainWindow):
         self.mode_combo.setFixedWidth(120)
         self.mode_combo.addItem(tr("label_mode_posts"), "posts")
         self.mode_combo.addItem(tr("label_mode_book"), "book")
-        # Restore saved mode
+        self.mode_combo.addItem(tr("label_mode_video"), "video")
+        # Restore saved mode by data value (supports posts/book/video)
         saved_mode = get_config().pipeline_mode
-        self.mode_combo.setCurrentIndex(1 if saved_mode == 'book' else 0)
+        saved_idx = next(
+            (i for i in range(self.mode_combo.count())
+             if self.mode_combo.itemData(i) == saved_mode),
+            0
+        )
+        self.mode_combo.setCurrentIndex(saved_idx)
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         row1_layout.addWidget(self.mode_combo)
 
@@ -319,6 +330,13 @@ class MainWindow(QMainWindow):
         self.book_panel.cancel_requested.connect(self._cancel_operation)
         left_layout.addWidget(self.book_panel)
 
+        # Video Pipeline Panel
+        self.video_panel = VideoPanel()
+        self.video_panel.export_edl_requested.connect(self._export_edl)
+        self.video_panel.mark_pauses_requested.connect(self._mark_pauses)
+        self.video_panel.assemble_requested.connect(self._assemble_draft)
+        left_layout.addWidget(self.video_panel)
+
         left_layout.addStretch()
         left_scroll.setWidget(left_panel)
         
@@ -357,11 +375,15 @@ class MainWindow(QMainWindow):
         self.insights_panel = InsightsPanel()
         self.content_tabs.addTab(self.insights_panel, tr("tab_insights"))
 
-        # Tab 6: YouTube description
+        # Tab 6: Timeline / Cut (video mode)
+        self.cut_view = CutView()
+        self.content_tabs.addTab(self.cut_view, tr("tab_cut"))
+
+        # Tab 7: YouTube description
         self.youtube_panel = YouTubePanel()
         self.content_tabs.addTab(self.youtube_panel, tr("tab_youtube"))
 
-        # Tab 7: History
+        # Tab 8: History
         self.history_panel = HistoryPanel()
         self.content_tabs.addTab(self.history_panel, tr("tab_history"))
 
@@ -448,6 +470,7 @@ class MainWindow(QMainWindow):
         # Player ↔ transcript sync
         self.player.position_changed_sec.connect(self._on_player_position)
         self.transcript_view.seek_requested.connect(self.player.seek_to)
+        self.cut_view.seek_requested.connect(self.player.seek_to)
 
         # Insights panel
         self.insights_panel.seek_requested.connect(self.player.seek_to)
@@ -535,13 +558,18 @@ class MainWindow(QMainWindow):
             """)
     
     def _on_mode_changed(self, index: int):
-        """Switch between Posts and Book pipeline modes."""
-        is_book = self.mode_combo.currentData() == 'book'
+        """Switch between Posts, Book, and Video pipeline modes."""
+        mode = self.mode_combo.currentData()
+        is_book  = mode == 'book'
+        is_video = mode == 'video'
+        is_posts = mode == 'posts'
         # Posts mode panels
-        self.ai_panel.setVisible(not is_book)
-        self.batch_panel.setVisible(not is_book)
+        self.ai_panel.setVisible(is_posts)
+        self.batch_panel.setVisible(is_posts)
         # Book mode panel
         self.book_panel.setVisible(is_book)
+        # Video mode panel
+        self.video_panel.setVisible(is_video)
         # Immediately recheck LM Studio when switching to Book mode
         # (avoids waiting up to 10s for the next timer tick)
         if is_book:
@@ -679,6 +707,7 @@ class MainWindow(QMainWindow):
         self.chat_panel.clear_transcript()
         self.insights_panel.clear()
         self.youtube_panel.clear()
+        self.cut_view.clear()
         self._cleaned_text = None
         
         # Disable AI panel during transcription
@@ -693,9 +722,10 @@ class MainWindow(QMainWindow):
         # Determine thread count based on performance mode
         n_threads = get_thread_count(perf_mode)
         
-        # Get diarization settings
-        enable_diarization = self.diarization_checkbox.isChecked()
-        
+        # Get diarization settings (disabled in video mode — not needed for cutting)
+        is_video = self.mode_combo.currentData() == 'video'
+        enable_diarization = False if is_video else self.diarization_checkbox.isChecked()
+
         self._transcription_start = time.monotonic()
         # Build initial prompt from custom vocabulary
         vocab = getattr(get_config(), "custom_vocabulary", []) or []
@@ -710,6 +740,7 @@ class MainWindow(QMainWindow):
             enable_diarization=enable_diarization,
             num_speakers=None,  # Auto-detect
             initial_prompt=prompt,
+            word_timestamps=is_video,
             on_progress=self._on_progress,
             on_finished=self._on_finished,
             on_error=self._on_error
@@ -811,8 +842,14 @@ class MainWindow(QMainWindow):
         self.insights_panel.set_segments(result.segments)
         self.youtube_panel.set_segments(result.segments)
 
-        # Switch to transcript tab
-        self.content_tabs.setCurrentIndex(0)
+        # Video mode: populate cut view and switch to it
+        self.video_panel.set_has_transcript(True)
+        self.cut_view.set_result(result)
+        if self.mode_combo.currentData() == 'video':
+            self.content_tabs.setCurrentWidget(self.cut_view)
+        else:
+            # Switch to transcript tab
+            self.content_tabs.setCurrentIndex(0)
 
     def _save_to_history(self, result: TranscriptionResult, source_path: str,
                          model: str, speaker_names: dict):
@@ -1112,6 +1149,70 @@ class MainWindow(QMainWindow):
 
         self.status_label.setText(f"AI Error: {error_message[:50]}...")
         QMessageBox.warning(self, "AI Processing Error", f"An error occurred:\n\n{error_message}")
+
+    # ===== Video Pipeline Methods =====
+
+    def _export_edl(self):
+        """Export kept segments from the Cut view as a CMX3600 EDL file."""
+        segs = self.cut_view.get_kept_segments()
+        if not segs:
+            self.status_label.setText(tr("status_no_segments"))
+            return
+        cfg = get_config()
+        src = self._source_filepath or "clip"
+        clip_name = os.path.basename(src)
+        default_name = os.path.splitext(clip_name)[0] + ".edl"
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Export EDL", default_name, "EDL (*.edl);;All Files (*)"
+        )
+        if not filepath:
+            return
+        try:
+            write_edl(
+                segs, filepath,
+                fps=cfg.video_fps,
+                drop_frame=cfg.video_drop_frame,
+                title=os.path.splitext(clip_name)[0],
+                clip_name=clip_name,
+            )
+            show_toast(self, tr("toast_edl_exported", name=os.path.basename(filepath)), kind="success")
+        except Exception as e:
+            QMessageBox.critical(self, tr("error_export"), str(e))
+
+    def _mark_pauses(self, threshold: float):
+        """Run algorithmic pause/filler detection and uncheck matched segments."""
+        if not self._current_result:
+            return
+        segs = self._current_result.segments
+        indices = mark_pauses(segs, min_duration=threshold)
+        self.cut_view.mark_indices(indices)
+        logger.info("Mark pauses (threshold=%.2fs): %d segments marked", threshold, len(indices))
+
+    def _assemble_draft(self):
+        """Cut and concatenate kept segments into a draft MP4 via ffmpeg."""
+        src = getattr(self, "_source_filepath", None)
+        if not src:
+            return
+        segs = self.cut_view.get_kept_segments()
+        if not segs:
+            self.status_label.setText(tr("status_no_segments"))
+            return
+        base = os.path.splitext(os.path.basename(src))[0]
+        default_name = base + "_draft.mp4"
+        out_path, _ = QFileDialog.getSaveFileName(
+            self, tr("video_assemble_draft"), default_name, "MP4 (*.mp4);;All Files (*)"
+        )
+        if not out_path:
+            return
+        show_toast(self, tr("toast_assembling"), kind="info")
+        try:
+            def _progress(msg: str):
+                self.status_label.setText(msg)
+            assemble_draft(src, segs, out_path, on_progress=_progress)
+            show_toast(self, tr("toast_assembled", name=os.path.basename(out_path)), kind="success")
+        except (VideoCutError, Exception) as exc:
+            show_toast(self, tr("toast_assemble_error", detail=str(exc)[:80]), kind="error")
+            logger.exception("assemble_draft failed: %s", exc)
 
     # ===== Book Pipeline Methods =====
 

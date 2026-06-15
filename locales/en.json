@@ -26,6 +26,7 @@
   "label_export_formats": "Export formats:",
   "label_mode_posts": "📝 Posts",
   "label_mode_book": "📖 Book",
+  "label_mode_video": "🎬 Video",
   "label_status_ready": "Ready",
 
   "tab_transcript": "📝 Transcript",
@@ -63,6 +64,7 @@
   "settings_mic_default": "System default",
 
   "toast_copied": "Copied to clipboard",
+  "toast_edl_exported": "EDL exported: {name}",
   "toast_exported_one": "Exported: {name}",
   "toast_exported_many": "Exported {count} files",
   "toast_complete": "Transcription complete — {words} words",
@@ -73,6 +75,7 @@
   "status_cancelled": "Transcription cancelled",
   "status_ai_cancelled": "AI processing cancelled",
   "status_no_gpu": "No GPU available — CPU only mode",
+  "status_no_segments": "No segments selected for export",
   "status_switched_device": "Switched to: {device}",
 
   "drop_hint": "Drop audio or video file here",
@@ -160,6 +163,7 @@
   "timeline_clean": "Clean",
   "timeline_generate": "Generate",
 
+  "tab_cut": "✂️ Timeline / Cut",
   "tab_youtube": "YouTube",
   "youtube_placeholder": "Transcribe a recording first to generate a YouTube description.",
   "youtube_generate": "Generate description",
@@ -169,5 +173,29 @@
   "youtube_lang_auto": "Auto (transcript language)",
   "youtube_empty": "No chapters were detected.",
   "youtube_error": "Error:",
-  "youtube_no_lm": "Configure LM Studio URL in Settings first."
+  "youtube_no_lm": "Configure LM Studio URL in Settings first.",
+  "yt_tab_chapters": "Chapters",
+  "yt_tab_titles": "Titles",
+  "yt_tab_description": "Description",
+  "yt_tab_tags": "Tags",
+
+  "video_panel_title": "Video Settings",
+  "video_fps_label": "Frame rate:",
+  "video_drop_frame_label": "Drop frame (29.97 / 59.94)",
+  "video_drop_frame_tooltip": "Use drop-frame timecode (only for 30 or 60 fps nominal rates)",
+  "video_export_edl": "Export EDL…",
+  "video_pause_label": "Min pause:",
+  "video_pause_threshold_tooltip": "Segments shorter than this duration will be marked for removal",
+  "video_mark_pauses": "Mark Pauses & Fillers",
+  "video_assemble_draft": "Assemble Draft MP4…",
+
+  "cut_view_title": "Timeline / Cut",
+  "cut_placeholder": "Transcribe a video file in Video mode to see segments here.",
+  "cut_select_all": "All",
+  "cut_select_none": "None",
+  "cut_count": "{kept} of {total} kept  ({duration})",
+
+  "toast_assembling": "Assembling draft…",
+  "toast_assembled": "Draft saved: {name}",
+  "toast_assemble_error": "Assembly failed: {detail}"
 }
