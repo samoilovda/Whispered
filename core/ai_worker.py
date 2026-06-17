@@ -4,14 +4,15 @@ Background QThread for AI-powered text cleaning and article generation.
 Extracted from ui/main_window.py to separate compute from UI.
 """
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 
+from core.base_worker import BaseWorker
 from core.logger import get_logger
 
 logger = get_logger(__name__)
 
 
-class AIProcessingWorker(QThread):
+class AIProcessingWorker(BaseWorker):
     """Background worker for AI processing tasks (clean, generate, generate_all)."""
 
     progress = pyqtSignal(int, str)   # (percentage, message)
@@ -23,28 +24,22 @@ class AIProcessingWorker(QThread):
         self.task: str = task
         self.text: str = text
         self.kwargs: dict = kwargs
-        self._cancelled: bool = False
 
-    def run(self) -> None:
-        """Execute the requested task in a background thread."""
-        try:
-            if self.task == "clean":
-                self._run_clean()
-            elif self.task == "generate":
-                self._run_generate()
-            elif self.task == "generate_all":
-                self._run_generate_all()
-            elif self.task == "book_unwrap":
-                self._run_book_unwrap()
-            else:
-                self.error.emit(f"Unknown AI task: {self.task}")
-        except Exception as e:
-            logger.exception("AIProcessingWorker failed for task '%s'", self.task)
-            self.error.emit(str(e))
+    def _on_error(self, msg: str) -> None:
+        logger.exception("AIProcessingWorker failed for task '%s'", self.task)
+        self.error.emit(msg)
 
-    def cancel(self) -> None:
-        """Request cancellation of the current task."""
-        self._cancelled = True
+    def _execute(self) -> None:
+        if self.task == "clean":
+            self._run_clean()
+        elif self.task == "generate":
+            self._run_generate()
+        elif self.task == "generate_all":
+            self._run_generate_all()
+        elif self.task == "book_unwrap":
+            self._run_book_unwrap()
+        else:
+            self.error.emit(f"Unknown AI task: {self.task}")
 
     # ------------------------------------------------------------------
 
@@ -52,51 +47,51 @@ class AIProcessingWorker(QThread):
         from text_processor import TextProcessor
 
         processor = TextProcessor()
-        processor.lm_client.is_cancelled = lambda: self._cancelled
+        processor.lm_client.is_cancelled = self._cancelled.is_set
 
         def on_progress(pct: int, msg: str) -> None:
-            if not self._cancelled:
+            if not self._cancelled.is_set():
                 self.progress.emit(pct, msg)
 
         result = processor.process(self.text, use_ai=True, on_progress=on_progress)
 
-        if not self._cancelled:
+        if not self._cancelled.is_set():
             self.finished.emit(result)
 
     def _run_generate(self) -> None:
         from article_generator import ArticleGenerator, ArticleFormat
 
         generator = ArticleGenerator()
-        generator.lm_client.is_cancelled = lambda: self._cancelled
+        generator.lm_client.is_cancelled = self._cancelled.is_set
         format_key = self.kwargs.get('format', 'blog')
         format_enum = ArticleFormat(format_key)
 
         def on_progress(pct: int, msg: str) -> None:
-            if not self._cancelled:
+            if not self._cancelled.is_set():
                 self.progress.emit(pct, msg)
 
         article = generator.generate_article(
             self.text, format_enum, on_progress=on_progress
         )
 
-        if not self._cancelled:
+        if not self._cancelled.is_set():
             self.finished.emit(article)
 
     def _run_generate_all(self) -> None:
         from article_generator import ArticleGenerator
 
         generator = ArticleGenerator()
-        generator.lm_client.is_cancelled = lambda: self._cancelled
+        generator.lm_client.is_cancelled = self._cancelled.is_set
 
         def on_progress(pct: int, msg: str) -> None:
-            if not self._cancelled:
+            if not self._cancelled.is_set():
                 self.progress.emit(pct, msg)
 
         result = generator.generate_all_formats(
             self.text, on_progress=on_progress
         )
 
-        if not self._cancelled:
+        if not self._cancelled.is_set():
             self.finished.emit(result)
 
     def _run_book_unwrap(self) -> None:
@@ -104,7 +99,7 @@ class AIProcessingWorker(QThread):
         from book_pipeline import BookPipeline
 
         pipeline = BookPipeline()
-        pipeline._client.is_cancelled = lambda: self._cancelled
+        pipeline._client.is_cancelled = self._cancelled.is_set
 
         do_unwrap = self.kwargs.get('do_unwrap', True)
         do_custom = self.kwargs.get('do_custom', False)
@@ -112,7 +107,7 @@ class AIProcessingWorker(QThread):
         source_path = self.kwargs.get('source_path', 'transcript')
 
         def on_progress(pct: int, msg: str) -> None:
-            if not self._cancelled:
+            if not self._cancelled.is_set():
                 self.progress.emit(pct, msg)
 
         result = pipeline.process(
@@ -122,8 +117,8 @@ class AIProcessingWorker(QThread):
             do_custom=do_custom,
             custom_prompt_path=custom_prompt_path,
             on_progress=on_progress,
-            is_cancelled=lambda: self._cancelled,
+            is_cancelled=self._cancelled.is_set,
         )
 
-        if not self._cancelled:
+        if not self._cancelled.is_set():
             self.finished.emit(result)

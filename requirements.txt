@@ -1,7 +1,27 @@
+# Core runtime — required for normal operation
 PyQt6>=6.6.0
 pyqtdarktheme>=2.1.0
 pywhispercpp>=1.2.0
 
-# Optional: Speaker diarization (requires HF token setup)
+# Audio recording and level metering (microphone capture)
+sounddevice>=0.4.6
+numpy>=1.24
+
+# DOCX export
+python-docx>=1.0
+
+# Note: sounddevice, numpy, and python-docx are guarded by try/except ImportError
+# in the code so the app can start and show a useful error rather than crashing
+# at import time. They are intentionally listed here as hard dependencies because
+# all three are needed for core shipped features (recording, level meter, docx export).
+
+# Optional: Speaker diarization (requires HF token setup — see setup_diarization.py)
 # pyannote.audio>=3.1
 # torch>=2.0
+
+# Video mode system dependencies (not pip-installable — must be on PATH):
+#   ffmpeg + ffprobe   macOS: brew install ffmpeg
+#                      Fedora: sudo dnf install ffmpeg
+#                      Ubuntu: sudo apt install ffmpeg
+# These are already required for audio extraction from video files (transcriber.py).
+# Video mode additionally uses ffprobe for frame-rate detection (video_input.py).

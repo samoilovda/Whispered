@@ -9,8 +9,8 @@ import threading
 import tempfile
 import subprocess
 import shutil
-from dataclasses import dataclass
-from typing import Callable, Optional, List
+from dataclasses import dataclass, field
+from typing import Callable, Optional, List, Dict
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
 
 from pywhispercpp.model import Model
@@ -58,12 +58,21 @@ FORMATS_NEEDING_CONVERSION = {'.m4a', '.aac', '.wma', '.opus', '.ogg', '.flac',
 
 
 @dataclass
+class Word:
+    """A single word with its timing from word-level transcription."""
+    start: float
+    end: float
+    text: str
+
+
+@dataclass
 class Segment:
     """Represents a transcription segment with timing."""
     start: float  # Start time in seconds
     end: float    # End time in seconds
     text: str     # Transcribed text
     speaker: Optional[str] = None  # Speaker label (e.g., "Speaker 1")
+    words: List['Word'] = field(default_factory=list)  # Word-level timings (video mode only)
 
 
 @dataclass
@@ -72,15 +81,86 @@ class TranscriptionResult:
     segments: List[Segment]
     language: str
     duration: float
-    
+    # Maps raw speaker id (e.g. "Speaker 1") to a user-assigned display name.
+    # Empty by default; populated when the user renames speakers.
+    speaker_names: Dict[str, str] = field(default_factory=dict)
+
     @property
     def full_text(self) -> str:
         """Get the complete transcription as plain text."""
         return ' '.join(seg.text.strip() for seg in self.segments)
 
+    def speaker_label(self, speaker_id: Optional[str]) -> Optional[str]:
+        """Resolve a speaker id to its display name (or the id if unmapped)."""
+        if not speaker_id:
+            return None
+        return self.speaker_names.get(speaker_id, speaker_id)
+
 
 import multiprocessing as mp
 import queue
+
+# Word-grouping thresholds for video mode phrase segmentation
+_PHRASE_PAUSE_GAP = 0.6    # seconds of silence that forces a new phrase
+_PHRASE_MAX_WORDS = 14     # max words before forcing a new phrase
+
+
+def _group_words_into_segments(words: list) -> list:
+    """Group word-level items into phrase Segments.
+
+    Called when word_timestamps=True: whisper emits one raw segment per word;
+    this re-groups them into readable phrases using punctuation and pause heuristics.
+    """
+    if not words:
+        return []
+
+    segments = []
+    phrase: list = []
+
+    def _flush(phrase):
+        if not phrase:
+            return
+        raw = ''.join(w.text for w in phrase)
+        # collapse multiple spaces that whisper sometimes emits
+        import re as _re
+        text = _re.sub(r' {2,}', ' ', raw).strip()
+        segments.append(Segment(
+            start=phrase[0].start,
+            end=phrase[-1].end,
+            text=text,
+            speaker=None,
+            words=list(phrase),
+        ))
+
+    for i, word in enumerate(words):
+        if phrase:
+            prev = phrase[-1]
+            pause = word.start - prev.end
+            ends_sentence = prev.text.rstrip().endswith(('.', '?', '!', '…'))
+            if ends_sentence or pause > _PHRASE_PAUSE_GAP or len(phrase) >= _PHRASE_MAX_WORDS:
+                _flush(phrase)
+                phrase = []
+        phrase.append(word)
+
+    _flush(phrase)
+    return segments
+
+
+def _build_initial_prompt(vocabulary: list[str]) -> Optional[str]:
+    """Build an initial-prompt string from a vocabulary list.
+
+    Whisper uses the prompt as prior context (~200 tokens max).
+    Terms are joined by comma-space; long lists are truncated.
+    """
+    if not vocabulary:
+        return None
+    # Roughly 4 chars/token; 200 tokens ≈ 800 chars
+    joined = ", ".join(t.strip() for t in vocabulary if t.strip())
+    if len(joined) > 800:
+        logger.warning("Custom vocabulary truncated to ~200 tokens for whisper prompt")
+        joined = joined[:800].rsplit(",", 1)[0]
+    return joined or None
+
 
 def _run_transcription_process(
     filepath: str,
@@ -90,7 +170,9 @@ def _run_transcription_process(
     n_threads: int,
     enable_diarization: bool,
     num_speakers: Optional[int],
-    q: mp.Queue
+    q: mp.Queue,
+    initial_prompt: Optional[str] = None,
+    word_timestamps: bool = False,
 ):
     """Run transcription in a separate process to allow hard cancellation."""
     temp_wav_path = None
@@ -157,11 +239,22 @@ def _run_transcription_process(
         # Enable translation if requested
         if translate:
             params['translate'] = True
-            
+
+        # Custom vocabulary / initial prompt
+        if initial_prompt:
+            params['initial_prompt'] = initial_prompt
+            logger.info("Using initial prompt (%d chars): %.60s…", len(initial_prompt), initial_prompt)
+
         # Tweaks for improving transcription quality
         params['no_context'] = True  # Equivalent to condition_on_previous_text=False
         params['no_speech_thold'] = 0.6 # no_speech_threshold
-            
+
+        # Video mode: request word-level timing (one raw segment per word)
+        if word_timestamps:
+            params['token_timestamps'] = True
+            params['split_on_word'] = True
+            params['max_len'] = 1
+
         # Get duration for progress bar
         try:
             import wave
@@ -181,16 +274,21 @@ def _run_transcription_process(
         segments_raw = model.transcribe(audio_path, new_segment_callback=segment_cb, **params)
         
         q.put(('progress', 90, "Processing results..."))
-        
+
         # Convert to our Segment format
-        segments = []
-        for seg in segments_raw:
-            segments.append(Segment(
-                start=seg.t0 / 100.0,
-                end=seg.t1 / 100.0,
-                text=seg.text,
-                speaker=None
-            ))
+        if word_timestamps:
+            # segments_raw is word-level; regroup into phrase segments
+            words = [Word(start=s.t0 / 100.0, end=s.t1 / 100.0, text=s.text) for s in segments_raw]
+            segments = _group_words_into_segments(words)
+        else:
+            segments = []
+            for seg in segments_raw:
+                segments.append(Segment(
+                    start=seg.t0 / 100.0,
+                    end=seg.t1 / 100.0,
+                    text=seg.text,
+                    speaker=None
+                ))
             
         # Run diarization if enabled
         if enable_diarization:
@@ -269,6 +367,8 @@ class TranscriptionWorker(QThread):
         n_threads: int = 4,
         enable_diarization: bool = False,
         num_speakers: Optional[int] = None,
+        initial_prompt: Optional[str] = None,
+        word_timestamps: bool = False,
         parent: Optional[QObject] = None
     ):
         super().__init__(parent)
@@ -279,6 +379,8 @@ class TranscriptionWorker(QThread):
         self.n_threads = n_threads
         self.enable_diarization = enable_diarization
         self.num_speakers = num_speakers
+        self.initial_prompt = initial_prompt
+        self.word_timestamps = word_timestamps
         self._cancelled = threading.Event()
         self._process = None
     
@@ -302,7 +404,9 @@ class TranscriptionWorker(QThread):
                 self.n_threads,
                 self.enable_diarization,
                 self.num_speakers,
-                q
+                q,
+                self.initial_prompt,
+                self.word_timestamps,
             )
         )
         self._process.start()
@@ -313,7 +417,11 @@ class TranscriptionWorker(QThread):
                     self.progress.emit(0, "Cancelling...")
                     q.close()
                     self._process.terminate()
-                    self._process.join()  # wait to finish terminating
+                    self._process.join(timeout=5)
+                    if self._process.is_alive():
+                        logger.warning("Transcription process did not exit after SIGTERM; sending SIGKILL")
+                        self._process.kill()
+                        self._process.join(timeout=3)
                     self.error.emit("Cancelled")
                     return
 
@@ -356,7 +464,11 @@ class TranscriptionWorker(QThread):
         finally:
             if self._process and self._process.is_alive():
                 self._process.terminate()
-                self._process.join()
+                self._process.join(timeout=5)
+                if self._process.is_alive():
+                    logger.warning("Transcription process still alive after SIGTERM in finally; sending SIGKILL")
+                    self._process.kill()
+                    self._process.join(timeout=3)
 
 
 class Transcriber:
@@ -379,13 +491,15 @@ class Transcriber:
         n_threads: int = 4,
         enable_diarization: bool = False,
         num_speakers: Optional[int] = None,
+        initial_prompt: Optional[str] = None,
+        word_timestamps: bool = False,
         on_progress: Optional[Callable[[int, str], None]] = None,
         on_finished: Optional[Callable[[TranscriptionResult], None]] = None,
         on_error: Optional[Callable[[str], None]] = None
     ) -> TranscriptionWorker:
         """
         Start a transcription job.
-        
+
         Args:
             filepath: Path to the audio/video file
             model_name: Whisper model name (tiny, base, small, medium, large, turbo)
@@ -394,10 +508,11 @@ class Transcriber:
             n_threads: Number of CPU threads to use
             enable_diarization: If True, identify speakers
             num_speakers: Number of speakers (None = auto-detect)
+            word_timestamps: If True, request word-level timing (video mode)
             on_progress: Callback for progress updates (percentage, message)
             on_finished: Callback when transcription completes
             on_error: Callback for errors
-        
+
         Returns:
             The worker thread for additional control
         """
@@ -436,7 +551,9 @@ class Transcriber:
             translate=translate,
             n_threads=n_threads,
             enable_diarization=enable_diarization,
-            num_speakers=num_speakers
+            num_speakers=num_speakers,
+            initial_prompt=initial_prompt,
+            word_timestamps=word_timestamps,
         )
         
         # Connect signals

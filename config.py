@@ -10,12 +10,11 @@ from typing import Optional
 from pathlib import Path
 
 from core.logger import get_logger
+from core.paths import data_dir
 
 logger = get_logger(__name__)
 
-
-# Config directory
-CONFIG_DIR = Path.home() / ".whisper-fedora"
+CONFIG_DIR = data_dir()
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 
@@ -38,14 +37,39 @@ class Config:
     lm_studio_url: str = "http://localhost:1234/v1"
 
     # Book pipeline settings
-    pipeline_mode: str = "posts"          # "posts" | "book"
+    pipeline_mode: str = "posts"          # "posts" | "book" | "video"
     book_lm_url: str = "http://localhost:1234/v1"
     book_model_name: str = ""             # empty = auto-detect
     book_temperature: float = 0.3         # low temp for precision, not creativity
 
+    # Video pipeline settings
+    video_fps: int = 30                   # 24 | 25 | 30 | 60
+    video_drop_frame: bool = False        # DF timecode (only meaningful for 30/60 == 29.97/59.94)
+
+    # Transcription defaults (used by settings dialog)
+    default_model: str = "large-v3-turbo-q5_0"
+    default_language: str = "auto"
+    performance_mode: str = "balanced"
+
     # UI preferences
+    theme: str = "dark"
     show_timestamps: bool = True
     show_speaker_labels: bool = True
+
+    # UI language
+    ui_language: str = "auto"   # "auto" | "en" | "ru"
+
+    # Custom vocabulary / initial prompt for whisper
+    custom_vocabulary: list = field(default_factory=list)   # list[str]
+
+    # Recording settings
+    mic_device_index: Optional[int] = None   # None = system default
+
+    # AI Chat settings
+    chat_context_chars: int = 48_000   # max transcript chars sent as system context
+
+    # History / privacy
+    history_enabled: bool = True
     
     def save(self) -> bool:
         """Save configuration to file."""

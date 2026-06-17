@@ -1,0 +1,453 @@
+"""
+Whispered - Settings Dialog
+Unified settings window (Ctrl+,).
+"""
+
+import os
+import subprocess
+import sys
+from typing import Optional
+
+from PyQt6.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget,
+    QPushButton, QLabel, QComboBox, QCheckBox, QLineEdit,
+    QDialogButtonBox, QSpinBox, QGroupBox, QFormLayout,
+    QDoubleSpinBox, QMessageBox, QFileDialog, QPlainTextEdit
+)
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
+from PyQt6.QtGui import QKeySequence, QShortcut
+
+from config import get_config, save_config, Config
+from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, get_models_dir
+from ui.theme import apply_theme, THEMES, get_theme
+from core.logger import get_logger
+from core.i18n import tr
+
+logger = get_logger(__name__)
+
+
+class _ConnectionChecker(QThread):
+    """Non-blocking LM Studio connection check."""
+    result = pyqtSignal(bool, str)   # (connected, model_name_or_error)
+
+    def __init__(self, url: str, parent=None):
+        super().__init__(parent)
+        self._url = url
+
+    def run(self):
+        try:
+            import urllib.request
+            import json
+            req = urllib.request.Request(
+                f"{self._url.rstrip('/')}/models",
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read())
+            models = data.get("data", [])
+            name = models[0]["id"] if models else "connected"
+            self.result.emit(True, name)
+        except Exception as exc:
+            self.result.emit(False, str(exc))
+
+
+class SettingsDialog(QDialog):
+    """Unified settings dialog (Ctrl+,)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._cfg = get_config()
+        self._checker: Optional[_ConnectionChecker] = None
+        self._pending_theme: Optional[str] = None
+        self._lang_changed: bool = False
+        self._setup_ui()
+        self._load_values()
+
+    # ------------------------------------------------------------------ setup
+
+    def _setup_ui(self):
+        self.setWindowTitle("Settings")
+        self.setMinimumSize(520, 460)
+        self.resize(560, 520)
+        self.setModal(True)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 12)
+        root.setSpacing(0)
+
+        self._tabs = QTabWidget()
+        root.addWidget(self._tabs, stretch=1)
+
+        self._tabs.addTab(self._build_general_tab(),        tr("tab_settings_general"))
+        self._tabs.addTab(self._build_transcription_tab(),  tr("tab_settings_transcription"))
+        self._tabs.addTab(self._build_diarization_tab(),    tr("tab_settings_diarization"))
+        self._tabs.addTab(self._build_ai_tab(),             tr("tab_settings_ai"))
+
+        # Button box
+        btn_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+            | QDialogButtonBox.StandardButton.Apply
+        )
+        btn_box.setContentsMargins(12, 0, 12, 0)
+        btn_box.accepted.connect(self._on_ok)
+        btn_box.rejected.connect(self.reject)
+        btn_box.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(self._on_apply)
+        root.addWidget(btn_box)
+
+    # ------------------------------------------------------------------ tabs
+
+    def _build_general_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QFormLayout(tab)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        # Theme
+        self._theme_combo = QComboBox()
+        self._theme_combo.addItem(tr("settings_theme_dark"), "dark")
+        self._theme_combo.addItem(tr("settings_theme_light"), "light")
+        self._theme_combo.currentIndexChanged.connect(self._on_theme_changed)
+        layout.addRow(tr("settings_theme"), self._theme_combo)
+
+        # Timestamps
+        self._timestamps_chk = QCheckBox(tr("settings_show_timestamps"))
+        layout.addRow(self._timestamps_chk)
+
+        # Speaker labels
+        self._speakers_chk = QCheckBox(tr("settings_show_speakers"))
+        layout.addRow(self._speakers_chk)
+
+        # History
+        self._history_chk = QCheckBox(tr("settings_history_enabled"))
+        layout.addRow(self._history_chk)
+
+        clear_btn = QPushButton(tr("settings_clear_history"))
+        clear_btn.clicked.connect(self._clear_history)
+        layout.addRow(clear_btn)
+
+        # UI language
+        self._lang_ui_combo = QComboBox()
+        self._lang_ui_combo.addItem("Auto", "auto")
+        self._lang_ui_combo.addItem("English", "en")
+        self._lang_ui_combo.addItem("Русский", "ru")
+        layout.addRow(tr("settings_ui_language"), self._lang_ui_combo)
+
+        return tab
+
+    def _build_transcription_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QFormLayout(tab)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        # Default model
+        self._model_combo = QComboBox()
+        for key, label in WHISPER_MODELS:
+            self._model_combo.addItem(label, key)
+        layout.addRow(tr("settings_default_model"), self._model_combo)
+
+        # Default language
+        self._lang_combo = QComboBox()
+        for key, label in WHISPER_LANGUAGES:
+            self._lang_combo.addItem(label, key)
+        layout.addRow(tr("settings_default_language"), self._lang_combo)
+
+        # Performance mode
+        self._perf_combo = QComboBox()
+        for key, label, *_ in PERFORMANCE_MODES:
+            self._perf_combo.addItem(label, key)
+        layout.addRow(tr("settings_performance"), self._perf_combo)
+
+        # Models directory (read-only)
+        models_row = QHBoxLayout()
+        self._models_dir_label = QLabel()
+        self._models_dir_label.setStyleSheet("color: #888888; font-size: 11px;")
+        self._models_dir_label.setText(get_models_dir())
+        models_row.addWidget(self._models_dir_label, stretch=1)
+
+        open_btn = QPushButton(tr("btn_open_folder"))
+        open_btn.clicked.connect(self._open_models_dir)
+        models_row.addWidget(open_btn)
+
+        models_container = QWidget()
+        models_container.setLayout(models_row)
+        layout.addRow(tr("settings_models_dir"), models_container)
+
+        # Custom vocabulary
+        self._vocab_edit = QPlainTextEdit()
+        self._vocab_edit.setPlaceholderText(tr("settings_vocab_hint"))
+        self._vocab_edit.setMaximumHeight(90)
+        layout.addRow(tr("settings_vocab"), self._vocab_edit)
+
+        # Microphone device
+        self._mic_combo = QComboBox()
+        self._populate_mic_devices()
+        layout.addRow(tr("settings_mic_device"), self._mic_combo)
+
+        return tab
+
+    def _build_diarization_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QFormLayout(tab)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        self._diarization_chk = QCheckBox(tr("settings_diarization_enable"))
+        layout.addRow(self._diarization_chk)
+
+        # HF token
+        token_row = QHBoxLayout()
+        self._hf_token_edit = QLineEdit()
+        self._hf_token_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self._hf_token_edit.setPlaceholderText("hf_…")
+        token_row.addWidget(self._hf_token_edit, stretch=1)
+
+        show_btn = QPushButton("Show")
+        show_btn.setCheckable(True)
+        show_btn.toggled.connect(
+            lambda checked: self._hf_token_edit.setEchoMode(
+                QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
+            )
+        )
+        token_row.addWidget(show_btn)
+
+        token_container = QWidget()
+        token_container.setLayout(token_row)
+        layout.addRow(tr("settings_hf_token"), token_container)
+
+        # Number of speakers
+        self._speakers_spin = QSpinBox()
+        self._speakers_spin.setSpecialValueText(tr("speakers_auto"))
+        self._speakers_spin.setRange(0, 8)   # 0 = auto
+        self._speakers_spin.setValue(0)
+        layout.addRow(tr("settings_num_speakers"), self._speakers_spin)
+
+        note = QLabel(tr("diarization_note"))
+        note.setStyleSheet("color: #888888; font-size: 11px;")
+        note.setWordWrap(True)
+        layout.addRow(note)
+
+        return tab
+
+    def _build_ai_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QFormLayout(tab)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        # Posts / AI panel URL
+        self._lm_url_edit = QLineEdit()
+        self._lm_url_edit.setPlaceholderText("http://localhost:1234/v1")
+        layout.addRow(tr("settings_lm_url"), self._lm_url_edit)
+
+        check_row = QHBoxLayout()
+        self._check_btn = QPushButton(tr("btn_test_connection"))
+        self._check_btn.setProperty("variant", "primary")
+        self._check_btn.clicked.connect(self._check_connection)
+        check_row.addWidget(self._check_btn)
+        self._check_result = QLabel("")
+        self._check_result.setStyleSheet("font-size: 11px;")
+        check_row.addWidget(self._check_result, stretch=1)
+        check_container = QWidget()
+        check_container.setLayout(check_row)
+        layout.addRow(check_container)
+
+        # Book pipeline URL
+        self._book_lm_url_edit = QLineEdit()
+        self._book_lm_url_edit.setPlaceholderText("http://localhost:1234/v1")
+        layout.addRow(tr("settings_book_lm_url"), self._book_lm_url_edit)
+
+        # Book model name
+        self._book_model_edit = QLineEdit()
+        self._book_model_edit.setPlaceholderText("leave empty to auto-detect")
+        layout.addRow(tr("settings_book_model"), self._book_model_edit)
+
+        # Book temperature
+        self._book_temp_spin = QDoubleSpinBox()
+        self._book_temp_spin.setRange(0.0, 2.0)
+        self._book_temp_spin.setSingleStep(0.1)
+        self._book_temp_spin.setDecimals(1)
+        layout.addRow(tr("settings_book_temp"), self._book_temp_spin)
+
+        return tab
+
+    # ------------------------------------------------------------------ helpers
+
+    def _load_values(self):
+        """Populate widgets from current config."""
+        cfg = self._cfg
+
+        # General
+        idx = self._theme_combo.findData(cfg.theme)
+        self._theme_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self._timestamps_chk.setChecked(cfg.show_timestamps)
+        self._speakers_chk.setChecked(cfg.show_speaker_labels)
+        self._history_chk.setChecked(cfg.history_enabled)
+        idx = self._lang_ui_combo.findData(getattr(cfg, "ui_language", "auto"))
+        self._lang_ui_combo.setCurrentIndex(idx if idx >= 0 else 0)
+
+        # Transcription
+        idx = self._model_combo.findData(getattr(cfg, "default_model", "large-v3-turbo"))
+        self._model_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        idx = self._lang_combo.findData(getattr(cfg, "default_language", "auto"))
+        self._lang_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        idx = self._perf_combo.findData(getattr(cfg, "performance_mode", "balanced"))
+        self._perf_combo.setCurrentIndex(idx if idx >= 0 else 1)
+        vocab = getattr(cfg, "custom_vocabulary", []) or []
+        self._vocab_edit.setPlainText("\n".join(vocab))
+        saved_mic = getattr(cfg, "mic_device_index", None)
+        idx = self._mic_combo.findData(saved_mic)
+        self._mic_combo.setCurrentIndex(idx if idx >= 0 else 0)
+
+        # Diarization
+        self._diarization_chk.setChecked(cfg.diarization_enabled)
+        self._hf_token_edit.setText(cfg.hf_token or "")
+        self._speakers_spin.setValue(cfg.default_num_speakers or 0)
+
+        # AI
+        self._lm_url_edit.setText(cfg.lm_studio_url)
+        self._book_lm_url_edit.setText(cfg.book_lm_url)
+        self._book_model_edit.setText(cfg.book_model_name or "")
+        self._book_temp_spin.setValue(cfg.book_temperature)
+
+    def _save_values(self):
+        """Write widget values back to config."""
+        cfg = self._cfg
+        prev_lang = getattr(cfg, "ui_language", "auto")
+
+        # General
+        cfg.theme = self._theme_combo.currentData() or "dark"
+        cfg.show_timestamps = self._timestamps_chk.isChecked()
+        cfg.show_speaker_labels = self._speakers_chk.isChecked()
+        cfg.history_enabled = self._history_chk.isChecked()
+        cfg.ui_language = self._lang_ui_combo.currentData() or "auto"
+
+        # Transcription
+        cfg.default_model = self._model_combo.currentData() or "large-v3-turbo"
+        cfg.default_language = self._lang_combo.currentData() or "auto"
+        cfg.performance_mode = self._perf_combo.currentData() or "balanced"
+        raw_vocab = self._vocab_edit.toPlainText()
+        cfg.custom_vocabulary = [t.strip() for t in raw_vocab.splitlines() if t.strip()]
+        cfg.mic_device_index = self._mic_combo.currentData()
+
+        # Diarization
+        cfg.diarization_enabled = self._diarization_chk.isChecked()
+        cfg.hf_token = self._hf_token_edit.text().strip() or None
+        speakers = self._speakers_spin.value()
+        cfg.default_num_speakers = speakers if speakers > 0 else None
+
+        # AI
+        cfg.lm_studio_url = self._lm_url_edit.text().strip() or "http://localhost:1234/v1"
+        cfg.book_lm_url = self._book_lm_url_edit.text().strip() or "http://localhost:1234/v1"
+        cfg.book_model_name = self._book_model_edit.text().strip()
+        cfg.book_temperature = self._book_temp_spin.value()
+
+        save_config()
+
+        if cfg.ui_language != prev_lang:
+            self._lang_changed = True
+
+    def _on_theme_changed(self, _index: int):
+        """Apply theme immediately for preview."""
+        from PyQt6.QtWidgets import QApplication
+        name = self._theme_combo.currentData() or "dark"
+        app = QApplication.instance()
+        if app:
+            apply_theme(app, name)
+        self._pending_theme = name
+
+    def _on_apply(self):
+        self._lang_changed = False
+        self._save_values()
+        if self._lang_changed:
+            QMessageBox.information(
+                self,
+                tr("app_title"),
+                "Restart the application to apply the language change.",
+            )
+
+    def _on_ok(self):
+        self._lang_changed = False
+        self._save_values()
+        if self._lang_changed:
+            QMessageBox.information(
+                self,
+                tr("app_title"),
+                "Restart the application to apply the language change.",
+            )
+        self.accept()
+
+    def reject(self):
+        """Cancel: revert theme preview and stop any running connection check."""
+        if self._checker is not None and self._checker.isRunning():
+            try:
+                self._checker.result.disconnect(self._on_check_result)
+            except RuntimeError:
+                pass
+            self._checker.wait(1000)
+            self._checker = None
+
+        if self._pending_theme is not None:
+            from PyQt6.QtWidgets import QApplication
+            app = QApplication.instance()
+            if app:
+                apply_theme(app, self._cfg.theme)
+        super().reject()
+
+    def _open_models_dir(self):
+        path = get_models_dir()
+        if sys.platform == "win32":
+            os.startfile(path)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", path])
+        else:
+            subprocess.Popen(["xdg-open", path])
+
+    def _check_connection(self):
+        if self._checker and self._checker.isRunning():
+            return
+        url = self._lm_url_edit.text().strip() or "http://localhost:1234/v1"
+        self._check_result.setText(tr("connection_checking"))
+        self._check_result.setStyleSheet("color: #888888; font-size: 11px;")
+        self._check_btn.setEnabled(False)
+
+        self._checker = _ConnectionChecker(url, self)
+        self._checker.result.connect(self._on_check_result)
+        self._checker.start()
+
+    def _on_check_result(self, connected: bool, detail: str):
+        self._check_btn.setEnabled(True)
+        if connected:
+            self._check_result.setText(tr("connection_ok", detail=detail))
+            self._check_result.setStyleSheet("color: #22c55e; font-size: 11px;")
+        else:
+            self._check_result.setText(tr("connection_fail", detail=detail[:60]))
+            self._check_result.setStyleSheet("color: #ef4444; font-size: 11px;")
+
+    def _populate_mic_devices(self):
+        """Fill the mic device combo with available input devices."""
+        self._mic_combo.clear()
+        self._mic_combo.addItem(tr("settings_mic_default"), None)
+        try:
+            from core.recorder import list_input_devices
+            for dev in list_input_devices():
+                self._mic_combo.addItem(dev["name"], dev["index"])
+        except Exception:
+            pass
+
+    def _clear_history(self):
+        reply = QMessageBox.question(
+            self,
+            tr("history_clear_title"),
+            tr("history_clear_msg"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            from core.history import get_history_store
+            n = get_history_store().clear()
+            logger.info("History cleared from settings: %d records", n)
+        except Exception as e:
+            logger.warning("History clear failed: %s", e)

@@ -63,22 +63,8 @@ class FileSelector(QWidget):
         
         # Browse button
         self.browse_btn = QPushButton("Browse Files")
-        self.browse_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #6366f1;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                padding: 10px 24px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818cf8;
-            }
-            QPushButton:pressed {
-                background-color: #4f46e5;
-            }
-        """)
+        self.browse_btn.setProperty("variant", "primary")
+        self.browse_btn.setToolTip("Open file  (Ctrl+O)")
         self.browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.browse_btn.clicked.connect(self._browse_files)
         drop_layout.addWidget(self.browse_btn, alignment=Qt.AlignmentFlag.AlignCenter)

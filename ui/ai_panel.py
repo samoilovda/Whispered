@@ -119,21 +119,6 @@ class AIProcessingPanel(QWidget):
         model_layout.addWidget(model_label)
         
         self.model_combo = QComboBox()
-        self.model_combo.setStyleSheet("""
-            QComboBox {
-                padding: 4px 6px;
-                padding-right: 18px;
-                border: 1px solid #3a3a3a;
-                border-radius: 4px;
-                background-color: #2a2a2a;
-                color: #e0e0e0;
-                font-size: 10px;
-            }
-            QComboBox:hover { border-color: #5a5a5a; }
-            QComboBox::drop-down { width: 14px; border: none; }
-            QComboBox::down-arrow { border-left: 3px solid transparent; border-right: 3px solid transparent; border-top: 3px solid #888; }
-            QComboBox QAbstractItemView { background-color: #2a2a2a; border: 1px solid #3a3a3a; selection-background-color: #6366f1; color: #e0e0e0; }
-        """)
         self.model_combo.currentIndexChanged.connect(self._on_model_selected)
         model_layout.addWidget(self.model_combo, stretch=1)
         
@@ -144,18 +129,7 @@ class AIProcessingPanel(QWidget):
         
         # Start server button (only visible when offline)
         self.start_server_btn = QPushButton("▶ Start LM Studio Server")
-        self.start_server_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #6366f1;
-                border: none;
-                border-radius: 6px;
-                padding: 6px 12px;
-                color: white;
-                font-size: 11px;
-            }
-            QPushButton:hover { background-color: #818cf8; }
-            QPushButton:disabled { background-color: #3a3a3a; color: #666; }
-        """)
+        self.start_server_btn.setProperty("variant", "primary")
         self.start_server_btn.clicked.connect(self._start_server)
         self.start_server_btn.setVisible(False)
         layout.addWidget(self.start_server_btn)
@@ -163,18 +137,6 @@ class AIProcessingPanel(QWidget):
         # Progress bar (hidden by default)
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar { 
-                border: none; 
-                border-radius: 3px; 
-                background-color: #2a2a2a; 
-                height: 4px; 
-            }
-            QProgressBar::chunk { 
-                background-color: #6366f1; 
-                border-radius: 3px; 
-            }
-        """)
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setFixedHeight(4)
         layout.addWidget(self.progress_bar)
@@ -185,45 +147,20 @@ class AIProcessingPanel(QWidget):
         self.progress_label.setVisible(False)
         layout.addWidget(self.progress_label)
         
-        # Button style - use solid backgrounds to prevent bleed-through
-        button_style = """
-            QPushButton {
-                background-color: #2d2d2d;
-                border: 1px solid #404040;
-                border-radius: 6px;
-                padding: 8px 12px;
-                color: #e0e0e0;
-                font-size: 12px;
-                text-align: left;
-            }
-            QPushButton:hover {
-                background-color: #3a3a3a;
-                border-color: #5a5a5a;
-            }
-            QPushButton:pressed {
-                background-color: #4a4a4a;
-            }
-            QPushButton:disabled {
-                background-color: #252525;
-                color: #606060;
-                border-color: #333333;
-            }
-        """
-        
         # Clean Text button
         self.clean_btn = QPushButton("✨ Clean Text")
-        self.clean_btn.setStyleSheet(button_style)
+        self.clean_btn.setStyleSheet("text-align: left;")
         self.clean_btn.setToolTip("Remove filler words, fix punctuation, create paragraphs")
         self.clean_btn.clicked.connect(self._on_clean_clicked)
         self.clean_btn.setEnabled(False)
         layout.addWidget(self.clean_btn)
-        
+
         # Generate Articles section
         articles_layout = QHBoxLayout()
         articles_layout.setSpacing(4)
-        
+
         self.generate_btn = QPushButton("📝 Generate")
-        self.generate_btn.setStyleSheet(button_style)
+        self.generate_btn.setStyleSheet("text-align: left;")
         self.generate_btn.setToolTip("Generate article in selected format")
         self.generate_btn.clicked.connect(self._on_generate_clicked)
         self.generate_btn.setEnabled(False)
@@ -232,39 +169,6 @@ class AIProcessingPanel(QWidget):
         # Format selector
         self.format_combo = QComboBox()
         self.format_combo.setFixedWidth(90)
-        self.format_combo.setStyleSheet("""
-            QComboBox {
-                padding: 6px 8px;
-                padding-right: 20px;
-                border: 1px solid #3a3a3a;
-                border-radius: 6px;
-                background-color: #2a2a2a;
-                color: #e0e0e0;
-                font-size: 11px;
-            }
-            QComboBox:hover {
-                border-color: #5a5a5a;
-            }
-            QComboBox::drop-down {
-                subcontrol-origin: padding;
-                subcontrol-position: center right;
-                width: 16px;
-                border: none;
-            }
-            QComboBox::down-arrow {
-                width: 0;
-                height: 0;
-                border-left: 3px solid transparent;
-                border-right: 3px solid transparent;
-                border-top: 3px solid #888;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #2a2a2a;
-                border: 1px solid #3a3a3a;
-                selection-background-color: #6366f1;
-                color: #e0e0e0;
-            }
-        """)
         
         # Add format options
         for fmt in ArticleFormat:
@@ -278,7 +182,7 @@ class AIProcessingPanel(QWidget):
         
         # Generate All button
         self.generate_all_btn = QPushButton("📚 Generate All Formats")
-        self.generate_all_btn.setStyleSheet(button_style)
+        self.generate_all_btn.setStyleSheet("text-align: left;")
         self.generate_all_btn.setToolTip("Generate articles in all 5 formats")
         self.generate_all_btn.clicked.connect(self._on_generate_all_clicked)
         self.generate_all_btn.setEnabled(False)

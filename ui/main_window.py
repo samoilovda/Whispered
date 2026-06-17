@@ -4,26 +4,44 @@ Main application window with compact header-bar layout and AI processing
 """
 
 import os
+import time
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QPushButton, QProgressBar, QLabel, QFileDialog, QMessageBox,
-    QApplication, QComboBox, QCheckBox, QTabWidget, QScrollArea, QFrame
+    QApplication, QComboBox, QCheckBox, QTabWidget, QScrollArea, QFrame,
+    QTextEdit, QLineEdit, QPlainTextEdit,
 )
 from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import QKeySequence, QShortcut, QDragEnterEvent, QDropEvent
 
+from ui.toast import show_toast
 from ui.file_selector import FileSelector
 from ui.transcript_view import TranscriptView
 from ui.ai_panel import AIProcessingPanel
 from ui.article_view import ArticleView, CleanedTextView
 from ui.batch_panel import BatchPanel
 from ui.book_panel import BookPanel
+from ui.video_panel import VideoPanel
+from ui.cut_view import CutView
+from ui.history_panel import HistoryPanel
 from ui.icons import IconLabel, get_icon, IconColors
+from ui.player_widget import PlayerWidget
+from ui.recorder_widget import RecorderWidget
+from ui.chat_panel import ChatPanel
+from ui.insights_panel import InsightsPanel
+from ui.youtube_panel import YouTubePanel
+from ui.progress_timeline import ProgressTimeline
 from transcriber import Transcriber, TranscriptionResult
 from exporters import export_result, EXPORT_FORMATS
-from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, detect_gpu, get_thread_count
+from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, detect_gpu, get_thread_count, is_supported_format
 from config import get_config, save_config
 from core.ai_worker import AIProcessingWorker
 from core.logger import get_logger
+from core.i18n import tr
+from transcriber import _build_initial_prompt
+from timeline_export import write_edl
+from video_edit import mark_pauses, times_to_indices
+from video_cut import assemble_draft, VideoCutError
 
 logger = get_logger(__name__)
 
@@ -41,12 +59,17 @@ class MainWindow(QMainWindow):
         self._current_result: TranscriptionResult | None = None
         self._cleaned_text: str | None = None
         self._ai_worker: AIProcessingWorker | None = None
-        self._source_filepath: str | None = None   # track source for book pipeline naming
-        # Device toggle: True = use GPU (if available), False = force CPU
+        self._source_filepath: str | None = None
         self._use_gpu = True
         self._gpu_type, self._gpu_name = self.transcriber.gpu_type, self.transcriber.gpu_name
+        # ETA tracking
+        self._transcription_start: float = 0.0
         self._setup_ui()
         self._connect_signals()
+        self.setAcceptDrops(True)
+        # Apply saved mic device
+        cfg = get_config()
+        self.recorder_widget.set_device(getattr(cfg, "mic_device_index", None))
     
     def closeEvent(self, event):
         """Handle window close - cleanup resources."""
@@ -71,9 +94,9 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'book_panel') and self.book_panel._batch_worker:
             self.book_panel._cancel_batch()
 
-        # Save current mode to config
+        # Save current mode to config (posts / book / video)
         cfg = get_config()
-        cfg.pipeline_mode = 'book' if self.mode_combo.currentData() == 'book' else 'posts'
+        cfg.pipeline_mode = self.mode_combo.currentData() or 'posts'
         save_config()
 
         event.accept()
@@ -83,41 +106,6 @@ class MainWindow(QMainWindow):
         """Create a compact combo box for the header bar."""
         combo = QComboBox()
         combo.setFixedWidth(width)
-        combo.setStyleSheet("""
-            QComboBox {
-                padding: 6px 10px;
-                padding-right: 25px;
-                border: 1px solid #3a3a3a;
-                border-radius: 6px;
-                background-color: #2a2a2a;
-                color: #e0e0e0;
-                font-size: 12px;
-            }
-            QComboBox:hover {
-                border-color: #5a5a5a;
-            }
-            QComboBox::drop-down {
-                subcontrol-origin: padding;
-                subcontrol-position: center right;
-                width: 18px;
-                border: none;
-                background: transparent;
-            }
-            QComboBox::down-arrow {
-                width: 0;
-                height: 0;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 4px solid #888;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #2a2a2a;
-                border: 1px solid #3a3a3a;
-                selection-background-color: #6366f1;
-                color: #e0e0e0;
-                outline: none;
-            }
-        """)
         for item in items:
             if isinstance(item, tuple):
                 combo.addItem(item[1], item[0])
@@ -154,34 +142,29 @@ class MainWindow(QMainWindow):
         row1_layout.addWidget(logo)
         
         title = QLabel("Whispered")
-        title.setStyleSheet("font-size: 18px; font-weight: bold;")
+        title.setStyleSheet("font-size: 18px; font-weight: bold; background: transparent;")
         row1_layout.addWidget(title)
         
         row1_layout.addStretch()
         
         # Mode switcher: Posts / Book
-        mode_label = QLabel("Режим:")
-        mode_label.setStyleSheet("color: #888; font-size: 12px;")
+        mode_label = QLabel(tr("label_mode"))
+        mode_label.setStyleSheet("color: #888888;")
         row1_layout.addWidget(mode_label)
 
         self.mode_combo = QComboBox()
         self.mode_combo.setFixedWidth(120)
-        self.mode_combo.setStyleSheet("""
-            QComboBox {
-                padding: 4px 8px; padding-right: 22px;
-                border: 1px solid #3a3a3a; border-radius: 6px;
-                background-color: #2a2a2a; color: #e0e0e0; font-size: 12px;
-            }
-            QComboBox:hover { border-color: #5a5a5a; }
-            QComboBox::drop-down { width: 16px; border: none; background: transparent; }
-            QComboBox::down-arrow { border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 4px solid #888; }
-            QComboBox QAbstractItemView { background-color: #2a2a2a; border: 1px solid #3a3a3a; selection-background-color: #6366f1; color: #e0e0e0; }
-        """)
-        self.mode_combo.addItem("📝 Посты", "posts")
-        self.mode_combo.addItem("📖 Книга", "book")
-        # Restore saved mode
+        self.mode_combo.addItem(tr("label_mode_posts"), "posts")
+        self.mode_combo.addItem(tr("label_mode_book"), "book")
+        self.mode_combo.addItem(tr("label_mode_video"), "video")
+        # Restore saved mode by data value (supports posts/book/video)
         saved_mode = get_config().pipeline_mode
-        self.mode_combo.setCurrentIndex(1 if saved_mode == 'book' else 0)
+        saved_idx = next(
+            (i for i in range(self.mode_combo.count())
+             if self.mode_combo.itemData(i) == saved_mode),
+            0
+        )
+        self.mode_combo.setCurrentIndex(saved_idx)
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         row1_layout.addWidget(self.mode_combo)
 
@@ -190,7 +173,7 @@ class MainWindow(QMainWindow):
         # Clickable device toggle button
         self.device_btn = QPushButton()
         self.device_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.device_btn.setToolTip("Click to toggle between GPU and CPU")
+        self.device_btn.setToolTip(tr("tooltip_device"))
         self.device_btn.setMinimumWidth(130)  # Prevent truncation
         self.device_btn.clicked.connect(self._toggle_device)
         self._update_device_badge()
@@ -204,41 +187,52 @@ class MainWindow(QMainWindow):
         row2_layout.setSpacing(16)
         
         # Model selector
-        model_label = QLabel("Model:")
-        model_label.setStyleSheet("color: #888; font-size: 12px;")
+        model_label = QLabel(tr("label_model"))
+        model_label.setStyleSheet("color: #888888;")
         row2_layout.addWidget(model_label)
         
         self.model_combo = self._create_header_combo(WHISPER_MODELS, 180)
-        self.model_combo.setCurrentIndex(6)  # Default to 'large-v3-turbo-q5_0'
+        cfg = get_config()
+        _model_idx = next(
+            (i for i, (k, _) in enumerate(WHISPER_MODELS) if k == cfg.default_model), 6
+        )
+        self.model_combo.setCurrentIndex(_model_idx)
         row2_layout.addWidget(self.model_combo)
         
         row2_layout.addSpacing(8)
         
         # Language selector
-        lang_label = QLabel("Language:")
-        lang_label.setStyleSheet("color: #888; font-size: 12px;")
+        lang_label = QLabel(tr("label_language"))
+        lang_label.setStyleSheet("color: #888888;")
         row2_layout.addWidget(lang_label)
         
         self.language_combo = self._create_header_combo(WHISPER_LANGUAGES, 120)
+        _lang_idx = next(
+            (i for i, (k, _) in enumerate(WHISPER_LANGUAGES) if k == cfg.default_language), 0
+        )
+        self.language_combo.setCurrentIndex(_lang_idx)
         row2_layout.addWidget(self.language_combo)
         
         # Translate checkbox
         self.translate_checkbox = QCheckBox("→ EN")
-        self.translate_checkbox.setStyleSheet("color: #888; font-size: 11px;")
-        self.translate_checkbox.setToolTip("Translate to English")
+        self.translate_checkbox.setStyleSheet("")
+        self.translate_checkbox.setToolTip(tr("tooltip_translate"))
         row2_layout.addWidget(self.translate_checkbox)
         
         row2_layout.addSpacing(12)
         
         # Performance mode selector
-        perf_label = QLabel("Mode:")
-        perf_label.setStyleSheet("color: #888; font-size: 12px;")
+        perf_label = QLabel(tr("label_mode"))
+        perf_label.setStyleSheet("color: #888888;")
         row2_layout.addWidget(perf_label)
         
         self.perf_combo = self._create_header_combo(
             [(mode[0], mode[1]) for mode in PERFORMANCE_MODES], 145
         )
-        self.perf_combo.setCurrentIndex(1)  # Default to 'Balanced'
+        _perf_idx = next(
+            (i for i, (k, *_) in enumerate(PERFORMANCE_MODES) if k == cfg.performance_mode), 1
+        )
+        self.perf_combo.setCurrentIndex(_perf_idx)
         self.perf_combo.setToolTip("Energy vs Speed tradeoff\n\n"
             "🔋 Efficiency: Low CPU, saves battery\n"
             "⚡ Balanced: Moderate CPU usage\n"
@@ -248,14 +242,31 @@ class MainWindow(QMainWindow):
         row2_layout.addSpacing(8)
         
         # Diarization toggle
-        self.diarization_checkbox = QCheckBox("👥 Speakers")
-        self.diarization_checkbox.setStyleSheet("color: #888; font-size: 11px;")
+        self.diarization_checkbox = QCheckBox(tr("label_speakers"))
+        self.diarization_checkbox.setStyleSheet("")
         self.diarization_checkbox.setToolTip("Identify different speakers (requires setup)")
         self.diarization_checkbox.setChecked(get_config().diarization_enabled)
         row2_layout.addWidget(self.diarization_checkbox)
         
         row2_layout.addStretch()
-        
+
+        # Recorder widget
+        self.recorder_widget = RecorderWidget()
+        self.recorder_widget.file_ready.connect(self._on_recording_ready)
+        self.recorder_widget.error.connect(self._on_recording_error)
+        row2_layout.addWidget(self.recorder_widget)
+
+        row2_layout.addSpacing(4)
+
+        # Settings button (⚙) — opens the settings dialog
+        self.settings_btn = QPushButton("⚙")
+        self.settings_btn.setToolTip(tr("tooltip_settings"))
+        self.settings_btn.setFixedSize(28, 28)
+        self.settings_btn.setProperty("variant", "ghost")
+        self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.settings_btn.clicked.connect(self._open_settings)
+        row2_layout.addWidget(self.settings_btn)
+
         header_layout.addLayout(row2_layout)
         
         main_layout.addWidget(header)
@@ -263,13 +274,11 @@ class MainWindow(QMainWindow):
         # ===== Main Content Area =====
         content_splitter = QSplitter(Qt.Orientation.Horizontal)
         content_splitter.setHandleWidth(1)
-        content_splitter.setStyleSheet("QSplitter::handle { background-color: #3a3a3a; }")
         
         # Left: File selector and AI Panel (Scrollable)
         left_scroll = QScrollArea()
         left_scroll.setWidgetResizable(True)
         left_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        left_scroll.setStyleSheet("QScrollArea { background-color: transparent; border: none; } QScrollArea > QWidget > QWidget { background: transparent; }")
         
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
@@ -280,37 +289,31 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.file_selector)
         
         # Export format checkboxes
-        export_label = QLabel("Export formats:")
-        export_label.setStyleSheet("color: #888; font-size: 12px; font-weight: bold; margin-top: 8px;")
+        export_label = QLabel(tr("label_export_formats"))
+        export_label.setStyleSheet("font-weight: bold; margin-top: 8px;")
         left_layout.addWidget(export_label)
-        
-        checkbox_style = """
-            QCheckBox { color: #aaa; font-size: 11px; }
-            QCheckBox:checked { color: #e0e0e0; }
-            QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid #4a4a4a; border-radius: 3px; background: #2a2a2a; }
-            QCheckBox::indicator:checked { background: #6366f1; border-color: #6366f1; }
-        """
-        
+
         self.format_txt = QCheckBox("Plain Text (.txt)")
-        self.format_txt.setStyleSheet(checkbox_style)
         self.format_txt.setChecked(True)
         left_layout.addWidget(self.format_txt)
-        
+
         self.format_srt = QCheckBox("SRT (.srt)")
-        self.format_srt.setStyleSheet(checkbox_style)
         left_layout.addWidget(self.format_srt)
-        
+
         self.format_vtt = QCheckBox("WebVTT (.vtt)")
-        self.format_vtt.setStyleSheet(checkbox_style)
         left_layout.addWidget(self.format_vtt)
-        
+
         self.format_json = QCheckBox("JSON (.json)")
-        self.format_json.setStyleSheet(checkbox_style)
         left_layout.addWidget(self.format_json)
 
         self.format_md = QCheckBox("Markdown (.md)")
-        self.format_md.setStyleSheet(checkbox_style)
         left_layout.addWidget(self.format_md)
+
+        self.format_html = QCheckBox("HTML (.html)")
+        left_layout.addWidget(self.format_html)
+
+        self.format_docx = QCheckBox("Word (.docx)")
+        left_layout.addWidget(self.format_docx)
         
         # AI Processing Panel
         self.ai_panel = AIProcessingPanel()
@@ -327,6 +330,13 @@ class MainWindow(QMainWindow):
         self.book_panel.cancel_requested.connect(self._cancel_operation)
         left_layout.addWidget(self.book_panel)
 
+        # Video Pipeline Panel
+        self.video_panel = VideoPanel()
+        self.video_panel.export_edl_requested.connect(self._export_edl)
+        self.video_panel.mark_pauses_requested.connect(self._mark_pauses)
+        self.video_panel.assemble_requested.connect(self._assemble_draft)
+        left_layout.addWidget(self.video_panel)
+
         left_layout.addStretch()
         left_scroll.setWidget(left_panel)
         
@@ -336,45 +346,47 @@ class MainWindow(QMainWindow):
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(12, 0, 0, 0)
-        right_layout.setSpacing(0)
-        
+        right_layout.setSpacing(4)
+
+        # Audio player (hidden when multimedia backend unavailable)
+        self.player = PlayerWidget()
+        right_layout.addWidget(self.player)
+
         # Create tabbed view for different content types
         self.content_tabs = QTabWidget()
-        self.content_tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: none;
-                background-color: transparent;
-            }
-            QTabBar::tab {
-                background-color: #2a2a2a;
-                color: #888;
-                padding: 10px 20px;
-                margin-right: 2px;
-                border-top-left-radius: 8px;
-                border-top-right-radius: 8px;
-                font-size: 12px;
-            }
-            QTabBar::tab:selected {
-                background-color: #3a3a3a;
-                color: #e0e0e0;
-            }
-            QTabBar::tab:hover {
-                background-color: #333;
-            }
-        """)
-        
+
         # Tab 1: Raw Transcription
         self.transcript_view = TranscriptView()
-        self.content_tabs.addTab(self.transcript_view, "📝 Transcript")
-        
+        self.content_tabs.addTab(self.transcript_view, tr("tab_transcript"))
+
         # Tab 2: Cleaned Text
         self.cleaned_view = CleanedTextView()
-        self.content_tabs.addTab(self.cleaned_view, "✨ Cleaned")
-        
+        self.content_tabs.addTab(self.cleaned_view, tr("tab_cleaned"))
+
         # Tab 3: Generated Articles
         self.article_view = ArticleView()
-        self.content_tabs.addTab(self.article_view, "📚 Articles")
-        
+        self.content_tabs.addTab(self.article_view, tr("tab_articles"))
+
+        # Tab 4: Chat
+        self.chat_panel = ChatPanel()
+        self.content_tabs.addTab(self.chat_panel, tr("tab_chat"))
+
+        # Tab 5: Insights
+        self.insights_panel = InsightsPanel()
+        self.content_tabs.addTab(self.insights_panel, tr("tab_insights"))
+
+        # Tab 6: Timeline / Cut (video mode)
+        self.cut_view = CutView()
+        self.content_tabs.addTab(self.cut_view, tr("tab_cut"))
+
+        # Tab 7: YouTube description
+        self.youtube_panel = YouTubePanel()
+        self.content_tabs.addTab(self.youtube_panel, tr("tab_youtube"))
+
+        # Tab 8: History
+        self.history_panel = HistoryPanel()
+        self.content_tabs.addTab(self.history_panel, tr("tab_history"))
+
         right_layout.addWidget(self.content_tabs)
         
         content_splitter.addWidget(right_panel)
@@ -394,16 +406,20 @@ class MainWindow(QMainWindow):
         status_layout.setContentsMargins(0, 0, 0, 0)
         status_layout.setSpacing(4)
         
-        self.status_label = QLabel("Ready")
-        self.status_label.setStyleSheet("color: #888; font-size: 12px;")
+        self.status_label = QLabel(tr("label_status_ready"))
+        self.status_label.setStyleSheet("color: #888888;")
         status_layout.addWidget(self.status_label)
-        
+
+        self.progress_timeline = ProgressTimeline()
+        self.progress_timeline.stages = [
+            tr("timeline_select"), tr("timeline_extract"), tr("timeline_transcribe"),
+            tr("timeline_diarize"), tr("timeline_clean"), tr("timeline_generate"),
+        ]
+        self.progress_timeline.setVisible(False)
+        status_layout.addWidget(self.progress_timeline)
+
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar { border: none; border-radius: 3px; background-color: #2a2a2a; height: 4px; }
-            QProgressBar::chunk { background-color: #6366f1; border-radius: 3px; }
-        """)
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setFixedHeight(4)
         status_layout.addWidget(self.progress_bar)
@@ -412,27 +428,20 @@ class MainWindow(QMainWindow):
         action_layout.addSpacing(16)
         
         # Cancel button
-        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn = QPushButton(tr("btn_cancel"))
         self.cancel_btn.setIcon(get_icon('close', IconColors.MUTED, 14))
         self.cancel_btn.setVisible(False)
-        self.cancel_btn.setStyleSheet("""
-            QPushButton { background: transparent; border: 1px solid #4a4a4a; border-radius: 6px; padding: 8px 16px; color: #888; font-weight: bold; }
-            QPushButton:hover { border-color: #f87171; color: #f87171; }
-        """)
+        self.cancel_btn.setProperty("variant", "danger")
         self.cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.cancel_btn.clicked.connect(self._cancel_operation)
         action_layout.addWidget(self.cancel_btn)
         
         # Transcribe button
-        self.transcribe_btn = QPushButton("Transcribe")
+        self.transcribe_btn = QPushButton(tr("btn_transcribe"))
         self.transcribe_btn.setIcon(get_icon('play', IconColors.WHITE, 14))
         self.transcribe_btn.setEnabled(False)
-        self.transcribe_btn.setStyleSheet("""
-            QPushButton { background-color: #6366f1; border: none; border-radius: 6px; padding: 10px 24px; color: white; font-weight: bold; font-size: 13px; }
-            QPushButton:hover { background-color: #818cf8; }
-            QPushButton:pressed { background-color: #4f46e5; }
-            QPushButton:disabled { background-color: #3a3a3a; color: #666; }
-        """)
+        self.transcribe_btn.setProperty("variant", "primary")
+        self.transcribe_btn.setToolTip(tr("tooltip_transcribe"))
         self.transcribe_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.transcribe_btn.clicked.connect(self._start_transcription)
         action_layout.addWidget(self.transcribe_btn)
@@ -451,25 +460,53 @@ class MainWindow(QMainWindow):
         self.ai_panel.generate_all_requested.connect(self._start_generate_all)
 
         # Article view signals
-        self.article_view.copy_done.connect(lambda: self.status_label.setText("Copied to clipboard"))
-        self.article_view.export_done.connect(lambda msg: self.status_label.setText(msg))
-        self.cleaned_view.copy_requested.connect(lambda: self.status_label.setText("Copied to clipboard"))
+        self.article_view.copy_done.connect(lambda: show_toast(self, tr("toast_copied"), kind="success"))
+        self.article_view.export_done.connect(lambda msg: show_toast(self, msg, kind="success"))
+        self.cleaned_view.copy_requested.connect(lambda: show_toast(self, tr("toast_copied"), kind="success"))
 
         # Apply initial mode visibility
         self._on_mode_changed(self.mode_combo.currentIndex())
+
+        # Player ↔ transcript sync
+        self.player.position_changed_sec.connect(self._on_player_position)
+        self.transcript_view.seek_requested.connect(self.player.seek_to)
+        self.cut_view.seek_requested.connect(self.player.seek_to)
+
+        # Insights panel
+        self.insights_panel.seek_requested.connect(self.player.seek_to)
+
+        # History panel
+        self.history_panel.open_record.connect(self._load_from_history)
+
+        # Auto-save each completed batch item to history
+        self.batch_panel.processor.item_finished.connect(self._on_batch_item_finished)
+
+        # ── Keyboard shortcuts ────────────────────────────────────
+        def _sc(seq, slot):
+            s = QShortcut(QKeySequence(seq), self)
+            s.activated.connect(slot)
+
+        _sc("Ctrl+,",       self._open_settings)
+        _sc("Ctrl+O",       self.file_selector.browse_btn.click)
+        _sc("Ctrl+T",       self._start_transcription)
+        _sc("Ctrl+E",       self._export_result)
+        _sc("Ctrl+Shift+C", self._copy_to_clipboard)
+        _sc("Ctrl+R",       self.recorder_widget._toggle_recording)
+        # Space: play/pause only when focus is not inside a text input
+        _sc("Space",        self._space_play_pause)
     
     def _toggle_device(self):
         """Toggle between GPU and CPU mode."""
         if self._gpu_type == 'cpu':
             # No GPU available, can't toggle
-            self.status_label.setText("No GPU available - CPU only mode")
+            self.status_label.setText(tr("status_no_gpu"))
             return
-        
+
         self._use_gpu = not self._use_gpu
         self._update_device_badge()
-        
+
         device_name = self._gpu_name if self._use_gpu else "CPU"
-        self.status_label.setText(f"Switched to: {device_name}")
+        self.status_label.setText(tr("status_switched_device", device=device_name))
     
     def _update_device_badge(self):
         """Update the device button appearance based on current selection."""
@@ -521,23 +558,133 @@ class MainWindow(QMainWindow):
             """)
     
     def _on_mode_changed(self, index: int):
-        """Switch between Posts and Book pipeline modes."""
-        is_book = self.mode_combo.currentData() == 'book'
+        """Switch between Posts, Book, and Video pipeline modes."""
+        mode = self.mode_combo.currentData()
+        is_book  = mode == 'book'
+        is_video = mode == 'video'
+        is_posts = mode == 'posts'
         # Posts mode panels
-        self.ai_panel.setVisible(not is_book)
-        self.batch_panel.setVisible(not is_book)
+        self.ai_panel.setVisible(is_posts)
+        self.batch_panel.setVisible(is_posts)
         # Book mode panel
         self.book_panel.setVisible(is_book)
+        # Video mode panel
+        self.video_panel.setVisible(is_video)
         # Immediately recheck LM Studio when switching to Book mode
         # (avoids waiting up to 10s for the next timer tick)
         if is_book:
             self.book_panel.refresh_connection()
 
+    def _open_settings(self):
+        """Open the Settings dialog and apply any changes to the live UI."""
+        from ui.settings_dialog import SettingsDialog
+        dlg = SettingsDialog(self)
+        dlg.exec()
+        # Settings only persist on OK/Apply; re-seeding is a no-op on Cancel.
+        self._apply_config_defaults()
+        self.transcript_view.apply_display_settings()
+        # Update recorder device from config
+        cfg = get_config()
+        self.recorder_widget.set_device(getattr(cfg, "mic_device_index", None))
+
+    def _apply_config_defaults(self):
+        """Re-seed header controls from the saved config (after settings change)."""
+        cfg = get_config()
+        idx = next((i for i, (k, _) in enumerate(WHISPER_MODELS)
+                    if k == cfg.default_model), None)
+        if idx is not None:
+            self.model_combo.setCurrentIndex(idx)
+        idx = next((i for i, (k, _) in enumerate(WHISPER_LANGUAGES)
+                    if k == cfg.default_language), None)
+        if idx is not None:
+            self.language_combo.setCurrentIndex(idx)
+        idx = next((i for i, (k, *_) in enumerate(PERFORMANCE_MODES)
+                    if k == cfg.performance_mode), None)
+        if idx is not None:
+            self.perf_combo.setCurrentIndex(idx)
+        self.diarization_checkbox.setChecked(cfg.diarization_enabled)
+
+    # ------------------------------------------------------------------ drag & drop
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            if urls and urls[0].isLocalFile() and is_supported_format(urls[0].toLocalFile()):
+                event.acceptProposedAction()
+                self._show_drop_overlay(True)
+                return
+        event.ignore()
+
+    def dragLeaveEvent(self, event):
+        self._show_drop_overlay(False)
+
+    def dropEvent(self, event: QDropEvent):
+        self._show_drop_overlay(False)
+        if event.mimeData().hasUrls():
+            url = event.mimeData().urls()[0]
+            if url.isLocalFile():
+                filepath = url.toLocalFile()
+                if is_supported_format(filepath):
+                    self.file_selector._set_file(filepath)
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def _show_drop_overlay(self, visible: bool):
+        if not hasattr(self, "_drop_overlay"):
+            overlay = QLabel(tr("drop_overlay"), self)
+            overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            overlay.setStyleSheet("""
+                QLabel {
+                    background-color: rgba(99, 102, 241, 0.18);
+                    border: 2px dashed #6366f1;
+                    border-radius: 12px;
+                    color: #6366f1;
+                    font-size: 20px;
+                    font-weight: bold;
+                }
+            """)
+            overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            self._drop_overlay = overlay
+        ov = self._drop_overlay
+        if visible:
+            ov.setGeometry(self.centralWidget().geometry())
+            ov.raise_()
+            ov.show()
+        else:
+            ov.hide()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "_drop_overlay") and self._drop_overlay.isVisible():
+            self._drop_overlay.setGeometry(self.centralWidget().geometry())
+
+    # ------------------------------------------------------------------ helpers
+
+    def _space_play_pause(self):
+        """Space play/pause — only fires when focus is not in a text field."""
+        focused = QApplication.focusWidget()
+        if isinstance(focused, (QTextEdit, QLineEdit, QPlainTextEdit)):
+            return
+        self.player.toggle_play()
+
+    def _on_player_position(self, seconds: float):
+        """Forward player position to transcript highlight (throttled by player timer)."""
+        self.transcript_view.highlight_at(seconds)
+
+    def _on_recording_ready(self, filepath: str):
+        """Load a freshly-recorded WAV into the file selector."""
+        self.file_selector._set_file(filepath)
+
+    def _on_recording_error(self, msg: str):
+        QMessageBox.warning(self, tr("error_transcription"), msg)
+
     def _on_file_selected(self, filepath: str):
         """Handle file selection."""
         self._source_filepath = filepath
         self.transcribe_btn.setEnabled(True)
-        self.status_label.setText(f"Ready: {os.path.basename(filepath)}")
+        self.status_label.setText(tr("status_ready_file", name=os.path.basename(filepath)))
+        self.player.load(filepath)
     
     def _start_transcription(self):
         """Start the transcription process."""
@@ -551,9 +698,16 @@ class MainWindow(QMainWindow):
         self.cancel_btn.setVisible(True)
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
+        # Select is done (file chosen); Extract is the first active stage
+        self.progress_timeline.setVisible(True)
+        self.progress_timeline.set_stage(1, 0)
         self.transcript_view.clear()
         self.cleaned_view.clear()
         self.article_view.clear()
+        self.chat_panel.clear_transcript()
+        self.insights_panel.clear()
+        self.youtube_panel.clear()
+        self.cut_view.clear()
         self._cleaned_text = None
         
         # Disable AI panel during transcription
@@ -568,9 +722,14 @@ class MainWindow(QMainWindow):
         # Determine thread count based on performance mode
         n_threads = get_thread_count(perf_mode)
         
-        # Get diarization settings
-        enable_diarization = self.diarization_checkbox.isChecked()
-        
+        # Get diarization settings (disabled in video mode — not needed for cutting)
+        is_video = self.mode_combo.currentData() == 'video'
+        enable_diarization = False if is_video else self.diarization_checkbox.isChecked()
+
+        self._transcription_start = time.monotonic()
+        # Build initial prompt from custom vocabulary
+        vocab = getattr(get_config(), "custom_vocabulary", []) or []
+        prompt = _build_initial_prompt(vocab) if vocab else None
         # Start transcription
         self.transcriber.transcribe(
             filepath=filepath,
@@ -580,6 +739,8 @@ class MainWindow(QMainWindow):
             n_threads=n_threads,
             enable_diarization=enable_diarization,
             num_speakers=None,  # Auto-detect
+            initial_prompt=prompt,
+            word_timestamps=is_video,
             on_progress=self._on_progress,
             on_finished=self._on_finished,
             on_error=self._on_error
@@ -592,10 +753,10 @@ class MainWindow(QMainWindow):
             self._ai_worker.wait()
             self._ai_worker = None
             self.ai_panel.set_processing(False)
-            self.status_label.setText("AI processing cancelled")
+            self.status_label.setText(tr("status_ai_cancelled"))
         else:
             self.transcriber.cancel()
-            self.status_label.setText("Transcription cancelled")
+            self.status_label.setText(tr("status_cancelled"))
         
         self._reset_ui()
     
@@ -620,10 +781,38 @@ class MainWindow(QMainWindow):
         )
     
     def _on_progress(self, percentage: int, message: str):
-        """Handle progress updates."""
+        """Handle progress updates with ETA calculation."""
         self.progress_bar.setValue(percentage)
-        self.status_label.setText(message)
+        self._update_timeline(percentage, message)
+        if percentage > 5 and self._transcription_start > 0:
+            elapsed = time.monotonic() - self._transcription_start
+            eta_sec = (elapsed / percentage) * (100 - percentage)
+            eta_min, eta_s = divmod(int(eta_sec), 60)
+            if eta_min:
+                eta_str = f"~{eta_min}m {eta_s}s left"
+            else:
+                eta_str = f"~{eta_s}s left"
+            self.status_label.setText(f"{message}  ·  {eta_str}")
+        else:
+            self.status_label.setText(message)
     
+    def _update_timeline(self, percentage: int, message: str):
+        """Map a transcription progress update to a timeline stage + local fill.
+
+        Stage indices: 1=Extract, 2=Transcribe, 3=Diarize. The transcriber's
+        global percentages are rescaled to a 0-100 fill within the active stage.
+        """
+        m = message.lower()
+        if "convert" in m or "extract" in m:
+            self.progress_timeline.set_stage(1, min(100, percentage * 10))  # ~5% global
+        elif "speaker" in m or "diariz" in m:
+            local = max(0, min(100, int((percentage - 85) / 10 * 100)))
+            self.progress_timeline.set_stage(3, local)
+        else:
+            # Loading / preparing / transcribing / processing results: 10-90% global
+            local = max(0, min(100, int((percentage - 10) / 80 * 100)))
+            self.progress_timeline.set_stage(2, local)
+
     def _on_finished(self, result: TranscriptionResult):
         """Handle transcription completion."""
         self._current_result = result
@@ -635,18 +824,113 @@ class MainWindow(QMainWindow):
         # Enable book panel (book mode)
         self.book_panel.set_has_transcript(True)
 
+        elapsed = time.monotonic() - self._transcription_start if self._transcription_start else 0
         word_count = len(result.full_text.split())
-        self.status_label.setText(f"Complete - {word_count} words")
+        self.status_label.setText(tr("status_complete", words=word_count, seconds=int(elapsed)))
+        show_toast(self, tr("toast_complete", words=word_count), kind="success")
 
-        # Switch to transcript tab
-        self.content_tabs.setCurrentIndex(0)
+        # Auto-save to history
+        self._save_to_history(
+            result,
+            source_path=self._source_filepath or "",
+            model=self.model_combo.currentData() or "",
+            speaker_names=getattr(self.transcript_view, "_speaker_names", {}),
+        )
+
+        # Feed transcript into chat and insights panels
+        self.chat_panel.set_transcript(result.full_text)
+        self.insights_panel.set_segments(result.segments)
+        self.youtube_panel.set_segments(result.segments)
+
+        # Video mode: populate cut view and switch to it
+        self.video_panel.set_has_transcript(True)
+        self.cut_view.set_result(result)
+        if self.mode_combo.currentData() == 'video':
+            self.content_tabs.setCurrentWidget(self.cut_view)
+        else:
+            # Switch to transcript tab
+            self.content_tabs.setCurrentIndex(0)
+
+    def _save_to_history(self, result: TranscriptionResult, source_path: str,
+                         model: str, speaker_names: dict):
+        """Persist a result to history (if enabled)."""
+        cfg = get_config()
+        if not getattr(cfg, "history_enabled", True):
+            return
+        try:
+            from core.history import get_history_store
+            get_history_store().add(
+                result,
+                source_path=source_path,
+                model=model,
+                speaker_names=speaker_names or {},
+            )
+            self.history_panel.refresh()
+        except Exception as e:
+            logger.warning("Failed to save history: %s", e)
+
+    def _on_batch_item_finished(self, index: int, result):
+        """Persist each completed batch item to history."""
+        if result is None:
+            return
+        items = self.batch_panel.processor.items
+        source_path = items[index].filepath if 0 <= index < len(items) else ""
+        self._save_to_history(
+            result,
+            source_path=source_path,
+            model=self.model_combo.currentData() or "",
+            speaker_names=getattr(result, "speaker_names", {}) or {},
+        )
+
+    def _load_from_history(self, record_id: int):
+        """Restore a TranscriptionResult from a history record."""
+        try:
+            from core.history import get_history_store
+            from transcriber import TranscriptionResult, Segment
+            payload = get_history_store().get(record_id)
+            if payload is None:
+                return
+
+            segments = [
+                Segment(
+                    start=s["start"],
+                    end=s["end"],
+                    text=s["text"],
+                    speaker=s.get("speaker"),
+                )
+                for s in payload.get("segments", [])
+            ]
+            result = TranscriptionResult(
+                segments=segments,
+                language=payload.get("language", ""),
+                duration=payload.get("duration", 0.0),
+                speaker_names=payload.get("speaker_names") or {},
+            )
+            self._current_result = result
+            # set_result honours result.speaker_names, restoring renames.
+            self.transcript_view.set_result(result)
+
+            self.ai_panel.set_has_transcription(True)
+            self.book_panel.set_has_transcript(True)
+            self.chat_panel.set_transcript(result.full_text)
+            self.insights_panel.set_segments(result.segments)
+            self.youtube_panel.set_segments(result.segments)
+            word_count = len(result.full_text.split())
+            self.status_label.setText(tr("toast_loaded_history", words=word_count))
+            self.content_tabs.setCurrentIndex(0)
+        except Exception as e:
+            logger.warning("Failed to load history record %d: %s", record_id, e)
     
     def _on_error(self, error_message: str):
         """Handle transcription error."""
         self._reset_ui()
         self.status_label.setText(f"Error: {error_message[:50]}...")
-        
-        QMessageBox.critical(self, "Transcription Error", f"An error occurred:\n\n{error_message}")
+
+        QMessageBox.critical(
+            self,
+            tr("error_transcription"),
+            tr("error_occurred", detail=error_message),
+        )
     
     def _reset_ui(self):
         """Reset UI to ready state."""
@@ -654,6 +938,7 @@ class MainWindow(QMainWindow):
         self.transcribe_btn.setVisible(True)
         self.cancel_btn.setVisible(False)
         self.progress_bar.setVisible(False)
+        self.progress_timeline.setVisible(False)
     
     def _copy_to_clipboard(self):
         """Copy transcription to clipboard."""
@@ -661,7 +946,7 @@ class MainWindow(QMainWindow):
         if text:
             clipboard = QApplication.clipboard()
             clipboard.setText(text)
-            self.status_label.setText("Copied to clipboard")
+            show_toast(self, tr("toast_copied"), kind="success")
     
     def _get_export_formats(self) -> list[str]:
         """Get list of selected export formats."""
@@ -676,6 +961,10 @@ class MainWindow(QMainWindow):
             formats.append('json')
         if self.format_md.isChecked():
             formats.append('md')
+        if self.format_html.isChecked():
+            formats.append('html')
+        if self.format_docx.isChecked():
+            formats.append('docx')
         return formats if formats else ['txt']
     
     def _export_result(self):
@@ -693,7 +982,6 @@ class MainWindow(QMainWindow):
             format_key = format_keys[0]
             format_name, _ = EXPORT_FORMATS[format_key]
             ext = 'txt' if format_key in ('txt', 'txt_ts') else format_key
-            
             filepath, _ = QFileDialog.getSaveFileName(
                 self, f"Export as {format_name}", f"{default_name}.{ext}",
                 f"{format_name} (*.{ext});;All Files (*)"
@@ -702,9 +990,9 @@ class MainWindow(QMainWindow):
             if filepath:
                 try:
                     export_result(result, filepath, format_key)
-                    self.status_label.setText(f"Exported: {os.path.basename(filepath)}")
+                    show_toast(self, tr("toast_exported_one", name=os.path.basename(filepath)), kind="success")
                 except Exception as e:
-                    QMessageBox.critical(self, "Export Error", str(e))
+                    QMessageBox.critical(self, tr("error_export"), str(e))
         else:
             # Multiple formats - directory
             directory = QFileDialog.getExistingDirectory(self, "Select Export Directory")
@@ -717,9 +1005,9 @@ class MainWindow(QMainWindow):
                     try:
                         export_result(result, filepath, format_key)
                         count += 1
-                    except:
+                    except Exception:
                         pass
-                self.status_label.setText(f"Exported {count} files")
+                show_toast(self, tr("toast_exported_many", count=count), kind="success")
     
     # ===== AI Processing Methods =====
     
@@ -740,7 +1028,9 @@ class MainWindow(QMainWindow):
         self.ai_panel.set_processing(True)
         self.cancel_btn.setVisible(True)
         self.transcribe_btn.setVisible(False)
-        
+        self.progress_timeline.setVisible(True)
+        self.progress_timeline.set_stage(4, 0)   # Clean
+
         self._ai_worker = AIProcessingWorker("clean", self._current_result.full_text)
         self._ai_worker.progress.connect(self._on_ai_progress)
         self._ai_worker.finished.connect(self._on_clean_finished)
@@ -757,7 +1047,9 @@ class MainWindow(QMainWindow):
         self.ai_panel.set_processing(True)
         self.cancel_btn.setVisible(True)
         self.transcribe_btn.setVisible(False)
-        
+        self.progress_timeline.setVisible(True)
+        self.progress_timeline.set_stage(5, 0)   # Generate
+
         self._ai_worker = AIProcessingWorker("generate", text, format=format_key)
         self._ai_worker.progress.connect(self._on_ai_progress)
         self._ai_worker.finished.connect(self._on_generate_finished)
@@ -774,7 +1066,9 @@ class MainWindow(QMainWindow):
         self.ai_panel.set_processing(True)
         self.cancel_btn.setVisible(True)
         self.transcribe_btn.setVisible(False)
-        
+        self.progress_timeline.setVisible(True)
+        self.progress_timeline.set_stage(5, 0)   # Generate
+
         self._ai_worker = AIProcessingWorker("generate_all", text)
         self._ai_worker.progress.connect(self._on_ai_progress)
         self._ai_worker.finished.connect(self._on_generate_all_finished)
@@ -784,6 +1078,7 @@ class MainWindow(QMainWindow):
     def _on_ai_progress(self, percentage: int, message: str):
         """Handle AI processing progress."""
         self.ai_panel.update_progress(percentage, message)
+        self.progress_timeline.set_progress(percentage)
         self.status_label.setText(message)
     
     def _on_clean_finished(self, result):
@@ -854,6 +1149,70 @@ class MainWindow(QMainWindow):
 
         self.status_label.setText(f"AI Error: {error_message[:50]}...")
         QMessageBox.warning(self, "AI Processing Error", f"An error occurred:\n\n{error_message}")
+
+    # ===== Video Pipeline Methods =====
+
+    def _export_edl(self):
+        """Export kept segments from the Cut view as a CMX3600 EDL file."""
+        segs = self.cut_view.get_kept_segments()
+        if not segs:
+            self.status_label.setText(tr("status_no_segments"))
+            return
+        cfg = get_config()
+        src = self._source_filepath or "clip"
+        clip_name = os.path.basename(src)
+        default_name = os.path.splitext(clip_name)[0] + ".edl"
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Export EDL", default_name, "EDL (*.edl);;All Files (*)"
+        )
+        if not filepath:
+            return
+        try:
+            write_edl(
+                segs, filepath,
+                fps=cfg.video_fps,
+                drop_frame=cfg.video_drop_frame,
+                title=os.path.splitext(clip_name)[0],
+                clip_name=clip_name,
+            )
+            show_toast(self, tr("toast_edl_exported", name=os.path.basename(filepath)), kind="success")
+        except Exception as e:
+            QMessageBox.critical(self, tr("error_export"), str(e))
+
+    def _mark_pauses(self, threshold: float):
+        """Run algorithmic pause/filler detection and uncheck matched segments."""
+        if not self._current_result:
+            return
+        segs = self._current_result.segments
+        indices = mark_pauses(segs, min_duration=threshold)
+        self.cut_view.mark_indices(indices)
+        logger.info("Mark pauses (threshold=%.2fs): %d segments marked", threshold, len(indices))
+
+    def _assemble_draft(self):
+        """Cut and concatenate kept segments into a draft MP4 via ffmpeg."""
+        src = getattr(self, "_source_filepath", None)
+        if not src:
+            return
+        segs = self.cut_view.get_kept_segments()
+        if not segs:
+            self.status_label.setText(tr("status_no_segments"))
+            return
+        base = os.path.splitext(os.path.basename(src))[0]
+        default_name = base + "_draft.mp4"
+        out_path, _ = QFileDialog.getSaveFileName(
+            self, tr("video_assemble_draft"), default_name, "MP4 (*.mp4);;All Files (*)"
+        )
+        if not out_path:
+            return
+        show_toast(self, tr("toast_assembling"), kind="info")
+        try:
+            def _progress(msg: str):
+                self.status_label.setText(msg)
+            assemble_draft(src, segs, out_path, on_progress=_progress)
+            show_toast(self, tr("toast_assembled", name=os.path.basename(out_path)), kind="success")
+        except (VideoCutError, Exception) as exc:
+            show_toast(self, tr("toast_assemble_error", detail=str(exc)[:80]), kind="error")
+            logger.exception("assemble_draft failed: %s", exc)
 
     # ===== Book Pipeline Methods =====
 

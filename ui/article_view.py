@@ -50,17 +50,6 @@ class ArticleTab(QWidget):
         # Content area
         self.content_edit = QTextEdit()
         self.content_edit.setReadOnly(True)
-        self.content_edit.setStyleSheet("""
-            QTextEdit {
-                background-color: #1e1e1e;
-                border: 1px solid #3a3a3a;
-                border-radius: 8px;
-                padding: 12px;
-                color: #e0e0e0;
-                font-size: 13px;
-                line-height: 1.6;
-            }
-        """)
         self.content_edit.setFont(QFont("SF Mono", 12))
         layout.addWidget(self.content_edit, stretch=1)
         
@@ -68,42 +57,17 @@ class ArticleTab(QWidget):
         actions = QHBoxLayout()
         actions.setSpacing(8)
         
-        button_style = """
-            QPushButton {
-                background-color: #2a2a2a;
-                border: 1px solid #3a3a3a;
-                border-radius: 6px;
-                padding: 8px 16px;
-                color: #e0e0e0;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #3a3a3a;
-                border-color: #5a5a5a;
-            }
-            QPushButton:pressed {
-                background-color: #4a4a4a;
-            }
-            QPushButton:disabled {
-                background-color: #1a1a1a;
-                color: #555;
-            }
-        """
-        
         self.copy_btn = QPushButton("📋 Copy")
-        self.copy_btn.setStyleSheet(button_style)
         self.copy_btn.clicked.connect(self._on_copy)
         self.copy_btn.setEnabled(False)
         actions.addWidget(self.copy_btn)
-        
+
         self.export_md_btn = QPushButton("💾 Export .md")
-        self.export_md_btn.setStyleSheet(button_style)
         self.export_md_btn.clicked.connect(lambda: self._on_export('md'))
         self.export_md_btn.setEnabled(False)
         actions.addWidget(self.export_md_btn)
-        
+
         self.export_html_btn = QPushButton("🌐 Export .html")
-        self.export_html_btn.setStyleSheet(button_style)
         self.export_html_btn.clicked.connect(lambda: self._on_export('html'))
         self.export_html_btn.setEnabled(False)
         actions.addWidget(self.export_html_btn)
@@ -208,28 +172,6 @@ class ArticleView(QWidget):
         
         # Tab widget for different formats
         self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: none;
-                background-color: transparent;
-            }
-            QTabBar::tab {
-                background-color: #2a2a2a;
-                color: #888;
-                padding: 8px 16px;
-                margin-right: 2px;
-                border-top-left-radius: 6px;
-                border-top-right-radius: 6px;
-                font-size: 11px;
-            }
-            QTabBar::tab:selected {
-                background-color: #3a3a3a;
-                color: #e0e0e0;
-            }
-            QTabBar::tab:hover {
-                background-color: #333;
-            }
-        """)
         
         # Create tabs for each format
         self.format_tabs: dict[ArticleFormat, ArticleTab] = {}
@@ -251,27 +193,7 @@ class ArticleView(QWidget):
         export_all_layout.addStretch()
         
         self.export_all_btn = QPushButton("📦 Export All to Folder")
-        self.export_all_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #6366f1;
-                border: none;
-                border-radius: 6px;
-                padding: 8px 16px;
-                color: white;
-                font-size: 12px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #818cf8;
-            }
-            QPushButton:pressed {
-                background-color: #4f46e5;
-            }
-            QPushButton:disabled {
-                background-color: #3a3a3a;
-                color: #666;
-            }
-        """)
+        self.export_all_btn.setProperty("variant", "primary")
         self.export_all_btn.clicked.connect(self._on_export_all)
         self.export_all_btn.setEnabled(False)
         export_all_layout.addWidget(self.export_all_btn)
@@ -366,43 +288,12 @@ class CleanedTextView(QWidget):
         # Content
         self.content_edit = QTextEdit()
         self.content_edit.setReadOnly(True)
-        self.content_edit.setStyleSheet("""
-            QTextEdit {
-                background-color: #1e1e1e;
-                border: 1px solid #3a3a3a;
-                border-radius: 8px;
-                padding: 12px;
-                color: #e0e0e0;
-                font-size: 13px;
-                line-height: 1.6;
-            }
-        """)
         layout.addWidget(self.content_edit, stretch=1)
-        
+
         # Actions
         actions = QHBoxLayout()
-        
-        button_style = """
-            QPushButton {
-                background-color: #2a2a2a;
-                border: 1px solid #3a3a3a;
-                border-radius: 6px;
-                padding: 8px 16px;
-                color: #e0e0e0;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #3a3a3a;
-                border-color: #5a5a5a;
-            }
-            QPushButton:disabled {
-                background-color: #1a1a1a;
-                color: #555;
-            }
-        """
-        
+
         self.copy_btn = QPushButton("📋 Copy Cleaned Text")
-        self.copy_btn.setStyleSheet(button_style)
         self.copy_btn.clicked.connect(self._on_copy)
         self.copy_btn.setEnabled(False)
         actions.addWidget(self.copy_btn)
