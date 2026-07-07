@@ -1,5 +1,6 @@
 """Tests for config.py — no Qt, no network required."""
 import json
+import stat
 import sys
 import types
 import pytest
@@ -95,6 +96,13 @@ class TestConfigRoundTrip:
         config_module.CONFIG_FILE.write_text("{not valid json", encoding="utf-8")
         loaded = Config.load()
         assert loaded.theme == "dark"
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file permissions only")
+    def test_save_restricts_file_permissions(self):
+        cfg = Config(hf_token="hf_" + "x" * 40)
+        cfg.save()
+        mode = stat.S_IMODE(config_module.CONFIG_FILE.stat().st_mode)
+        assert mode == stat.S_IRUSR | stat.S_IWUSR
 
 
 class TestGlobalHelpers:

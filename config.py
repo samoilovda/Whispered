@@ -4,6 +4,8 @@ Store and load user settings
 """
 
 import json
+import os
+import stat
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
@@ -76,6 +78,12 @@ class Config:
 
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
                 json.dump(asdict(self), f, indent=2)
+
+            # Config may contain secrets (e.g. hf_token) — restrict to owner read/write.
+            try:
+                os.chmod(CONFIG_FILE, stat.S_IRUSR | stat.S_IWUSR)
+            except OSError as e:
+                logger.warning("Failed to restrict config file permissions: %s", e)
 
             return True
         except Exception as e:
