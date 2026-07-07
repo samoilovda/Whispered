@@ -31,6 +31,10 @@ AMD GPU (ROCm) users: see the ROCm setup steps in
 A prebuilt AppImage can be built with `appimage/build-appimage.sh`
 (see `appimage/`).
 
+**Windows** is not currently supported: there is no `setup`/`run` script,
+and CI only tests on Linux. `pathlib`-based path handling in the code is
+Windows-compatible in principle, but this hasn't been verified in practice.
+
 ## Development
 
 ```bash
