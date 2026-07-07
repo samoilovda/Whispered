@@ -6,6 +6,8 @@ cffi==2.1.0
     # via sounddevice
 charset-normalizer==3.4.9
     # via requests
+coverage==7.15.0
+    # via pytest-cov
 darkdetect==0.7.1
     # via pyqtdarktheme
 idna==3.18
@@ -23,7 +25,9 @@ packaging==26.2
 platformdirs==4.10.0
     # via pywhispercpp
 pluggy==1.6.0
-    # via pytest
+    # via
+    #   pytest
+    #   pytest-cov
 pycparser==3.0
     # via cffi
 pygments==2.20.0
@@ -37,6 +41,10 @@ pyqt6-sip==13.11.1
 pyqtdarktheme==2.1.0
     # via -r requirements.txt
 pytest==9.1.1
+    # via
+    #   -r requirements-dev.txt
+    #   pytest-cov
+pytest-cov==7.1.0
     # via -r requirements-dev.txt
 python-docx==1.2.0
     # via -r requirements.txt
