@@ -1,3 +1,11 @@
+# Version bounds here are the minimums this codebase requires. For a
+# reproducible install with exact pinned versions (CI, Docker, testing),
+# use requirements.lock instead: pip install -r requirements.lock
+# (regenerate with: uv pip compile requirements.txt -o requirements.lock)
+# Note: setup.sh/setup-mac.sh install pywhispercpp separately with GPU
+# build flags (GGML_CUDA/GGML_METAL/GGML_HIPBLAS) — the lock file's
+# pywhispercpp pin does not apply to those scripts.
+
 # Core runtime — required for normal operation
 PyQt6>=6.6.0
 pyqtdarktheme>=2.1.0

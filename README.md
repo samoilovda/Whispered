@@ -35,9 +35,18 @@ A prebuilt AppImage can be built with `appimage/build-appimage.sh`
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
+# or, for a reproducible pinned install:
+pip install -r requirements-dev.lock
+
 ruff check .            # lint — must be clean
 python -m pytest tests/ -v
 python main.py          # smoke test
+```
+
+Regenerate lock files after touching `requirements*.txt`:
+```bash
+uv pip compile requirements.txt -o requirements.lock
+uv pip compile requirements-dev.txt -o requirements-dev.lock
 ```
 
 Contributing agents/humans: read [ROADMAP.md](ROADMAP.md) §1 (architecture
