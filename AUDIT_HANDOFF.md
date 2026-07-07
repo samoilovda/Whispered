@@ -85,7 +85,9 @@ youtube_description, timeline_export, video_edit, workers, utils. Не покр�
   3.1 (запись), 3.3 (чат) **фактически реализованы** — файлы существуют.
 - `REFACTOR_INSTRUCTIONS.md`, `VIDEO_MODE_INSTRUCTIONS.md`,
   `YOUTUBE_DESCRIPTION_PLAN.md` — рабочие планы уже выполненных задач.
-- `Description.md` фактически пуст (32 строки, преимущественно заголовок).
+- Корень содержал ни одного `README.md` — точка входа для новых контрибьюторов
+  отсутствовала (`Description.md`/`APP_DETAILS.md` дублируют друг друга на
+  русском и английском, но ни один не читается как README).
 
 **M4. Зависимости не зафиксированы.**
 `requirements.txt` содержит только `>=`-границы (PyQt6>=6.6.0 и т.д.), lock-файла
