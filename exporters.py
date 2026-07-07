@@ -103,12 +103,12 @@ def export_json(result: TranscriptionResult, filepath: str) -> None:
 def export_md(result: TranscriptionResult, filepath: str) -> None:
     """Export transcription as Markdown."""
     import datetime
-    
+
     minutes = int(result.duration // 60)
     seconds = int(result.duration % 60)
     duration_str = f"{minutes}m {seconds}s"
     date_str = datetime.datetime.now().strftime('%Y-%m-%d')
-    
+
     with open(filepath, 'w', encoding='utf-8') as f:
         # YAML frontmatter
         f.write('---\n')
@@ -116,12 +116,12 @@ def export_md(result: TranscriptionResult, filepath: str) -> None:
         f.write(f'language: {result.language}\n')
         f.write(f'duration: {duration_str}\n')
         f.write('---\n\n')
-        
+
         # Full transcript body
         f.write('## Transcript\n\n')
         f.write(result.full_text)
         f.write('\n\n')
-        
+
         # Timestamped segments section
         f.write('## Segments\n\n')
         for seg in result.segments:
@@ -276,7 +276,7 @@ def export_result(
 ) -> None:
     """
     Export transcription result to specified format.
-    
+
     Args:
         result: The transcription result
         filepath: Output file path
@@ -284,6 +284,6 @@ def export_result(
     """
     if format_key not in EXPORT_FORMATS:
         raise ValueError(f"Unknown format: {format_key}")
-    
+
     _, export_func = EXPORT_FORMATS[format_key]
     export_func(result, filepath)

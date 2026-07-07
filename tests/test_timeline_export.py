@@ -6,7 +6,6 @@ import sys
 import os
 from dataclasses import dataclass
 
-import pytest
 
 # Ensure project root is on the path so timeline_export can import core.logger
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

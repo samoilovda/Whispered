@@ -5,14 +5,12 @@ Browse, open and delete past transcription results.
 
 from __future__ import annotations
 
-import math
 import re
 from datetime import datetime
-from typing import Optional
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
-    QPushButton, QLabel, QLineEdit, QMenu, QMessageBox, QSizePolicy
+    QPushButton, QLabel, QLineEdit, QMenu, QMessageBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint
 from PyQt6.QtGui import QFont

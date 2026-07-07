@@ -22,7 +22,6 @@ _ai_stub = types.ModuleType("core.ai_worker")
 _ai_stub.AIProcessingWorker = object
 sys.modules.setdefault("core.ai_worker", _ai_stub)
 
-import pytest
 
 # ── insights_worker helpers ───────────────────────────────────────────────────
 

@@ -15,7 +15,6 @@ from core.logger import setup_logging
 setup_logging()
 
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from ui.main_window import MainWindow
 from ui.theme import apply_theme
@@ -45,11 +44,11 @@ def main():
 
     # Apply theme from config (falls back to qdarktheme on error)
     apply_theme(app, cfg.theme)
-    
+
     # Create and show main window
     window = MainWindow()
     window.show()
-    
+
     sys.exit(app.exec())
 
 

@@ -34,7 +34,7 @@ def format_duration(seconds: float) -> str:
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
     secs = int(seconds % 60)
-    
+
     if hours > 0:
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
     return f"{minutes:02d}:{secs:02d}"
@@ -76,7 +76,7 @@ def detect_gpu() -> Tuple[str, str]:
                 return ('cuda', f"NVIDIA {gpu_name}")
         except (subprocess.TimeoutExpired, Exception):
             pass
-    
+
     # Check for AMD ROCm
     if shutil.which('rocminfo'):
         try:
@@ -93,7 +93,7 @@ def detect_gpu() -> Tuple[str, str]:
                 return ('rocm', "AMD GPU (ROCm)")
         except (subprocess.TimeoutExpired, Exception):
             pass
-    
+
     # Check for Apple Metal (macOS with Apple Silicon)
     if platform.system() == 'Darwin':
         try:
@@ -107,7 +107,7 @@ def detect_gpu() -> Tuple[str, str]:
                     return ('metal', f"Apple Metal ({chip_name})")
         except (subprocess.TimeoutExpired, Exception):
             pass
-    
+
     return ('cpu', "CPU (No GPU detected)")
 
 
@@ -115,7 +115,7 @@ def get_audio_duration(filepath: str) -> Optional[float]:
     """Get the duration of an audio/video file using ffprobe."""
     if not shutil.which('ffprobe'):
         return None
-    
+
     try:
         result = subprocess.run([
             'ffprobe', '-v', 'error',
@@ -123,12 +123,12 @@ def get_audio_duration(filepath: str) -> Optional[float]:
             '-of', 'default=noprint_wrappers=1:nokey=1',
             filepath
         ], capture_output=True, text=True, timeout=10)
-        
+
         if result.returncode == 0 and result.stdout.strip():
             return float(result.stdout.strip())
     except (subprocess.TimeoutExpired, ValueError, Exception):
         pass
-    
+
     return None
 
 
@@ -138,7 +138,7 @@ def get_models_dir() -> str:
     Uses cross-platform user data directories to keep models outside the app bundle.
     """
     system = platform.system()
-    
+
     if system == 'Windows':
         app_data = os.environ.get('APPDATA', os.path.expanduser('~\\AppData\\Roaming'))
         base_dir = os.path.join(app_data, 'Whispered')
@@ -147,7 +147,7 @@ def get_models_dir() -> str:
     else:  # Linux and others
         base_dir = os.environ.get('XDG_DATA_HOME', os.path.expanduser('~/.local/share'))
         base_dir = os.path.join(base_dir, 'Whispered')
-    
+
     models_dir = os.path.join(base_dir, 'models')
     os.makedirs(models_dir, exist_ok=True)
     return models_dir
@@ -203,22 +203,22 @@ PERFORMANCE_MODES = [
 def get_thread_count(mode: str = 'balanced') -> int:
     """
     Get optimal thread count based on performance mode.
-    
+
     Args:
         mode: 'efficiency', 'balanced', or 'performance'
-    
+
     Returns:
         Number of threads to use for transcription
     """
     import os
     cpu_count = os.cpu_count() or 4
-    
+
     # Find the mode's thread multiplier
     for mode_key, _, multiplier, _ in PERFORMANCE_MODES:
         if mode_key == mode:
             # Calculate threads: minimum 1, maximum cpu_count
             threads = max(1, int(cpu_count * multiplier))
             return min(threads, cpu_count)
-    
+
     # Default to balanced if mode not found
     return max(2, cpu_count // 2)

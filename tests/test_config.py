@@ -1,9 +1,7 @@
 """Tests for config.py — no Qt, no network required."""
 import json
-import os
 import sys
 import types
-from pathlib import Path
 import pytest
 
 # Stub Qt before config pulls it in through core/__init__

@@ -10,11 +10,9 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QCheckBox, QProgressBar, QFrame, QFileDialog, QListWidget,
-    QListWidgetItem, QAbstractItemView, QLineEdit, QMessageBox,
+    QCheckBox, QProgressBar, QFrame, QFileDialog, QLineEdit, QMessageBox,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QThread
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import pyqtSignal, QTimer, QThread
 
 from book_pipeline import BookPipeline, BookResult
 from core.book_batch_worker import BookBatchWorker

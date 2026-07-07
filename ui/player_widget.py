@@ -10,10 +10,9 @@ from typing import Optional
 
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel, QSlider,
-    QComboBox, QSizePolicy
+    QComboBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QUrl
-from PyQt6.QtGui import QIcon
 
 from core.logger import get_logger
 from utils import format_duration

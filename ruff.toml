@@ -1,0 +1,8 @@
+extend-exclude = ["venv", ".venv", "models"]
+
+[lint]
+select = ["E", "F", "W"]
+ignore = [
+    "E501",  # line length — not enforced in this project
+    "E402",  # module import not at top — needed for sys.path setup before imports
+]

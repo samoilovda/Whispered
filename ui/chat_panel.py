@@ -11,8 +11,8 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel,
     QLineEdit, QPushButton, QFrame, QSizePolicy, QMessageBox
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
-from PyQt6.QtGui import QFont, QTextCursor
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QFont
 
 from core.logger import get_logger
 from core.i18n import tr

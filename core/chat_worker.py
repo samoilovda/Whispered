@@ -6,7 +6,6 @@ as system context and streams tokens back to the UI.
 
 from __future__ import annotations
 
-from typing import Optional
 
 from PyQt6.QtCore import pyqtSignal
 

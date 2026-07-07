@@ -19,7 +19,6 @@ for _mod in ("core.logger", "core.base_worker", "core.prompts"):
         m.load_prompt = lambda name, fallback="": fallback
         sys.modules[_mod] = m
 
-import pytest
 from video_edit import mark_pauses, times_to_indices
 
 

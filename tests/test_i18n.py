@@ -19,7 +19,6 @@ _ai_stub = types.ModuleType("core.ai_worker")
 _ai_stub.AIProcessingWorker = object
 sys.modules.setdefault("core.ai_worker", _ai_stub)
 
-import pytest  # noqa: E402
 from core.i18n import load_locale, tr, current_lang   # noqa: E402
 
 

@@ -13,13 +13,11 @@ Usage (within a QThread or main thread):
 
 from __future__ import annotations
 
-import os
 import queue
 import threading
 import wave
 from datetime import datetime
-from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal
 

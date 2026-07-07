@@ -11,15 +11,14 @@ from typing import Optional
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget,
     QPushButton, QLabel, QComboBox, QCheckBox, QLineEdit,
-    QDialogButtonBox, QSpinBox, QGroupBox, QFormLayout,
-    QDoubleSpinBox, QMessageBox, QFileDialog, QPlainTextEdit
+    QDialogButtonBox, QSpinBox, QFormLayout,
+    QDoubleSpinBox, QMessageBox, QPlainTextEdit
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt6.QtGui import QKeySequence, QShortcut
+from PyQt6.QtCore import QThread, pyqtSignal
 
-from config import get_config, save_config, Config
+from config import get_config, save_config
 from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, get_models_dir
-from ui.theme import apply_theme, THEMES, get_theme
+from ui.theme import apply_theme
 from core.logger import get_logger
 from core.i18n import tr
 

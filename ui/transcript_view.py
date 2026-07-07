@@ -8,10 +8,10 @@ from typing import Optional
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTextEdit, QLabel, QHBoxLayout,
-    QPushButton, QFrame, QLineEdit, QDialog, QFormLayout,
-    QDialogButtonBox, QScrollArea, QSizePolicy
+    QPushButton, QLineEdit, QDialog, QFormLayout,
+    QDialogButtonBox
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QPoint
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import (
     QFont, QTextCharFormat, QColor, QTextCursor, QKeySequence, QShortcut
 )

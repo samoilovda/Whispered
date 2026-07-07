@@ -9,7 +9,6 @@ import sys
 import logging
 import platform
 from logging.handlers import RotatingFileHandler
-from typing import Optional
 
 
 _logging_configured = False

@@ -34,7 +34,7 @@ jobs:
 
       - name: Lint (ruff)
         run: |
-          ruff check --select=E,F,W --ignore=E501,E402,F401 . || true
+          ruff check .
 
       - name: Run unit tests
         run: python -m pytest tests/ -v

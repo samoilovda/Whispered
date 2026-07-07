@@ -19,7 +19,6 @@ import sys
 import json
 import argparse
 import subprocess
-import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -99,7 +98,7 @@ Format as a numbered list."""
 def extract_audio(input_file: str, output_wav: str) -> bool:
     """Extract audio from video file and convert to 16kHz WAV."""
     print(f"📼 Extracting audio from: {input_file}")
-    
+
     cmd = [
         "ffmpeg", "-y",
         "-i", input_file,
@@ -109,9 +108,9 @@ def extract_audio(input_file: str, output_wav: str) -> bool:
         "-ac", "1",  # Mono
         output_wav
     ]
-    
+
     try:
-        result = subprocess.run(
+        subprocess.run(
             cmd,
             capture_output=True,
             text=True,
@@ -146,14 +145,14 @@ def transcribe_audio(
     language: str = DEFAULT_LANGUAGE
 ) -> Optional[str]:
     """Transcribe audio using whisper.cpp (fast, with Metal GPU acceleration)."""
-    
+
     model_path = get_model_path(model)
-    
+
     if not os.path.exists(WHISPER_CPP_BIN):
         print(f"❌ whisper.cpp not found at: {WHISPER_CPP_BIN}")
         print("   Build it with: cd ~/whisper.cpp && make")
         return None
-    
+
     if not os.path.exists(model_path):
         print(f"❌ Model not found: {model_path}")
         print(f"   Available models in {WHISPER_CPP_MODELS_DIR}:")
@@ -162,13 +161,13 @@ def transcribe_audio(
             status = "✓" if os.path.exists(full_path) else "✗"
             print(f"     {status} {name} -> {filename}")
         return None
-    
+
     print(f"🎤 Transcribing with whisper.cpp (model: {model})...")
-    print(f"   Using Metal GPU acceleration")
-    
+    print("   Using Metal GPU acceleration")
+
     # Build output file path (whisper.cpp adds extension automatically)
     output_base = os.path.join(output_dir, "transcription")
-    
+
     cmd = [
         WHISPER_CPP_BIN,
         "-m", model_path,
@@ -177,10 +176,10 @@ def transcribe_audio(
         "-otxt",             # Output as .txt
         "-np",               # No prints (cleaner output)
     ]
-    
+
     if language != "auto":
         cmd.extend(["-l", language])
-    
+
     try:
         result = subprocess.run(
             cmd,
@@ -188,10 +187,10 @@ def transcribe_audio(
             text=True,
             check=True
         )
-        
+
         # Read the output txt file
         txt_file = f"{output_base}.txt"
-        
+
         if os.path.exists(txt_file):
             with open(txt_file, 'r', encoding='utf-8') as f:
                 transcription = f.read().strip()
@@ -205,9 +204,9 @@ def transcribe_audio(
             if result.stderr:
                 print(f"   stderr: {result.stderr[:500]}")
             return None
-            
+
     except subprocess.CalledProcessError as e:
-        print(f"❌ Transcription failed:")
+        print("❌ Transcription failed:")
         if e.stderr:
             print(f"   {e.stderr[:500]}")
         return None
@@ -227,9 +226,9 @@ def call_lm_studio(
     max_tokens: int = 4096
 ) -> Optional[str]:
     """Call LM Studio's OpenAI-compatible API."""
-    
+
     endpoint = f"{lm_studio_url}/chat/completions"
-    
+
     payload = {
         "messages": [
             {"role": "user", "content": prompt}
@@ -238,7 +237,7 @@ def call_lm_studio(
         "max_tokens": max_tokens,
         "stream": False
     }
-    
+
     try:
         data = json.dumps(payload).encode('utf-8')
         req = urllib.request.Request(
@@ -248,11 +247,11 @@ def call_lm_studio(
                 'Content-Type': 'application/json'
             }
         )
-        
+
         with urllib.request.urlopen(req, timeout=300) as response:
             result = json.loads(response.read().decode('utf-8'))
             return result['choices'][0]['message']['content']
-            
+
     except urllib.error.URLError as e:
         print(f"❌ LM Studio connection failed: {e}")
         print("   Make sure LM Studio is running with the local server enabled on port 1234")
@@ -268,7 +267,7 @@ def check_lm_studio_connection(lm_studio_url: str = DEFAULT_LM_STUDIO_URL) -> bo
         req = urllib.request.Request(f"{lm_studio_url}/models")
         with urllib.request.urlopen(req, timeout=5) as response:
             return response.status == 200
-    except:
+    except (urllib.error.URLError, OSError):
         return False
 
 
@@ -279,10 +278,10 @@ def check_lm_studio_connection(lm_studio_url: str = DEFAULT_LM_STUDIO_URL) -> bo
 def extract_topics(transcription: str, lm_studio_url: str) -> Optional[dict]:
     """Extract topics from transcription using LM Studio."""
     print("🔍 Extracting topics...")
-    
+
     prompt = TOPIC_EXTRACTION_PROMPT.format(transcription=transcription)  # Process full text
     response = call_lm_studio(prompt, lm_studio_url)
-    
+
     if response:
         try:
             # Try to parse JSON from response
@@ -292,27 +291,27 @@ def extract_topics(transcription: str, lm_studio_url: str) -> Optional[dict]:
                 clean_response = clean_response.split("```")[1]
                 if clean_response.startswith("json"):
                     clean_response = clean_response[4:]
-            
+
             topics = json.loads(clean_response)
             print(f"✅ Extracted {len(topics.get('topics', []))} topics")
             return topics
         except json.JSONDecodeError:
             # Return raw response if not valid JSON
             return {"raw": response, "topics": [], "insights": [], "quotes": []}
-    
+
     return None
 
 
 def generate_blog_post(transcription: str, topics: dict, lm_studio_url: str) -> Optional[str]:
     """Generate blog post draft using LM Studio."""
     print("📝 Generating blog post...")
-    
+
     prompt = BLOG_GENERATION_PROMPT.format(
         topics=", ".join(topics.get('topics', [])),
         insights="\n".join(f"- {i}" for i in topics.get('insights', [])),
         transcription=transcription  # Process full text
     )
-    
+
     response = call_lm_studio(prompt, lm_studio_url)
     if response:
         print("✅ Blog post generated")
@@ -322,7 +321,7 @@ def generate_blog_post(transcription: str, topics: dict, lm_studio_url: str) -> 
 def generate_social_snippets(blog_content: str, lm_studio_url: str) -> Optional[str]:
     """Generate social media snippets from blog content."""
     print("📱 Generating social snippets...")
-    
+
     prompt = SOCIAL_SNIPPETS_PROMPT.format(blog_content=blog_content[:4000])
     response = call_lm_studio(prompt, lm_studio_url)
     if response:
@@ -343,25 +342,25 @@ def run_workflow(
     skip_lm: bool = False
 ) -> bool:
     """Run the complete workflow."""
-    
+
     input_path = Path(input_file)
     if not input_path.exists():
         print(f"❌ Input file not found: {input_file}")
         return False
-    
+
     # Create output directory
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
     session_name = f"{input_path.stem}_{timestamp}"
     session_dir = Path(output_dir) / session_name
     session_dir.mkdir(parents=True, exist_ok=True)
-    
+
     print(f"\n{'='*60}")
-    print(f"🚀 ZOOM TO BLOG WORKFLOW")
+    print("🚀 ZOOM TO BLOG WORKFLOW")
     print(f"{'='*60}")
     print(f"📁 Input: {input_file}")
     print(f"📂 Output: {session_dir}")
     print(f"{'='*60}\n")
-    
+
     # Step 1: Extract audio
     audio_file = session_dir / "audio.wav"
     if input_path.suffix.lower() in ['.wav']:
@@ -375,7 +374,7 @@ def run_workflow(
         # Video file, extract audio
         if not extract_audio(str(input_path), str(audio_file)):
             return False
-    
+
     # Step 2: Transcribe
     transcription = transcribe_audio(
         str(audio_file),
@@ -383,21 +382,21 @@ def run_workflow(
         model=whisper_model,
         language=language
     )
-    
+
     if not transcription:
         print("❌ Transcription failed")
         return False
-    
+
     # Save transcription
     transcription_file = session_dir / "transcription.txt"
     with open(transcription_file, 'w', encoding='utf-8') as f:
         f.write(transcription)
-    
+
     if skip_lm:
         print("\n✅ Workflow complete (LM Studio skipped)")
         print(f"📄 Transcription saved to: {transcription_file}")
         return True
-    
+
     # Step 3: Check LM Studio connection
     print("\n🔌 Checking LM Studio connection...")
     if not check_lm_studio_connection(lm_studio_url):
@@ -405,7 +404,7 @@ def run_workflow(
         print("   To process with AI, start LM Studio and run again with --continue flag")
         return True
     print("✅ LM Studio connected")
-    
+
     # Step 4: Extract topics
     topics = extract_topics(transcription, lm_studio_url)
     if topics:
@@ -414,14 +413,14 @@ def run_workflow(
             json.dump(topics, f, ensure_ascii=False, indent=2)
     else:
         topics = {"topics": [], "insights": [], "quotes": []}
-    
+
     # Step 5: Generate blog post
     blog_content = generate_blog_post(transcription, topics, lm_studio_url)
     if blog_content:
         blog_file = session_dir / "blog_draft.md"
         with open(blog_file, 'w', encoding='utf-8') as f:
             f.write(blog_content)
-    
+
     # Step 6: Generate social snippets
     if blog_content:
         snippets = generate_social_snippets(blog_content, lm_studio_url)
@@ -429,16 +428,16 @@ def run_workflow(
             snippets_file = session_dir / "social_snippets.txt"
             with open(snippets_file, 'w', encoding='utf-8') as f:
                 f.write(snippets)
-    
+
     print(f"\n{'='*60}")
     print("✅ WORKFLOW COMPLETE!")
     print(f"{'='*60}")
     print(f"📂 Output directory: {session_dir}")
-    print(f"\nGenerated files:")
+    print("\nGenerated files:")
     for f in session_dir.iterdir():
         print(f"  • {f.name}")
     print(f"{'='*60}\n")
-    
+
     return True
 
 
@@ -449,7 +448,7 @@ def run_workflow(
 def main():
     # Get available models
     available_models = list(WHISPER_MODELS.keys())
-    
+
     parser = argparse.ArgumentParser(
         description="Zoom to Blog Workflow Automation (using whisper.cpp)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -463,7 +462,7 @@ Examples:
 Available models: {', '.join(available_models)}
         """
     )
-    
+
     parser.add_argument(
         "input",
         help="Input video/audio file (mp4, m4a, mp3, wav, etc.)"
@@ -494,9 +493,9 @@ Available models: {', '.join(available_models)}
         action="store_true",
         help="Skip LM Studio processing (transcription only)"
     )
-    
+
     args = parser.parse_args()
-    
+
     success = run_workflow(
         input_file=args.input,
         output_dir=args.output_dir,
@@ -505,7 +504,7 @@ Available models: {', '.join(available_models)}
         lm_studio_url=args.lm_studio_url,
         skip_lm=args.skip_lm
     )
-    
+
     sys.exit(0 if success else 1)
 
 

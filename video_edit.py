@@ -7,7 +7,6 @@ LLMFillerWorker — optional LLM pass via existing LMStudioClient infrastructure
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 from core.logger import get_logger
 

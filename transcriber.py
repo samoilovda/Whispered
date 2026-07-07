@@ -4,7 +4,6 @@ Wrapper for pywhispercpp to handle transcription tasks
 """
 
 import os
-import gc
 import threading
 import tempfile
 import subprocess
@@ -13,7 +12,6 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional, List, Dict
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
 
-from pywhispercpp.model import Model
 
 from utils import get_models_dir, detect_gpu
 from core.logger import get_logger
@@ -28,12 +26,12 @@ def _convert_to_wav(input_path: str) -> Optional[str]:
     """
     if not shutil.which('ffmpeg'):
         return None
-    
+
     # Create temporary file
     temp_dir = tempfile.gettempdir()
     base_name = os.path.splitext(os.path.basename(input_path))[0]
     output_path = os.path.join(temp_dir, f"{base_name}_whisper_temp.wav")
-    
+
     try:
         # Convert to 16kHz mono WAV (optimal for Whisper)
         result = subprocess.run([
@@ -43,17 +41,17 @@ def _convert_to_wav(input_path: str) -> Optional[str]:
             '-c:a', 'pcm_s16le',  # 16-bit PCM
             output_path
         ], capture_output=True, text=True, timeout=3600)
-        
+
         if result.returncode == 0 and os.path.exists(output_path):
             return output_path
     except (subprocess.TimeoutExpired, Exception):
         pass
-    
+
     return None
 
 
 # Formats that need FFmpeg conversion
-FORMATS_NEEDING_CONVERSION = {'.m4a', '.aac', '.wma', '.opus', '.ogg', '.flac', 
+FORMATS_NEEDING_CONVERSION = {'.m4a', '.aac', '.wma', '.opus', '.ogg', '.flac',
                                '.mp4', '.mkv', '.avi', '.mov', '.webm', '.wmv', '.flv', '.m4v'}
 
 
@@ -181,11 +179,11 @@ def _run_transcription_process(
         if not os.path.isfile(filepath):
             q.put(('error', f"File not found: {filepath}"))
             return
-            
+
         # Check if we need to convert the file
         file_ext = os.path.splitext(filepath)[1].lower()
         audio_path = filepath
-        
+
         if file_ext in FORMATS_NEEDING_CONVERSION:
             q.put(('progress', 5, "Converting audio format..."))
             temp_wav_path = _convert_to_wav(filepath)
@@ -205,9 +203,9 @@ def _run_transcription_process(
                     "Then restart the application."
                 ))
                 return
-        
+
         q.put(('progress', 10, "Loading model (downloading if needed)..."))
-        
+
         # Load the model (will download if not present)
         from utils import get_models_dir
         models_dir = get_models_dir()
@@ -224,18 +222,18 @@ def _run_transcription_process(
         except Exception as e:
             q.put(('error', f"Failed to load model '{model_name}': {str(e)}"))
             return
-            
+
         q.put(('progress', 15, "Preparing transcription..."))
-        
+
         # Use thread count from settings
         params = {
             'n_threads': n_threads,
         }
-        
+
         # Set language if not auto-detect
         if language != 'auto':
             params['language'] = language
-        
+
         # Enable translation if requested
         if translate:
             params['translate'] = True
@@ -262,7 +260,7 @@ def _run_transcription_process(
                 duration = f.getnframes() / float(f.getframerate())
         except Exception:
             duration = 1.0
-            
+
         def segment_cb(seg):
             if duration > 1.0:
                 current_time = seg.t1 / 100.0
@@ -272,7 +270,7 @@ def _run_transcription_process(
         # Run transcription
         q.put(('progress', 20, "Transcribing audio..."))
         segments_raw = model.transcribe(audio_path, new_segment_callback=segment_cb, **params)
-        
+
         q.put(('progress', 90, "Processing results..."))
 
         # Convert to our Segment format
@@ -289,7 +287,7 @@ def _run_transcription_process(
                     text=seg.text,
                     speaker=None
                 ))
-            
+
         # Run diarization if enabled
         if enable_diarization:
             q.put(('progress', 85, "Identifying speakers..."))
@@ -305,7 +303,7 @@ def _run_transcription_process(
                         num_speakers=num_speakers,
                         on_progress=lambda p, m: q.put(('progress', 85 + int(p * 0.1), m))
                     )
-                    
+
                     # Merge speaker labels with segments
                     for seg in segments:
                         midpoint = (seg.start + seg.end) / 2
@@ -313,28 +311,28 @@ def _run_transcription_process(
                         if speaker is None:
                             speaker = diarization.get_speaker_at(seg.start)
                         seg.speaker = speaker
-                    
+
                     q.put(('progress', 95, f"Found {diarization.num_speakers} speakers"))
             except Exception as e:
                 q.put(('progress', 90, f"Diarization error: {str(e)[:30]}..."))
-        
+
         if not segments:
             q.put(('error', "No speech detected in the audio file."))
             return
-            
+
         # Calculate total duration
         duration = segments[-1].end
-        
+
         # Create result
         result = TranscriptionResult(
             segments=segments,
             language=language if language != 'auto' else 'detected',
             duration=duration
         )
-        
+
         q.put(('progress', 100, "Complete!"))
         q.put(('result', result))
-        
+
     except Exception as e:
         error_msg = str(e)
         if 'CUDA' in error_msg or 'cuda' in error_msg:
@@ -345,19 +343,19 @@ def _run_transcription_process(
         if temp_wav_path and os.path.exists(temp_wav_path):
             try:
                 os.remove(temp_wav_path)
-            except:
+            except OSError:
                 pass
         import gc
         gc.collect()
 
 class TranscriptionWorker(QThread):
     """Worker thread for running transcription in background."""
-    
+
     # Signals
     progress = pyqtSignal(int, str)  # (percentage, status message)
     finished = pyqtSignal(object)     # TranscriptionResult or None
     error = pyqtSignal(str)           # Error message
-    
+
     def __init__(
         self,
         filepath: str,
@@ -383,11 +381,11 @@ class TranscriptionWorker(QThread):
         self.word_timestamps = word_timestamps
         self._cancelled = threading.Event()
         self._process = None
-    
+
     def cancel(self):
         """Request cancellation of the transcription."""
         self._cancelled.set()
-    
+
     def run(self):
         """Run the transcription in a separate thread, spawning a child process."""
         import multiprocessing as mp
@@ -410,7 +408,7 @@ class TranscriptionWorker(QThread):
             )
         )
         self._process.start()
-        
+
         try:
             while self._process.is_alive():
                 if self._cancelled.is_set():
@@ -438,7 +436,7 @@ class TranscriptionWorker(QThread):
                         return
                 except queue.Empty:
                     continue
-            
+
             # Subprocess died without posting result or error
             # Check if there's anything left in queue
             while not q.empty():
@@ -454,7 +452,7 @@ class TranscriptionWorker(QThread):
                         return
                 except queue.Empty:
                     break
-                    
+
             if not self._cancelled.is_set():
                 if self._process.exitcode != 0:
                      self.error.emit(f"Transcription process crashed with exit code {self._process.exitcode}")
@@ -473,15 +471,15 @@ class TranscriptionWorker(QThread):
 
 class Transcriber:
     """High-level transcription manager."""
-    
+
     def __init__(self):
         self.current_worker: Optional[TranscriptionWorker] = None
         self.gpu_type, self.gpu_name = detect_gpu()
-    
+
     def is_busy(self) -> bool:
         """Check if a transcription is in progress."""
         return self.current_worker is not None and self.current_worker.isRunning()
-    
+
     def transcribe(
         self,
         filepath: str,
@@ -520,18 +518,18 @@ class Transcriber:
         if self.current_worker and self.current_worker.isRunning():
             self.current_worker.cancel()
             self.current_worker.wait()
-            
+
         # Ensure models are downloaded before starting the background thread
         try:
             from ui.model_downloader import ensure_whisper_model, ensure_diarization_models
             from config import get_config
-            
+
             # Check Whisper model
             if not ensure_whisper_model(model_name):
                 if on_error:
                     on_error("Whisper model download was cancelled or failed.")
-                return None  # Type hint says returns worker, returning None is acceptable on fail 
-            
+                return None  # Type hint says returns worker, returning None is acceptable on fail
+
             # Check Diarization models if enabled
             if enable_diarization:
                 config = get_config()
@@ -542,7 +540,7 @@ class Transcriber:
                         return None
         except Exception as e:
             logger.warning("Model downloader check failed: %s", e)
-        
+
         # Create new worker
         worker = TranscriptionWorker(
             filepath=filepath,
@@ -555,7 +553,7 @@ class Transcriber:
             initial_prompt=initial_prompt,
             word_timestamps=word_timestamps,
         )
-        
+
         # Connect signals
         if on_progress:
             worker.progress.connect(on_progress)
@@ -563,18 +561,18 @@ class Transcriber:
             worker.finished.connect(on_finished)
         if on_error:
             worker.error.connect(on_error)
-        
+
         self.current_worker = worker
         worker.start()
-        
+
         return worker
-    
+
     def cancel(self):
         """Cancel the current transcription job."""
         if self.current_worker and self.current_worker.isRunning():
             self.current_worker.cancel()
             self.current_worker.wait()
-    
+
     def get_available_models(self) -> List[str]:
         """Get list of downloaded models."""
         models_dir = get_models_dir()

@@ -6,11 +6,10 @@ QThread that processes a folder of .md transcript files through BookPipeline.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable, Optional
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
-from book_pipeline import BookPipeline, BookResult
+from book_pipeline import BookPipeline
 from core.logger import get_logger
 
 logger = get_logger(__name__)

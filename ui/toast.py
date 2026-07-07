@@ -8,8 +8,7 @@ from __future__ import annotations
 from typing import Literal
 
 from PyQt6.QtWidgets import QLabel, QWidget
-from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
 
 ToastKind = Literal["success", "info", "error", "warning"]
 

@@ -1,5 +1,4 @@
 """Tests for utils.py — no Qt, no GPU, no ffmpeg required."""
-import pytest
 from utils import (
     format_timestamp_srt,
     format_timestamp_vtt,
