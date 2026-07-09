@@ -30,10 +30,20 @@ DEFAULT_TIMEOUT = 300  # 5 minutes for long texts
 class LMStudioClient:
     """Client for communicating with LM Studio's OpenAI-compatible API."""
 
-    def __init__(self, base_url: str = DEFAULT_LM_STUDIO_URL) -> None:
+    def __init__(
+        self,
+        base_url: str = DEFAULT_LM_STUDIO_URL,
+        api_key: str = "",
+        model: str = "",
+    ) -> None:
         self.base_url: str = base_url.rstrip('/')
+        self._api_key = api_key
+        self._model = model
         self._cached_model: Optional[str] = None
         self.is_cancelled: Optional[Callable[[], bool]] = None
+
+    def _auth_headers(self) -> dict:
+        return {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
 
     def check_connection(self) -> bool:
         """Check if LM Studio server is running and accessible."""
@@ -103,13 +113,12 @@ class LMStudioClient:
             "max_tokens": max_tokens,
             "stream": False,
         }
+        if self._model:
+            payload["model"] = self._model
         try:
             data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(
-                endpoint,
-                data=data,
-                headers={"Content-Type": "application/json"},
-            )
+            headers = {"Content-Type": "application/json", **self._auth_headers()}
+            req = urllib.request.Request(endpoint, data=data, headers=headers)
             with urllib.request.urlopen(req, timeout=timeout) as response:
                 result = json.loads(response.read().decode("utf-8"))
                 return result["choices"][0]["message"]["content"]
@@ -168,13 +177,12 @@ class LMStudioClient:
             "max_tokens": max_tokens,
             "stream": True,
         }
+        if self._model:
+            payload["model"] = self._model
         try:
             data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(
-                endpoint,
-                data=data,
-                headers={"Content-Type": "application/json"},
-            )
+            headers = {"Content-Type": "application/json", **self._auth_headers()}
+            req = urllib.request.Request(endpoint, data=data, headers=headers)
             full_text = []
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 for raw_line in resp:
