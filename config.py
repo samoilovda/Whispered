@@ -71,6 +71,14 @@ class Config:
     # History / privacy
     history_enabled: bool = True
 
+    # YouTube AI provider (feature-scoped; local LM Studio stays the default)
+    yt_provider: str = "lmstudio"                       # "lmstudio" | "openai" | "anthropic"
+    yt_openai_base_url: str = "https://api.openai.com/v1"
+    yt_openai_api_key: str = ""
+    yt_openai_model: str = "gpt-4o-mini"                 # editable default
+    yt_anthropic_api_key: str = ""
+    yt_anthropic_model: str = "claude-sonnet-5"          # editable default
+
     def save(self) -> bool:
         """Save configuration to file."""
         try:

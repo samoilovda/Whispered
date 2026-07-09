@@ -60,6 +60,12 @@ class TestConfigDefaults:
         cfg = Config(hf_token="hf_" + "x" * 40)
         assert cfg.has_hf_token()
 
+    def test_default_yt_provider_is_lmstudio(self):
+        cfg = Config()
+        assert cfg.yt_provider == "lmstudio"
+        assert cfg.yt_openai_api_key == ""
+        assert cfg.yt_anthropic_api_key == ""
+
 
 class TestConfigRoundTrip:
     def test_save_and_load(self, tmp_path):
@@ -69,6 +75,9 @@ class TestConfigRoundTrip:
             diarization_enabled=True,
             default_num_speakers=3,
             book_temperature=0.7,
+            yt_provider="anthropic",
+            yt_anthropic_api_key="ak-test",
+            yt_anthropic_model="claude-sonnet-5",
         )
         cfg.save()
         loaded = Config.load()
@@ -77,6 +86,17 @@ class TestConfigRoundTrip:
         assert loaded.diarization_enabled is True
         assert loaded.default_num_speakers == 3
         assert abs(loaded.book_temperature - 0.7) < 1e-9
+        assert loaded.yt_provider == "anthropic"
+        assert loaded.yt_anthropic_api_key == "ak-test"
+        assert loaded.yt_anthropic_model == "claude-sonnet-5"
+
+    def test_old_config_without_yt_fields_loads_on_defaults(self, tmp_path):
+        cfg_file = config_module.CONFIG_FILE
+        data = {"theme": "light", "lm_studio_url": "http://x/v1"}
+        cfg_file.write_text(json.dumps(data), encoding="utf-8")
+        loaded = Config.load()
+        assert loaded.yt_provider == "lmstudio"
+        assert loaded.yt_openai_base_url == "https://api.openai.com/v1"
 
     def test_load_missing_file_returns_defaults(self):
         loaded = Config.load()
