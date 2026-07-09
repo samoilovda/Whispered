@@ -19,7 +19,7 @@ from ui.toast import show_toast
 
 logger = get_logger(__name__)
 
-_YT_TYPES = ("chapters", "yt_titles", "yt_description", "yt_tags")
+_YT_TYPES = ("chapters", "yt_titles", "yt_description", "yt_tags", "yt_questions")
 
 
 class YouTubePanel(QWidget):
@@ -54,6 +54,18 @@ class YouTubePanel(QWidget):
         self._lang_combo.addItem("English", "English")
         controls.addWidget(self._lang_combo)
 
+        self._provider_combo = QComboBox()
+        self._provider_combo.addItem(tr("provider_lmstudio"), "lmstudio")
+        self._provider_combo.addItem(tr("provider_openai"), "openai")
+        self._provider_combo.addItem(tr("provider_anthropic"), "anthropic")
+        self._provider_combo.currentIndexChanged.connect(self._on_provider_changed)
+        controls.addWidget(self._provider_combo)
+
+        self._configure_btn = QPushButton(tr("provider_configure"))
+        self._configure_btn.setEnabled(False)
+        self._configure_btn.clicked.connect(self._open_provider_dialog)
+        controls.addWidget(self._configure_btn)
+
         self._gen_btn = QPushButton(tr("youtube_generate"))
         self._gen_btn.setProperty("variant", "primary")
         self._gen_btn.setEnabled(False)
@@ -68,6 +80,14 @@ class YouTubePanel(QWidget):
         controls.addWidget(self._copy_btn)
 
         layout.addLayout(controls)
+
+        self._privacy_notice = QLabel(tr("youtube_privacy_notice"))
+        self._privacy_notice.setWordWrap(True)
+        self._privacy_notice.setStyleSheet("color: #d0a030; font-size: 11px;")
+        self._privacy_notice.setVisible(False)
+        layout.addWidget(self._privacy_notice)
+
+        self._init_provider_from_config()
 
         # Inner tabs: Chapters | Titles | Description | Tags
         self._tabs = QTabWidget()
@@ -103,7 +123,39 @@ class YouTubePanel(QWidget):
         self._tags_edit.setStyleSheet(_style)
         self._tabs.addTab(self._tags_edit, tr("yt_tab_tags"))
 
+        self._questions_edit = QPlainTextEdit()
+        self._questions_edit.setReadOnly(True)
+        self._questions_edit.setFont(mono)
+        self._questions_edit.setStyleSheet(_style)
+        self._tabs.addTab(self._questions_edit, tr("yt_tab_questions"))
+
         layout.addWidget(self._tabs, stretch=1)
+
+    # ── Provider selection ─────────────────────────────────────────
+
+    def _init_provider_from_config(self):
+        from config import get_config
+        kind = get_config().yt_provider
+        idx = self._provider_combo.findData(kind)
+        self._provider_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self._on_provider_changed()
+
+    def _on_provider_changed(self):
+        from config import get_config, save_config
+        kind = self._provider_combo.currentData()
+        cfg = get_config()
+        if cfg.yt_provider != kind:
+            cfg.yt_provider = kind
+            save_config()
+        is_cloud = kind != "lmstudio"
+        self._configure_btn.setEnabled(is_cloud)
+        self._privacy_notice.setVisible(is_cloud)
+
+    def _open_provider_dialog(self):
+        from ui.provider_dialog import ProviderDialog
+        kind = self._provider_combo.currentData()
+        dialog = ProviderDialog(kind=kind, parent=self)
+        dialog.exec()
 
     # ── Public API ──────────────────────────────────────────────────
 
@@ -120,7 +172,7 @@ class YouTubePanel(QWidget):
         self._gen_btn.setEnabled(False)
         self._copy_btn.setEnabled(False)
         for edit in (self._chapters_edit, self._titles_edit,
-                     self._desc_edit, self._tags_edit):
+                     self._desc_edit, self._tags_edit, self._questions_edit):
             edit.clear()
         self._tabs.setVisible(False)
         for w in self._workers.values():
@@ -136,10 +188,19 @@ class YouTubePanel(QWidget):
 
     def _generate(self):
         from config import get_config
+        from core.ai_provider import provider_from_config
         from core.insights_worker import InsightsWorker
 
-        lm_url = get_config().lm_studio_url
-        if not lm_url:
+        cfg = get_config()
+        provider = provider_from_config(cfg)
+
+        if provider.kind != "lmstudio" and not provider.api_key:
+            self._chapters_edit.setPlainText(tr("youtube_no_api_key"))
+            self._tabs.setVisible(True)
+            self._placeholder.hide()
+            return
+
+        if provider.kind == "lmstudio" and not cfg.lm_studio_url:
             self._chapters_edit.setPlainText(tr("youtube_no_lm"))
             self._tabs.setVisible(True)
             self._placeholder.hide()
@@ -156,7 +217,7 @@ class YouTubePanel(QWidget):
         self._gen_btn.setText(tr("youtube_generating"))
         self._copy_btn.setEnabled(False)
         for edit in (self._chapters_edit, self._titles_edit,
-                     self._desc_edit, self._tags_edit):
+                     self._desc_edit, self._tags_edit, self._questions_edit):
             edit.clear()
         self._tabs.setVisible(True)
         self._placeholder.hide()
@@ -165,7 +226,11 @@ class YouTubePanel(QWidget):
         self._pending = len(_YT_TYPES)
 
         for yt_type in _YT_TYPES:
-            worker = InsightsWorker(yt_type, self._segments, lm_url, language=lang, parent=self)
+            worker = InsightsWorker(
+                yt_type, self._segments, cfg.lm_studio_url, language=lang,
+                provider=(None if provider.kind == "lmstudio" else provider),
+                parent=self,
+            )
             worker.finished.connect(self._on_finished)
             worker.error_occurred.connect(self._on_error)
             self._workers[yt_type] = worker
@@ -199,6 +264,13 @@ class YouTubePanel(QWidget):
             elif isinstance(data, str):
                 self._tags_edit.setPlainText(data)
 
+        elif insight_type == "yt_questions":
+            if isinstance(data, list):
+                text = format_youtube_description(data)
+                self._questions_edit.setPlainText(text or tr("youtube_empty"))
+            else:
+                self._questions_edit.setPlainText(str(data) if data else tr("youtube_empty"))
+
         if self._pending == 0:
             self._reset_button()
             self._copy_btn.setEnabled(True)
@@ -220,6 +292,7 @@ class YouTubePanel(QWidget):
             1: self._titles_edit,
             2: self._desc_edit,
             3: self._tags_edit,
+            4: self._questions_edit,
         }
         edit = edit_map.get(self._tabs.currentIndex(), self._chapters_edit)
         text = edit.toPlainText()
