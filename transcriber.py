@@ -230,9 +230,23 @@ def _run_transcription_process(
             'n_threads': n_threads,
         }
 
-        # Set language if not auto-detect
+        # Resolve language before transcribing. pywhispercpp defaults to an
+        # empty language ('' — not real auto-detection) when the parameter is
+        # omitted, which makes whisper.cpp decode non-English speech as if it
+        # were English and fall into severe repetition-loop hallucinations.
+        # detect_language=True alone only runs detection and returns no
+        # segments, so auto mode needs an explicit detect-then-transcribe.
         if language != 'auto':
             params['language'] = language
+        else:
+            q.put(('progress', 12, "Detecting language..."))
+            try:
+                (detected_lang, confidence), _ = model.auto_detect_language(audio_path)
+                logger.info("Auto-detected language: %s (p=%.3f)", detected_lang, confidence)
+                params['language'] = detected_lang
+            except Exception as e:
+                logger.warning("Language auto-detection failed, falling back to English: %s", e)
+                params['language'] = 'en'
 
         # Enable translation if requested
         if translate:
@@ -326,7 +340,7 @@ def _run_transcription_process(
         # Create result
         result = TranscriptionResult(
             segments=segments,
-            language=language if language != 'auto' else 'detected',
+            language=params['language'],
             duration=duration
         )
 

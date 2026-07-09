@@ -101,6 +101,53 @@ class GenerationResult:
 
 
 # ============================================================================
+# CHUNKING (long transcripts must not be silently truncated)
+# ============================================================================
+
+def _split_into_chunks(text: str, chunk_size: int, overlap: int = 300) -> list[str]:
+    """Split text into overlapping chunks, breaking at sentence boundaries where possible."""
+    if len(text) <= chunk_size:
+        return [text]
+
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        if end < len(text):
+            for sep in ['. ', '.\n', '? ', '! ']:
+                pos = text.rfind(sep, max(start, start + chunk_size - 500), end)
+                if pos > start:
+                    end = pos + len(sep)
+                    break
+        chunks.append(text[start:end].strip())
+        start = end - overlap
+
+    return chunks
+
+
+def _merge_topic_analyses(analyses: list[TopicAnalysis]) -> TopicAnalysis:
+    """Combine per-chunk topic analyses into one, de-duplicating near-identical entries."""
+
+    def dedup(items: list[str], cap: int) -> list[str]:
+        seen = set()
+        out = []
+        for item in items:
+            cleaned = item.strip()
+            key = cleaned.lower()
+            if cleaned and key not in seen:
+                seen.add(key)
+                out.append(cleaned)
+        return out[:cap]
+
+    return TopicAnalysis(
+        main_topics=dedup([t for a in analyses for t in a.main_topics], 10),
+        key_insights=dedup([i for a in analyses for i in a.key_insights], 8),
+        notable_quotes=dedup([q for a in analyses for q in a.notable_quotes], 6),
+        suggested_titles=dedup([t for a in analyses for t in a.suggested_titles], 4),
+    )
+
+
+# ============================================================================
 # PROMPTS
 # ============================================================================
 
@@ -247,6 +294,13 @@ Format as a numbered list:
 )
 
 
+CONDENSE_PROMPT_TEMPLATE = """Summarize the key points and any quotable lines from this excerpt of a longer transcript. Be concise — plain bullet points only, no preamble or markdown headers:
+
+---
+{text}
+---"""
+
+
 QUALITY_SCORING_PROMPT = """Rate this article on a scale of 1-10 for each criterion:
 
 Article:
@@ -278,6 +332,8 @@ class ArticleGenerator:
         """Check if LM Studio is available."""
         return self.lm_client.check_connection()
 
+    _TOPIC_CHUNK_SIZE = 15000
+
     def extract_topics(
         self,
         text: str,
@@ -285,6 +341,11 @@ class ArticleGenerator:
     ) -> TopicAnalysis:
         """
         Extract topics and key information from text.
+
+        Long transcripts are analyzed in overlapping chunks and merged, so
+        content past the first _TOPIC_CHUNK_SIZE characters isn't silently
+        dropped from the analysis (which is what a single-shot truncation
+        would do for anything over ~15-20 minutes of speech).
 
         Args:
             text: Source text to analyze
@@ -296,18 +357,31 @@ class ArticleGenerator:
         if on_progress:
             on_progress(10, "Extracting topics...")
 
-        # Truncate if too long for single prompt
-        analysis_text = text[:15000] if len(text) > 15000 else text
+        chunks = _split_into_chunks(text, self._TOPIC_CHUNK_SIZE)
 
+        if len(chunks) == 1:
+            return self._extract_topics_single(chunks[0])
+
+        analyses = []
+        for i, chunk in enumerate(chunks):
+            if on_progress:
+                pct = 10 + int(20 * i / len(chunks))
+                on_progress(pct, f"Analyzing part {i + 1}/{len(chunks)}...")
+            analyses.append(self._extract_topics_single(chunk))
+
+        if on_progress:
+            on_progress(30, "Merging analysis...")
+
+        return _merge_topic_analyses(analyses)
+
+    def _extract_topics_single(self, analysis_text: str) -> TopicAnalysis:
+        """Extract topics from a single chunk that already fits in one prompt."""
         prompt = TOPIC_EXTRACTION_PROMPT.format(text=analysis_text)
         response = self.lm_client.chat_completion(
             prompt=prompt,
             temperature=0.5,
             max_tokens=1024
         )
-
-        if on_progress:
-            on_progress(30, "Parsing topic analysis...")
 
         if response:
             try:
@@ -489,6 +563,28 @@ class ArticleGenerator:
 
         return 5.0  # Default middle score
 
+    def _condense_for_prompt(self, text: str, max_chars: int) -> str:
+        """Fit long text under max_chars without dropping its second half.
+
+        A hard truncation silently discards everything past max_chars, which
+        for a long transcript can mean the entire back half of a recording
+        never reaches the model. Instead, chunk the text and ask the LLM for
+        a short digest of each chunk, then concatenate — so the final prompt
+        reflects the whole document, just condensed.
+        """
+        if len(text) <= max_chars:
+            return text
+
+        chunks = _split_into_chunks(text, max_chars)
+        digests = []
+        for chunk in chunks:
+            prompt = CONDENSE_PROMPT_TEMPLATE.format(text=chunk)
+            result = self.lm_client.chat_completion(prompt=prompt, temperature=0.3, max_tokens=400)
+            digests.append(result.strip() if result else chunk[:500])
+
+        combined = "\n\n".join(digests)
+        return combined[:max_chars] if len(combined) > max_chars else combined
+
     def _get_format_prompt(
         self,
         text: str,
@@ -497,9 +593,8 @@ class ArticleGenerator:
     ) -> str:
         """Get the appropriate prompt for the format."""
 
-        # Truncate text if too long
         max_text_len = 12000
-        analysis_text = text[:max_text_len] if len(text) > max_text_len else text
+        analysis_text = self._condense_for_prompt(text, max_text_len)
 
         if format == ArticleFormat.BLOG_POST:
             return BLOG_POST_PROMPT.format(
@@ -524,7 +619,9 @@ class ArticleGenerator:
             return SOCIAL_PROMPT.format(
                 insights="\n".join(f"- {i}" for i in topics.key_insights),
                 quotes="\n".join(f'"{q}"' for q in topics.notable_quotes),
-                text=analysis_text[:5000]  # Shorter for social
+                # Condense the already-condensed digest further rather than
+                # re-processing the raw text a second time.
+                text=self._condense_for_prompt(analysis_text, 5000)
             )
 
         return f"Summarize this text:\n{analysis_text}"
