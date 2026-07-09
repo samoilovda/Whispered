@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from PyQt6.QtCore import pyqtSignal
 
@@ -17,9 +17,12 @@ from core.logger import get_logger
 from core.llm_text import fit_to_context
 from core.prompts import load_prompt
 
+if TYPE_CHECKING:
+    from core.ai_provider import ProviderSettings
+
 logger = get_logger(__name__)
 
-_INSIGHT_TYPES = ("chapters", "action_items", "key_moments", "yt_titles", "yt_description", "yt_tags")
+_INSIGHT_TYPES = ("chapters", "action_items", "key_moments", "yt_titles", "yt_description", "yt_tags", "yt_questions")
 _TRANSCRIPT_MAX_CHARS = 48_000   # ~12 k tokens; matches chat_worker._CONTEXT_CHARS
 
 
@@ -94,7 +97,8 @@ class InsightsWorker(BaseWorker):
     error_occurred = pyqtSignal(str, str)  # (insight_type, message)
 
     def __init__(self, insight_type: str, segments, lm_url: str,
-                 language: Optional[str] = None, parent=None):
+                 language: Optional[str] = None,
+                 provider: Optional["ProviderSettings"] = None, parent=None):
         super().__init__(parent)
         if insight_type not in _INSIGHT_TYPES:
             raise ValueError(f"Unknown insight type: {insight_type}")
@@ -102,13 +106,18 @@ class InsightsWorker(BaseWorker):
         self._segments = segments
         self._lm_url = lm_url
         self._language = language
+        self._provider = provider
 
     def _on_error(self, msg: str) -> None:
         self.error_occurred.emit(self._type, msg)
 
     def _execute(self):
-        from core.lm_client import LMStudioClient
-        client = LMStudioClient(self._lm_url)
+        if self._provider:
+            from core.ai_provider import create_client
+            client = create_client(self._provider)
+        else:
+            from core.lm_client import LMStudioClient
+            client = LMStudioClient(self._lm_url)
 
         prompt = _build_prompt_text(self._type, self._segments, language=self._language)
         messages = [{"role": "user", "content": prompt}]
