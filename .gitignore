@@ -69,3 +69,4 @@ Thumbs.db
 transcripts/
 samples/private/
 .coverage
+input/
