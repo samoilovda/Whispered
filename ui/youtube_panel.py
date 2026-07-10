@@ -5,6 +5,8 @@ Generates YouTube-ready titles, description, tags, and chapter timecodes.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QComboBox, QPlainTextEdit, QApplication, QTabWidget,
@@ -21,6 +23,14 @@ logger = get_logger(__name__)
 
 _YT_TYPES = ("chapters", "yt_titles", "yt_description", "yt_tags", "yt_questions")
 
+# Default save location for generated files: the project's own output/ dir
+# (already git-ignored — see .gitignore), not an arbitrary user-picked path.
+_OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
+
+# Tab index → (edit widget attr, filename suffix); kept in the same order
+# the tabs are added in _setup_ui.
+_TAB_KEYS = ("chapters", "titles", "description", "tags", "questions")
+
 
 class YouTubePanel(QWidget):
     """YouTube tab — generates titles, description, tags, and timecode chapters."""
@@ -30,6 +40,9 @@ class YouTubePanel(QWidget):
         self._segments = []
         self._workers: dict = {}   # insight_type → worker
         self._pending = 0
+        self._source_name = ""
+        self._description_text: str | None = None
+        self._chapters_data: list | None = None
         self._setup_ui()
 
     # ── UI ──────────────────────────────────────────────────────────
@@ -78,6 +91,11 @@ class YouTubePanel(QWidget):
         self._copy_btn.setEnabled(False)
         self._copy_btn.clicked.connect(self._copy_to_clipboard)
         controls.addWidget(self._copy_btn)
+
+        self._save_btn = QPushButton(tr("youtube_save"))
+        self._save_btn.setEnabled(False)
+        self._save_btn.clicked.connect(self._save_to_file)
+        controls.addWidget(self._save_btn)
 
         layout.addLayout(controls)
 
@@ -167,10 +185,18 @@ class YouTubePanel(QWidget):
         else:
             self._placeholder.show()
 
+    def set_source_name(self, name: str) -> None:
+        """Base filename (no extension) used when saving generated files."""
+        self._source_name = name or ""
+
     def clear(self) -> None:
         self._segments = []
+        self._source_name = ""
         self._gen_btn.setEnabled(False)
         self._copy_btn.setEnabled(False)
+        self._save_btn.setEnabled(False)
+        self._description_text = None
+        self._chapters_data = None
         for edit in (self._chapters_edit, self._titles_edit,
                      self._desc_edit, self._tags_edit, self._questions_edit):
             edit.clear()
@@ -216,6 +242,9 @@ class YouTubePanel(QWidget):
         self._gen_btn.setEnabled(False)
         self._gen_btn.setText(tr("youtube_generating"))
         self._copy_btn.setEnabled(False)
+        self._save_btn.setEnabled(False)
+        self._description_text = None
+        self._chapters_data = None
         for edit in (self._chapters_edit, self._titles_edit,
                      self._desc_edit, self._tags_edit, self._questions_edit):
             edit.clear()
@@ -241,10 +270,12 @@ class YouTubePanel(QWidget):
 
         if insight_type == "chapters":
             if isinstance(data, list):
+                self._chapters_data = data
                 text = format_youtube_description(data)
                 self._chapters_edit.setPlainText(text or tr("youtube_empty"))
             else:
                 self._chapters_edit.setPlainText(str(data) if data else tr("youtube_empty"))
+            self._maybe_compose_description()
 
         elif insight_type == "yt_titles":
             if isinstance(data, list):
@@ -254,9 +285,12 @@ class YouTubePanel(QWidget):
 
         elif insight_type == "yt_description":
             if isinstance(data, list) and data:
-                self._desc_edit.setPlainText(data[0] if isinstance(data[0], str) else str(data[0]))
+                self._description_text = data[0] if isinstance(data[0], str) else str(data[0])
+                self._desc_edit.setPlainText(self._description_text)
             elif isinstance(data, str):
+                self._description_text = data
                 self._desc_edit.setPlainText(data)
+            self._maybe_compose_description()
 
         elif insight_type == "yt_tags":
             if isinstance(data, list):
@@ -274,6 +308,19 @@ class YouTubePanel(QWidget):
         if self._pending == 0:
             self._reset_button()
             self._copy_btn.setEnabled(True)
+            self._save_btn.setEnabled(True)
+
+    def _maybe_compose_description(self) -> None:
+        """Once both the description and chapters are in, fold the chapter
+        timecodes into the Description tab so it reads as one ready-to-paste
+        YouTube description (hook + summary + "Timecodes:" + chapter list)."""
+        if not self._description_text or not self._chapters_data:
+            return
+        timecodes = format_youtube_description(self._chapters_data)
+        if not timecodes:
+            return
+        full = f"{self._description_text}\n\n{tr('youtube_timecodes_label')}\n{timecodes}"
+        self._desc_edit.setPlainText(full)
 
     def _on_error(self, insight_type: str, msg: str):
         logger.warning("YouTube worker error (%s): %s", insight_type, msg)
@@ -285,17 +332,42 @@ class YouTubePanel(QWidget):
         self._gen_btn.setEnabled(bool(self._segments))
         self._gen_btn.setText(tr("youtube_generate"))
 
-    def _copy_to_clipboard(self):
-        """Copy the content of the currently-visible inner tab."""
-        edit_map = {
+    def _edit_map(self) -> dict:
+        return {
             0: self._chapters_edit,
             1: self._titles_edit,
             2: self._desc_edit,
             3: self._tags_edit,
             4: self._questions_edit,
         }
-        edit = edit_map.get(self._tabs.currentIndex(), self._chapters_edit)
+
+    def _copy_to_clipboard(self):
+        """Copy the content of the currently-visible inner tab."""
+        edit = self._edit_map().get(self._tabs.currentIndex(), self._chapters_edit)
         text = edit.toPlainText()
         if text:
             QApplication.clipboard().setText(text)
             show_toast(self, tr("youtube_copied"), kind="success")
+
+    def _save_to_file(self):
+        """Save the currently-visible inner tab to output/ in the project."""
+        idx = self._tabs.currentIndex()
+        edit = self._edit_map().get(idx, self._chapters_edit)
+        text = edit.toPlainText()
+        if not text:
+            return
+
+        key = _TAB_KEYS[idx] if 0 <= idx < len(_TAB_KEYS) else "youtube"
+        stem = self._source_name or "youtube"
+        filename = f"{stem}_{key}.txt"
+
+        try:
+            _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+            path = _OUTPUT_DIR / filename
+            path.write_text(text, encoding="utf-8")
+        except OSError as exc:
+            logger.warning("Failed to save YouTube file to %s: %s", _OUTPUT_DIR, exc)
+            show_toast(self, tr("youtube_save_error"), kind="error")
+            return
+
+        show_toast(self, tr("youtube_saved", path=str(path)), kind="success")

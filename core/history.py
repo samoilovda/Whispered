@@ -221,6 +221,14 @@ class HistoryStore:
             return None
         return _payload_to_dict(row["json_payload"])
 
+    def get_source_name(self, record_id: int) -> Optional[str]:
+        """Return the stored source_name (original filename) for a record, or None."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT source_name FROM transcripts WHERE id = ?", (record_id,)
+            ).fetchone()
+        return row["source_name"] if row else None
+
     def delete(self, record_id: int) -> bool:
         """Delete a single record. Returns True if a row was removed."""
         with self._connect() as conn:

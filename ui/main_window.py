@@ -5,6 +5,7 @@ Main application window with compact header-bar layout and AI processing
 
 import os
 import time
+from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QPushButton, QProgressBar, QLabel, QFileDialog, QMessageBox,
@@ -841,6 +842,8 @@ class MainWindow(QMainWindow):
         self.chat_panel.set_transcript(result.full_text)
         self.insights_panel.set_segments(result.segments)
         self.youtube_panel.set_segments(result.segments)
+        if self._source_filepath:
+            self.youtube_panel.set_source_name(Path(self._source_filepath).stem)
 
         # Video mode: populate cut view and switch to it
         self.video_panel.set_has_transcript(True)
@@ -887,9 +890,11 @@ class MainWindow(QMainWindow):
         try:
             from core.history import get_history_store
             from transcriber import TranscriptionResult, Segment
-            payload = get_history_store().get(record_id)
+            store = get_history_store()
+            payload = store.get(record_id)
             if payload is None:
                 return
+            source_name = store.get_source_name(record_id) or ""
 
             segments = [
                 Segment(
@@ -915,6 +920,7 @@ class MainWindow(QMainWindow):
             self.chat_panel.set_transcript(result.full_text)
             self.insights_panel.set_segments(result.segments)
             self.youtube_panel.set_segments(result.segments)
+            self.youtube_panel.set_source_name(Path(source_name).stem if source_name else "")
             word_count = len(result.full_text.split())
             self.status_label.setText(tr("toast_loaded_history", words=word_count))
             self.content_tabs.setCurrentIndex(0)
