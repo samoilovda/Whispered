@@ -1,22 +1,6 @@
 """Tests for core/history.py — no Qt or network required."""
-import sys
-import types
 
-# Stub Qt and heavy PyQt6 modules
-for _mod in ("PyQt6", "PyQt6.QtCore", "PyQt6.QtWidgets", "PyQt6.QtGui",
-             "PyQt6.QtMultimedia"):
-    sys.modules.setdefault(_mod, types.ModuleType(_mod))
-
-# Stub core sub-modules that pull in Qt BEFORE the real package loads
-_lm_stub = types.ModuleType("core.lm_client")
-_lm_stub.LMStudioClient = object
-_lm_stub.DEFAULT_LM_STUDIO_URL = "http://localhost:1234/v1"
-sys.modules.setdefault("core.lm_client", _lm_stub)
-
-_ai_stub = types.ModuleType("core.ai_worker")
-_ai_stub.AIProcessingWorker = object
-sys.modules.setdefault("core.ai_worker", _ai_stub)
-
+# Qt and core.lm_client/core.ai_worker stand-ins come from tests/conftest.py.
 import pytest
 from types import SimpleNamespace
 

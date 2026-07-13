@@ -3,48 +3,9 @@
 import sys
 import types
 
-for _mod in ("PyQt6", "PyQt6.QtCore", "PyQt6.QtWidgets", "PyQt6.QtGui",
-             "PyQt6.QtMultimedia"):
-    sys.modules.setdefault(_mod, types.ModuleType(_mod))
+import pytest
 
-_qtcore = sys.modules["PyQt6.QtCore"]
-_qtcore.QThread = type("QThread", (), {
-    "__init__": lambda self, parent=None: None,
-    "start": lambda *a: None,
-    "isRunning": lambda *a: False,
-})
-
-
-class _FakeSignal:
-    """Minimal pyqtSignal stand-in that records emitted args."""
-
-    def __init__(self, *a, **kw):
-        self._slots = []
-
-    def __get__(self, obj, objtype=None):
-        # Bound-signal-like object per instance
-        key = f"_bound_{id(self)}"
-        if not hasattr(obj, key):
-            setattr(obj, key, _BoundSignal())
-        return getattr(obj, key)
-
-
-class _BoundSignal:
-    def __init__(self):
-        self.calls = []
-
-    def connect(self, fn):
-        self.calls.append(fn)
-
-    def emit(self, *args):
-        for fn in self.calls:
-            fn(*args)
-
-
-_qtcore.pyqtSignal = _FakeSignal
-_qtcore.QObject = type("QObject", (), {"__init__": lambda *a, **kw: None})
-
-_lm_stub = types.ModuleType("core.lm_client")
+# Qt stand-ins come from tests/conftest.py.
 
 
 class _StubLMStudioClient:
@@ -57,20 +18,22 @@ class _StubLMStudioClient:
         return '[{"start": 0, "title": "Q1"}]'
 
 
-_lm_stub.LMStudioClient = _StubLMStudioClient
-_lm_stub.DEFAULT_LM_STUDIO_URL = "http://localhost:1234/v1"
-sys.modules["core.lm_client"] = _lm_stub
-
-_ai_stub = types.ModuleType("core.ai_worker")
-_ai_stub.AIProcessingWorker = object
-sys.modules.setdefault("core.ai_worker", _ai_stub)
-
-# Other test modules may have already imported core.base_worker with a
-# QThread stub that lacks __init__(parent=...); force a fresh import bound
-# to the QThread stub defined above.
-sys.modules.pop("core.base_worker", None)
-sys.modules.pop("core.insights_worker", None)
 from core.insights_worker import InsightsWorker, _INSIGHT_TYPES
+
+
+@pytest.fixture(autouse=True)
+def _stub_lm_client(monkeypatch):
+    # core.insights_worker._execute() imports LMStudioClient *lazily*
+    # (inside the function body) so it re-resolves sys.modules['core.lm_client']
+    # on every call, not just once at collection time. Install the stub via
+    # monkeypatch (auto-reverted after this test) rather than a permanent
+    # module-level assignment — a permanent one would leak into whichever
+    # test runs next and could hit the real network (see test_ai_provider.py
+    # for the incident this caused).
+    lm_stub = types.ModuleType("core.lm_client")
+    lm_stub.LMStudioClient = _StubLMStudioClient
+    lm_stub.DEFAULT_LM_STUDIO_URL = "http://localhost:1234/v1"
+    monkeypatch.setitem(sys.modules, "core.lm_client", lm_stub)
 
 
 def test_yt_questions_is_a_known_insight_type():

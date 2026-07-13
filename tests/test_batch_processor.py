@@ -1,52 +1,13 @@
 """Unit tests for batch_processor.py — no Qt runtime, no whisper binary.
 
-Qt classes are replaced with minimal stand-ins: QThread.start() is a no-op
-(so BatchWorker.run() never actually executes and never blocks on the
-transcription-completion event), and pyqtSignal instances support
-connect()/emit() without a real event loop.
+Qt stand-ins (QThread/pyqtSignal/QObject) come from tests/conftest.py:
+QThread.start() is a no-op there (so BatchWorker.run() never actually
+executes and never blocks on the transcription-completion event).
 """
 import sys
 import types
 
 import pytest
-
-
-class _FakeSignal:
-    def __init__(self, *a, **kw):
-        self._slots = []
-
-    def connect(self, slot):
-        self._slots.append(slot)
-
-    def emit(self, *args):
-        for slot in self._slots:
-            slot(*args)
-
-
-class _FakeQObject:
-    def __init__(self, parent=None):
-        pass
-
-
-class _FakeQThread(_FakeQObject):
-    def start(self):
-        """Deliberately a no-op: real thread execution is out of scope here."""
-        pass
-
-    def isRunning(self):
-        return False
-
-    def wait(self):
-        pass
-
-
-for _mod in ("PyQt6", "PyQt6.QtCore", "PyQt6.QtWidgets", "PyQt6.QtGui"):
-    sys.modules.setdefault(_mod, types.ModuleType(_mod))
-
-_qtcore = sys.modules["PyQt6.QtCore"]
-_qtcore.QObject = _FakeQObject
-_qtcore.QThread = _FakeQThread
-_qtcore.pyqtSignal = lambda *a, **kw: _FakeSignal()
 
 
 class _FakeTranscriber:
@@ -63,7 +24,13 @@ class _FakeTranscriber:
 _stub_transcriber = types.ModuleType("transcriber")
 _stub_transcriber.Transcriber = _FakeTranscriber
 _stub_transcriber.TranscriptionResult = object
-sys.modules.setdefault("transcriber", _stub_transcriber)
+# Direct assignment, not setdefault: tests/test_exporters.py installs its own
+# "transcriber" stub (with different attributes) under the same fake module
+# name: whichever wins by collection order previously left the other file's
+# import broken. Assigning right before our own eager `from batch_processor
+# import ...` guarantees *this* import sees the right stub regardless of
+# what ran before it.
+sys.modules["transcriber"] = _stub_transcriber
 
 from batch_processor import BatchProcessor, BatchItem, BatchStatus
 

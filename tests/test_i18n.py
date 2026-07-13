@@ -2,24 +2,9 @@
 
 import json
 import pathlib
-import sys
-import types
 
-# core/__init__.py imports Qt-dependent submodules; stub them before loading.
-for _mod in ("PyQt6", "PyQt6.QtCore", "PyQt6.QtWidgets", "PyQt6.QtGui",
-             "PyQt6.QtMultimedia"):
-    sys.modules.setdefault(_mod, types.ModuleType(_mod))
-
-_lm_stub = types.ModuleType("core.lm_client")
-_lm_stub.LMStudioClient = object
-_lm_stub.DEFAULT_LM_STUDIO_URL = "http://localhost:1234/v1"
-sys.modules.setdefault("core.lm_client", _lm_stub)
-
-_ai_stub = types.ModuleType("core.ai_worker")
-_ai_stub.AIProcessingWorker = object
-sys.modules.setdefault("core.ai_worker", _ai_stub)
-
-from core.i18n import load_locale, tr, current_lang   # noqa: E402
+# Qt and core.lm_client/core.ai_worker stand-ins come from tests/conftest.py.
+from core.i18n import load_locale, tr, current_lang
 
 
 # ---------------------------------------------------------------------------

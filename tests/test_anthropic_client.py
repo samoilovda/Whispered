@@ -2,18 +2,9 @@
 
 import json
 import sys
-import types
 from unittest.mock import patch, MagicMock
 
-for _mod in ("PyQt6", "PyQt6.QtCore", "PyQt6.QtWidgets", "PyQt6.QtGui",
-             "PyQt6.QtMultimedia"):
-    sys.modules.setdefault(_mod, types.ModuleType(_mod))
-
-_qtcore = sys.modules["PyQt6.QtCore"]
-_qtcore.QThread = type("QThread", (), {"start": lambda *a: None, "isRunning": lambda *a: False})
-_qtcore.pyqtSignal = lambda *a, **kw: None
-_qtcore.QObject = type("QObject", (), {"__init__": lambda *a, **kw: None})
-
+# PyQt6 stand-ins come from tests/conftest.py.
 sys.modules.pop("core.lm_client", None)
 from core.anthropic_client import AnthropicClient
 

@@ -6,8 +6,7 @@ core.lm_client.LMStudioClient (check_connection/chat_completion).
 import sys
 import types
 
-for _mod in ("PyQt6", "PyQt6.QtCore", "PyQt6.QtWidgets", "PyQt6.QtGui"):
-    sys.modules.setdefault(_mod, types.ModuleType(_mod))
+# PyQt6 stand-ins come from tests/conftest.py.
 
 class _StubLMStudioClient:
     """Never-connected stand-in so TextProcessor() doesn't hit the network."""

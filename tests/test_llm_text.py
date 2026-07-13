@@ -1,26 +1,6 @@
 """Unit tests for core/llm_text.py"""
 
-import sys
-import types
-
-for _mod in ("PyQt6", "PyQt6.QtCore", "PyQt6.QtWidgets", "PyQt6.QtGui",
-             "PyQt6.QtMultimedia"):
-    sys.modules.setdefault(_mod, types.ModuleType(_mod))
-
-_qtcore = sys.modules["PyQt6.QtCore"]
-_qtcore.QThread = type("QThread", (), {"start": lambda *a: None, "isRunning": lambda *a: False})
-_qtcore.pyqtSignal = lambda *a, **kw: None
-_qtcore.QObject = type("QObject", (), {"__init__": lambda *a, **kw: None})
-
-_lm_stub = types.ModuleType("core.lm_client")
-_lm_stub.LMStudioClient = object
-_lm_stub.DEFAULT_LM_STUDIO_URL = "http://localhost:1234/v1"
-sys.modules.setdefault("core.lm_client", _lm_stub)
-
-_ai_stub = types.ModuleType("core.ai_worker")
-_ai_stub.AIProcessingWorker = object
-sys.modules.setdefault("core.ai_worker", _ai_stub)
-
+# Qt and core.lm_client/core.ai_worker stand-ins come from tests/conftest.py.
 from core.llm_text import fit_to_context
 
 

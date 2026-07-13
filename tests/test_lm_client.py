@@ -2,20 +2,11 @@
 
 import json
 import sys
-import types
 from unittest.mock import patch, MagicMock
 
-for _mod in ("PyQt6", "PyQt6.QtCore", "PyQt6.QtWidgets", "PyQt6.QtGui",
-             "PyQt6.QtMultimedia"):
-    sys.modules.setdefault(_mod, types.ModuleType(_mod))
-
-_qtcore = sys.modules["PyQt6.QtCore"]
-_qtcore.QThread = type("QThread", (), {"start": lambda *a: None, "isRunning": lambda *a: False})
-_qtcore.pyqtSignal = lambda *a, **kw: None
-_qtcore.QObject = type("QObject", (), {"__init__": lambda *a, **kw: None})
-
-# Other test modules stub core.lm_client with a bare `object` placeholder via
-# setdefault; drop any such stub so this file always exercises the real module.
+# Qt stand-ins come from tests/conftest.py, which also installs a bare
+# `object` placeholder for core.lm_client; drop it so this file always
+# exercises the real module.
 sys.modules.pop("core.lm_client", None)
 from core.lm_client import LMStudioClient
 

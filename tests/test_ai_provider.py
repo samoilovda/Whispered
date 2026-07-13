@@ -1,20 +1,11 @@
 """Unit tests for core/ai_provider.py — no network, no Qt required."""
 
 import sys
-import types
 from dataclasses import dataclass
 
 import pytest
 
-for _mod in ("PyQt6", "PyQt6.QtCore", "PyQt6.QtWidgets", "PyQt6.QtGui",
-             "PyQt6.QtMultimedia"):
-    sys.modules.setdefault(_mod, types.ModuleType(_mod))
-
-_qtcore = sys.modules["PyQt6.QtCore"]
-_qtcore.QThread = type("QThread", (), {"start": lambda *a: None, "isRunning": lambda *a: False})
-_qtcore.pyqtSignal = lambda *a, **kw: None
-_qtcore.QObject = type("QObject", (), {"__init__": lambda *a, **kw: None})
-
+# PyQt6 stand-ins come from tests/conftest.py.
 sys.modules.pop("core.lm_client", None)
 from core.ai_provider import ProviderSettings, create_client, provider_from_config
 from core.anthropic_client import AnthropicClient
@@ -32,14 +23,22 @@ class _FakeConfig:
 
 
 @pytest.fixture(autouse=True)
-def _real_lm_client_class():
+def _real_lm_client_class(monkeypatch):
     # Other test modules stub core.lm_client with a bare `object` placeholder;
     # force a fresh import of the real module for every test in this file,
     # since core.ai_provider.create_client() imports it lazily by name.
-    sys.modules.pop("core.lm_client", None)
+    #
+    # Uses monkeypatch (not a manual pop) so sys.modules is restored to
+    # whatever it held before this test regardless of outcome. A manual
+    # `sys.modules.pop(...)` in a teardown line runs only on the clean path
+    # and, worse, leaves the entry permanently *absent* afterwards — the
+    # next test file's lazy `from core.lm_client import LMStudioClient`
+    # would then import the real module fresh and hit the network for
+    # real (this previously caused the suite to hang against a live LM
+    # Studio server instead of failing fast).
+    monkeypatch.delitem(sys.modules, "core.lm_client", raising=False)
     import core.lm_client as real_module
-    yield real_module.LMStudioClient
-    sys.modules.pop("core.lm_client", None)
+    return real_module.LMStudioClient
 
 
 class TestCreateClient:

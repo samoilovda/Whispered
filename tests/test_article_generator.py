@@ -9,8 +9,7 @@ via chunk + merge/condense) so it can't silently regress back to truncation.
 import sys
 import types
 
-for _mod in ("PyQt6", "PyQt6.QtCore", "PyQt6.QtWidgets", "PyQt6.QtGui"):
-    sys.modules.setdefault(_mod, types.ModuleType(_mod))
+# PyQt6 stand-ins come from tests/conftest.py.
 
 
 class _StubLMStudioClient:

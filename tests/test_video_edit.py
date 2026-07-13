@@ -1,24 +1,7 @@
 """Tests for video_edit.mark_pauses() and times_to_indices() — pure logic, no Qt."""
-import sys
-import types
 
-# Stub PyQt6 before importing video_edit so we don't need a real Qt install
-_pyqt6 = types.ModuleType("PyQt6")
-_pyqt6.QtCore = types.ModuleType("PyQt6.QtCore")
-_pyqt6.QtCore.pyqtSignal = lambda *a, **kw: None
-_pyqt6.QtCore.QObject = object
-sys.modules.setdefault("PyQt6", _pyqt6)
-sys.modules.setdefault("PyQt6.QtCore", _pyqt6.QtCore)
-
-# Stub core deps that aren't needed for pure-logic tests
-for _mod in ("core.logger", "core.base_worker", "core.prompts"):
-    if _mod not in sys.modules:
-        m = types.ModuleType(_mod)
-        m.get_logger = lambda *a: __import__("logging").getLogger("test")
-        m.BaseWorker = object
-        m.load_prompt = lambda name, fallback="": fallback
-        sys.modules[_mod] = m
-
+# Qt stand-ins come from tests/conftest.py; video_edit.py only needs
+# core.logger, which has no Qt dependency and imports for real.
 from video_edit import mark_pauses, times_to_indices
 
 

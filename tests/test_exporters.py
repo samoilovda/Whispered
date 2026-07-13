@@ -38,11 +38,17 @@ class _TranscriptionResult:
         return " ".join(s.text.strip() for s in self.segments)
 
 
-# Inject stub before importing exporters
+# Inject stub before importing exporters.
+# Direct assignment, not setdefault: tests/test_batch_processor.py installs
+# its own "transcriber" stub (with different attributes) under the same fake
+# module name; whichever wins by collection order previously left the other
+# file's import broken. Assigning right before our own eager `from exporters
+# import ...` guarantees *this* import sees the right stub regardless of
+# what ran before it.
 _stub_transcriber = types.ModuleType("transcriber")
 _stub_transcriber.Segment = _Segment
 _stub_transcriber.TranscriptionResult = _TranscriptionResult
-sys.modules.setdefault("transcriber", _stub_transcriber)
+sys.modules["transcriber"] = _stub_transcriber
 
 # Also stub pywhispercpp so that any late import doesn't crash
 sys.modules.setdefault("pywhispercpp", types.ModuleType("pywhispercpp"))
