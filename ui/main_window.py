@@ -848,8 +848,8 @@ class MainWindow(QMainWindow):
 
         # Feed transcript into chat and insights panels
         self.chat_panel.set_transcript(result.full_text)
-        self.insights_panel.set_segments(result.segments)
-        self.youtube_panel.set_segments(result.segments)
+        self.insights_panel.set_segments(result.segments, transcript_language=result.language)
+        self.youtube_panel.set_segments(result.segments, transcript_language=result.language)
         if self._source_filepath:
             self.youtube_panel.set_source_name(Path(self._source_filepath).stem)
 
@@ -926,8 +926,8 @@ class MainWindow(QMainWindow):
             self.ai_panel.set_has_transcription(True)
             self.book_panel.set_has_transcript(True)
             self.chat_panel.set_transcript(result.full_text)
-            self.insights_panel.set_segments(result.segments)
-            self.youtube_panel.set_segments(result.segments)
+            self.insights_panel.set_segments(result.segments, transcript_language=result.language)
+            self.youtube_panel.set_segments(result.segments, transcript_language=result.language)
             self.youtube_panel.set_source_name(Path(source_name).stem if source_name else "")
             word_count = len(result.full_text.split())
             self.status_label.setText(tr("toast_loaded_history", words=word_count))

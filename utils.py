@@ -190,6 +190,20 @@ WHISPER_LANGUAGES = [
 ]
 
 
+def language_name_for_code(code: Optional[str]) -> Optional[str]:
+    """Map a whisper language code (e.g. 'ru') to its English display name,
+    for use in an LLM prompt directive like "Write all output in Russian."
+
+    Falls back to the code itself if it's not in WHISPER_LANGUAGES (still
+    usually understood by the model), and returns None for falsy/'auto'
+    input (nothing to resolve to).
+    """
+    if not code or code == 'auto':
+        return None
+    names = {k: v for k, v in WHISPER_LANGUAGES if k != 'auto'}
+    return names.get(code, code)
+
+
 # Performance modes for energy/speed tradeoff
 # (mode_key, display_name, thread_multiplier, description)
 # thread_multiplier: fraction of CPU cores to use

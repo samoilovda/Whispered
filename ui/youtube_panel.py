@@ -18,6 +18,7 @@ from core.i18n import tr
 from core.logger import get_logger
 from core.youtube_description import format_youtube_description
 from ui.toast import show_toast
+from utils import language_name_for_code
 
 logger = get_logger(__name__)
 
@@ -41,6 +42,7 @@ class YouTubePanel(QWidget):
         self._workers: dict = {}   # insight_type → worker
         self._pending = 0
         self._source_name = ""
+        self._transcript_language: str | None = None
         self._description_text: str | None = None
         self._chapters_data: list | None = None
         self._setup_ui()
@@ -177,8 +179,9 @@ class YouTubePanel(QWidget):
 
     # ── Public API ──────────────────────────────────────────────────
 
-    def set_segments(self, segments) -> None:
+    def set_segments(self, segments, transcript_language: str | None = None) -> None:
         self._segments = segments
+        self._transcript_language = transcript_language
         self._gen_btn.setEnabled(bool(segments))
         if segments:
             self._placeholder.hide()
@@ -192,6 +195,7 @@ class YouTubePanel(QWidget):
     def clear(self) -> None:
         self._segments = []
         self._source_name = ""
+        self._transcript_language = None
         self._gen_btn.setEnabled(False)
         self._copy_btn.setEnabled(False)
         self._save_btn.setEnabled(False)
@@ -251,7 +255,11 @@ class YouTubePanel(QWidget):
         self._tabs.setVisible(True)
         self._placeholder.hide()
 
-        lang = self._lang_combo.currentData()
+        # "Auto" (None) falls back to the transcript's own detected
+        # language rather than sending no directive at all — an empty
+        # directive left the model free to answer in whatever language it
+        # defaulted to (usually English), even for a Russian transcript.
+        lang = self._lang_combo.currentData() or language_name_for_code(self._transcript_language)
         self._pending = len(_YT_TYPES)
 
         for yt_type in _YT_TYPES:

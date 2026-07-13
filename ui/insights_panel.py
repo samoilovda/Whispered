@@ -15,7 +15,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 
 from core.logger import get_logger
 from core.i18n import tr
-from utils import format_duration
+from utils import format_duration, language_name_for_code
 
 logger = get_logger(__name__)
 
@@ -118,6 +118,7 @@ class InsightsPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._segments = []
+        self._transcript_language: str | None = None
         self._workers: dict[str, object] = {}
         self._pending = 0
         self._setup_ui()
@@ -193,8 +194,9 @@ class InsightsPanel(QWidget):
 
     # ── Public API ──────────────────────────────────────────────────
 
-    def set_segments(self, segments) -> None:
+    def set_segments(self, segments, transcript_language: str | None = None) -> None:
         self._segments = segments
+        self._transcript_language = transcript_language
         self._gen_btn.setEnabled(bool(segments))
         if segments:
             self._placeholder.hide()
@@ -203,6 +205,7 @@ class InsightsPanel(QWidget):
 
     def clear(self) -> None:
         self._segments = []
+        self._transcript_language = None
         self._gen_btn.setEnabled(False)
         for layout in (self._ch_layout, self._ai_layout, self._km_layout):
             self._clear_section(layout)
@@ -236,9 +239,11 @@ class InsightsPanel(QWidget):
         self._placeholder.hide()
         self._pending = 3
 
+        lang = language_name_for_code(self._transcript_language)
+
         from core.insights_worker import InsightsWorker
         for insight_type in ("chapters", "action_items", "key_moments"):
-            w = InsightsWorker(insight_type, self._segments, cfg.lm_studio_url, parent=self)
+            w = InsightsWorker(insight_type, self._segments, cfg.lm_studio_url, language=lang, parent=self)
             w.finished.connect(self._on_finished)
             w.error_occurred.connect(self._on_error)
             self._workers[insight_type] = w

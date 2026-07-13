@@ -5,7 +5,28 @@ from utils import (
     format_duration,
     is_supported_format,
     get_thread_count,
+    language_name_for_code,
 )
+
+
+class TestLanguageNameForCode:
+    def test_known_code_maps_to_name(self):
+        assert language_name_for_code("ru") == "Russian"
+
+    def test_english_code(self):
+        assert language_name_for_code("en") == "English"
+
+    def test_auto_returns_none(self):
+        assert language_name_for_code("auto") is None
+
+    def test_none_returns_none(self):
+        assert language_name_for_code(None) is None
+
+    def test_empty_string_returns_none(self):
+        assert language_name_for_code("") is None
+
+    def test_unknown_code_falls_back_to_code_itself(self):
+        assert language_name_for_code("xx") == "xx"
 
 
 class TestFormatTimestampSrt:
