@@ -5,6 +5,14 @@ Converts a chapter list into a YouTube-ready timecode block.
 
 from __future__ import annotations
 
+from core.logger import get_logger
+
+logger = get_logger(__name__)
+
+# YouTube silently disables chapters altogether if any two consecutive
+# timestamps are closer together than this.
+_MIN_CHAPTER_GAP_SECONDS = 10
+
 
 def format_youtube_timestamp(seconds: int) -> str:
     """Format seconds as a YouTube-compatible timestamp.
@@ -30,6 +38,8 @@ def format_youtube_description(chapters: list[dict]) -> str:
     - Coerce start to int; skip on failure.
     - Sort ascending by start.
     - Drop items whose start <= previous kept start (deduplicate/invert).
+    - Drop items closer than 10s to the previously *kept* item — YouTube
+      silently disables chapters entirely if any gap is smaller than that.
     - Force first kept item's start to 0 (YouTube requirement).
     - Join with newlines; return "" if nothing valid.
     """
@@ -56,6 +66,19 @@ def format_youtube_description(chapters: list[dict]) -> str:
 
     if not kept:
         return ""
+
+    spaced: list[tuple[int, str]] = [kept[0]]
+    for start, title in kept[1:]:
+        if start - spaced[-1][0] >= _MIN_CHAPTER_GAP_SECONDS:
+            spaced.append((start, title))
+    kept = spaced
+
+    if len(kept) < 3:
+        logger.warning(
+            "Only %d chapter(s) survive the %ds minimum-gap filter; "
+            "YouTube requires at least 3 to display chapters.",
+            len(kept), _MIN_CHAPTER_GAP_SECONDS,
+        )
 
     # YouTube requires first chapter at 0:00
     kept[0] = (0, kept[0][1])

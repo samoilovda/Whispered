@@ -116,3 +116,49 @@ class TestFormatYoutubeDescription:
         result = format_youtube_description(chapters)
         assert "Skip me" not in result
         assert "Keep" in result
+
+
+class TestMinimumChapterGap:
+    """YouTube silently disables chapters if any two are closer than 10s."""
+
+    def test_gap_below_10s_dropped(self):
+        chapters = [
+            {"start": 0, "title": "Intro"},
+            {"start": 5, "title": "Too close"},
+            {"start": 20, "title": "Body"},
+        ]
+        result = format_youtube_description(chapters)
+        assert "Too close" not in result
+        assert "Intro" in result
+        assert "Body" in result
+
+    def test_gap_exactly_10s_kept(self):
+        chapters = [
+            {"start": 0, "title": "Intro"},
+            {"start": 10, "title": "Body"},
+        ]
+        lines = format_youtube_description(chapters).splitlines()
+        assert len(lines) == 2
+
+    def test_gap_measured_from_last_kept_not_last_seen(self):
+        # 0, 5, 12, 25: "5" is dropped (gap 5 from 0); "12" is kept (gap 12
+        # from 0, the last *kept* item, not from the dropped "5"); "25" is
+        # kept (gap 13 from 12).
+        chapters = [
+            {"start": 0, "title": "A"},
+            {"start": 5, "title": "B"},
+            {"start": 12, "title": "C"},
+            {"start": 25, "title": "D"},
+        ]
+        lines = format_youtube_description(chapters).splitlines()
+        assert len(lines) == 3
+        assert "A" in lines[0] and lines[0].startswith("0:00")
+        assert "C" in lines[1] and lines[1].startswith("0:12")
+        assert "D" in lines[2] and lines[2].startswith("0:25")
+
+    def test_fewer_than_3_after_filtering_still_returns_result(self):
+        # No hard requirement enforced by the formatter itself (it stays
+        # content-agnostic); only a warning is logged.
+        chapters = [{"start": 0, "title": "Only one"}, {"start": 3, "title": "Too close"}]
+        result = format_youtube_description(chapters)
+        assert result == "0:00 Only one"
