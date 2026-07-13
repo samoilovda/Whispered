@@ -225,16 +225,27 @@ class YouTubePanel(QWidget):
         self._placeholder.show()
 
     def _cancel_workers(self, timeout: int) -> None:
-        """Cancel and disconnect all in-flight workers before dropping them.
+        """Cancel, disconnect, and schedule deletion of all workers before
+        dropping them.
 
         Disconnecting before wait() matters: if a worker doesn't finish
         within *timeout*, it keeps running in the background and would
         otherwise emit finished/error_occurred into a *new* generation
         run later, corrupting its _pending count and overwriting tabs
         with stale data.
+
+        Every worker is constructed with parent=self, so losing the Python
+        reference in self._workers alone does not free it — as a QObject
+        child of this panel it stays alive (and shows up in
+        findChildren(QThread)) until deleteLater() actually runs. Workers
+        that already finished normally (isRunning() is False by the time
+        the *next* _generate() call gets here) still need this, not just
+        ones that were still running and had to be cancelled.
         """
         for w in self._workers.values():
-            if w and w.isRunning():
+            if not w:
+                continue
+            if w.isRunning():
                 w.cancel()
                 try:
                     w.finished.disconnect(self._on_finished)
@@ -242,6 +253,7 @@ class YouTubePanel(QWidget):
                 except (RuntimeError, TypeError):
                     pass
                 w.wait(timeout)
+            w.deleteLater()
         self._workers.clear()
 
     # ── Generation ──────────────────────────────────────────────────

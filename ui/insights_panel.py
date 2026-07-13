@@ -210,15 +210,22 @@ class InsightsPanel(QWidget):
         for layout in (self._ch_layout, self._ai_layout, self._km_layout):
             self._clear_section(layout)
         for w in list(self._workers.values()):
-            if w and w.isRunning():
+            if not w:
+                continue
+            if w.isRunning():
                 w.cancel()
                 # Disconnect before waiting so stale signals don't fire after reset
                 try:
                     w.finished.disconnect(self._on_finished)
                     w.error_occurred.disconnect(self._on_error)
-                except RuntimeError:
+                except (RuntimeError, TypeError):
                     pass
                 w.wait(2000)  # 2 s timeout; thread finishes on its own if slow
+            # Workers are constructed with parent=self; losing the Python
+            # reference alone doesn't free them as QObject children of this
+            # panel — schedule real deletion or they silently accumulate
+            # across generation runs.
+            w.deleteLater()
         self._workers.clear()
         self._pending = 0
         self._placeholder.setText(tr("insights_placeholder"))
@@ -233,6 +240,16 @@ class InsightsPanel(QWidget):
             self._placeholder.setText(tr("insights_no_lm"))
             self._placeholder.show()
             return
+
+        # A prior run's workers are done by the time the button is
+        # re-enabled (see _decrement_pending), but they're still QObject
+        # children of this panel (parent=self) until deleted — clicking
+        # Generate again would otherwise silently accumulate one QThread
+        # per insight type on every re-run.
+        for stale in self._workers.values():
+            if stale:
+                stale.deleteLater()
+        self._workers.clear()
 
         self._gen_btn.setEnabled(False)
         self._gen_btn.setText(tr("insights_generating"))
