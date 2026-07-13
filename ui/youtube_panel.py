@@ -205,14 +205,30 @@ class YouTubePanel(QWidget):
                      self._desc_edit, self._tags_edit, self._questions_edit):
             edit.clear()
         self._tabs.setVisible(False)
-        for w in self._workers.values():
-            if w and w.isRunning():
-                w.cancel()
-                w.wait(2000)
-        self._workers.clear()
+        self._cancel_workers(timeout=2000)
         self._pending = 0
         self._placeholder.setText(tr("youtube_placeholder"))
         self._placeholder.show()
+
+    def _cancel_workers(self, timeout: int) -> None:
+        """Cancel and disconnect all in-flight workers before dropping them.
+
+        Disconnecting before wait() matters: if a worker doesn't finish
+        within *timeout*, it keeps running in the background and would
+        otherwise emit finished/error_occurred into a *new* generation
+        run later, corrupting its _pending count and overwriting tabs
+        with stale data.
+        """
+        for w in self._workers.values():
+            if w and w.isRunning():
+                w.cancel()
+                try:
+                    w.finished.disconnect(self._on_finished)
+                    w.error_occurred.disconnect(self._on_error)
+                except (RuntimeError, TypeError):
+                    pass
+                w.wait(timeout)
+        self._workers.clear()
 
     # ── Generation ──────────────────────────────────────────────────
 
@@ -237,11 +253,7 @@ class YouTubePanel(QWidget):
             return
 
         # Cancel any in-progress workers
-        for w in self._workers.values():
-            if w and w.isRunning():
-                w.cancel()
-                w.wait(1000)
-        self._workers.clear()
+        self._cancel_workers(timeout=1000)
 
         self._gen_btn.setEnabled(False)
         self._gen_btn.setText(tr("youtube_generating"))
