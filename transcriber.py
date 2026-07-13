@@ -13,7 +13,7 @@ from typing import Callable, Optional, List, Dict
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
 
 
-from utils import get_models_dir, detect_gpu
+from utils import detect_gpu
 from core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -586,13 +586,3 @@ class Transcriber:
         if self.current_worker and self.current_worker.isRunning():
             self.current_worker.cancel()
             self.current_worker.wait()
-
-    def get_available_models(self) -> List[str]:
-        """Get list of downloaded models."""
-        models_dir = get_models_dir()
-        available = []
-        for model_name in ['tiny', 'base', 'small', 'medium', 'large', 'turbo']:
-            model_file = os.path.join(models_dir, f'ggml-{model_name}.bin')
-            if os.path.exists(model_file):
-                available.append(model_name)
-        return available
