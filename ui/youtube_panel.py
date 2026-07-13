@@ -16,6 +16,7 @@ from PyQt6.QtGui import QFont
 
 from core.i18n import tr
 from core.logger import get_logger
+from core.paths import data_dir
 from core.youtube_description import format_youtube_description
 from ui.toast import show_toast
 from utils import language_name_for_code
@@ -24,9 +25,18 @@ logger = get_logger(__name__)
 
 _YT_TYPES = ("chapters", "yt_titles", "yt_description", "yt_tags", "yt_questions")
 
-# Default save location for generated files: the project's own output/ dir
-# (already git-ignored — see .gitignore), not an arbitrary user-picked path.
-_OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
+# Save location for generated files: the user data directory (same base as
+# config.json/history.db), not a path under the app's own install location —
+# in a PyInstaller bundle that location is read-only and saving would fail.
+_OUTPUT_DIR = data_dir() / "output"
+
+
+def _friendly_path(path: Path) -> str:
+    """Shorten a path under $HOME to a ``~/...`` form for display in toasts."""
+    try:
+        return str(Path("~") / path.relative_to(Path.home()))
+    except ValueError:
+        return str(path)
 
 # Tab index → (edit widget attr, filename suffix); kept in the same order
 # the tabs are added in _setup_ui.
@@ -417,4 +427,4 @@ class YouTubePanel(QWidget):
             show_toast(self, tr("youtube_save_error"), kind="error")
             return
 
-        show_toast(self, tr("youtube_saved", path=str(path)), kind="success")
+        show_toast(self, tr("youtube_saved", path=_friendly_path(path)), kind="success")
