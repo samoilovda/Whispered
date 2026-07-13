@@ -14,7 +14,7 @@ from PyQt6.QtCore import pyqtSignal
 
 from core.base_worker import BaseWorker
 from core.logger import get_logger
-from core.llm_text import fit_to_context
+from core.llm_text import sample_lines_evenly
 from core.prompts import load_prompt
 
 if TYPE_CHECKING:
@@ -68,7 +68,10 @@ def _build_prompt_text(
     """Build the full prompt including the timestamped transcript.
 
     The transcript portion is capped at *max_transcript_chars* so the total
-    request stays within the model's context window.
+    request stays within the model's context window. Segments are sampled
+    evenly across the whole recording rather than truncating the tail, so
+    a long recording's ending is still visible to the model (see
+    ``core.llm_text.sample_lines_evenly``).
     If *language* is given, a directive is inserted after the system prompt
     to force chapter titles into that language.
     """
@@ -82,7 +85,7 @@ def _build_prompt_text(
         if speaker:
             prefix += f"{speaker}: "
         lines.append(f"{prefix}{text}")
-    transcript = fit_to_context("\n".join(lines), max_transcript_chars)
+    transcript = sample_lines_evenly(lines, max_transcript_chars)
     lang_directive = f"Write all output in {language}.\n" if language else ""
     return system_prompt + "\n" + lang_directive + transcript
 
@@ -123,7 +126,11 @@ class InsightsWorker(BaseWorker):
             from core.lm_client import LMStudioClient
             client = LMStudioClient(self._lm_url)
 
-        prompt = _build_prompt_text(self._type, self._segments, language=self._language)
+        from config import get_config
+        max_chars = getattr(get_config(), "insights_context_chars", _TRANSCRIPT_MAX_CHARS)
+        prompt = _build_prompt_text(
+            self._type, self._segments, max_transcript_chars=max_chars, language=self._language
+        )
         messages = [{"role": "user", "content": prompt}]
 
         raw = client.chat_completion_stream(

@@ -68,6 +68,9 @@ class Config:
     # AI Chat settings
     chat_context_chars: int = 48_000   # max transcript chars sent as system context
 
+    # Insights / YouTube generation settings
+    insights_context_chars: int = 48_000   # max transcript chars sent per insight prompt
+
     # History / privacy
     history_enabled: bool = True
 
