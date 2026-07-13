@@ -242,10 +242,7 @@ class MainWindow(QMainWindow):
             (i for i, (k, *_) in enumerate(PERFORMANCE_MODES) if k == cfg.performance_mode), 1
         )
         self.perf_combo.setCurrentIndex(_perf_idx)
-        self.perf_combo.setToolTip("Energy vs Speed tradeoff\n\n"
-            "🔋 Efficiency: Low CPU, saves battery\n"
-            "⚡ Balanced: Moderate CPU usage\n"
-            "🚀 Performance: Max speed, high CPU")
+        self.perf_combo.setToolTip(tr("tooltip_performance_mode"))
         row2_layout.addWidget(self.perf_combo)
 
         row2_layout.addSpacing(8)
@@ -253,7 +250,7 @@ class MainWindow(QMainWindow):
         # Diarization toggle
         self.diarization_checkbox = QCheckBox(tr("label_speakers"))
         self.diarization_checkbox.setStyleSheet("")
-        self.diarization_checkbox.setToolTip("Identify different speakers (requires setup)")
+        self.diarization_checkbox.setToolTip(tr("tooltip_diarization"))
         self.diarization_checkbox.setChecked(get_config().diarization_enabled)
         row2_layout.addWidget(self.diarization_checkbox)
 
@@ -778,7 +775,7 @@ class MainWindow(QMainWindow):
         n_threads = get_thread_count(perf_mode)
         enable_diarization = self.diarization_checkbox.isChecked()
 
-        self.status_label.setText("Starting batch processing...")
+        self.status_label.setText(tr("status_batch_starting"))
 
         self.batch_panel.start_processing(
             model_name=model,
@@ -1036,7 +1033,7 @@ class MainWindow(QMainWindow):
     def _start_text_cleaning(self):
         """Start text cleaning with AI."""
         if not self._current_result:
-            self.status_label.setText("No transcription to clean")
+            self.status_label.setText(tr("status_no_transcription_to_clean"))
             return
 
         self.ai_panel.set_processing(True)
@@ -1055,7 +1052,7 @@ class MainWindow(QMainWindow):
         """Start single article generation."""
         text = self._get_text_for_ai()
         if not text:
-            self.status_label.setText("No text to process")
+            self.status_label.setText(tr("status_no_text_to_process"))
             return
 
         self.ai_panel.set_processing(True)
@@ -1074,7 +1071,7 @@ class MainWindow(QMainWindow):
         """Start generation of all article formats."""
         text = self._get_text_for_ai()
         if not text:
-            self.status_label.setText("No text to process")
+            self.status_label.setText(tr("status_no_text_to_process"))
             return
 
         self.ai_panel.set_processing(True)
@@ -1233,7 +1230,7 @@ class MainWindow(QMainWindow):
     def _on_book_run(self, do_unwrap: bool, do_custom: bool, custom_prompt_path: str):
         """Start book pipeline processing for the current transcript."""
         if not self._current_result:
-            self.status_label.setText("Нет транскрипта для обработки")
+            self.status_label.setText(tr("status_no_transcript_for_book"))
             return
 
         text = self._current_result.full_text
@@ -1271,7 +1268,8 @@ class MainWindow(QMainWindow):
         if isinstance(result, BookResult) and result.stages:
             saved_paths = [s.output_path for s in result.stages if s.success and s.output_path]
             if saved_paths:
-                self.status_label.setText(f"Сохранено: {', '.join(os.path.basename(p) for p in saved_paths)}")
+                files = ", ".join(os.path.basename(p) for p in saved_paths)
+                self.status_label.setText(tr("status_book_saved", files=files))
                 # Show result in Cleaned tab
                 if result.final_text:
                     self.cleaned_view.set_text(
@@ -1283,9 +1281,10 @@ class MainWindow(QMainWindow):
                     self.content_tabs.setCurrentIndex(1)
             else:
                 failed = [s.error for s in result.stages if not s.success]
-                self.status_label.setText(f"Ошибка: {failed[0] if failed else 'неизвестная ошибка'}")
+                error = failed[0] if failed else tr("error_unknown")
+                self.status_label.setText(tr("status_book_error", error=error))
         else:
-            self.status_label.setText("Книжный конвейер завершён")
+            self.status_label.setText(tr("status_book_pipeline_done"))
 
     def _on_book_error(self, error_message: str):
         """Handle book pipeline error."""
@@ -1293,6 +1292,6 @@ class MainWindow(QMainWindow):
         self._reset_ui()
         self._ai_worker = None
 
-        self.status_label.setText(f"Ошибка: {error_message[:60]}")
-        QMessageBox.warning(self, "Ошибка книжного конвейера", f"Произошла ошибка:\n\n{error_message}")
+        self.status_label.setText(tr("status_book_error", error=error_message[:60]))
+        QMessageBox.warning(self, tr("error_book_pipeline_title"), tr("error_occurred", detail=error_message))
 

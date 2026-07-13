@@ -16,6 +16,7 @@ from PyQt6.QtCore import pyqtSignal, QTimer, QThread
 
 from book_pipeline import BookPipeline, BookResult
 from core.book_batch_worker import BookBatchWorker
+from core.i18n import tr
 from core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -81,7 +82,7 @@ class BookPanel(QWidget):
         divider.setFixedHeight(1)
         layout.addWidget(divider)
 
-        header = QLabel("📖 Книжный конвейер")
+        header = QLabel(tr("book_header"))
         header.setStyleSheet("color: #888; font-size: 12px; font-weight: bold; margin-top: 4px;")
         layout.addWidget(header)
 
@@ -89,7 +90,7 @@ class BookPanel(QWidget):
         status_row = QHBoxLayout()
         self.status_dot = QLabel("●")
         self.status_dot.setStyleSheet("color: #ef4444; font-size: 10px;")
-        self.status_label = QLabel("LM Studio: проверка…")
+        self.status_label = QLabel(tr("book_lm_checking"))
         self.status_label.setStyleSheet("color: #888; font-size: 11px;")
         status_row.addWidget(self.status_dot)
         status_row.addWidget(self.status_label)
@@ -97,17 +98,17 @@ class BookPanel(QWidget):
         layout.addLayout(status_row)
 
         # ----- Stage checkboxes -----
-        stages_label = QLabel("Этапы:")
+        stages_label = QLabel(tr("book_stages_label"))
         stages_label.setStyleSheet("color: #888; font-size: 11px;")
         layout.addWidget(stages_label)
 
-        self.chk_transcribe = QCheckBox("Транскрипция (whisper.cpp)")
+        self.chk_transcribe = QCheckBox(tr("book_stage_transcribe"))
         self.chk_transcribe.setStyleSheet("")
         self.chk_transcribe.setChecked(True)
         self.chk_transcribe.setEnabled(False)  # always on — result comes from transcriber
         layout.addWidget(self.chk_transcribe)
 
-        self.chk_unwrap = QCheckBox("Расшивка устной речи")
+        self.chk_unwrap = QCheckBox(tr("book_stage_unwrap"))
         self.chk_unwrap.setStyleSheet("")
         self.chk_unwrap.setChecked(True)
         layout.addWidget(self.chk_unwrap)
@@ -115,7 +116,7 @@ class BookPanel(QWidget):
         # Custom prompt row
         custom_row = QHBoxLayout()
         custom_row.setSpacing(6)
-        self.chk_custom = QCheckBox("Произвольный промпт из файла")
+        self.chk_custom = QCheckBox(tr("book_stage_custom"))
         self.chk_custom.setStyleSheet("")
         self.chk_custom.toggled.connect(self._on_custom_toggled)
         custom_row.addWidget(self.chk_custom)
@@ -126,7 +127,7 @@ class BookPanel(QWidget):
         cp_layout.setContentsMargins(20, 0, 0, 0)
         cp_layout.setSpacing(4)
         self.custom_prompt_edit = QLineEdit()
-        self.custom_prompt_edit.setPlaceholderText("путь к файлу промпта (.md / .txt)")
+        self.custom_prompt_edit.setPlaceholderText(tr("book_custom_prompt_placeholder"))
         self.custom_prompt_browse = QPushButton("…")
         self.custom_prompt_browse.setFixedSize(26, 26)
         self.custom_prompt_browse.clicked.connect(self._browse_custom_prompt)
@@ -149,13 +150,13 @@ class BookPanel(QWidget):
 
         # ----- Run / Cancel buttons -----
         run_row = QHBoxLayout()
-        self.run_btn = QPushButton("▶ Запустить")
+        self.run_btn = QPushButton(tr("book_run"))
         self.run_btn.setProperty("variant", "primary")
         self.run_btn.setEnabled(False)
         self.run_btn.clicked.connect(self._on_run_clicked)
         run_row.addWidget(self.run_btn)
 
-        self.cancel_btn = QPushButton("Отмена")
+        self.cancel_btn = QPushButton(tr("btn_cancel"))
         self.cancel_btn.setVisible(False)
         self.cancel_btn.clicked.connect(self._on_cancel_clicked)
         run_row.addWidget(self.cancel_btn)
@@ -168,7 +169,7 @@ class BookPanel(QWidget):
         divider2.setFixedHeight(1)
         layout.addWidget(divider2)
 
-        batch_header = QLabel("📂 Пакетная обработка папки")
+        batch_header = QLabel(tr("book_batch_header"))
         batch_header.setStyleSheet("color: #888; font-size: 12px; font-weight: bold;")
         layout.addWidget(batch_header)
 
@@ -176,7 +177,7 @@ class BookPanel(QWidget):
         folder_row = QHBoxLayout()
         folder_row.setSpacing(4)
         self.folder_edit = QLineEdit()
-        self.folder_edit.setPlaceholderText("папка с .md файлами транскриптов")
+        self.folder_edit.setPlaceholderText(tr("book_folder_placeholder"))
         self.folder_edit.textChanged.connect(self._on_folder_changed)
         self.folder_browse = QPushButton("…")
         self.folder_browse.setFixedSize(26, 26)
@@ -186,7 +187,7 @@ class BookPanel(QWidget):
         layout.addLayout(folder_row)
 
         # File count label
-        self.batch_count_label = QLabel("Файлы не выбраны")
+        self.batch_count_label = QLabel(tr("book_files_none_selected"))
         self.batch_count_label.setStyleSheet("color: #666; font-size: 11px;")
         layout.addWidget(self.batch_count_label)
 
@@ -204,13 +205,13 @@ class BookPanel(QWidget):
 
         # Batch start / cancel
         batch_btn_row = QHBoxLayout()
-        self.batch_start_btn = QPushButton("▶ Запустить все")
+        self.batch_start_btn = QPushButton(tr("book_run_all"))
         self.batch_start_btn.setProperty("variant", "primary")
         self.batch_start_btn.setEnabled(False)
         self.batch_start_btn.clicked.connect(self._start_batch)
         batch_btn_row.addWidget(self.batch_start_btn)
 
-        self.batch_cancel_btn = QPushButton("Остановить")
+        self.batch_cancel_btn = QPushButton(tr("book_stop"))
         self.batch_cancel_btn.setVisible(False)
         self.batch_cancel_btn.clicked.connect(self._cancel_batch)
         batch_btn_row.addWidget(self.batch_cancel_btn)
@@ -267,11 +268,11 @@ class BookPanel(QWidget):
         self._connected = connected
         if connected:
             self.status_dot.setStyleSheet("color: #22c55e; font-size: 10px;")
-            self.status_label.setText("LM Studio: подключено")
+            self.status_label.setText(tr("book_lm_connected"))
             self.status_label.setStyleSheet("color: #22c55e; font-size: 11px;")
         else:
             self.status_dot.setStyleSheet("color: #ef4444; font-size: 10px;")
-            self.status_label.setText("LM Studio: не доступен")
+            self.status_label.setText(tr("book_lm_unavailable"))
             self.status_label.setStyleSheet("color: #888; font-size: 11px;")
         self._update_run_btn()
         self._update_batch_btn()
@@ -294,14 +295,14 @@ class BookPanel(QWidget):
 
     def _browse_custom_prompt(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, "Выбрать файл промпта", "",
+            self, tr("book_browse_prompt_title"), "",
             "Markdown / Text (*.md *.txt);;All Files (*)"
         )
         if path:
             self.custom_prompt_edit.setText(path)
 
     def _browse_folder(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Выбрать папку с транскриптами")
+        folder = QFileDialog.getExistingDirectory(self, tr("book_browse_folder_title"))
         if folder:
             self.folder_edit.setText(folder)
 
@@ -309,9 +310,9 @@ class BookPanel(QWidget):
         files = self._batch_files()
         n = len(files)
         if n == 0:
-            self.batch_count_label.setText("Файлы не найдены (нет .md в папке)")
+            self.batch_count_label.setText(tr("book_files_none_found"))
         else:
-            self.batch_count_label.setText(f"Найдено файлов: {n}")
+            self.batch_count_label.setText(tr("book_files_found", n=n))
         self._update_batch_btn()
 
     def _on_run_clicked(self) -> None:
@@ -320,8 +321,8 @@ class BookPanel(QWidget):
         custom_path = self.custom_prompt_edit.text().strip() if do_custom else ""
 
         if do_custom and not custom_path:
-            QMessageBox.warning(self, "Нет файла промпта",
-                                "Укажите путь к файлу пользовательского промпта.")
+            QMessageBox.warning(self, tr("book_no_prompt_title"),
+                                tr("book_no_prompt_message"))
             return
 
         self.run_single_requested.emit(do_unwrap, do_custom, custom_path)
@@ -343,8 +344,8 @@ class BookPanel(QWidget):
         custom_path = self.custom_prompt_edit.text().strip() if do_custom else ""
 
         if do_custom and not custom_path:
-            QMessageBox.warning(self, "Нет файла промпта",
-                                "Укажите путь к файлу пользовательского промпта.")
+            QMessageBox.warning(self, tr("book_no_prompt_title"),
+                                tr("book_no_prompt_message"))
             return
 
         self._batch_worker = BookBatchWorker(
@@ -371,7 +372,7 @@ class BookPanel(QWidget):
     def _cancel_batch(self) -> None:
         if self._batch_worker:
             self._batch_worker.cancel()
-            self.batch_status_label.setText("Отмена…")
+            self.batch_status_label.setText(tr("book_cancelling"))
 
     def _on_batch_file_started(self, index: int, total: int, filename: str) -> None:
         self.batch_status_label.setText(f"[{index + 1}/{total}] {filename}")
@@ -389,5 +390,5 @@ class BookPanel(QWidget):
         self._batch_worker = None
         self.batch_cancel_btn.setVisible(False)
         self.batch_start_btn.setEnabled(True)
-        self.batch_status_label.setText(f"✅ Готово: {completed}/{total} файлов")
+        self.batch_status_label.setText(tr("book_batch_done", completed=completed, total=total))
         self._update_batch_btn()
