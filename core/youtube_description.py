@@ -86,3 +86,26 @@ def format_youtube_description(chapters: list[dict]) -> str:
     return "\n".join(
         f"{format_youtube_timestamp(start)} {title}" for start, title in kept
     )
+
+
+def compose_full_description(
+    description: str | None,
+    chapters: list[dict] | None,
+    timecodes_label: str = "Timecodes:",
+) -> str | None:
+    """Fold chapter timecodes into a description so it reads as one
+    ready-to-paste YouTube description: hook + summary + label + chapter
+    list.
+
+    Returns *description* unchanged if there's no description, no chapters,
+    or the chapters don't produce any valid timecode lines (e.g. all were
+    filtered out by the minimum-gap rule). *timecodes_label* is caller-
+    supplied so this stays free of any i18n dependency — pass a localized
+    string (e.g. ``tr("youtube_timecodes_label")``) from the UI layer.
+    """
+    if not description or not chapters:
+        return description
+    timecodes = format_youtube_description(chapters)
+    if not timecodes:
+        return description
+    return f"{description}\n\n{timecodes_label}\n{timecodes}"

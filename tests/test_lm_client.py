@@ -76,12 +76,29 @@ class TestApiKeyAndModel:
             payload = json.loads(mock_req.call_args.kwargs["data"].decode("utf-8"))
             assert "model" not in payload
 
-    def test_api_key_not_logged(self):
-        """The api_key attribute must not appear in repr/str used for logging."""
-        client = LMStudioClient("https://api.example.com/v1", api_key="super-secret")
-        assert "super-secret" not in repr(client.__dict__.get("base_url", ""))
-        # Ensure the key lives in a private attribute, not something __repr__ exposes by default
-        assert client._api_key == "super-secret"
+    def test_api_key_not_logged(self, caplog):
+        """A request that errors out must not leak the API key into logs.
+
+        Exercises the real logging path (not just attribute inspection):
+        every request method is driven with a failing urlopen, at DEBUG
+        level so nothing is filtered out, and every captured record's
+        rendered message is checked for the secret.
+        """
+        secret = "super-secret-api-key-value"
+        client = LMStudioClient("https://api.example.com/v1", api_key=secret)
+
+        with caplog.at_level("DEBUG"):
+            with patch("urllib.request.urlopen", side_effect=Exception("boom")):
+                client.complete([{"role": "user", "content": "hi"}], stream=False)
+                client.complete([{"role": "user", "content": "hi"}], stream=True)
+                client.chat_completion_stream([{"role": "user", "content": "hi"}])
+                client.chat_completion("hi")
+                client.check_connection()
+                client.get_loaded_model()
+
+        assert caplog.records, "expected the failing calls to log something"
+        for record in caplog.records:
+            assert secret not in record.getMessage()
 
 
 class TestTruncationDetection:

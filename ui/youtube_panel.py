@@ -5,6 +5,7 @@ Generates YouTube-ready titles, description, tags, and chapter timecodes.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
@@ -17,13 +18,35 @@ from PyQt6.QtGui import QFont
 from core.i18n import tr
 from core.logger import get_logger
 from core.paths import data_dir
-from core.youtube_description import format_youtube_description
+from core.youtube_description import compose_full_description, format_youtube_description
 from ui.toast import show_toast
 from utils import language_name_for_code
 
 logger = get_logger(__name__)
 
-_YT_TYPES = ("chapters", "yt_titles", "yt_description", "yt_tags", "yt_questions")
+
+@dataclass(frozen=True)
+class _TabSpec:
+    """Everything that varies per generated-content tab, keyed once instead
+    of via three separate parallel lists/dicts that had to be kept in sync
+    by hand (insight type, filename suffix, and index -> widget mapping)."""
+    insight_type: str    # matches core.insights_worker._INSIGHT_TYPES
+    edit_attr: str        # instance attribute holding this tab's QPlainTextEdit
+    file_key: str         # filename suffix used by _save_to_file
+    label_key: str        # i18n key for the tab title
+    mono: bool = True     # monospace font (all but the description tab)
+
+
+# Order here is the order tabs are created/added in _setup_ui.
+_TAB_SPECS: tuple[_TabSpec, ...] = (
+    _TabSpec("chapters", "_chapters_edit", "chapters", "yt_tab_chapters"),
+    _TabSpec("yt_titles", "_titles_edit", "titles", "yt_tab_titles"),
+    _TabSpec("yt_description", "_desc_edit", "description", "yt_tab_description", mono=False),
+    _TabSpec("yt_tags", "_tags_edit", "tags", "yt_tab_tags"),
+    _TabSpec("yt_questions", "_questions_edit", "questions", "yt_tab_questions"),
+)
+
+_YT_TYPES = tuple(spec.insight_type for spec in _TAB_SPECS)
 
 # Save location for generated files: the user data directory (same base as
 # config.json/history.db), not a path under the app's own install location —
@@ -37,10 +60,6 @@ def _friendly_path(path: Path) -> str:
         return str(Path("~") / path.relative_to(Path.home()))
     except ValueError:
         return str(path)
-
-# Tab index → (edit widget attr, filename suffix); kept in the same order
-# the tabs are added in _setup_ui.
-_TAB_KEYS = ("chapters", "titles", "description", "tags", "questions")
 
 
 class YouTubePanel(QWidget):
@@ -121,7 +140,7 @@ class YouTubePanel(QWidget):
 
         self._init_provider_from_config()
 
-        # Inner tabs: Chapters | Titles | Description | Tags
+        # Inner tabs: Chapters | Titles | Description | Tags | Key Questions
         self._tabs = QTabWidget()
         self._tabs.setVisible(False)
 
@@ -132,34 +151,14 @@ class YouTubePanel(QWidget):
             " border: 1px solid #333; border-radius: 4px; }"
         )
 
-        self._chapters_edit = QPlainTextEdit()
-        self._chapters_edit.setReadOnly(True)
-        self._chapters_edit.setFont(mono)
-        self._chapters_edit.setStyleSheet(_style)
-        self._tabs.addTab(self._chapters_edit, tr("yt_tab_chapters"))
-
-        self._titles_edit = QPlainTextEdit()
-        self._titles_edit.setReadOnly(True)
-        self._titles_edit.setFont(mono)
-        self._titles_edit.setStyleSheet(_style)
-        self._tabs.addTab(self._titles_edit, tr("yt_tab_titles"))
-
-        self._desc_edit = QPlainTextEdit()
-        self._desc_edit.setReadOnly(True)
-        self._desc_edit.setStyleSheet(_style)
-        self._tabs.addTab(self._desc_edit, tr("yt_tab_description"))
-
-        self._tags_edit = QPlainTextEdit()
-        self._tags_edit.setReadOnly(True)
-        self._tags_edit.setFont(mono)
-        self._tags_edit.setStyleSheet(_style)
-        self._tabs.addTab(self._tags_edit, tr("yt_tab_tags"))
-
-        self._questions_edit = QPlainTextEdit()
-        self._questions_edit.setReadOnly(True)
-        self._questions_edit.setFont(mono)
-        self._questions_edit.setStyleSheet(_style)
-        self._tabs.addTab(self._questions_edit, tr("yt_tab_questions"))
+        for spec in _TAB_SPECS:
+            edit = QPlainTextEdit()
+            edit.setReadOnly(True)
+            if spec.mono:
+                edit.setFont(mono)
+            edit.setStyleSheet(_style)
+            setattr(self, spec.edit_attr, edit)
+            self._tabs.addTab(edit, tr(spec.label_key))
 
         layout.addWidget(self._tabs, stretch=1)
 
@@ -215,8 +214,7 @@ class YouTubePanel(QWidget):
         self._chapters_data = None
         self._any_success = False
         self._any_error = False
-        for edit in (self._chapters_edit, self._titles_edit,
-                     self._desc_edit, self._tags_edit, self._questions_edit):
+        for edit in self._edits():
             edit.clear()
         self._tabs.setVisible(False)
         self._cancel_workers(timeout=2000)
@@ -289,8 +287,7 @@ class YouTubePanel(QWidget):
         self._chapters_data = None
         self._any_success = False
         self._any_error = False
-        for edit in (self._chapters_edit, self._titles_edit,
-                     self._desc_edit, self._tags_edit, self._questions_edit):
+        for edit in self._edits():
             edit.clear()
         self._tabs.setVisible(True)
         self._placeholder.hide()
@@ -361,13 +358,11 @@ class YouTubePanel(QWidget):
         """Once both the description and chapters are in, fold the chapter
         timecodes into the Description tab so it reads as one ready-to-paste
         YouTube description (hook + summary + "Timecodes:" + chapter list)."""
-        if not self._description_text or not self._chapters_data:
-            return
-        timecodes = format_youtube_description(self._chapters_data)
-        if not timecodes:
-            return
-        full = f"{self._description_text}\n\n{tr('youtube_timecodes_label')}\n{timecodes}"
-        self._desc_edit.setPlainText(full)
+        full = compose_full_description(
+            self._description_text, self._chapters_data, tr("youtube_timecodes_label")
+        )
+        if full and full != self._description_text:
+            self._desc_edit.setPlainText(full)
 
     def _on_error(self, insight_type: str, msg: str):
         logger.warning("YouTube worker error (%s): %s", insight_type, msg)
@@ -394,25 +389,24 @@ class YouTubePanel(QWidget):
         self._gen_btn.setEnabled(bool(self._segments))
         self._gen_btn.setText(tr("youtube_generate"))
 
-    def _type_to_edit(self, insight_type: str) -> QPlainTextEdit | None:
-        try:
-            idx = _YT_TYPES.index(insight_type)
-        except ValueError:
-            return None
-        return self._edit_map().get(idx)
+    def _edits(self) -> list[QPlainTextEdit]:
+        """All tab edit widgets, in tab order."""
+        return [getattr(self, spec.edit_attr) for spec in _TAB_SPECS]
 
-    def _edit_map(self) -> dict:
-        return {
-            0: self._chapters_edit,
-            1: self._titles_edit,
-            2: self._desc_edit,
-            3: self._tags_edit,
-            4: self._questions_edit,
-        }
+    def _edit_for_index(self, idx: int) -> QPlainTextEdit:
+        if 0 <= idx < len(_TAB_SPECS):
+            return getattr(self, _TAB_SPECS[idx].edit_attr)
+        return self._chapters_edit
+
+    def _type_to_edit(self, insight_type: str) -> QPlainTextEdit | None:
+        for spec in _TAB_SPECS:
+            if spec.insight_type == insight_type:
+                return getattr(self, spec.edit_attr)
+        return None
 
     def _copy_to_clipboard(self):
         """Copy the content of the currently-visible inner tab."""
-        edit = self._edit_map().get(self._tabs.currentIndex(), self._chapters_edit)
+        edit = self._edit_for_index(self._tabs.currentIndex())
         text = edit.toPlainText()
         if text:
             QApplication.clipboard().setText(text)
@@ -421,12 +415,12 @@ class YouTubePanel(QWidget):
     def _save_to_file(self):
         """Save the currently-visible inner tab to output/ in the project."""
         idx = self._tabs.currentIndex()
-        edit = self._edit_map().get(idx, self._chapters_edit)
+        edit = self._edit_for_index(idx)
         text = edit.toPlainText()
         if not text:
             return
 
-        key = _TAB_KEYS[idx] if 0 <= idx < len(_TAB_KEYS) else "youtube"
+        key = _TAB_SPECS[idx].file_key if 0 <= idx < len(_TAB_SPECS) else "youtube"
         stem = self._source_name or "youtube"
         filename = f"{stem}_{key}.txt"
 

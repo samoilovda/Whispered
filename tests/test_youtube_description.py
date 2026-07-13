@@ -1,7 +1,11 @@
 """Unit tests for core/youtube_description.py — no Qt required."""
 
 # Qt and core.lm_client/core.ai_worker stand-ins come from tests/conftest.py.
-from core.youtube_description import format_youtube_timestamp, format_youtube_description
+from core.youtube_description import (
+    compose_full_description,
+    format_youtube_timestamp,
+    format_youtube_description,
+)
 
 
 # ── format_youtube_timestamp ─────────────────────────────────────────────────
@@ -162,3 +166,39 @@ class TestMinimumChapterGap:
         chapters = [{"start": 0, "title": "Only one"}, {"start": 3, "title": "Too close"}]
         result = format_youtube_description(chapters)
         assert result == "0:00 Only one"
+
+
+class TestComposeFullDescription:
+    def test_folds_timecodes_into_description(self):
+        chapters = [
+            {"start": 0, "title": "Intro"},
+            {"start": 60, "title": "Body"},
+            {"start": 120, "title": "Outro"},
+        ]
+        result = compose_full_description("Hook and summary.", chapters, "Timecodes:")
+        assert result == "Hook and summary.\n\nTimecodes:\n0:00 Intro\n1:00 Body\n2:00 Outro"
+
+    def test_custom_label_is_used(self):
+        chapters = [{"start": 0, "title": "A"}, {"start": 60, "title": "B"}]
+        result = compose_full_description("Desc", chapters, "Тайм-коды:")
+        assert "Тайм-коды:" in result
+
+    def test_no_description_returns_none(self):
+        chapters = [{"start": 0, "title": "A"}, {"start": 60, "title": "B"}]
+        assert compose_full_description(None, chapters) is None
+        assert compose_full_description("", chapters) == ""
+
+    def test_no_chapters_returns_description_unchanged(self):
+        assert compose_full_description("Just a description.", None) == "Just a description."
+        assert compose_full_description("Just a description.", []) == "Just a description."
+
+    def test_chapters_producing_no_valid_timecodes_returns_description_unchanged(self):
+        # All titles blank -> format_youtube_description returns ""
+        chapters = [{"start": 0, "title": ""}, {"start": 60, "title": "  "}]
+        result = compose_full_description("Desc only.", chapters)
+        assert result == "Desc only."
+
+    def test_default_label_is_english(self):
+        chapters = [{"start": 0, "title": "A"}, {"start": 60, "title": "B"}]
+        result = compose_full_description("Desc", chapters)
+        assert "Timecodes:" in result
