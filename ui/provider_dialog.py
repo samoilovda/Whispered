@@ -105,8 +105,14 @@ class ProviderDialog(QDialog):
         self._anthropic_model_edit.setText(cfg.yt_anthropic_model)
 
     def _on_accept(self):
+        # Deliberately does NOT write cfg.yt_provider: this dialog only edits
+        # credentials for whichever provider kind is currently shown in its
+        # own combo, which is independent of the *active* provider selected
+        # in YouTubePanel's combo. Writing it here used to let a user who
+        # switched _kind_combo just to look at the other provider's fields
+        # silently change which provider generation actually uses, with no
+        # visible change in the panel's own combo.
         cfg = get_config()
-        cfg.yt_provider = self._kind_combo.currentData() or "openai"
         cfg.yt_openai_base_url = self._openai_url_edit.text().strip() or cfg.yt_openai_base_url
         cfg.yt_openai_api_key = self._openai_key_edit.text().strip()
         cfg.yt_openai_model = self._openai_model_edit.text().strip() or cfg.yt_openai_model
