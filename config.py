@@ -161,8 +161,10 @@ if __name__ == "__main__":
     config = get_config()
     print("\nCurrent config:")
     for key, value in asdict(config).items():
-        # Mask token
-        if key == 'hf_token' and value:
+        # Mask any secret-shaped field (token/key in the name), not just
+        # hf_token — the yt_openai_api_key / yt_anthropic_api_key fields
+        # would otherwise print in plain text.
+        if value and ('token' in key.lower() or 'key' in key.lower()):
             value = value[:8] + "..." if len(value) > 8 else "***"
         print(f"  {key}: {value}")
 
