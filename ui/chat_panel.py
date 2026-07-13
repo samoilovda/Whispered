@@ -163,6 +163,14 @@ class ChatPanel(QWidget):
         self._clear_chat(confirm=False)
         self._placeholder.setText(tr("chat_placeholder"))
 
+    def shutdown(self) -> None:
+        """Stop any in-flight chat worker. Call from MainWindow.closeEvent."""
+        if self._scroll_timer:
+            self._scroll_timer.stop()
+        if self._worker and self._worker.isRunning():
+            self._worker.cancel()
+            self._worker.wait()
+
     # ------------------------------------------------------------------ internals
 
     def _on_send(self):

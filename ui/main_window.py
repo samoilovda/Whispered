@@ -87,6 +87,14 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'ai_panel'):
             self.ai_panel.cleanup()
 
+        # Stop any running YouTube / Insights / Chat workers
+        if hasattr(self, 'youtube_panel'):
+            self.youtube_panel.clear()
+        if hasattr(self, 'insights_panel'):
+            self.insights_panel.clear()
+        if hasattr(self, 'chat_panel'):
+            self.chat_panel.shutdown()
+
         # Cleanup batch processing
         if hasattr(self, 'batch_panel') and self.batch_panel.processor.is_processing:
             self.batch_panel.cancel_processing()
