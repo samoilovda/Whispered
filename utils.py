@@ -1,5 +1,5 @@
 """
-Whisper Fedora UI - Utility Functions
+Whispered UI - Utility Functions
 """
 
 import os

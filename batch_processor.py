@@ -1,5 +1,5 @@
 """
-Whisper Fedora - Batch Processor
+Whispered - Batch Processor
 Process multiple audio/video files in sequence
 """
 

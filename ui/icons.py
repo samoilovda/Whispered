@@ -1,5 +1,5 @@
 """
-Whisper Fedora UI - SVG Vector Icons
+Whispered UI - SVG Vector Icons
 Centralized icon provider using inline SVG definitions for resolution-independent graphics.
 """
 

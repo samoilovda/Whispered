@@ -1,5 +1,5 @@
 """
-Whisper Fedora - Article Generator Module
+Whispered - Article Generator Module
 Multi-format article generation from processed transcriptions using LM Studio
 """
 

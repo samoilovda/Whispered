@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Whisper Fedora - Diarization Setup Script
+Whispered - Diarization Setup Script
 Configure Hugging Face token for speaker diarization
 """
 
@@ -16,7 +16,7 @@ from config import get_config, save_config
 
 def print_header():
     print("=" * 60)
-    print("  Whisper Fedora - Speaker Diarization Setup")
+    print("  Whispered - Speaker Diarization Setup")
     print("=" * 60)
     print()
 

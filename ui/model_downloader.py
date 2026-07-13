@@ -1,5 +1,5 @@
 """
-Whisper Fedora UI - Model Downloader
+Whispered UI - Model Downloader
 Dynamic downloader for Whisper models and Pyannote models
 """
 

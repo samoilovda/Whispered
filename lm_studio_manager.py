@@ -1,5 +1,5 @@
 """
-Whisper Fedora - LM Studio Manager
+Whispered - LM Studio Manager
 Control LM Studio server and models via CLI
 """
 

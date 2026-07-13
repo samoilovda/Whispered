@@ -1,5 +1,5 @@
 """
-Whisper Fedora UI - Batch Processing Panel
+Whispered UI - Batch Processing Panel
 Widget for managing batch file queue
 """
 

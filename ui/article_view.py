@@ -1,5 +1,5 @@
 """
-Whisper Fedora UI - Article View Widget
+Whispered UI - Article View Widget
 Display and export generated articles with tabbed interface
 """
 

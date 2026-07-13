@@ -1,5 +1,5 @@
 """
-Whisper Fedora UI - Export Functions
+Whispered UI - Export Functions
 Export transcription results to various formats
 """
 

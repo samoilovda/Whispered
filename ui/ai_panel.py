@@ -1,5 +1,5 @@
 """
-Whisper Fedora UI - AI Processing Panel
+Whispered UI - AI Processing Panel
 Controls for AI-powered text processing and article generation
 """
 

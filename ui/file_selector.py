@@ -1,5 +1,5 @@
 """
-Whisper Fedora UI - File Selector Widget
+Whispered UI - File Selector Widget
 Drag-and-drop file upload with format validation
 """
 

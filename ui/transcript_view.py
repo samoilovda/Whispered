@@ -1,5 +1,5 @@
 """
-Whisper Fedora UI - Transcript View Widget
+Whispered UI - Transcript View Widget
 Display, edit and search transcription results with timestamp and speaker support.
 """
 
