@@ -19,6 +19,18 @@ def _fake_response(payload: dict):
     return resp
 
 
+def _fake_sse_response(chunks: list[dict]):
+    """Build a fake streaming response: iterating it yields SSE `data:` lines."""
+    lines = [
+        f"data: {json.dumps(chunk)}".encode("utf-8") for chunk in chunks
+    ] + [b"data: [DONE]"]
+    resp = MagicMock()
+    resp.__iter__.return_value = iter(lines)
+    resp.__enter__.return_value = resp
+    resp.__exit__.return_value = False
+    return resp
+
+
 class TestApiKeyAndModel:
     def test_no_api_key_no_authorization_header(self):
         client = LMStudioClient("http://localhost:1234/v1")
@@ -70,3 +82,34 @@ class TestApiKeyAndModel:
         assert "super-secret" not in repr(client.__dict__.get("base_url", ""))
         # Ensure the key lives in a private attribute, not something __repr__ exposes by default
         assert client._api_key == "super-secret"
+
+
+class TestTruncationDetection:
+    def test_finish_reason_length_logs_warning(self, caplog):
+        client = LMStudioClient("http://localhost:1234/v1")
+        with patch("urllib.request.urlopen") as mock_open, \
+             patch("urllib.request.Request"):
+            mock_open.return_value = _fake_sse_response([
+                {"choices": [{"delta": {"content": "partial"}, "finish_reason": None}]},
+                {"choices": [{"delta": {"content": " text"}, "finish_reason": "length"}]},
+            ])
+            with caplog.at_level("WARNING"):
+                result = client.chat_completion_stream(
+                    [{"role": "user", "content": "hi"}], max_tokens=8000,
+                )
+            assert result == "partial text"
+            assert any("truncated" in r.message for r in caplog.records)
+
+    def test_finish_reason_stop_no_warning(self, caplog):
+        client = LMStudioClient("http://localhost:1234/v1")
+        with patch("urllib.request.urlopen") as mock_open, \
+             patch("urllib.request.Request"):
+            mock_open.return_value = _fake_sse_response([
+                {"choices": [{"delta": {"content": "done"}, "finish_reason": "stop"}]},
+            ])
+            with caplog.at_level("WARNING"):
+                result = client.chat_completion_stream(
+                    [{"role": "user", "content": "hi"}],
+                )
+            assert result == "done"
+            assert not any("truncated" in r.message for r in caplog.records)

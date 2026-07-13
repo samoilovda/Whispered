@@ -196,11 +196,16 @@ class LMStudioClient:
                         break
                     try:
                         obj = json.loads(chunk)
-                        delta = obj["choices"][0]["delta"].get("content", "")
+                        choice = obj["choices"][0]
+                        delta = choice["delta"].get("content", "")
                         if delta:
                             full_text.append(delta)
                             if on_token:
                                 on_token(delta)
+                        if choice.get("finish_reason") == "length":
+                            logger.warning(
+                                "LM Studio response truncated by max_tokens=%d", max_tokens
+                            )
                     except (json.JSONDecodeError, KeyError, IndexError):
                         continue
             return "".join(full_text)

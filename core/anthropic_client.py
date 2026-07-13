@@ -74,6 +74,10 @@ class AnthropicClient:
             req = urllib.request.Request(DEFAULT_ANTHROPIC_URL, data=data, headers=headers)
             with urllib.request.urlopen(req, timeout=timeout) as response:
                 result = json.loads(response.read().decode("utf-8"))
+                if result.get("stop_reason") == "max_tokens":
+                    logger.warning(
+                        "Anthropic response truncated by max_tokens=%d", max_tokens
+                    )
                 blocks = result.get("content", [])
                 return "".join(
                     b.get("text", "") for b in blocks if b.get("type") == "text"

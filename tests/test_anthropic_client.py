@@ -97,3 +97,27 @@ class TestAnthropicClient:
         with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("boom")):
             result = client.chat_completion_stream([{"role": "user", "content": "Hi"}])
             assert result is None
+
+    def test_stop_reason_max_tokens_logs_warning(self, caplog):
+        client = AnthropicClient(api_key="key", model="claude-sonnet-5")
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_open.return_value = _fake_response(
+                {"content": [{"type": "text", "text": "cut off"}], "stop_reason": "max_tokens"}
+            )
+            with caplog.at_level("WARNING"):
+                result = client.chat_completion_stream(
+                    [{"role": "user", "content": "Hi"}], max_tokens=8000,
+                )
+            assert result == "cut off"
+            assert any("truncated" in r.message for r in caplog.records)
+
+    def test_stop_reason_end_turn_no_warning(self, caplog):
+        client = AnthropicClient(api_key="key", model="claude-sonnet-5")
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_open.return_value = _fake_response(
+                {"content": [{"type": "text", "text": "done"}], "stop_reason": "end_turn"}
+            )
+            with caplog.at_level("WARNING"):
+                result = client.chat_completion_stream([{"role": "user", "content": "Hi"}])
+            assert result == "done"
+            assert not any("truncated" in r.message for r in caplog.records)

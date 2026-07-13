@@ -24,6 +24,10 @@ logger = get_logger(__name__)
 
 _INSIGHT_TYPES = ("chapters", "action_items", "key_moments", "yt_titles", "yt_description", "yt_tags", "yt_questions")
 _TRANSCRIPT_MAX_CHARS = 48_000   # ~12 k tokens; matches chat_worker._CONTEXT_CHARS
+# LM Studio's DEFAULT_MAX_TOKENS (4096) truncated Cyrillic/multi-byte JSON
+# responses mid-string on longer insight types (chapters, descriptions);
+# non-Latin scripts tokenize far less efficiently than English.
+_RESPONSE_MAX_TOKENS = 8000
 
 
 def _strip_json_fences(text: str) -> str:
@@ -126,6 +130,7 @@ class InsightsWorker(BaseWorker):
             messages=messages,
             is_cancelled=self._cancelled.is_set,
             temperature=0.2,
+            max_tokens=_RESPONSE_MAX_TOKENS,
         )
         if self._cancelled.is_set():
             # Emit empty list so InsightsPanel can decrement _pending cleanly
@@ -149,6 +154,7 @@ class InsightsWorker(BaseWorker):
                 messages=retry_msg,
                 is_cancelled=self._cancelled.is_set,
                 temperature=0.1,
+                max_tokens=_RESPONSE_MAX_TOKENS,
             )
             if raw2:
                 result = _parse_json_response(raw2)
