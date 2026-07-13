@@ -118,6 +118,16 @@ class InsightsWorker(BaseWorker):
     def _on_error(self, msg: str) -> None:
         self.error_occurred.emit(self._type, msg)
 
+    def _no_response_message(self) -> str:
+        """Human-readable "no response" message naming the actual provider
+        in use, instead of always blaming LM Studio even when the request
+        went to a cloud provider."""
+        if self._provider is None:
+            return f"LM Studio did not respond ({self._lm_url})."
+        labels = {"openai": "OpenAI-compatible API", "anthropic": "Anthropic"}
+        label = labels.get(self._provider.kind, self._provider.kind)
+        return f"{label} did not respond."
+
     def _execute(self):
         if self._provider:
             from core.ai_provider import create_client
@@ -144,10 +154,7 @@ class InsightsWorker(BaseWorker):
             self.finished.emit(self._type, [])
             return
         if raw is None:
-            self.error_occurred.emit(
-                self._type,
-                f"LM Studio did not respond ({self._lm_url})."
-            )
+            self.error_occurred.emit(self._type, self._no_response_message())
             return
 
         result = _parse_json_response(raw)

@@ -50,6 +50,32 @@ def test_default_provider_is_none():
     assert worker._provider is None
 
 
+class TestNoResponseMessage:
+    def test_no_provider_mentions_lm_studio_and_url(self):
+        worker = InsightsWorker("chapters", [], "http://localhost:1234/v1")
+        msg = worker._no_response_message()
+        assert "LM Studio" in msg
+        assert "http://localhost:1234/v1" in msg
+
+    def test_anthropic_provider_does_not_say_lm_studio(self):
+        class _Provider:
+            kind = "anthropic"
+
+        worker = InsightsWorker("chapters", [], "http://localhost:1234/v1", provider=_Provider())
+        msg = worker._no_response_message()
+        assert "LM Studio" not in msg
+        assert "Anthropic" in msg
+
+    def test_openai_provider_does_not_say_lm_studio(self):
+        class _Provider:
+            kind = "openai"
+
+        worker = InsightsWorker("chapters", [], "http://localhost:1234/v1", provider=_Provider())
+        msg = worker._no_response_message()
+        assert "LM Studio" not in msg
+        assert "OpenAI" in msg
+
+
 def test_execute_without_provider_uses_lmstudio_client(monkeypatch):
     segments = [{"start": 0, "text": "hello", "speaker": None}]
     worker = InsightsWorker("yt_questions", segments, "http://localhost:1234/v1")

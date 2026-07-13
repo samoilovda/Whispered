@@ -173,6 +173,7 @@
   "youtube_lang_auto": "Auto (transcript language)",
   "youtube_empty": "No chapters were detected.",
   "youtube_error": "Error:",
+  "youtube_generate_error": "Some content types failed to generate — see the affected tab for details.",
   "youtube_no_lm": "Configure LM Studio URL in Settings first.",
   "youtube_no_api_key": "Enter an API key for the selected cloud provider first.",
   "youtube_privacy_notice": "The transcript will be sent to a third-party service (OpenAI/Anthropic).",

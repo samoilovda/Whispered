@@ -45,6 +45,8 @@ class YouTubePanel(QWidget):
         self._transcript_language: str | None = None
         self._description_text: str | None = None
         self._chapters_data: list | None = None
+        self._any_success = False
+        self._any_error = False
         self._setup_ui()
 
     # ── UI ──────────────────────────────────────────────────────────
@@ -201,6 +203,8 @@ class YouTubePanel(QWidget):
         self._save_btn.setEnabled(False)
         self._description_text = None
         self._chapters_data = None
+        self._any_success = False
+        self._any_error = False
         for edit in (self._chapters_edit, self._titles_edit,
                      self._desc_edit, self._tags_edit, self._questions_edit):
             edit.clear()
@@ -261,6 +265,8 @@ class YouTubePanel(QWidget):
         self._save_btn.setEnabled(False)
         self._description_text = None
         self._chapters_data = None
+        self._any_success = False
+        self._any_error = False
         for edit in (self._chapters_edit, self._titles_edit,
                      self._desc_edit, self._tags_edit, self._questions_edit):
             edit.clear()
@@ -287,6 +293,7 @@ class YouTubePanel(QWidget):
 
     def _on_finished(self, insight_type: str, data):
         self._pending = max(0, self._pending - 1)
+        self._any_success = True
 
         if insight_type == "chapters":
             if isinstance(data, list):
@@ -326,9 +333,7 @@ class YouTubePanel(QWidget):
                 self._questions_edit.setPlainText(str(data) if data else tr("youtube_empty"))
 
         if self._pending == 0:
-            self._reset_button()
-            self._copy_btn.setEnabled(True)
-            self._save_btn.setEnabled(True)
+            self._finish_run()
 
     def _maybe_compose_description(self) -> None:
         """Once both the description and chapters are in, fold the chapter
@@ -345,12 +350,34 @@ class YouTubePanel(QWidget):
     def _on_error(self, insight_type: str, msg: str):
         logger.warning("YouTube worker error (%s): %s", insight_type, msg)
         self._pending = max(0, self._pending - 1)
+        self._any_error = True
+        edit = self._type_to_edit(insight_type)
+        if edit is not None:
+            edit.setPlainText(f"{tr('youtube_error')}: {msg}")
         if self._pending == 0:
-            self._reset_button()
+            self._finish_run()
+
+    def _finish_run(self) -> None:
+        """Called once all workers for a generation run have settled."""
+        self._reset_button()
+        if self._any_success:
+            # At least one tab has usable content — let the user copy/save
+            # it even if a sibling insight type failed.
+            self._copy_btn.setEnabled(True)
+            self._save_btn.setEnabled(True)
+        if self._any_error:
+            show_toast(self, tr("youtube_generate_error"), kind="error")
 
     def _reset_button(self):
         self._gen_btn.setEnabled(bool(self._segments))
         self._gen_btn.setText(tr("youtube_generate"))
+
+    def _type_to_edit(self, insight_type: str) -> QPlainTextEdit | None:
+        try:
+            idx = _YT_TYPES.index(insight_type)
+        except ValueError:
+            return None
+        return self._edit_map().get(idx)
 
     def _edit_map(self) -> dict:
         return {
