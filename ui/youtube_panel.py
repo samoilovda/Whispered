@@ -271,16 +271,22 @@ class YouTubePanel(QWidget):
         cfg = get_config()
         provider = provider_from_config(cfg)
 
+        # Both misconfiguration paths still count as a settled run:
+        # generation_finished must fire so a preset chain waiting on this
+        # panel unblocks (shows its error toast, re-enables Process)
+        # instead of hanging on a step that never started.
         if provider.kind != "lmstudio" and not provider.api_key:
             self._chapters_edit.setPlainText(tr("youtube_no_api_key"))
             self._tabs.setVisible(True)
             self._placeholder.hide()
+            self.generation_finished.emit(False)
             return
 
         if provider.kind == "lmstudio" and not cfg.lm_studio_url:
             self._chapters_edit.setPlainText(tr("youtube_no_lm"))
             self._tabs.setVisible(True)
             self._placeholder.hide()
+            self.generation_finished.emit(False)
             return
 
         # Cancel any in-progress workers

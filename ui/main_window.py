@@ -581,6 +581,13 @@ class MainWindow(QMainWindow):
 
     def _start_transcription(self):
         """Start the transcription process."""
+        # The Process button is disabled while a preset chain runs, but
+        # the Ctrl+T / Ctrl+Return shortcuts call this directly — without
+        # this guard they'd start a second transcription mid-chain (and
+        # the youtube_panel.clear() below would kill the chain's workers
+        # while _chain_pending still waits on them, hanging the UI).
+        if self._chain_pending or self._chain_auto_article:
+            return
         filepath = self.file_selector.get_file()
         if not filepath:
             return
@@ -797,6 +804,10 @@ class MainWindow(QMainWindow):
         self._chain_pending.discard("youtube")
         if not success:
             self._chain_had_error = True
+            # A failed step produced no real content — its tabs hold error
+            # text, which must not be auto-saved as an artifact nor counted
+            # in the record's artifact chips.
+            self._chain_ran.discard("youtube")
         self._maybe_finish_chain()
 
     def _maybe_finish_chain(self) -> None:
