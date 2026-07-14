@@ -34,6 +34,13 @@ CREATE TABLE IF NOT EXISTS transcripts (
 CREATE INDEX IF NOT EXISTS idx_transcripts_created ON transcripts(created_at DESC);
 """
 
+# Added after the initial release — records which generated artifacts
+# (transcript/youtube/article) exist for a row, as a JSON array of type
+# strings. NULL for rows created before this migration or for records
+# where no preset chain (Phase C.3) has run yet; the Library falls back
+# to showing just the guaranteed "transcript" chip in that case.
+_ADD_ARTIFACTS_COLUMN_SQL = "ALTER TABLE transcripts ADD COLUMN artifacts TEXT"
+
 # FTS5 schema — created separately so failures (no FTS5 compile) are handled gracefully.
 _CREATE_FTS_SQL = """
 CREATE VIRTUAL TABLE IF NOT EXISTS transcripts_fts USING fts5(
@@ -120,7 +127,7 @@ class HistoryRecord:
     """
 
     __slots__ = ("id", "created_at", "source_path", "source_name",
-                 "duration", "language", "model", "preview")
+                 "duration", "language", "model", "preview", "artifacts")
 
     def __init__(self, row: sqlite3.Row):
         self.id          = row["id"]
@@ -131,6 +138,8 @@ class HistoryRecord:
         self.language    = row["language"]
         self.model       = row["model"]
         self.preview     = row["preview"]
+        raw_artifacts = row["artifacts"]
+        self.artifacts: list[str] | None = json.loads(raw_artifacts) if raw_artifacts else None
 
 
 class HistoryStore:
@@ -151,7 +160,20 @@ class HistoryStore:
     def _init_db(self):
         with self._connect() as conn:
             conn.executescript(_CREATE_SQL)
+        self._migrate_artifacts_column()
         self._init_fts()
+
+    def _migrate_artifacts_column(self):
+        """Add the artifacts column if this DB predates it. SQLite has no
+        'ADD COLUMN IF NOT EXISTS', so the standard way to make this
+        idempotent is to attempt it and swallow the "duplicate column"
+        error on repeat runs."""
+        try:
+            with self._connect() as conn:
+                conn.execute(_ADD_ARTIFACTS_COLUMN_SQL)
+        except sqlite3.OperationalError as exc:
+            if "duplicate column" not in str(exc).lower():
+                raise
 
     def _init_fts(self):
         """Attempt to create the FTS5 index; set _fts_available accordingly."""
@@ -202,7 +224,7 @@ class HistoryStore:
         """Return lightweight metadata rows, newest first."""
         sql = """
             SELECT id, created_at, source_path, source_name, duration, language, model,
-                   substr(json_payload, 1, 300) AS preview
+                   artifacts, substr(json_payload, 1, 300) AS preview
             FROM transcripts
             ORDER BY created_at DESC, id DESC
             LIMIT ? OFFSET ?
@@ -228,6 +250,17 @@ class HistoryStore:
                 "SELECT source_name FROM transcripts WHERE id = ?", (record_id,)
             ).fetchone()
         return row["source_name"] if row else None
+
+    def set_artifacts(self, record_id: int, artifact_types: list[str]) -> None:
+        """Record which artifact types (e.g. ["transcript", "youtube",
+        "article"]) exist for a record — written once a preset chain
+        (Phase C.3) finishes generating them. The Library's chip line
+        reads this back via HistoryRecord.artifacts."""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE transcripts SET artifacts = ? WHERE id = ?",
+                (json.dumps(artifact_types, ensure_ascii=False), record_id),
+            )
 
     def delete(self, record_id: int) -> bool:
         """Delete a single record. Returns True if a row was removed."""
@@ -262,7 +295,7 @@ class HistoryStore:
         # snippet() highlights column 1 (json_payload); column 0 is source_name
         sql = """
             SELECT t.id, t.created_at, t.source_path, t.source_name,
-                   t.duration, t.language, t.model,
+                   t.duration, t.language, t.model, t.artifacts,
                    snippet(transcripts_fts, 1, '**', '**', '…', 20) AS preview
             FROM transcripts_fts
             JOIN transcripts t ON t.id = transcripts_fts.rowid
@@ -282,7 +315,7 @@ class HistoryStore:
         pattern = f"%{text}%"
         sql = """
             SELECT id, created_at, source_path, source_name, duration, language, model,
-                   substr(json_payload, 1, 300) AS preview
+                   artifacts, substr(json_payload, 1, 300) AS preview
             FROM transcripts
             WHERE json_payload LIKE ? OR source_name LIKE ?
             ORDER BY created_at DESC, id DESC

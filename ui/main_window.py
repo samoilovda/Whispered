@@ -75,6 +75,7 @@ class MainWindow(QMainWindow):
         self._chain_ran: set[str] = set()
         self._chain_had_error = False
         self._chain_auto_article = False
+        self._last_record_id: int | None = None
         self._setup_ui()
         self._connect_signals()
         self.setAcceptDrops(True)
@@ -808,6 +809,15 @@ class MainWindow(QMainWindow):
                     logger.warning("Failed to export chain articles to %s: %s", out_dir, e)
                     self._chain_had_error = True
 
+        if saved and self._last_record_id is not None:
+            artifact_types = ["transcript", *sorted(self._chain_ran)]
+            try:
+                from core.history import get_history_store
+                get_history_store().set_artifacts(self._last_record_id, artifact_types)
+                self.library_view.refresh()
+            except Exception as e:
+                logger.warning("Failed to persist chain artifacts to history: %s", e)
+
         self._chain_ran.clear()
         self._reset_ui()
 
@@ -819,13 +829,16 @@ class MainWindow(QMainWindow):
 
     def _save_to_history(self, result: TranscriptionResult, source_path: str,
                          model: str, speaker_names: dict):
-        """Persist a result to history (if enabled)."""
+        """Persist a result to history (if enabled). Remembers the new
+        row id in self._last_record_id so a preset chain (Phase C.3) that
+        runs afterward can attach its artifacts to the right record."""
+        self._last_record_id = None
         cfg = get_config()
         if not getattr(cfg, "history_enabled", True):
             return
         try:
             from core.history import get_history_store
-            get_history_store().add(
+            self._last_record_id = get_history_store().add(
                 result,
                 source_path=source_path,
                 model=model,

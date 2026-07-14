@@ -123,6 +123,8 @@
   "history_clear_title": "Очистить историю",
   "history_clear_msg": "Удалить ВСЕ записи истории? Это действие необратимо.",
   "library_chip_transcript": "транскрипт",
+  "library_chip_youtube": "YouTube",
+  "library_chip_article": "статья",
   "library_refresh_tooltip": "Обновить список",
   "library_empty_title": "Пока нет записей",
   "library_empty_hint": "Перетащите аудио или видео файл, либо нажмите «Выбрать файл» выше.",

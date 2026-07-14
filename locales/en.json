@@ -123,6 +123,8 @@
   "history_clear_title": "Clear History",
   "history_clear_msg": "Delete ALL history entries? This cannot be undone.",
   "library_chip_transcript": "transcript",
+  "library_chip_youtube": "YouTube",
+  "library_chip_article": "article",
   "library_refresh_tooltip": "Refresh list",
   "library_empty_title": "No recordings yet",
   "library_empty_hint": "Drop an audio or video file, or click Browse Files above.",
