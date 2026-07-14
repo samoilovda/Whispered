@@ -61,6 +61,8 @@ class Theme:
     bg_deep: str        # text areas, list backgrounds
     bg_surface: str     # panels, inputs
     bg_elevated: str    # buttons default
+    bg_pressed: str     # button press flash
+    bg_disabled: str    # disabled control fill
     # Borders
     border: str
     border_input: str
@@ -102,6 +104,8 @@ DARK = Theme(
     bg_deep="#1e1e1e",
     bg_surface="#2a2a2a",
     bg_elevated="#2d2d2d",
+    bg_pressed="#4a4a4a",
+    bg_disabled="#252525",
     border="#3a3a3a",
     border_input="#4a4a4a",
     border_hover="#5a5a5a",
@@ -130,6 +134,8 @@ LIGHT = Theme(
     bg_deep="#ffffff",
     bg_surface="#e8e8e8",
     bg_elevated="#dcdcdc",
+    bg_pressed="#c8c8c8",
+    bg_disabled="#eeeeee",
     border="#c0c0c0",
     border_input="#aaaaaa",
     border_hover="#888888",
@@ -220,10 +226,10 @@ def build_stylesheet(t: Theme) -> str:
         border-color: {t.border_hover};
     }}
     QPushButton:pressed {{
-        background-color: #4a4a4a;
+        background-color: {t.bg_pressed};
     }}
     QPushButton:disabled {{
-        background-color: #252525;
+        background-color: {t.bg_disabled};
         color: {t.text_disabled};
         border-color: {t.border};
     }}
