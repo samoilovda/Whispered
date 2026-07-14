@@ -100,7 +100,8 @@ class HistoryPanel(QWidget):
 
         # ── Status bar ───────────────────────────────────────────
         self._status = QLabel()
-        self._status.setStyleSheet("color: #888; font-size: 11px;")
+        self._status.setProperty("role", "muted")
+        self._status.setStyleSheet("font-size: 11px;")
         layout.addWidget(self._status)
 
     # ------------------------------------------------------------------ public API

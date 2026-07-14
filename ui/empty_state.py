@@ -24,7 +24,8 @@ class EmptyStateWidget(QWidget):
 
         # Message
         self.message_label = QLabel(message)
-        self.message_label.setStyleSheet("color: #888; font-size: 14px;")
+        self.message_label.setProperty("role", "muted")
+        self.message_label.setStyleSheet("font-size: 14px;")
         self.message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.message_label.setWordWrap(True)
         container_layout.addWidget(self.message_label, alignment=Qt.AlignmentFlag.AlignCenter)

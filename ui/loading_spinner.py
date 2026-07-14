@@ -2,9 +2,11 @@ from PyQt6.QtWidgets import QWidget
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPainter, QColor, QPen
 
+from ui.theme import IconColors
+
 class LoadingSpinner(QWidget):
     """An animated loading spinner widget."""
-    def __init__(self, size: int = 24, color: str = "#6366f1", parent=None):
+    def __init__(self, size: int = 24, color: str = IconColors.PRIMARY, parent=None):
         super().__init__(parent)
         self.setFixedSize(size, size)
         self._color = QColor(color)

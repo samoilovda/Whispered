@@ -2,6 +2,8 @@ from PyQt6.QtWidgets import QWidget
 from PyQt6.QtCore import Qt, QRect, QPoint, QPointF
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QPolygonF, QPainterPath
 
+from ui.theme import TIMELINE_COLORS
+
 class ProgressTimeline(QWidget):
     """A horizontal chevron-style timeline for staged progress."""
     def __init__(self, parent=None):
@@ -34,15 +36,15 @@ class ProgressTimeline(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         # Colors
-        bg_color = QColor("#2a2a2a")
-        bg_active = QColor("#3730a3") # darker indigo
-        bg_done = QColor("#166534")   # darker green
-        bg_error = QColor("#7f1d1d")  # darker red
+        bg_color = QColor(TIMELINE_COLORS["bg"])
+        bg_active = QColor(TIMELINE_COLORS["bg_active"])
+        bg_done = QColor(TIMELINE_COLORS["bg_done"])
+        bg_error = QColor(TIMELINE_COLORS["bg_error"])
 
-        fg_color = QColor("#888888")
-        fg_active = QColor("#e0e0e0")
+        fg_color = QColor(TIMELINE_COLORS["fg"])
+        fg_active = QColor(TIMELINE_COLORS["fg_active"])
 
-        prog_active = QColor("#6366f1") # bright indigo
+        prog_active = QColor(TIMELINE_COLORS["progress_active"])
 
         width = self.width()
         height = self.height()
@@ -129,7 +131,7 @@ class ProgressTimeline(QWidget):
 
             # Draw separator lines over the polygon edges to make them crisp
             if i > 0:
-                pen = QPen(QColor("#1a1a1a"))
+                pen = QPen(QColor(TIMELINE_COLORS["separator"]))
                 pen.setWidth(2)
                 painter.setPen(pen)
                 painter.drawLine(QPoint(int(x), 0), QPoint(int(x + chevron_offset), int(height / 2)))

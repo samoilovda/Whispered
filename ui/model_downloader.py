@@ -139,7 +139,8 @@ class ModelDownloaderDialog(QDialog):
         # Info
         info_text = "Required models are being cached locally." if self.is_diarization else "This model is required for transcription and is not found locally."
         self.info_label = QLabel(info_text)
-        self.info_label.setStyleSheet("color: #888; font-size: 12px;")
+        self.info_label.setProperty("role", "muted")
+        self.info_label.setStyleSheet("font-size: 12px;")
         self.info_label.setWordWrap(True)
         layout.addWidget(self.info_label)
 
@@ -153,7 +154,8 @@ class ModelDownloaderDialog(QDialog):
 
         # Stats
         self.stats_label = QLabel("Starting download...")
-        self.stats_label.setStyleSheet("font-size: 11px; color: #aaa;")
+        self.stats_label.setProperty("role", "muted")
+        self.stats_label.setStyleSheet("font-size: 11px;")
         layout.addWidget(self.stats_label)
 
         layout.addStretch()

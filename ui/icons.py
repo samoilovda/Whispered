@@ -8,6 +8,8 @@ from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtCore import QByteArray, Qt
 from PyQt6.QtWidgets import QLabel
 
+from ui.theme import IconColors  # noqa: F401  (re-exported for existing `from ui.icons import IconColors` call sites)
+
 
 # SVG icon definitions using Feather-inspired designs
 # All icons use viewBox="0 0 24 24" for consistency
@@ -152,7 +154,7 @@ ICONS = {
 }
 
 
-def get_icon(name: str, color: str = '#888888', size: int = 24) -> QIcon:
+def get_icon(name: str, color: str = IconColors.DEFAULT, size: int = 24) -> QIcon:
     """
     Generate a QIcon from SVG with specified color and size.
 
@@ -188,7 +190,7 @@ def get_icon(name: str, color: str = '#888888', size: int = 24) -> QIcon:
     return QIcon(pixmap)
 
 
-def get_pixmap(name: str, color: str = '#888888', size: int = 24) -> QPixmap:
+def get_pixmap(name: str, color: str = IconColors.DEFAULT, size: int = 24) -> QPixmap:
     """
     Generate a QPixmap from SVG with specified color and size.
 
@@ -230,7 +232,7 @@ class IconLabel(QLabel):
     Supports dynamic color and size changes.
     """
 
-    def __init__(self, icon_name: str, color: str = '#888888', size: int = 24, parent=None):
+    def __init__(self, icon_name: str, color: str = IconColors.DEFAULT, size: int = 24, parent=None):
         super().__init__(parent)
         self._icon_name = icon_name
         self._color = color
@@ -257,15 +259,3 @@ class IconLabel(QLabel):
         """Change the icon size."""
         self._size = size
         self._update_icon()
-
-
-# Color constants for consistent theming
-class IconColors:
-    """Standard icon colors matching the app theme."""
-    DEFAULT = '#888888'
-    PRIMARY = '#6366f1'  # Indigo
-    SUCCESS = '#22c55e'  # Green
-    WARNING = '#f59e0b'  # Amber
-    ERROR = '#f87171'    # Red
-    WHITE = '#ffffff'
-    MUTED = '#666666'

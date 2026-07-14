@@ -18,6 +18,41 @@ SPEAKER_PALETTE: list[str] = [
 ]
 
 
+class IconColors:
+    """Standard icon colors, used as default fill for SVG icons (ui/icons.py)
+    and passed explicitly wherever an icon needs a specific tint.
+
+    Not theme-dependent: these values are the same in light and dark theme
+    (matches Theme.accent/success/warning, which are also identical between
+    DARK and LIGHT) except DEFAULT/MUTED, which intentionally stay fixed
+    dark-gray shades — small icons at these sizes read fine on both
+    backgrounds without needing to track theme switches.
+    """
+    DEFAULT = '#888888'
+    PRIMARY = '#6366f1'   # Indigo (== Theme.accent)
+    SUCCESS = '#22c55e'   # Green (== Theme.success, dark theme)
+    WARNING = '#f59e0b'   # Amber (== Theme.warning, dark theme)
+    ERROR = '#f87171'     # Red — deliberately lighter than Theme.error for icon visibility
+    WHITE = '#ffffff'
+    MUTED = '#666666'
+
+
+# Colors for the stepped ProgressTimeline widget (a custom QPainter widget,
+# not styled via QSS/roles). Currently fixed dark-theme shades regardless of
+# the active app theme — a pre-existing limitation of that widget, not
+# addressed here; kept as literal-value parity with the previous inline code.
+TIMELINE_COLORS = {
+    "bg": "#2a2a2a",
+    "bg_active": "#3730a3",
+    "bg_done": "#166534",
+    "bg_error": "#7f1d1d",
+    "fg": "#888888",
+    "fg_active": "#e0e0e0",
+    "progress_active": "#6366f1",
+    "separator": "#1a1a1a",
+}
+
+
 @dataclass
 class Theme:
     name: str
@@ -141,7 +176,7 @@ def set_role(widget, role: str) -> None:
     widget.style().polish(widget)
 
 
-def _rgba(hex_color: str, alpha: float) -> str:
+def rgba(hex_color: str, alpha: float) -> str:
     """Convert a '#rrggbb' token to an 'rgba(r, g, b, a)' QSS literal.
 
     Lets badge backgrounds tint a theme color (e.g. accent at 20% opacity)
@@ -251,7 +286,7 @@ def build_stylesheet(t: Theme) -> str:
         color: {t.success};
     }}
     QPushButton[role="checkable-success"]:checkable:hover {{
-        background-color: {_rgba(t.success, 0.1)};
+        background-color: {rgba(t.success, 0.1)};
     }}
 
     /* ── ComboBox ── */
@@ -555,29 +590,29 @@ def build_stylesheet(t: Theme) -> str:
         border-radius: {t.radius_lg};
     }}
     QWidget[role="accent-card"] {{
-        background-color: {_rgba(t.accent, 0.1)};
+        background-color: {rgba(t.accent, 0.1)};
         border-radius: {t.radius_md};
     }}
     QLabel[role="chat-bubble-user"] {{
-        background-color: {_rgba(t.accent, 0.18)};
+        background-color: {rgba(t.accent, 0.18)};
         border-radius: {t.radius_md};
         padding: 8px 12px;
         color: {t.text_primary};
     }}
     QLabel[role="chat-bubble-assistant"] {{
-        background-color: {_rgba(t.text_primary, 0.06)};
+        background-color: {rgba(t.text_primary, 0.06)};
         border-radius: {t.radius_md};
         padding: 8px 12px;
         color: {t.text_primary};
     }}
     QLabel[role="chat-bubble-error"] {{
-        background-color: {_rgba(t.error, 0.12)};
+        background-color: {rgba(t.error, 0.12)};
         border-radius: {t.radius_md};
         padding: 8px 12px;
         color: {t.error};
     }}
     QPushButton[role="quick-chip"] {{
-        background-color: {_rgba(t.accent, 0.12)};
+        background-color: {rgba(t.accent, 0.12)};
         border: 1px solid {t.accent};
         border-radius: 12px;
         padding: 3px 8px;
@@ -585,22 +620,22 @@ def build_stylesheet(t: Theme) -> str:
         font-size: {t.font_xs};
     }}
     QPushButton[role="quick-chip"]:hover {{
-        background-color: {_rgba(t.accent, 0.22)};
+        background-color: {rgba(t.accent, 0.22)};
     }}
     QWidget[role="drop-zone"] {{
         border: 2px dashed {t.border_input};
         border-radius: {t.radius_lg};
-        background-color: {_rgba(t.accent, 0.05)};
+        background-color: {rgba(t.accent, 0.05)};
         min-height: 180px;
     }}
     QWidget[role="drop-zone"]:hover {{
         border-color: {t.accent};
-        background-color: {_rgba(t.accent, 0.1)};
+        background-color: {rgba(t.accent, 0.1)};
     }}
     QWidget[role="drop-zone-active"] {{
         border: 2px dashed {t.accent};
         border-radius: {t.radius_lg};
-        background-color: {_rgba(t.accent, 0.15)};
+        background-color: {rgba(t.accent, 0.15)};
         min-height: 180px;
     }}
     QPushButton[role="icon-button-danger"] {{
@@ -608,7 +643,7 @@ def build_stylesheet(t: Theme) -> str:
         border: none;
     }}
     QPushButton[role="icon-button-danger"]:hover {{
-        background: {_rgba(t.error, 0.1)};
+        background: {rgba(t.error, 0.1)};
         border-radius: 12px;
     }}
     QLabel[role="chip"] {{
@@ -619,7 +654,7 @@ def build_stylesheet(t: Theme) -> str:
         font-size: {t.font_xs};
     }}
     QPushButton[role="accent-badge"] {{
-        background-color: {_rgba(t.accent, 0.2)};
+        background-color: {rgba(t.accent, 0.2)};
         border: none;
         border-radius: 12px;
         padding: 4px 12px;
@@ -627,10 +662,10 @@ def build_stylesheet(t: Theme) -> str:
         font-size: {t.font_sm};
     }}
     QPushButton[role="accent-badge"]:hover {{
-        background-color: {_rgba(t.accent, 0.3)};
+        background-color: {rgba(t.accent, 0.3)};
     }}
     QPushButton[role="success-badge"] {{
-        background-color: {_rgba(t.success, 0.2)};
+        background-color: {rgba(t.success, 0.2)};
         border: none;
         border-radius: 12px;
         padding: 4px 12px;
@@ -638,10 +673,10 @@ def build_stylesheet(t: Theme) -> str:
         font-size: {t.font_sm};
     }}
     QPushButton[role="success-badge"]:hover {{
-        background-color: {_rgba(t.success, 0.3)};
+        background-color: {rgba(t.success, 0.3)};
     }}
     QPushButton[role="muted-badge"] {{
-        background-color: {_rgba(t.text_secondary, 0.2)};
+        background-color: {rgba(t.text_secondary, 0.2)};
         border: none;
         border-radius: 12px;
         padding: 4px 12px;
@@ -649,10 +684,10 @@ def build_stylesheet(t: Theme) -> str:
         font-size: {t.font_sm};
     }}
     QPushButton[role="muted-badge"]:hover {{
-        background-color: {_rgba(t.text_secondary, 0.3)};
+        background-color: {rgba(t.text_secondary, 0.3)};
     }}
     QLabel[role="drop-overlay"] {{
-        background-color: {_rgba(t.accent, 0.18)};
+        background-color: {rgba(t.accent, 0.18)};
         border: 2px dashed {t.accent};
         border-radius: {t.radius_lg};
         color: {t.accent};

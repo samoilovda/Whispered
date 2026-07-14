@@ -10,14 +10,23 @@ from typing import Literal
 from PyQt6.QtWidgets import QLabel, QWidget
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
 
+from ui.theme import get_theme, rgba
+
 ToastKind = Literal["success", "info", "error", "warning"]
 
-_COLORS: dict[ToastKind, tuple[str, str]] = {
-    "success": ("#22c55e", "rgba(34,197,94,0.12)"),
-    "info":    ("#6366f1", "rgba(99,102,241,0.12)"),
-    "warning": ("#f59e0b", "rgba(245,158,11,0.12)"),
-    "error":   ("#ef4444", "rgba(239,68,68,0.12)"),
-}
+
+def _colors() -> dict[ToastKind, tuple[str, str]]:
+    """Border/background color per toast kind, resolved from the active
+    theme so a toast raised after a theme switch looks right."""
+    t = get_theme()
+    return {
+        "success": (t.success, rgba(t.success, 0.12)),
+        "info": (t.accent, rgba(t.accent, 0.12)),
+        "warning": (t.warning, rgba(t.warning, 0.12)),
+        "error": (t.error, rgba(t.error, 0.12)),
+    }
+
+
 _ICONS: dict[ToastKind, str] = {
     "success": "✓",
     "info":    "ℹ",
@@ -32,7 +41,8 @@ class Toast(QLabel):
     def __init__(self, message: str, kind: ToastKind = "info",
                  parent: QWidget | None = None, duration_ms: int = 3000):
         super().__init__(parent)
-        border_color, bg_color = _COLORS.get(kind, _COLORS["info"])
+        colors = _colors()
+        border_color, bg_color = colors.get(kind, colors["info"])
         icon = _ICONS.get(kind, "ℹ")
 
         self.setText(f"  {icon}  {message}  ")

@@ -59,7 +59,8 @@ class ProviderDialog(QDialog):
 
         notice = QLabel(tr("youtube_privacy_notice"))
         notice.setWordWrap(True)
-        notice.setStyleSheet("color: #888888; font-size: 11px;")
+        notice.setProperty("role", "muted")
+        notice.setStyleSheet("font-size: 11px;")
         layout.addWidget(notice)
 
         buttons = QDialogButtonBox(

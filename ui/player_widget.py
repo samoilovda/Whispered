@@ -101,7 +101,8 @@ class PlayerWidget(QWidget):
 
         # Time label
         self._time_label = QLabel("0:00 / 0:00")
-        self._time_label.setStyleSheet("color: #888888; font-size: 11px;")
+        self._time_label.setProperty("role", "muted")
+        self._time_label.setStyleSheet("font-size: 11px;")
         self._time_label.setFixedWidth(90)
         self._time_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         controls.addWidget(self._time_label)
@@ -113,7 +114,8 @@ class PlayerWidget(QWidget):
         row2.setSpacing(8)
 
         speed_label = QLabel("Speed:")
-        speed_label.setStyleSheet("color: #888888; font-size: 11px;")
+        speed_label.setProperty("role", "muted")
+        speed_label.setStyleSheet("font-size: 11px;")
         row2.addWidget(speed_label)
 
         self._speed_combo = QComboBox()
@@ -128,7 +130,8 @@ class PlayerWidget(QWidget):
         row2.addSpacing(12)
 
         vol_label = QLabel("Vol:")
-        vol_label.setStyleSheet("color: #888888; font-size: 11px;")
+        vol_label.setProperty("role", "muted")
+        vol_label.setStyleSheet("font-size: 11px;")
         row2.addWidget(vol_label)
 
         self._vol_slider = QSlider(Qt.Orientation.Horizontal)
