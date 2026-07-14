@@ -22,6 +22,7 @@ from PyQt6.QtGui import QFont
 from core.logger import get_logger
 from core.i18n import tr
 from utils import format_duration
+from ui.empty_state import EmptyStateWidget
 
 logger = get_logger(__name__)
 
@@ -122,6 +123,15 @@ class LibraryView(QWidget):
         self._list.itemDoubleClicked.connect(self._open_selected)
         layout.addWidget(self._list, stretch=1)
 
+        # Shown instead of the list when there are zero records and no
+        # active search — an empty QListWidget alone just reads as
+        # "still loading", not "nothing here yet".
+        self._empty_state = EmptyStateWidget(
+            "list", tr("library_empty_title"), tr("library_empty_hint")
+        )
+        self._empty_state.setVisible(False)
+        layout.addWidget(self._empty_state, stretch=1)
+
         # ── Status bar ───────────────────────────────────────────
         self._status = QLabel()
         self._status.setProperty("role", "muted")
@@ -182,6 +192,13 @@ class LibraryView(QWidget):
         total = len(self._records)
         key = "history_status_plural" if total != 1 else "history_status"
         self._status.setText(tr(key, count=total))
+
+        # The friendly empty state is for "no records exist at all", not
+        # "this search has no matches" — the latter already reads clearly
+        # from the "0 records" status line above an empty list.
+        show_empty_state = total == 0 and not is_search
+        self._empty_state.setVisible(show_empty_state)
+        self._list.setVisible(not show_empty_state)
 
     def _on_search(self, text: str):
         self._load(text.strip())

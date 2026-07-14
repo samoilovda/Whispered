@@ -82,6 +82,11 @@ class MainWindow(QMainWindow):
         # Apply saved mic device
         cfg = get_config()
         self.recorder_widget.set_device(getattr(cfg, "mic_device_index", None))
+        # The Library is the startup page but nothing else triggers its
+        # first load — every other refresh() call is a reaction to
+        # navigating back to it or saving a new record, neither of which
+        # has happened yet on a cold start.
+        self.library_view.refresh()
 
     def closeEvent(self, event):
         """Handle window close - cleanup resources."""
@@ -423,9 +428,20 @@ class MainWindow(QMainWindow):
         _sc("Ctrl+,",       self._open_settings)
         _sc("Ctrl+O",       self.file_selector.browse_btn.click)
         _sc("Ctrl+T",       self._start_transcription)
+        _sc("Ctrl+Return",  self.launch_bar.process_btn.click)
+        _sc("Ctrl+Enter",   self.launch_bar.process_btn.click)  # numpad Enter
         _sc("Ctrl+E",       self._export_result)
         _sc("Ctrl+Shift+C", self._copy_to_clipboard)
         _sc("Ctrl+R",       self.recorder_widget._toggle_recording)
+        # Section navigation matches the sidebar's top-to-bottom order.
+        # set_active() keeps the sidebar's highlighted button in sync,
+        # same as _show_library() does when switching pages programmatically.
+        def _goto_section(key: str) -> None:
+            self.sidebar.set_active(key)
+            self._on_section_changed(key)
+        _sc("Ctrl+1",       lambda: _goto_section("library"))
+        _sc("Ctrl+2",       lambda: _goto_section("queue"))
+        _sc("Ctrl+3",       lambda: _goto_section("recorder"))
         # Space: play/pause only when focus is not inside a text input
         _sc("Space",        self._space_play_pause)
 
