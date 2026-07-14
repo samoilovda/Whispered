@@ -151,14 +151,15 @@ class MainWindow(QMainWindow):
         row1_layout.addWidget(logo)
 
         title = QLabel("Whispered")
-        title.setStyleSheet("font-size: 18px; font-weight: bold; background: transparent;")
+        title.setProperty("role", "title")
+        title.setStyleSheet("font-size: 18px;")
         row1_layout.addWidget(title)
 
         row1_layout.addStretch()
 
         # Mode switcher: Posts / Book
         mode_label = QLabel(tr("label_mode"))
-        mode_label.setStyleSheet("color: #888888;")
+        mode_label.setProperty("role", "muted")
         row1_layout.addWidget(mode_label)
 
         self.mode_combo = QComboBox()
@@ -197,7 +198,7 @@ class MainWindow(QMainWindow):
 
         # Model selector
         model_label = QLabel(tr("label_model"))
-        model_label.setStyleSheet("color: #888888;")
+        model_label.setProperty("role", "muted")
         row2_layout.addWidget(model_label)
 
         self.model_combo = self._create_header_combo(WHISPER_MODELS, 180)
@@ -212,7 +213,7 @@ class MainWindow(QMainWindow):
 
         # Language selector
         lang_label = QLabel(tr("label_language"))
-        lang_label.setStyleSheet("color: #888888;")
+        lang_label.setProperty("role", "muted")
         row2_layout.addWidget(lang_label)
 
         self.language_combo = self._create_header_combo(WHISPER_LANGUAGES, 120)
@@ -232,7 +233,7 @@ class MainWindow(QMainWindow):
 
         # Performance mode selector
         perf_label = QLabel(tr("label_mode"))
-        perf_label.setStyleSheet("color: #888888;")
+        perf_label.setProperty("role", "muted")
         row2_layout.addWidget(perf_label)
 
         self.perf_combo = self._create_header_combo(
@@ -296,7 +297,8 @@ class MainWindow(QMainWindow):
 
         # Export format checkboxes
         export_label = QLabel(tr("label_export_formats"))
-        export_label.setStyleSheet("font-weight: bold; margin-top: 8px;")
+        export_label.setProperty("role", "heading")
+        export_label.setStyleSheet("margin-top: 8px;")
         left_layout.addWidget(export_label)
 
         self.format_txt = QCheckBox("Plain Text (.txt)")
@@ -402,7 +404,7 @@ class MainWindow(QMainWindow):
 
         # ===== Bottom Action Bar =====
         action_bar = QWidget()
-        action_bar.setStyleSheet("background-color: #1a1a1a; border-radius: 10px;")
+        action_bar.setProperty("role", "card")
         action_layout = QHBoxLayout(action_bar)
         action_layout.setContentsMargins(16, 12, 16, 12)
 
@@ -413,7 +415,7 @@ class MainWindow(QMainWindow):
         status_layout.setSpacing(4)
 
         self.status_label = QLabel(tr("label_status_ready"))
-        self.status_label.setStyleSheet("color: #888888;")
+        self.status_label.setProperty("role", "muted")
         status_layout.addWidget(self.status_label)
 
         self.progress_timeline = ProgressTimeline()
@@ -518,50 +520,20 @@ class MainWindow(QMainWindow):
         """Update the device button appearance based on current selection."""
         if self._use_gpu and self._gpu_type in ('cuda', 'rocm'):
             self.device_btn.setText(f"🚀 {self._gpu_name}")
-            self.device_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: rgba(34, 197, 94, 0.2);
-                    border: none;
-                    border-radius: 12px;
-                    padding: 4px 12px;
-                    color: #22c55e;
-                    font-size: 11px;
-                }
-                QPushButton:hover {
-                    background-color: rgba(34, 197, 94, 0.3);
-                }
-            """)
+            role = "success-badge"
         elif self._use_gpu and self._gpu_type == 'metal':
             self.device_btn.setText(f"🍎 {self._gpu_name}")
-            self.device_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: rgba(99, 102, 241, 0.2);
-                    border: none;
-                    border-radius: 12px;
-                    padding: 4px 12px;
-                    color: #6366f1;
-                    font-size: 11px;
-                }
-                QPushButton:hover {
-                    background-color: rgba(99, 102, 241, 0.3);
-                }
-            """)
+            role = "accent-badge"
         else:
             # CPU mode or no GPU
             self.device_btn.setText("💻 CPU")
-            self.device_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: rgba(136, 136, 136, 0.2);
-                    border: none;
-                    border-radius: 12px;
-                    padding: 4px 12px;
-                    color: #888;
-                    font-size: 11px;
-                }
-                QPushButton:hover {
-                    background-color: rgba(136, 136, 136, 0.3);
-                }
-            """)
+            role = "muted-badge"
+
+        self.device_btn.setProperty("role", role)
+        # Property-based selectors need an explicit re-polish to take effect
+        # once the widget has already been shown with a different role.
+        self.device_btn.style().unpolish(self.device_btn)
+        self.device_btn.style().polish(self.device_btn)
 
     def _on_mode_changed(self, index: int):
         """Switch between Posts, Book, and Video pipeline modes."""
@@ -640,16 +612,7 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "_drop_overlay"):
             overlay = QLabel(tr("drop_overlay"), self)
             overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            overlay.setStyleSheet("""
-                QLabel {
-                    background-color: rgba(99, 102, 241, 0.18);
-                    border: 2px dashed #6366f1;
-                    border-radius: 12px;
-                    color: #6366f1;
-                    font-size: 20px;
-                    font-weight: bold;
-                }
-            """)
+            overlay.setProperty("role", "drop-overlay")
             overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
             self._drop_overlay = overlay
         ov = self._drop_overlay
