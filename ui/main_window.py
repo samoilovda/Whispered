@@ -25,7 +25,6 @@ from ui.ai_panel import AIProcessingPanel
 from ui.article_view import ArticleView, CleanedTextView
 from ui.batch_panel import BatchPanel
 from ui.book_panel import BookPanel
-from ui.video_panel import VideoPanel
 from ui.cut_view import CutView
 from ui.icons import IconLabel, get_icon, IconColors
 from ui.player_widget import PlayerWidget
@@ -37,7 +36,7 @@ from ui.progress_timeline import ProgressTimeline
 from transcriber import Transcriber, TranscriptionResult
 from exporters import export_result, EXPORT_FORMATS
 from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, get_thread_count, is_supported_format
-from config import get_config, save_config
+from config import get_config
 from core.ai_worker import AIProcessingWorker
 from core.logger import get_logger
 from core.i18n import tr
@@ -105,11 +104,6 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'book_panel') and self.book_panel._batch_worker:
             self.book_panel._cancel_batch()
 
-        # Save current mode to config (posts / book / video)
-        cfg = get_config()
-        cfg.pipeline_mode = self.mode_combo.currentData() or 'posts'
-        save_config()
-
         event.accept()
 
 
@@ -174,29 +168,6 @@ class MainWindow(QMainWindow):
         row1_layout.addWidget(title)
 
         row1_layout.addStretch()
-
-        # Mode switcher: Posts / Book
-        mode_label = QLabel(tr("label_mode"))
-        mode_label.setProperty("role", "muted")
-        row1_layout.addWidget(mode_label)
-
-        self.mode_combo = QComboBox()
-        self.mode_combo.setFixedWidth(120)
-        self.mode_combo.addItem(tr("label_mode_posts"), "posts")
-        self.mode_combo.addItem(tr("label_mode_book"), "book")
-        self.mode_combo.addItem(tr("label_mode_video"), "video")
-        # Restore saved mode by data value (supports posts/book/video)
-        saved_mode = get_config().pipeline_mode
-        saved_idx = next(
-            (i for i in range(self.mode_combo.count())
-             if self.mode_combo.itemData(i) == saved_mode),
-            0
-        )
-        self.mode_combo.setCurrentIndex(saved_idx)
-        self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
-        row1_layout.addWidget(self.mode_combo)
-
-        row1_layout.addSpacing(8)
 
         # Clickable device toggle button
         self.device_btn = QPushButton()
@@ -312,18 +283,12 @@ class MainWindow(QMainWindow):
         self.batch_panel = BatchPanel()
         self.batch_panel.start_requested.connect(self._start_batch_processing)
 
-        # Book Pipeline Panel
+        # Book Pipeline Panel — created here (not mode-gated) so its
+        # connection-check timers start with the rest of setup; it's shown
+        # as its own tab on the Record view (see content_tabs below).
         self.book_panel = BookPanel()
         self.book_panel.run_single_requested.connect(self._on_book_run)
         self.book_panel.cancel_requested.connect(self._cancel_operation)
-        left_layout.addWidget(self.book_panel)
-
-        # Video Pipeline Panel
-        self.video_panel = VideoPanel()
-        self.video_panel.export_edl_requested.connect(self._export_edl)
-        self.video_panel.mark_pauses_requested.connect(self._mark_pauses)
-        self.video_panel.assemble_requested.connect(self._assemble_draft)
-        left_layout.addWidget(self.video_panel)
 
         left_layout.addStretch()
         left_scroll.setWidget(left_panel)
@@ -447,10 +412,15 @@ class MainWindow(QMainWindow):
         self.content_tabs.addTab(self.insights_panel, tr("tab_insights"))
 
         self.cut_view = CutView()
+        self.cut_view.video_panel.export_edl_requested.connect(self._export_edl)
+        self.cut_view.video_panel.mark_pauses_requested.connect(self._mark_pauses)
+        self.cut_view.video_panel.assemble_requested.connect(self._assemble_draft)
         self.content_tabs.addTab(self.cut_view, tr("tab_cut"))
 
         self.youtube_panel = YouTubePanel()
         self.content_tabs.addTab(self.youtube_panel, tr("tab_youtube"))
+
+        self.content_tabs.addTab(self.book_panel, tr("tab_book"))
 
         self.record_view.add_content_widgets(self.player, self.content_tabs)
         self._record_index = self._stack.addWidget(self.record_view)  # index 3
@@ -490,9 +460,6 @@ class MainWindow(QMainWindow):
         self.article_view.copy_done.connect(lambda: show_toast(self, tr("toast_copied"), kind="success"))
         self.article_view.export_done.connect(lambda msg: show_toast(self, msg, kind="success"))
         self.cleaned_view.copy_requested.connect(lambda: show_toast(self, tr("toast_copied"), kind="success"))
-
-        # Apply initial mode visibility
-        self._on_mode_changed(self.mode_combo.currentIndex())
 
         # Player ↔ transcript sync
         self.player.position_changed_sec.connect(self._on_player_position)
@@ -550,24 +517,6 @@ class MainWindow(QMainWindow):
         # once the widget has already been shown with a different role.
         self.device_btn.style().unpolish(self.device_btn)
         self.device_btn.style().polish(self.device_btn)
-
-    def _on_mode_changed(self, index: int):
-        """Switch between Posts, Book, and Video pipeline modes."""
-        mode = self.mode_combo.currentData()
-        is_book  = mode == 'book'
-        is_video = mode == 'video'
-        is_posts = mode == 'posts'
-        # Posts mode panel (batch_panel now lives on its own sidebar
-        # section, always available regardless of mode)
-        self.ai_panel.setVisible(is_posts)
-        # Book mode panel
-        self.book_panel.setVisible(is_book)
-        # Video mode panel
-        self.video_panel.setVisible(is_video)
-        # Immediately recheck LM Studio when switching to Book mode
-        # (avoids waiting up to 10s for the next timer tick)
-        if is_book:
-            self.book_panel.refresh_connection()
 
     def _open_settings(self):
         """Open the Settings dialog and apply any changes to the live UI."""
@@ -707,9 +656,7 @@ class MainWindow(QMainWindow):
         # Determine thread count based on performance mode
         n_threads = get_thread_count(perf_mode)
 
-        # Get diarization settings (disabled in video mode — not needed for cutting)
-        is_video = self.mode_combo.currentData() == 'video'
-        enable_diarization = False if is_video else self.diarization_checkbox.isChecked()
+        enable_diarization = self.diarization_checkbox.isChecked()
 
         self._transcription_start = time.monotonic()
         # Build initial prompt from custom vocabulary
@@ -725,7 +672,7 @@ class MainWindow(QMainWindow):
             enable_diarization=enable_diarization,
             num_speakers=None,  # Auto-detect
             initial_prompt=prompt,
-            word_timestamps=is_video,
+            word_timestamps=True,
             on_progress=self._on_progress,
             on_finished=self._on_finished,
             on_error=self._on_error
@@ -829,14 +776,10 @@ class MainWindow(QMainWindow):
         if self._source_filepath:
             self.youtube_panel.set_source_name(Path(self._source_filepath).stem)
 
-        # Video mode: populate cut view and switch to it
-        self.video_panel.set_has_transcript(True)
+        # Populate the Cut tab's segment list and video actions
+        self.cut_view.video_panel.set_has_transcript(True)
         self.cut_view.set_result(result)
-        if self.mode_combo.currentData() == 'video':
-            self.content_tabs.setCurrentWidget(self.cut_view)
-        else:
-            # Switch to transcript tab
-            self.content_tabs.setCurrentIndex(0)
+        self.content_tabs.setCurrentIndex(0)
 
         # A fresh transcription result is a record too — open the Record
         # view so the user immediately sees what they just produced.
@@ -912,6 +855,8 @@ class MainWindow(QMainWindow):
             self.insights_panel.set_segments(result.segments, transcript_language=result.language)
             self.youtube_panel.set_segments(result.segments, transcript_language=result.language)
             self.youtube_panel.set_source_name(Path(source_name).stem if source_name else "")
+            self.cut_view.video_panel.set_has_transcript(True)
+            self.cut_view.set_result(result)
             word_count = len(result.full_text.split())
             self.status_label.setText(tr("toast_loaded_history", words=word_count))
             self.content_tabs.setCurrentIndex(0)

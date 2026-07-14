@@ -37,7 +37,6 @@ class Config:
     lm_studio_url: str = "http://localhost:1234/v1"
 
     # Book pipeline settings
-    pipeline_mode: str = "posts"          # "posts" | "book" | "video"
     book_lm_url: str = "http://localhost:1234/v1"
     book_model_name: str = ""             # empty = auto-detect
     book_temperature: float = 0.3         # low temp for precision, not creativity

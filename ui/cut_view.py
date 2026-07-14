@@ -7,16 +7,20 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QListWidget, QListWidgetItem,
+    QListWidget, QListWidgetItem, QSplitter,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
 from core.i18n import tr
 from utils import format_timestamp_vtt
+from ui.video_panel import VideoPanel
 
 
 class CutView(QWidget):
-    """Timeline / Cut tab — segment checklist for video editing."""
+    """Timeline / Cut tab — segment checklist plus the video export actions
+    (EDL, pause marking, draft assembly) that belong to it. These used to
+    live in a mode-gated left-column panel; now they're always reachable
+    here alongside the segments they operate on."""
 
     seek_requested = pyqtSignal(float)
 
@@ -29,8 +33,16 @@ class CutView(QWidget):
     # ------------------------------------------------------------------ UI
 
     def _setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setHandleWidth(1)
+        outer.addWidget(splitter)
+
+        list_container = QWidget()
+        layout = QVBoxLayout(list_container)
+        layout.setContentsMargins(0, 0, 12, 0)
         layout.setSpacing(6)
 
         # Header row
@@ -75,6 +87,15 @@ class CutView(QWidget):
         self._placeholder.setProperty("role", "dim")
         self._placeholder.setStyleSheet("font-size: 13px;")
         layout.addWidget(self._placeholder)
+
+        splitter.addWidget(list_container)
+
+        # Video export actions (fps, EDL, mark pauses, assemble draft) —
+        # exposed as a plain attribute so MainWindow can wire its signals
+        # the same way it did when this was a mode-gated left panel.
+        self.video_panel = VideoPanel()
+        splitter.addWidget(self.video_panel)
+        splitter.setSizes([560, 220])
 
     # ------------------------------------------------------------------ public API
 

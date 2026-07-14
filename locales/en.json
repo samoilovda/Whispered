@@ -24,9 +24,6 @@
   "label_speed": "Speed:",
   "label_volume": "Vol:",
   "label_export_formats": "Export formats:",
-  "label_mode_posts": "📝 Posts",
-  "label_mode_book": "📖 Book",
-  "label_mode_video": "🎬 Video",
   "label_status_ready": "Ready",
 
   "tab_transcript": "📝 Transcript",
@@ -185,6 +182,7 @@
 
   "tab_cut": "✂️ Timeline / Cut",
   "tab_youtube": "YouTube",
+  "tab_book": "📖 Book",
   "youtube_placeholder": "Transcribe a recording first to generate a YouTube description.",
   "youtube_generate": "Generate description",
   "youtube_generating": "Generating…",
@@ -224,7 +222,7 @@
   "video_export_edl": "Export EDL…",
   "video_pause_label": "Min pause:",
   "video_pause_threshold_tooltip": "Segments shorter than this duration will be marked for removal",
-  "video_mark_pauses": "Mark Pauses & Fillers",
+  "video_mark_pauses": "Mark Pauses && Fillers",
   "video_assemble_draft": "Assemble Draft MP4…",
 
   "cut_view_title": "Timeline / Cut",

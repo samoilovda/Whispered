@@ -24,9 +24,6 @@
   "label_speed": "Скорость:",
   "label_volume": "Громк.:",
   "label_export_formats": "Форматы экспорта:",
-  "label_mode_posts": "📝 Посты",
-  "label_mode_book": "📖 Книга",
-  "label_mode_video": "🎬 Видео",
   "label_status_ready": "Готово",
 
   "tab_transcript": "📝 Транскрипт",
@@ -185,6 +182,7 @@
 
   "tab_cut": "✂️ Таймлайн / Нарезка",
   "tab_youtube": "YouTube",
+  "tab_book": "📖 Книга",
   "youtube_placeholder": "Сначала транскрибируйте запись, чтобы сгенерировать описание для YouTube.",
   "youtube_generate": "Сгенерировать описание",
   "youtube_generating": "Генерирую…",
