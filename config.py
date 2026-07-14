@@ -74,6 +74,10 @@ class Config:
     # History / privacy
     history_enabled: bool = True
 
+    # Export formats last selected in the Record view's Export menu
+    # (see ui/record_view.py). Persisted so the choice survives restarts.
+    export_formats: list = field(default_factory=lambda: ["txt"])
+
     # YouTube AI provider (feature-scoped; local LM Studio stays the default)
     yt_provider: str = "lmstudio"                       # "lmstudio" | "openai" | "anthropic"
     yt_openai_base_url: str = "https://api.openai.com/v1"

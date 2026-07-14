@@ -112,6 +112,12 @@
   "history_delete_msg": "Delete this history entry? The original file is not affected.",
   "history_clear_title": "Clear History",
   "history_clear_msg": "Delete ALL history entries? This cannot be undone.",
+  "library_chip_transcript": "transcript",
+  "library_refresh_tooltip": "Refresh list",
+  "library_empty_title": "No recordings yet",
+  "library_empty_hint": "Drop an audio or video file, or click Browse Files above.",
+  "record_export_menu": "Export ▾",
+  "record_export_action": "Export selected formats…",
 
   "error_transcription": "Transcription Error",
   "error_export": "Export Error",

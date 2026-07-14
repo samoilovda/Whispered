@@ -17,6 +17,8 @@ from PyQt6.QtGui import QKeySequence, QShortcut, QDragEnterEvent, QDropEvent
 
 from ui.toast import show_toast
 from ui.sidebar import Sidebar
+from ui.library_view import LibraryView
+from ui.record_view import RecordView
 from ui.file_selector import FileSelector
 from ui.transcript_view import TranscriptView
 from ui.ai_panel import AIProcessingPanel
@@ -25,7 +27,6 @@ from ui.batch_panel import BatchPanel
 from ui.book_panel import BookPanel
 from ui.video_panel import VideoPanel
 from ui.cut_view import CutView
-from ui.history_panel import HistoryPanel
 from ui.icons import IconLabel, get_icon, IconColors
 from ui.player_widget import PlayerWidget
 from ui.recorder_widget import RecorderWidget
@@ -302,34 +303,6 @@ class MainWindow(QMainWindow):
         self.file_selector = FileSelector()
         left_layout.addWidget(self.file_selector)
 
-        # Export format checkboxes
-        export_label = QLabel(tr("label_export_formats"))
-        export_label.setProperty("role", "heading")
-        export_label.setStyleSheet("margin-top: 8px;")
-        left_layout.addWidget(export_label)
-
-        self.format_txt = QCheckBox("Plain Text (.txt)")
-        self.format_txt.setChecked(True)
-        left_layout.addWidget(self.format_txt)
-
-        self.format_srt = QCheckBox("SRT (.srt)")
-        left_layout.addWidget(self.format_srt)
-
-        self.format_vtt = QCheckBox("WebVTT (.vtt)")
-        left_layout.addWidget(self.format_vtt)
-
-        self.format_json = QCheckBox("JSON (.json)")
-        left_layout.addWidget(self.format_json)
-
-        self.format_md = QCheckBox("Markdown (.md)")
-        left_layout.addWidget(self.format_md)
-
-        self.format_html = QCheckBox("HTML (.html)")
-        left_layout.addWidget(self.format_html)
-
-        self.format_docx = QCheckBox("Word (.docx)")
-        left_layout.addWidget(self.format_docx)
-
         # AI Processing Panel
         self.ai_panel = AIProcessingPanel()
         left_layout.addWidget(self.ai_panel)
@@ -357,54 +330,12 @@ class MainWindow(QMainWindow):
 
         content_splitter.addWidget(left_scroll)
 
-        # Right: Tabbed Content View
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(12, 0, 0, 0)
-        right_layout.setSpacing(4)
-
-        # Audio player (hidden when multimedia backend unavailable)
-        self.player = PlayerWidget()
-        right_layout.addWidget(self.player)
-
-        # Create tabbed view for different content types
-        self.content_tabs = QTabWidget()
-
-        # Tab 1: Raw Transcription
-        self.transcript_view = TranscriptView()
-        self.content_tabs.addTab(self.transcript_view, tr("tab_transcript"))
-
-        # Tab 2: Cleaned Text
-        self.cleaned_view = CleanedTextView()
-        self.content_tabs.addTab(self.cleaned_view, tr("tab_cleaned"))
-
-        # Tab 3: Generated Articles
-        self.article_view = ArticleView()
-        self.content_tabs.addTab(self.article_view, tr("tab_articles"))
-
-        # Tab 4: Chat
-        self.chat_panel = ChatPanel()
-        self.content_tabs.addTab(self.chat_panel, tr("tab_chat"))
-
-        # Tab 5: Insights
-        self.insights_panel = InsightsPanel()
-        self.content_tabs.addTab(self.insights_panel, tr("tab_insights"))
-
-        # Tab 6: Timeline / Cut (video mode)
-        self.cut_view = CutView()
-        self.content_tabs.addTab(self.cut_view, tr("tab_cut"))
-
-        # Tab 7: YouTube description
-        self.youtube_panel = YouTubePanel()
-        self.content_tabs.addTab(self.youtube_panel, tr("tab_youtube"))
-
-        # Tab 8: History
-        self.history_panel = HistoryPanel()
-        self.content_tabs.addTab(self.history_panel, tr("tab_history"))
-
-        right_layout.addWidget(self.content_tabs)
-
-        content_splitter.addWidget(right_panel)
+        # Right: Library list (search + past recordings). Opening a record
+        # switches to the Record page built below, which hosts the player
+        # and result tabs.
+        self.library_view = LibraryView()
+        self.library_view.open_record.connect(self._open_record_view)
+        content_splitter.addWidget(self.library_view)
         content_splitter.setSizes([280, 720])
 
         main_layout.addWidget(content_splitter, stretch=1)
@@ -488,6 +419,42 @@ class MainWindow(QMainWindow):
         recorder_outer.addStretch()
         self._stack.addWidget(recorder_page)  # index 2
 
+        # ===== Record section (not a sidebar destination — opened by
+        # clicking a Library entry or finishing a fresh transcription) =====
+        self.record_view = RecordView()
+        self.record_view.back_requested.connect(self._show_library)
+        self.record_view.export_requested.connect(self._export_result)
+
+        # Audio player (hidden when multimedia backend unavailable)
+        self.player = PlayerWidget()
+
+        # Tabbed result view
+        self.content_tabs = QTabWidget()
+
+        self.transcript_view = TranscriptView()
+        self.content_tabs.addTab(self.transcript_view, tr("tab_transcript"))
+
+        self.cleaned_view = CleanedTextView()
+        self.content_tabs.addTab(self.cleaned_view, tr("tab_cleaned"))
+
+        self.article_view = ArticleView()
+        self.content_tabs.addTab(self.article_view, tr("tab_articles"))
+
+        self.chat_panel = ChatPanel()
+        self.content_tabs.addTab(self.chat_panel, tr("tab_chat"))
+
+        self.insights_panel = InsightsPanel()
+        self.content_tabs.addTab(self.insights_panel, tr("tab_insights"))
+
+        self.cut_view = CutView()
+        self.content_tabs.addTab(self.cut_view, tr("tab_cut"))
+
+        self.youtube_panel = YouTubePanel()
+        self.content_tabs.addTab(self.youtube_panel, tr("tab_youtube"))
+
+        self.record_view.add_content_widgets(self.player, self.content_tabs)
+        self._record_index = self._stack.addWidget(self.record_view)  # index 3
+
         self._section_index = {"library": 0, "queue": 1, "recorder": 2}
 
     def _on_section_changed(self, key: str) -> None:
@@ -495,6 +462,18 @@ class MainWindow(QMainWindow):
         idx = self._section_index.get(key)
         if idx is not None:
             self._stack.setCurrentIndex(idx)
+
+    def _show_library(self) -> None:
+        """Navigate back to the Library page (from the Record view) and
+        refresh the list in case anything changed while a record was open."""
+        self.sidebar.set_active("library")
+        self._stack.setCurrentIndex(self._section_index["library"])
+        self.library_view.refresh()
+
+    def _open_record_view(self, record_id: int) -> None:
+        """Load a history record and switch to the Record page."""
+        self._load_from_history(record_id)
+        self._stack.setCurrentIndex(self._record_index)
 
     def _connect_signals(self):
         """Connect widget signals."""
@@ -522,9 +501,6 @@ class MainWindow(QMainWindow):
 
         # Insights panel
         self.insights_panel.seek_requested.connect(self.player.seek_to)
-
-        # History panel
-        self.history_panel.open_record.connect(self._load_from_history)
 
         # Auto-save each completed batch item to history
         self.batch_panel.processor.item_finished.connect(self._on_batch_item_finished)
@@ -862,6 +838,13 @@ class MainWindow(QMainWindow):
             # Switch to transcript tab
             self.content_tabs.setCurrentIndex(0)
 
+        # A fresh transcription result is a record too — open the Record
+        # view so the user immediately sees what they just produced.
+        title = Path(self._source_filepath).stem if self._source_filepath else tr("app_title")
+        self.record_view.set_title(title)
+        self.sidebar.set_active("library")
+        self._stack.setCurrentIndex(self._record_index)
+
     def _save_to_history(self, result: TranscriptionResult, source_path: str,
                          model: str, speaker_names: dict):
         """Persist a result to history (if enabled)."""
@@ -876,7 +859,7 @@ class MainWindow(QMainWindow):
                 model=model,
                 speaker_names=speaker_names or {},
             )
-            self.history_panel.refresh()
+            self.library_view.refresh()
         except Exception as e:
             logger.warning("Failed to save history: %s", e)
 
@@ -932,6 +915,7 @@ class MainWindow(QMainWindow):
             word_count = len(result.full_text.split())
             self.status_label.setText(tr("toast_loaded_history", words=word_count))
             self.content_tabs.setCurrentIndex(0)
+            self.record_view.set_title(Path(source_name).stem if source_name else tr("app_title"))
         except Exception as e:
             logger.warning("Failed to load history record %d: %s", record_id, e)
 
@@ -962,32 +946,14 @@ class MainWindow(QMainWindow):
             clipboard.setText(text)
             show_toast(self, tr("toast_copied"), kind="success")
 
-    def _get_export_formats(self) -> list[str]:
-        """Get list of selected export formats."""
-        formats = []
-        if self.format_txt.isChecked():
-            formats.append('txt')
-        if self.format_srt.isChecked():
-            formats.append('srt')
-        if self.format_vtt.isChecked():
-            formats.append('vtt')
-        if self.format_json.isChecked():
-            formats.append('json')
-        if self.format_md.isChecked():
-            formats.append('md')
-        if self.format_html.isChecked():
-            formats.append('html')
-        if self.format_docx.isChecked():
-            formats.append('docx')
-        return formats if formats else ['txt']
-
     def _export_result(self):
-        """Export the transcription result."""
+        """Export the transcription result using the formats currently
+        checked in the Record view's Export menu."""
         result = self.transcript_view.get_result()
         if not result:
             return
 
-        format_keys = self._get_export_formats()
+        format_keys = self.record_view.get_export_formats()
         source_file = self.file_selector.get_file() or "transcript"
         default_name = os.path.splitext(os.path.basename(source_file))[0]
 

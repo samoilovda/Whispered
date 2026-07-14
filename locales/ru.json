@@ -112,6 +112,12 @@
   "history_delete_msg": "Удалить эту запись истории? Исходный файл не будет затронут.",
   "history_clear_title": "Очистить историю",
   "history_clear_msg": "Удалить ВСЕ записи истории? Это действие необратимо.",
+  "library_chip_transcript": "транскрипт",
+  "library_refresh_tooltip": "Обновить список",
+  "library_empty_title": "Пока нет записей",
+  "library_empty_hint": "Перетащите аудио или видео файл, либо нажмите «Выбрать файл» выше.",
+  "record_export_menu": "Экспорт ▾",
+  "record_export_action": "Экспортировать выбранные форматы…",
 
   "error_transcription": "Ошибка транскрипции",
   "error_export": "Ошибка экспорта",

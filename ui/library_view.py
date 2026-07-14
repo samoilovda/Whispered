@@ -1,6 +1,10 @@
 """
-Whispered – History Panel
-Browse, open and delete past transcription results.
+Whispered – Library View
+Top-level "Library" section: search + list of past transcriptions.
+
+Supersedes the old History tab now that the sidebar makes this a
+first-class section (the default screen on startup) rather than one tab
+buried among eight others.
 """
 
 from __future__ import annotations
@@ -38,19 +42,29 @@ _JSON_KEY_RE = re.compile(r'"[^"]+"\s*:\s*')
 
 def _clean_snippet(raw: str) -> str:
     """Strip JSON structure from an FTS5 snippet to produce readable text."""
-    # Remove JSON key-value punctuation like "text": "
     text = _JSON_KEY_RE.sub("", raw)
-    # Remove leftover JSON delimiters
     text = re.sub(r'[\[{}\],"]', " ", text)
-    # Collapse whitespace
     text = " ".join(text.split())
     return text
 
 
-class HistoryPanel(QWidget):
+def _artifact_chip_line(rec) -> str:
+    """One-line summary of which artifacts exist for *rec*.
+
+    Every record has a transcript by definition (that's what gets saved),
+    so this is a constant "transcript" chip for now. Once history rows
+    track generated YouTube-package/article artifacts (see UI_REDESIGN_PLAN
+    Phase C.4's `artifacts` column), this expands to reflect that per
+    record instead of just the one guaranteed chip.
     """
-    History tab widget.
-    Emits open_record(record_id) so MainWindow can load it.
+    return f"✓ {tr('library_chip_transcript')}"
+
+
+class LibraryView(QWidget):
+    """Library section — search box + list of past transcriptions.
+
+    Emits open_record(record_id) so MainWindow can load it into the
+    Record view.
     """
 
     open_record = pyqtSignal(int)  # record id
@@ -79,7 +93,7 @@ class HistoryPanel(QWidget):
 
         self._refresh_btn = QPushButton("↺")
         self._refresh_btn.setFixedWidth(28)
-        self._refresh_btn.setToolTip("Refresh list")
+        self._refresh_btn.setToolTip(tr("library_refresh_tooltip"))
         self._refresh_btn.clicked.connect(self.refresh)
         toolbar.addWidget(self._refresh_btn)
 
@@ -107,7 +121,8 @@ class HistoryPanel(QWidget):
     # ------------------------------------------------------------------ public API
 
     def refresh(self):
-        """Reload list from DB (called after a new transcription is saved)."""
+        """Reload list from DB (called after a new transcription is saved,
+        or when navigating back from the Record view)."""
         query = self._search_edit.text().strip()
         self._load(query)
 
@@ -127,7 +142,7 @@ class HistoryPanel(QWidget):
             else:
                 self._records = store.list()
         except Exception as e:
-            logger.warning("History load failed: %s", e)
+            logger.warning("Library load failed: %s", e)
             self._records = []
         self._populate()
 
@@ -144,14 +159,13 @@ class HistoryPanel(QWidget):
             lang = rec.language.upper() if rec.language else "?"
 
             meta = f"{date}  ·  {dur}  ·  {lang}"
+            chips = _artifact_chip_line(rec)
+            lines = [name, meta, chips]
             if is_search and rec.preview:
                 snippet = _clean_snippet(rec.preview)
                 if snippet:
-                    item.setText(f"{name}\n{meta}\n{snippet}")
-                else:
-                    item.setText(f"{name}\n{meta}")
-            else:
-                item.setText(f"{name}\n{meta}")
+                    lines.append(snippet)
+            item.setText("\n".join(lines))
             item.setFont(QFont("Sans", 10))
             self._list.addItem(item)
 
@@ -195,7 +209,7 @@ class HistoryPanel(QWidget):
         try:
             self._get_store().delete(record_id)
         except Exception as e:
-            logger.warning("History delete failed: %s", e)
+            logger.warning("Library delete failed: %s", e)
         self.refresh()
 
     def _clear_all(self):
@@ -209,7 +223,7 @@ class HistoryPanel(QWidget):
             return
         try:
             n = self._get_store().clear()
-            logger.info("History cleared: %d records deleted", n)
+            logger.info("Library cleared: %d records deleted", n)
         except Exception as e:
-            logger.warning("History clear failed: %s", e)
+            logger.warning("Library clear failed: %s", e)
         self.refresh()
