@@ -88,7 +88,8 @@ class YouTubePanel(QWidget):
         self._placeholder = QLabel(tr("youtube_placeholder"))
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._placeholder.setWordWrap(True)
-        self._placeholder.setStyleSheet("color: #555; font-size: 13px;")
+        self._placeholder.setProperty("role", "dim")
+        self._placeholder.setStyleSheet("font-size: 13px;")
         layout.addWidget(self._placeholder)
 
         controls = QHBoxLayout()
@@ -134,7 +135,8 @@ class YouTubePanel(QWidget):
 
         self._privacy_notice = QLabel(tr("youtube_privacy_notice"))
         self._privacy_notice.setWordWrap(True)
-        self._privacy_notice.setStyleSheet("color: #d0a030; font-size: 11px;")
+        self._privacy_notice.setProperty("role", "warning-text")
+        self._privacy_notice.setStyleSheet("font-size: 11px;")
         self._privacy_notice.setVisible(False)
         layout.addWidget(self._privacy_notice)
 
@@ -146,17 +148,12 @@ class YouTubePanel(QWidget):
 
         mono = QFont("Monospace")
         mono.setStyleHint(QFont.StyleHint.Monospace)
-        _style = (
-            "QPlainTextEdit { background: #1a1a1a; color: #d0d0d0;"
-            " border: 1px solid #333; border-radius: 4px; }"
-        )
 
         for spec in _TAB_SPECS:
             edit = QPlainTextEdit()
             edit.setReadOnly(True)
             if spec.mono:
                 edit.setFont(mono)
-            edit.setStyleSheet(_style)
             setattr(self, spec.edit_attr, edit)
             self._tabs.addTab(edit, tr(spec.label_key))
 

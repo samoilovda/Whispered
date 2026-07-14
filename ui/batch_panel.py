@@ -11,19 +11,25 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal
 
 from batch_processor import BatchProcessor, BatchItem, BatchStatus
+from ui.theme import get_theme
 
 
 # ============================================================================
 # STATUS COLORS
 # ============================================================================
 
-STATUS_COLORS = {
-    BatchStatus.PENDING: "#888888",
-    BatchStatus.PROCESSING: "#6366f1",
-    BatchStatus.COMPLETE: "#22c55e",
-    BatchStatus.ERROR: "#ef4444",
-    BatchStatus.CANCELLED: "#f59e0b",
-}
+def _status_colors() -> dict:
+    """Map each BatchStatus to a theme color, resolved fresh on each call so
+    it stays correct if the active theme changes."""
+    t = get_theme()
+    return {
+        BatchStatus.PENDING: t.text_secondary,
+        BatchStatus.PROCESSING: t.accent,
+        BatchStatus.COMPLETE: t.success,
+        BatchStatus.ERROR: t.error,
+        BatchStatus.CANCELLED: t.warning,
+    }
+
 
 STATUS_ICONS = {
     BatchStatus.PENDING: "⏸️",
@@ -87,7 +93,7 @@ class BatchItemWidget(QWidget):
         self.status_label.setText(icon)
 
         # Filename with color
-        color = STATUS_COLORS.get(self.item.status, "#888")
+        color = _status_colors().get(self.item.status, get_theme().text_secondary)
         self.name_label.setText(self.item.filename)
         self.name_label.setStyleSheet(f"color: {color}; font-size: 11px;")
 
@@ -125,7 +131,7 @@ class BatchPanel(QWidget):
         # Divider
         divider = QFrame()
         divider.setFrameShape(QFrame.Shape.HLine)
-        divider.setStyleSheet("background-color: #3a3a3a;")
+        divider.setProperty("role", "divider")
         divider.setFixedHeight(1)
         layout.addWidget(divider)
 
@@ -133,11 +139,12 @@ class BatchPanel(QWidget):
         header_layout = QHBoxLayout()
 
         header_label = QLabel("📂 Batch Queue")
-        header_label.setStyleSheet("color: #888; font-size: 12px; font-weight: bold;")
+        header_label.setProperty("role", "heading")
         header_layout.addWidget(header_label)
 
         self.count_label = QLabel("(0)")
-        self.count_label.setStyleSheet("color: #666; font-size: 11px;")
+        self.count_label.setProperty("role", "dim")
+        self.count_label.setStyleSheet("font-size: 11px;")
         header_layout.addWidget(self.count_label)
 
         header_layout.addStretch()

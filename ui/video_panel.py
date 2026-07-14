@@ -46,14 +46,14 @@ class VideoPanel(QWidget):
         # Separator line
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet("color: #333;")
+        line.setProperty("role", "divider")
         layout.addWidget(line)
 
         # FPS row
         fps_row = QHBoxLayout()
         fps_row.setSpacing(8)
         fps_label = QLabel(tr("video_fps_label"))
-        fps_label.setStyleSheet("color: #888888;")
+        fps_label.setProperty("role", "muted")
         fps_row.addWidget(fps_label)
 
         self._fps_combo = QComboBox()
@@ -87,7 +87,7 @@ class VideoPanel(QWidget):
         pause_row = QHBoxLayout()
         pause_row.setSpacing(6)
         pause_label = QLabel(tr("video_pause_label"))
-        pause_label.setStyleSheet("color: #888888;")
+        pause_label.setProperty("role", "muted")
         pause_row.addWidget(pause_label)
 
         self._pause_spin = QDoubleSpinBox()

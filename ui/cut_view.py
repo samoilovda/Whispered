@@ -46,7 +46,8 @@ class CutView(QWidget):
         header_layout.addStretch()
 
         self._count_label = QLabel("")
-        self._count_label.setStyleSheet("color: #888888; font-size: 11px;")
+        self._count_label.setProperty("role", "muted")
+        self._count_label.setStyleSheet("font-size: 11px;")
         header_layout.addWidget(self._count_label)
 
         select_all_btn = QPushButton(tr("cut_select_all"))
@@ -61,15 +62,8 @@ class CutView(QWidget):
 
         layout.addWidget(header)
 
-        # Segment list
+        # Segment list — uses the global QListWidget rule from theme.py
         self._list = QListWidget()
-        self._list.setStyleSheet(
-            "QListWidget { background: #1a1a1a; border: 1px solid #333;"
-            " border-radius: 4px; color: #d0d0d0; font-size: 12px; }"
-            "QListWidget::item { padding: 4px 8px; }"
-            "QListWidget::item:selected { background: rgba(99,102,241,0.25); }"
-            "QListWidget::item:hover { background: rgba(255,255,255,0.05); }"
-        )
         self._list.itemChanged.connect(self._on_item_changed)
         self._list.itemDoubleClicked.connect(self._on_double_click)
         layout.addWidget(self._list, stretch=1)
@@ -78,7 +72,8 @@ class CutView(QWidget):
         self._placeholder = QLabel(tr("cut_placeholder"))
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._placeholder.setWordWrap(True)
-        self._placeholder.setStyleSheet("color: #555; font-size: 13px;")
+        self._placeholder.setProperty("role", "dim")
+        self._placeholder.setStyleSheet("font-size: 13px;")
         layout.addWidget(self._placeholder)
 
     # ------------------------------------------------------------------ public API

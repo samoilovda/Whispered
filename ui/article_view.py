@@ -35,12 +35,13 @@ class ArticleTab(QWidget):
         header = QHBoxLayout()
 
         self.title_label = QLabel("No article")
-        self.title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #e0e0e0;")
+        self.title_label.setStyleSheet("font-size: 14px; font-weight: bold;")
         self.title_label.setWordWrap(True)
         header.addWidget(self.title_label, stretch=1)
 
         self.stats_label = QLabel("")
-        self.stats_label.setStyleSheet("color: #888; font-size: 11px;")
+        self.stats_label.setProperty("role", "muted")
+        self.stats_label.setStyleSheet("font-size: 11px;")
         header.addWidget(self.stats_label)
 
         layout.addLayout(header)
@@ -74,7 +75,8 @@ class ArticleTab(QWidget):
 
         # Quality score
         self.score_label = QLabel("")
-        self.score_label.setStyleSheet("color: #888; font-size: 11px;")
+        self.score_label.setProperty("role", "muted")
+        self.score_label.setStyleSheet("font-size: 11px;")
         actions.addWidget(self.score_label)
 
         layout.addLayout(actions)
@@ -272,13 +274,15 @@ class CleanedTextView(QWidget):
         stats = QHBoxLayout()
 
         self.stats_label = QLabel("No processed text")
-        self.stats_label.setStyleSheet("color: #888; font-size: 12px;")
+        self.stats_label.setProperty("role", "muted")
+        self.stats_label.setStyleSheet("font-size: 12px;")
         stats.addWidget(self.stats_label)
 
         stats.addStretch()
 
         self.improvement_label = QLabel("")
-        self.improvement_label.setStyleSheet("color: #22c55e; font-size: 11px;")
+        self.improvement_label.setProperty("role", "success-text")
+        self.improvement_label.setStyleSheet("font-size: 11px;")
         stats.addWidget(self.improvement_label)
 
         layout.addLayout(stats)

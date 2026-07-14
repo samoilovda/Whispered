@@ -16,6 +16,7 @@ from PyQt6.QtGui import QFont
 
 from core.logger import get_logger
 from core.i18n import tr
+from ui.theme import set_role
 
 logger = get_logger(__name__)
 
@@ -49,16 +50,7 @@ class _Bubble(QLabel):
         self.setText(text)
         self.setFont(QFont("Sans", 10))
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        if role == "user":
-            self.setStyleSheet(
-                "background: rgba(99,102,241,0.18); border-radius: 8px;"
-                "padding: 8px 12px; color: #e0e0e0;"
-            )
-        else:
-            self.setStyleSheet(
-                "background: rgba(255,255,255,0.06); border-radius: 8px;"
-                "padding: 8px 12px; color: #d0d0d0;"
-            )
+        self.setProperty("role", "chat-bubble-user" if role == "user" else "chat-bubble-assistant")
 
     def append_text(self, delta: str):
         self.setText(self.text() + delta)
@@ -101,7 +93,8 @@ class ChatPanel(QWidget):
         # ── Empty-state placeholder ───────────────────────────────────
         self._placeholder = QLabel(tr("chat_placeholder"))
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._placeholder.setStyleSheet("color: #555; font-size: 13px;")
+        self._placeholder.setProperty("role", "dim")
+        self._placeholder.setStyleSheet("font-size: 13px;")
         self._placeholder.setWordWrap(True)
         self._msg_layout.insertWidget(0, self._placeholder)
 
@@ -111,11 +104,7 @@ class ChatPanel(QWidget):
         for q in _quick_questions():
             btn = QPushButton(q)
             btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            btn.setStyleSheet(
-                "QPushButton { background: rgba(99,102,241,0.12); border: 1px solid #6366f1;"
-                "border-radius: 12px; padding: 3px 8px; color: #a0a0ff; font-size: 10px; }"
-                "QPushButton:hover { background: rgba(99,102,241,0.22); }"
-            )
+            btn.setProperty("role", "quick-chip")
             btn.clicked.connect(lambda _, text=q: self._send(text))
             chips_row.addWidget(btn)
         layout.addLayout(chips_row)
@@ -250,10 +239,7 @@ class ChatPanel(QWidget):
         self._token_buf = []
         if self._current_bubble:
             self._current_bubble.setText(f"⚠ {msg}")
-            self._current_bubble.setStyleSheet(
-                "background: rgba(239,68,68,0.12); border-radius: 8px;"
-                "padding: 8px 12px; color: #ef4444;"
-            )
+            set_role(self._current_bubble, "chat-bubble-error")
         if self._history and self._history[-1]["role"] == "user":
             self._history.pop()   # remove the failed user turn
         self._current_bubble = None

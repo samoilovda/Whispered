@@ -298,6 +298,12 @@ def build_stylesheet(t: Theme) -> str:
         padding: 12px;
         font-size: 13px;
     }}
+    QPlainTextEdit {{
+        background-color: {t.bg_base};
+        color: {t.text_primary};
+        border: 1px solid {t.border};
+        border-radius: {t.radius_sm};
+    }}
     QLineEdit {{
         background-color: {t.bg_deep};
         color: {t.text_primary};
@@ -551,6 +557,35 @@ def build_stylesheet(t: Theme) -> str:
     QWidget[role="accent-card"] {{
         background-color: {_rgba(t.accent, 0.1)};
         border-radius: {t.radius_md};
+    }}
+    QLabel[role="chat-bubble-user"] {{
+        background-color: {_rgba(t.accent, 0.18)};
+        border-radius: {t.radius_md};
+        padding: 8px 12px;
+        color: {t.text_primary};
+    }}
+    QLabel[role="chat-bubble-assistant"] {{
+        background-color: {_rgba(t.text_primary, 0.06)};
+        border-radius: {t.radius_md};
+        padding: 8px 12px;
+        color: {t.text_primary};
+    }}
+    QLabel[role="chat-bubble-error"] {{
+        background-color: {_rgba(t.error, 0.12)};
+        border-radius: {t.radius_md};
+        padding: 8px 12px;
+        color: {t.error};
+    }}
+    QPushButton[role="quick-chip"] {{
+        background-color: {_rgba(t.accent, 0.12)};
+        border: 1px solid {t.accent};
+        border-radius: 12px;
+        padding: 3px 8px;
+        color: {t.accent};
+        font-size: {t.font_xs};
+    }}
+    QPushButton[role="quick-chip"]:hover {{
+        background-color: {_rgba(t.accent, 0.22)};
     }}
     QWidget[role="drop-zone"] {{
         border: 2px dashed {t.border_input};
