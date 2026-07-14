@@ -12,6 +12,7 @@ from PyQt6.QtCore import pyqtSignal, QTimer
 from text_processor import TextProcessor
 from article_generator import ArticleGenerator, ArticleFormat, ARTICLE_FORMAT_INFO
 from lm_studio_manager import LMStudioManager
+from ui.theme import set_role
 
 
 class StatusIndicator(QWidget):
@@ -29,11 +30,13 @@ class StatusIndicator(QWidget):
         layout.setSpacing(6)
 
         self.dot = QLabel("●")
-        self.dot.setStyleSheet("color: #ef4444; font-size: 10px;")  # Red = disconnected
+        self.dot.setProperty("role", "danger-text")  # disconnected by default
+        self.dot.setStyleSheet("font-size: 10px;")
         layout.addWidget(self.dot)
 
         self.label = QLabel("LM Studio")
-        self.label.setStyleSheet("color: #888; font-size: 11px;")
+        self.label.setProperty("role", "muted")
+        self.label.setStyleSheet("font-size: 11px;")
         layout.addWidget(self.label)
 
         layout.addStretch()
@@ -44,19 +47,20 @@ class StatusIndicator(QWidget):
         self._model_name = model_name
 
         if connected:
-            self.dot.setStyleSheet("color: #22c55e; font-size: 10px;")  # Green
+            set_role(self.dot, "success-text")
             if model_name:
                 # Truncate long model names
                 display_name = model_name[:25] + "..." if len(model_name) > 25 else model_name
                 self.label.setText(f"LM Studio: {display_name}")
-                self.label.setStyleSheet("color: #22c55e; font-size: 11px;")
             else:
                 self.label.setText("LM Studio: Connected")
-                self.label.setStyleSheet("color: #22c55e; font-size: 11px;")
+            set_role(self.label, "success-text")
         else:
-            self.dot.setStyleSheet("color: #ef4444; font-size: 10px;")  # Red
+            set_role(self.dot, "danger-text")
             self.label.setText("LM Studio: Offline")
-            self.label.setStyleSheet("color: #888; font-size: 11px;")
+            set_role(self.label, "muted")
+        self.dot.setStyleSheet("font-size: 10px;")
+        self.label.setStyleSheet("font-size: 11px;")
 
     @property
     def is_connected(self) -> bool:
@@ -96,13 +100,14 @@ class AIProcessingPanel(QWidget):
         # Divider
         divider = QFrame()
         divider.setFrameShape(QFrame.Shape.HLine)
-        divider.setStyleSheet("background-color: #3a3a3a;")
+        divider.setProperty("role", "divider")
         divider.setFixedHeight(1)
         layout.addWidget(divider)
 
         # Section header
         header = QLabel("🤖 AI Processing")
-        header.setStyleSheet("color: #888; font-size: 12px; font-weight: bold; margin-top: 4px;")
+        header.setProperty("role", "heading")
+        header.setStyleSheet("margin-top: 4px;")
         layout.addWidget(header)
 
         # Connection status
@@ -114,7 +119,8 @@ class AIProcessingPanel(QWidget):
         model_layout.setSpacing(4)
 
         model_label = QLabel("Model:")
-        model_label.setStyleSheet("color: #888; font-size: 11px;")
+        model_label.setProperty("role", "muted")
+        model_label.setStyleSheet("font-size: 11px;")
         model_layout.addWidget(model_label)
 
         self.model_combo = QComboBox()
@@ -142,7 +148,8 @@ class AIProcessingPanel(QWidget):
 
         # Progress label
         self.progress_label = QLabel("")
-        self.progress_label.setStyleSheet("color: #888; font-size: 10px;")
+        self.progress_label.setProperty("role", "muted")
+        self.progress_label.setStyleSheet("font-size: 10px;")
         self.progress_label.setVisible(False)
         layout.addWidget(self.progress_label)
 
@@ -253,7 +260,8 @@ class AIProcessingPanel(QWidget):
 
         # Load the selected model
         self.status_indicator.label.setText("Loading model...")
-        self.status_indicator.label.setStyleSheet("color: #f59e0b; font-size: 11px;")
+        set_role(self.status_indicator.label, "warning-text")
+        self.status_indicator.label.setStyleSheet("font-size: 11px;")
 
         # Use a timer to avoid blocking UI
         QTimer.singleShot(100, lambda: self._load_model(model_path))
@@ -266,7 +274,8 @@ class AIProcessingPanel(QWidget):
             self._check_connection()
         else:
             self.status_indicator.label.setText("Failed to load model")
-            self.status_indicator.label.setStyleSheet("color: #ef4444; font-size: 11px;")
+            set_role(self.status_indicator.label, "danger-text")
+            self.status_indicator.label.setStyleSheet("font-size: 11px;")
 
     def _start_server(self):
         """Start LM Studio server."""

@@ -117,6 +117,33 @@ def get_theme() -> Theme:
     return _active_theme
 
 
+def set_role(widget, role: str) -> None:
+    """Set a widget's `role` property and force Qt to re-evaluate the
+    matching QSS selector immediately.
+
+    Needed any time a role is changed *after* the widget was already shown
+    once (e.g. a status dot flipping between "muted"/"success-text"/
+    "danger-text" at runtime) — a plain setProperty() alone only affects
+    the next full stylesheet polish, which doesn't happen on its own.
+    For a role set once at construction time, setProperty() alone is
+    sufficient and the unpolish/polish call is a harmless no-op.
+    """
+    widget.setProperty("role", role)
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)
+
+
+def _rgba(hex_color: str, alpha: float) -> str:
+    """Convert a '#rrggbb' token to an 'rgba(r, g, b, a)' QSS literal.
+
+    Lets badge backgrounds tint a theme color (e.g. accent at 20% opacity)
+    without a second hardcoded hex literal per theme.
+    """
+    hex_color = hex_color.lstrip("#")
+    r, g, b = (int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
+    return f"rgba({r}, {g}, {b}, {alpha})"
+
+
 def build_stylesheet(t: Theme) -> str:
     return f"""
     /* ── Base ── */
@@ -470,9 +497,30 @@ def build_stylesheet(t: Theme) -> str:
         background: transparent;
         border: none;
     }}
+    QLabel[role="dim"] {{
+        color: {t.text_muted};
+        background: transparent;
+        border: none;
+    }}
+    QLabel[role="divider-text"] {{
+        color: {t.border};
+        background: transparent;
+        border: none;
+    }}
     QFrame[role="divider"] {{
         background-color: {t.border};
         border: none;
+    }}
+    QPushButton[role="timestamp-link"] {{
+        color: {t.accent};
+        background: transparent;
+        border: none;
+        font-family: monospace;
+        padding: 0;
+    }}
+    QPushButton[role="timestamp-link"]:hover {{
+        color: {t.accent_hover};
+        text-decoration: underline;
     }}
     QWidget[role="card"] {{
         background-color: {t.bg_surface};
@@ -486,7 +534,7 @@ def build_stylesheet(t: Theme) -> str:
         font-size: {t.font_xs};
     }}
     QPushButton[role="accent-badge"] {{
-        background-color: rgba(99, 102, 241, 0.2);
+        background-color: {_rgba(t.accent, 0.2)};
         border: none;
         border-radius: 12px;
         padding: 4px 12px;
@@ -494,7 +542,37 @@ def build_stylesheet(t: Theme) -> str:
         font-size: {t.font_sm};
     }}
     QPushButton[role="accent-badge"]:hover {{
-        background-color: rgba(99, 102, 241, 0.3);
+        background-color: {_rgba(t.accent, 0.3)};
+    }}
+    QPushButton[role="success-badge"] {{
+        background-color: {_rgba(t.success, 0.2)};
+        border: none;
+        border-radius: 12px;
+        padding: 4px 12px;
+        color: {t.success};
+        font-size: {t.font_sm};
+    }}
+    QPushButton[role="success-badge"]:hover {{
+        background-color: {_rgba(t.success, 0.3)};
+    }}
+    QPushButton[role="muted-badge"] {{
+        background-color: {_rgba(t.text_secondary, 0.2)};
+        border: none;
+        border-radius: 12px;
+        padding: 4px 12px;
+        color: {t.text_secondary};
+        font-size: {t.font_sm};
+    }}
+    QPushButton[role="muted-badge"]:hover {{
+        background-color: {_rgba(t.text_secondary, 0.3)};
+    }}
+    QLabel[role="drop-overlay"] {{
+        background-color: {_rgba(t.accent, 0.18)};
+        border: 2px dashed {t.accent};
+        border-radius: {t.radius_lg};
+        color: {t.accent};
+        font-size: 20px;
+        font-weight: bold;
     }}
 
     /* ── Message boxes ── */

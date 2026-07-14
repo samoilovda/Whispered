@@ -23,10 +23,8 @@ logger = get_logger(__name__)
 class _SectionHeader(QLabel):
     def __init__(self, text: str, parent=None):
         super().__init__(text, parent)
-        self.setStyleSheet(
-            "font-weight: bold; font-size: 12px; color: #aaa;"
-            " padding: 6px 0 2px 0; background: transparent;"
-        )
+        self.setProperty("role", "heading")
+        self.setStyleSheet("padding: 6px 0 2px 0;")
 
 
 class _ChapterRow(QWidget):
@@ -42,17 +40,14 @@ class _ChapterRow(QWidget):
         ts_btn = QPushButton(ts)
         ts_btn.setFixedWidth(48)
         ts_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        ts_btn.setStyleSheet(
-            "QPushButton { color: #6366f1; background: transparent; border: none;"
-            " font-size: 11px; font-family: monospace; padding: 0; }"
-            "QPushButton:hover { color: #818cf8; text-decoration: underline; }"
-        )
+        ts_btn.setProperty("role", "timestamp-link")
+        ts_btn.setStyleSheet("font-size: 11px;")
         ts_btn.clicked.connect(lambda: self.seek_requested.emit(start))
         layout.addWidget(ts_btn)
 
         title_lbl = QLabel(title)
         title_lbl.setWordWrap(True)
-        title_lbl.setStyleSheet("color: #d0d0d0; font-size: 12px; background: transparent;")
+        title_lbl.setStyleSheet("font-size: 12px;")
         layout.addWidget(title_lbl, stretch=1)
 
 
@@ -65,9 +60,7 @@ class _ActionRow(QLabel):
             parts.append(f"  {tr('insights_deadline')} {deadline}")
         super().__init__("\n".join(parts), parent)
         self.setWordWrap(True)
-        self.setStyleSheet(
-            "color: #c0c0c0; font-size: 12px; background: transparent; padding: 2px 0;"
-        )
+        self.setStyleSheet("font-size: 12px; padding: 2px 0;")
 
 
 class _MomentRow(QWidget):
@@ -86,27 +79,21 @@ class _MomentRow(QWidget):
         ts_btn = QPushButton(ts)
         ts_btn.setFixedWidth(48)
         ts_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        ts_btn.setStyleSheet(
-            "QPushButton { color: #6366f1; background: transparent; border: none;"
-            " font-size: 11px; font-family: monospace; padding: 0; }"
-            "QPushButton:hover { color: #818cf8; text-decoration: underline; }"
-        )
+        ts_btn.setProperty("role", "timestamp-link")
+        ts_btn.setStyleSheet("font-size: 11px;")
         ts_btn.clicked.connect(lambda: self.seek_requested.emit(start))
         top.addWidget(ts_btn)
 
         quote_lbl = QLabel(f'"{quote}"')
         quote_lbl.setWordWrap(True)
-        quote_lbl.setStyleSheet(
-            "color: #e0e0e0; font-size: 12px; font-style: italic; background: transparent;"
-        )
+        quote_lbl.setStyleSheet("font-size: 12px; font-style: italic;")
         top.addWidget(quote_lbl, stretch=1)
         layout.addLayout(top)
 
         note_lbl = QLabel(note)
         note_lbl.setWordWrap(True)
-        note_lbl.setStyleSheet(
-            "color: #888; font-size: 11px; padding-left: 56px; background: transparent;"
-        )
+        note_lbl.setProperty("role", "muted")
+        note_lbl.setStyleSheet("font-size: 11px; padding-left: 56px;")
         layout.addWidget(note_lbl)
 
 
@@ -132,7 +119,8 @@ class InsightsPanel(QWidget):
 
         self._placeholder = QLabel(tr("insights_placeholder"))
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._placeholder.setStyleSheet("color: #555; font-size: 13px;")
+        self._placeholder.setProperty("role", "dim")
+        self._placeholder.setStyleSheet("font-size: 13px;")
         self._placeholder.setWordWrap(True)
         outer.addWidget(self._placeholder)
 
@@ -164,7 +152,7 @@ class InsightsPanel(QWidget):
 
         sep1 = QFrame()
         sep1.setFrameShape(QFrame.Shape.HLine)
-        sep1.setStyleSheet("color: #333;")
+        sep1.setProperty("role", "divider-text")
         self._content.addWidget(sep1)
 
         self._ai_header = _SectionHeader(tr("insights_action_items"))
@@ -177,7 +165,7 @@ class InsightsPanel(QWidget):
 
         sep2 = QFrame()
         sep2.setFrameShape(QFrame.Shape.HLine)
-        sep2.setStyleSheet("color: #333;")
+        sep2.setProperty("role", "divider-text")
         self._content.addWidget(sep2)
 
         self._km_header = _SectionHeader(tr("insights_key_moments"))
@@ -292,7 +280,8 @@ class InsightsPanel(QWidget):
             else:
                 lbl = QLabel(str(data)[:500])
                 lbl.setWordWrap(True)
-                lbl.setStyleSheet("color: #888; font-size: 11px; background: transparent;")
+                lbl.setProperty("role", "muted")
+                lbl.setStyleSheet("font-size: 11px;")
                 layout.addWidget(lbl)
         self._decrement_pending()
 
@@ -307,7 +296,8 @@ class InsightsPanel(QWidget):
             self._clear_section(layout)
             lbl = QLabel(f"{tr('insights_error')} {msg}")
             lbl.setWordWrap(True)
-            lbl.setStyleSheet("color: #ef4444; font-size: 11px; background: transparent;")
+            lbl.setProperty("role", "danger-text")
+            lbl.setStyleSheet("font-size: 11px;")
             layout.addWidget(lbl)
         self._decrement_pending()
 

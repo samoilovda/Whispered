@@ -18,6 +18,7 @@ from book_pipeline import BookPipeline, BookResult
 from core.book_batch_worker import BookBatchWorker
 from core.i18n import tr
 from core.logger import get_logger
+from ui.theme import set_role
 
 logger = get_logger(__name__)
 
@@ -78,20 +79,23 @@ class BookPanel(QWidget):
         # ----- Header -----
         divider = QFrame()
         divider.setFrameShape(QFrame.Shape.HLine)
-        divider.setStyleSheet("background-color: #3a3a3a;")
+        divider.setProperty("role", "divider")
         divider.setFixedHeight(1)
         layout.addWidget(divider)
 
         header = QLabel(tr("book_header"))
-        header.setStyleSheet("color: #888; font-size: 12px; font-weight: bold; margin-top: 4px;")
+        header.setProperty("role", "heading")
+        header.setStyleSheet("margin-top: 4px;")
         layout.addWidget(header)
 
         # ----- LM Studio status -----
         status_row = QHBoxLayout()
         self.status_dot = QLabel("●")
-        self.status_dot.setStyleSheet("color: #ef4444; font-size: 10px;")
+        self.status_dot.setProperty("role", "danger-text")
+        self.status_dot.setStyleSheet("font-size: 10px;")
         self.status_label = QLabel(tr("book_lm_checking"))
-        self.status_label.setStyleSheet("color: #888; font-size: 11px;")
+        self.status_label.setProperty("role", "muted")
+        self.status_label.setStyleSheet("font-size: 11px;")
         status_row.addWidget(self.status_dot)
         status_row.addWidget(self.status_label)
         status_row.addStretch()
@@ -99,7 +103,8 @@ class BookPanel(QWidget):
 
         # ----- Stage checkboxes -----
         stages_label = QLabel(tr("book_stages_label"))
-        stages_label.setStyleSheet("color: #888; font-size: 11px;")
+        stages_label.setProperty("role", "muted")
+        stages_label.setStyleSheet("font-size: 11px;")
         layout.addWidget(stages_label)
 
         self.chk_transcribe = QCheckBox(tr("book_stage_transcribe"))
@@ -144,7 +149,8 @@ class BookPanel(QWidget):
         layout.addWidget(self.single_progress)
 
         self.single_status = QLabel("")
-        self.single_status.setStyleSheet("color: #888; font-size: 10px;")
+        self.single_status.setProperty("role", "muted")
+        self.single_status.setStyleSheet("font-size: 10px;")
         self.single_status.setVisible(False)
         layout.addWidget(self.single_status)
 
@@ -165,12 +171,12 @@ class BookPanel(QWidget):
         # ===== Batch section =====
         divider2 = QFrame()
         divider2.setFrameShape(QFrame.Shape.HLine)
-        divider2.setStyleSheet("background-color: #3a3a3a;")
+        divider2.setProperty("role", "divider")
         divider2.setFixedHeight(1)
         layout.addWidget(divider2)
 
         batch_header = QLabel(tr("book_batch_header"))
-        batch_header.setStyleSheet("color: #888; font-size: 12px; font-weight: bold;")
+        batch_header.setProperty("role", "heading")
         layout.addWidget(batch_header)
 
         # Folder picker row
@@ -188,7 +194,8 @@ class BookPanel(QWidget):
 
         # File count label
         self.batch_count_label = QLabel(tr("book_files_none_selected"))
-        self.batch_count_label.setStyleSheet("color: #666; font-size: 11px;")
+        self.batch_count_label.setProperty("role", "dim")
+        self.batch_count_label.setStyleSheet("font-size: 11px;")
         layout.addWidget(self.batch_count_label)
 
         # Batch progress
@@ -199,7 +206,8 @@ class BookPanel(QWidget):
         layout.addWidget(self.batch_progress)
 
         self.batch_status_label = QLabel("")
-        self.batch_status_label.setStyleSheet("color: #888; font-size: 10px;")
+        self.batch_status_label.setProperty("role", "muted")
+        self.batch_status_label.setStyleSheet("font-size: 10px;")
         self.batch_status_label.setVisible(False)
         layout.addWidget(self.batch_status_label)
 
@@ -267,13 +275,15 @@ class BookPanel(QWidget):
     def _on_connection_result(self, connected: bool) -> None:
         self._connected = connected
         if connected:
-            self.status_dot.setStyleSheet("color: #22c55e; font-size: 10px;")
+            set_role(self.status_dot, "success-text")
             self.status_label.setText(tr("book_lm_connected"))
-            self.status_label.setStyleSheet("color: #22c55e; font-size: 11px;")
+            set_role(self.status_label, "success-text")
         else:
-            self.status_dot.setStyleSheet("color: #ef4444; font-size: 10px;")
+            set_role(self.status_dot, "danger-text")
             self.status_label.setText(tr("book_lm_unavailable"))
-            self.status_label.setStyleSheet("color: #888; font-size: 11px;")
+            set_role(self.status_label, "muted")
+        self.status_dot.setStyleSheet("font-size: 10px;")
+        self.status_label.setStyleSheet("font-size: 11px;")
         self._update_run_btn()
         self._update_batch_btn()
 
