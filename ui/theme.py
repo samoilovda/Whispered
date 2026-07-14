@@ -46,6 +46,13 @@ class Theme:
     font_lg: str
 
 
+# ── Spacing scale (px) — use these instead of ad-hoc margin/padding numbers ──
+SPACING_XS = 4
+SPACING_SM = 8
+SPACING_MD = 12
+SPACING_LG = 16
+SPACING_XL = 24
+
 DARK = Theme(
     name="dark",
     bg_base="#1a1a1a",
@@ -424,6 +431,70 @@ def build_stylesheet(t: Theme) -> str:
         height: 1px;
         background: {t.border};
         margin: 4px 8px;
+    }}
+
+    /* ── Semantic roles (QLabel/QFrame/QWidget[role=...]) ──
+       Prefer these over ad-hoc setStyleSheet() calls with literal colors:
+       widget.setProperty("role", "muted") picks up the matching rule here. */
+    QLabel[role="muted"] {{
+        color: {t.text_secondary};
+        background: transparent;
+        border: none;
+    }}
+    QLabel[role="heading"] {{
+        color: {t.text_secondary};
+        font-weight: bold;
+        font-size: {t.font_md};
+        background: transparent;
+        border: none;
+    }}
+    QLabel[role="title"] {{
+        color: {t.text_primary};
+        font-weight: bold;
+        font-size: {t.font_lg};
+        background: transparent;
+        border: none;
+    }}
+    QLabel[role="danger-text"] {{
+        color: {t.error};
+        background: transparent;
+        border: none;
+    }}
+    QLabel[role="success-text"] {{
+        color: {t.success};
+        background: transparent;
+        border: none;
+    }}
+    QLabel[role="warning-text"] {{
+        color: {t.warning};
+        background: transparent;
+        border: none;
+    }}
+    QFrame[role="divider"] {{
+        background-color: {t.border};
+        border: none;
+    }}
+    QWidget[role="card"] {{
+        background-color: {t.bg_surface};
+        border-radius: {t.radius_lg};
+    }}
+    QLabel[role="chip"] {{
+        background-color: {t.bg_elevated};
+        color: {t.text_secondary};
+        border-radius: {t.radius_sm};
+        padding: 2px 8px;
+        font-size: {t.font_xs};
+    }}
+    QPushButton[role="accent-badge"] {{
+        background-color: rgba(99, 102, 241, 0.2);
+        border: none;
+        border-radius: 12px;
+        padding: 4px 12px;
+        color: {t.accent};
+        font-size: {t.font_sm};
+    }}
+    QPushButton[role="accent-badge"]:hover {{
+        background-color: rgba(99, 102, 241, 0.3);
     }}
 
     /* ── Message boxes ── */
