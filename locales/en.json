@@ -16,6 +16,15 @@
   "btn_test_connection": "Test connection",
   "btn_start_all": "▶ Start All",
   "btn_clear": "Clear",
+  "btn_process": "Process",
+
+  "launch_preset_label": "Preset:",
+  "preset_transcribe_only": "Transcribe only",
+  "preset_youtube": "Transcribe + YouTube package",
+  "preset_article": "Transcribe + Article",
+  "preset_full": "Full package",
+  "tooltip_process": "Run the selected preset  (Ctrl+Enter)",
+  "tooltip_transcribe_options": "Transcription options",
 
   "label_model": "Model:",
   "label_language": "Language:",

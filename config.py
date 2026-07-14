@@ -77,6 +77,9 @@ class Config:
     # (see ui/record_view.py). Persisted so the choice survives restarts.
     export_formats: list = field(default_factory=lambda: ["txt"])
 
+    # Last-selected preset in the Library's launch bar (see ui/launch_bar.py).
+    launch_preset: str = "transcribe_only"
+
     # YouTube AI provider (feature-scoped; local LM Studio stays the default)
     yt_provider: str = "lmstudio"                       # "lmstudio" | "openai" | "anthropic"
     yt_openai_base_url: str = "https://api.openai.com/v1"

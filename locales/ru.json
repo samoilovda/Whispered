@@ -16,6 +16,15 @@
   "btn_test_connection": "Проверить соединение",
   "btn_start_all": "▶ Запустить все",
   "btn_clear": "Очистить",
+  "btn_process": "Обработать",
+
+  "launch_preset_label": "Пресет:",
+  "preset_transcribe_only": "Только транскрипция",
+  "preset_youtube": "Транскрипция + YouTube-пакет",
+  "preset_article": "Транскрипция + Статья",
+  "preset_full": "Полный пакет",
+  "tooltip_process": "Запустить выбранный пресет  (Ctrl+Enter)",
+  "tooltip_transcribe_options": "Параметры транскрипции",
 
   "label_model": "Модель:",
   "label_language": "Язык:",

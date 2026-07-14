@@ -9,7 +9,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QPushButton, QProgressBar, QLabel, QFileDialog, QMessageBox,
-    QApplication, QComboBox, QCheckBox, QTabWidget, QScrollArea, QFrame,
+    QApplication, QTabWidget, QScrollArea, QFrame,
     QTextEdit, QLineEdit, QPlainTextEdit, QStackedWidget,
 )
 from PyQt6.QtCore import Qt
@@ -19,6 +19,7 @@ from ui.toast import show_toast
 from ui.sidebar import Sidebar
 from ui.library_view import LibraryView
 from ui.record_view import RecordView
+from ui.launch_bar import LaunchBar
 from ui.file_selector import FileSelector
 from ui.transcript_view import TranscriptView
 from ui.ai_panel import AIProcessingPanel
@@ -107,17 +108,6 @@ class MainWindow(QMainWindow):
         event.accept()
 
 
-    def _create_header_combo(self, items: list, width: int = 150) -> QComboBox:
-        """Create a compact combo box for the header bar."""
-        combo = QComboBox()
-        combo.setFixedWidth(width)
-        for item in items:
-            if isinstance(item, tuple):
-                combo.addItem(item[1], item[0])
-            else:
-                combo.addItem(item)
-        return combo
-
     def _setup_ui(self):
         """Set up the main window UI: a narrow sidebar rail on the left,
         switching between top-level sections (Library / Queue / Recorder)
@@ -180,71 +170,19 @@ class MainWindow(QMainWindow):
 
         header_layout.addLayout(row1_layout)
 
-        # Row 2: Settings (Model, Language, Mode, Diarization)
-        row2_layout = QHBoxLayout()
-        row2_layout.setContentsMargins(0, 0, 0, 0)
-        row2_layout.setSpacing(16)
-
-        # Model selector
-        model_label = QLabel(tr("label_model"))
-        model_label.setProperty("role", "muted")
-        row2_layout.addWidget(model_label)
-
-        self.model_combo = self._create_header_combo(WHISPER_MODELS, 180)
-        cfg = get_config()
-        _model_idx = next(
-            (i for i, (k, _) in enumerate(WHISPER_MODELS) if k == cfg.default_model), 6
-        )
-        self.model_combo.setCurrentIndex(_model_idx)
-        row2_layout.addWidget(self.model_combo)
-
-        row2_layout.addSpacing(8)
-
-        # Language selector
-        lang_label = QLabel(tr("label_language"))
-        lang_label.setProperty("role", "muted")
-        row2_layout.addWidget(lang_label)
-
-        self.language_combo = self._create_header_combo(WHISPER_LANGUAGES, 120)
-        _lang_idx = next(
-            (i for i, (k, _) in enumerate(WHISPER_LANGUAGES) if k == cfg.default_language), 0
-        )
-        self.language_combo.setCurrentIndex(_lang_idx)
-        row2_layout.addWidget(self.language_combo)
-
-        # Translate checkbox
-        self.translate_checkbox = QCheckBox("→ EN")
-        self.translate_checkbox.setStyleSheet("")
-        self.translate_checkbox.setToolTip(tr("tooltip_translate"))
-        row2_layout.addWidget(self.translate_checkbox)
-
-        row2_layout.addSpacing(12)
-
-        # Performance mode selector
-        perf_label = QLabel(tr("label_mode"))
-        perf_label.setProperty("role", "muted")
-        row2_layout.addWidget(perf_label)
-
-        self.perf_combo = self._create_header_combo(
-            [(mode[0], mode[1]) for mode in PERFORMANCE_MODES], 145
-        )
-        _perf_idx = next(
-            (i for i, (k, *_) in enumerate(PERFORMANCE_MODES) if k == cfg.performance_mode), 1
-        )
-        self.perf_combo.setCurrentIndex(_perf_idx)
-        self.perf_combo.setToolTip(tr("tooltip_performance_mode"))
-        row2_layout.addWidget(self.perf_combo)
-
-        row2_layout.addSpacing(8)
-
-        # Diarization toggle
-        self.diarization_checkbox = QCheckBox(tr("label_speakers"))
-        self.diarization_checkbox.setStyleSheet("")
-        self.diarization_checkbox.setToolTip(tr("tooltip_diarization"))
-        self.diarization_checkbox.setChecked(get_config().diarization_enabled)
-        row2_layout.addWidget(self.diarization_checkbox)
-
-        row2_layout.addStretch()
+        # Row 2: Launch bar — preset combo, Process button, options gear.
+        # The old row of always-visible Model/Language/Translate/
+        # Performance/Diarization combos now lives in the gear's popover
+        # (ui/transcribe_options.py); MainWindow keeps referring to those
+        # widgets under their historical attribute names via aliasing
+        # below, so the rest of the transcription flow is unchanged.
+        self.launch_bar = LaunchBar()
+        self.model_combo = self.launch_bar.options.model_combo
+        self.language_combo = self.launch_bar.options.language_combo
+        self.translate_checkbox = self.launch_bar.options.translate_checkbox
+        self.perf_combo = self.launch_bar.options.perf_combo
+        self.diarization_checkbox = self.launch_bar.options.diarization_checkbox
+        header_layout.addWidget(self.launch_bar)
 
         # Recorder widget lives on its own sidebar section now; still
         # created here so _connect_signals/_apply_config_defaults and the
@@ -252,8 +190,6 @@ class MainWindow(QMainWindow):
         self.recorder_widget = RecorderWidget()
         self.recorder_widget.file_ready.connect(self._on_recording_ready)
         self.recorder_widget.error.connect(self._on_recording_error)
-
-        header_layout.addLayout(row2_layout)
 
         main_layout.addWidget(header)
 
@@ -347,15 +283,12 @@ class MainWindow(QMainWindow):
         self.cancel_btn.clicked.connect(self._cancel_operation)
         action_layout.addWidget(self.cancel_btn)
 
-        # Transcribe button
-        self.transcribe_btn = QPushButton(tr("btn_transcribe"))
-        self.transcribe_btn.setIcon(get_icon('play', IconColors.WHITE, 14))
-        self.transcribe_btn.setEnabled(False)
-        self.transcribe_btn.setProperty("variant", "primary")
-        self.transcribe_btn.setToolTip(tr("tooltip_transcribe"))
-        self.transcribe_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.transcribe_btn.clicked.connect(self._start_transcription)
-        action_layout.addWidget(self.transcribe_btn)
+        # The Process button now lives in the launch bar at the top of the
+        # page; alias it under its historical name so the many existing
+        # setEnabled()/setVisible() call sites during the transcription
+        # lifecycle keep working unchanged.
+        self.transcribe_btn = self.launch_bar.process_btn
+        self.launch_bar.process_requested.connect(self._start_transcription)
 
         main_layout.addWidget(action_bar)
 
