@@ -67,6 +67,14 @@ class MainWindow(QMainWindow):
         self._gpu_type, self._gpu_name = self.transcriber.gpu_type, self.transcriber.gpu_name
         # ETA tracking
         self._transcription_start: float = 0.0
+        # Preset chain state (see _start_preset_chain / Phase C.3): which
+        # steps are still running, which ones actually ran (for the
+        # auto-save step afterward), and whether clean-then-article should
+        # continue automatically once cleaning finishes.
+        self._chain_pending: set[str] = set()
+        self._chain_ran: set[str] = set()
+        self._chain_had_error = False
+        self._chain_auto_article = False
         self._setup_ui()
         self._connect_signals()
         self.setAcceptDrops(True)
@@ -351,6 +359,7 @@ class MainWindow(QMainWindow):
         self.content_tabs.addTab(self.cut_view, tr("tab_cut"))
 
         self.youtube_panel = YouTubePanel()
+        self.youtube_panel.generation_finished.connect(self._on_chain_youtube_done)
         self.content_tabs.addTab(self.youtube_panel, tr("tab_youtube"))
 
         self.content_tabs.addTab(self.book_panel, tr("tab_book"))
@@ -612,7 +621,22 @@ class MainWindow(QMainWindow):
         )
 
     def _cancel_operation(self):
-        """Cancel the current operation (transcription or AI processing)."""
+        """Cancel the current operation (transcription, AI processing, or
+        an in-progress preset chain — see _start_preset_chain)."""
+        if self._chain_pending or self._chain_auto_article:
+            self._chain_pending.clear()
+            self._chain_ran.clear()
+            self._chain_auto_article = False
+            self.youtube_panel._cancel_workers(timeout=1000)
+            if self._ai_worker and self._ai_worker.isRunning():
+                self._ai_worker.cancel()
+                self._ai_worker.wait()
+                self._ai_worker = None
+            self.ai_panel.set_processing(False)
+            self.status_label.setText(tr("status_chain_cancelled"))
+            self._reset_ui()
+            return
+
         if self._ai_worker and self._ai_worker.isRunning():
             self._ai_worker.cancel()
             self._ai_worker.wait()
@@ -721,6 +745,78 @@ class MainWindow(QMainWindow):
         self.sidebar.set_active("library")
         self._stack.setCurrentIndex(self._record_index)
 
+        self._start_preset_chain()
+
+    def _start_preset_chain(self) -> None:
+        """After a fresh transcription, automatically run whatever extra
+        generation steps the selected launch-bar preset calls for
+        (Phase C.3). "transcribe_only" does nothing here — the transcript
+        itself is already saved to history above."""
+        preset = self.launch_bar.current_preset()
+        steps = set()
+        if preset in ("youtube", "full"):
+            steps.add("youtube")
+        if preset in ("article", "full"):
+            steps.add("article")
+        if not steps:
+            return
+
+        self._chain_pending = set(steps)
+        self._chain_ran = set(steps)
+        self._chain_had_error = False
+        self.cancel_btn.setVisible(True)
+        self.transcribe_btn.setEnabled(False)
+        self.status_label.setText(tr("status_chain_running"))
+
+        if "youtube" in steps:
+            self.youtube_panel.generate()
+        if "article" in steps:
+            self._chain_auto_article = True
+            self._start_text_cleaning()
+
+    def _on_chain_youtube_done(self, success: bool) -> None:
+        if "youtube" not in self._chain_pending:
+            return  # YouTube tab generated outside of an active chain
+        self._chain_pending.discard("youtube")
+        if not success:
+            self._chain_had_error = True
+        self._maybe_finish_chain()
+
+    def _maybe_finish_chain(self) -> None:
+        if not self._chain_pending:
+            self._finish_preset_chain()
+
+    def _finish_preset_chain(self) -> None:
+        """Auto-save whatever the chain produced to data_dir()/output/<stem>/
+        and report how many files came out of it — the plan's "Готово: N
+        артефактов" toast."""
+        from core.paths import data_dir
+        from article_generator import export_all_articles
+
+        stem = Path(self._source_filepath).stem if self._source_filepath else "recording"
+        out_dir = data_dir() / "output" / stem
+
+        saved: list[Path] = []
+        if "youtube" in self._chain_ran:
+            saved.extend(self.youtube_panel.save_all(out_dir))
+        if "article" in self._chain_ran:
+            articles = self.article_view.get_articles()
+            if articles:
+                try:
+                    saved.extend(Path(p) for p in export_all_articles(list(articles), str(out_dir)))
+                except OSError as e:
+                    logger.warning("Failed to export chain articles to %s: %s", out_dir, e)
+                    self._chain_had_error = True
+
+        self._chain_ran.clear()
+        self._reset_ui()
+
+        if saved:
+            show_toast(self, tr("toast_chain_done", count=len(saved)), kind="success")
+            self.status_label.setText(tr("toast_chain_done", count=len(saved)))
+        elif self._chain_had_error:
+            show_toast(self, tr("toast_chain_error"), kind="error")
+
     def _save_to_history(self, result: TranscriptionResult, source_path: str,
                          model: str, speaker_names: dict):
         """Persist a result to history (if enabled)."""
@@ -809,10 +905,17 @@ class MainWindow(QMainWindow):
         )
 
     def _reset_ui(self):
-        """Reset UI to ready state."""
-        self.transcribe_btn.setEnabled(self.file_selector.get_file() is not None)
+        """Reset UI to ready state — unless a preset chain is still
+        running a later step (e.g. clean finished, article generation
+        about to start), in which case Cancel must stay reachable and
+        Process must stay disabled so the user can't start a second
+        transcription mid-chain."""
+        chain_active = bool(self._chain_pending or self._chain_auto_article)
+        self.transcribe_btn.setEnabled(
+            not chain_active and self.file_selector.get_file() is not None
+        )
         self.transcribe_btn.setVisible(True)
-        self.cancel_btn.setVisible(False)
+        self.cancel_btn.setVisible(chain_active)
         self.progress_bar.setVisible(False)
         self.progress_timeline.setVisible(False)
 
@@ -965,6 +1068,10 @@ class MainWindow(QMainWindow):
                 f"removed {result.cleaned.removed_fillers} fillers"
             )
 
+        if self._chain_auto_article:
+            self._chain_auto_article = False
+            self._start_generate_all()
+
     def _on_generate_finished(self, result):
         """Handle single article generation completion."""
         from article_generator import Article
@@ -999,14 +1106,25 @@ class MainWindow(QMainWindow):
                 f"Generated {len(result.articles)} articles in {result.generation_time:.1f}s"
             )
 
+        if "article" in self._chain_pending:
+            self._chain_pending.discard("article")
+            self._maybe_finish_chain()
+
     def _on_ai_error(self, error_message: str):
         """Handle AI processing error."""
         self.ai_panel.set_processing(False)
-        self._reset_ui()
         self._ai_worker = None
 
-        self.status_label.setText(f"AI Error: {error_message[:50]}...")
-        QMessageBox.warning(self, "AI Processing Error", f"An error occurred:\n\n{error_message}")
+        self._chain_auto_article = False
+        if "article" in self._chain_pending:
+            self._chain_pending.discard("article")
+            self._chain_had_error = True
+            self._reset_ui()
+            self._maybe_finish_chain()
+        else:
+            self._reset_ui()
+            self.status_label.setText(f"AI Error: {error_message[:50]}...")
+            QMessageBox.warning(self, "AI Processing Error", f"An error occurred:\n\n{error_message}")
 
     # ===== Video Pipeline Methods =====
 

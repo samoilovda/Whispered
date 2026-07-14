@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QComboBox, QPlainTextEdit, QApplication, QTabWidget,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 
 from core.i18n import tr
@@ -64,6 +64,11 @@ def _friendly_path(path: Path) -> str:
 
 class YouTubePanel(QWidget):
     """YouTube tab — generates titles, description, tags, and timecode chapters."""
+
+    # Emitted once every tab's worker has settled (success = at least one
+    # tab produced usable content). Lets a preset chain (MainWindow) know
+    # when it's safe to move on without polling internal worker state.
+    generation_finished = pyqtSignal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -253,6 +258,11 @@ class YouTubePanel(QWidget):
 
     # ── Generation ──────────────────────────────────────────────────
 
+    def generate(self) -> None:
+        """Public trigger for programmatic (preset-chain) use — identical
+        to clicking the Generate button."""
+        self._generate()
+
     def _generate(self):
         from config import get_config
         from core.ai_provider import provider_from_config
@@ -381,6 +391,7 @@ class YouTubePanel(QWidget):
             self._save_btn.setEnabled(True)
         if self._any_error:
             show_toast(self, tr("youtube_generate_error"), kind="error")
+        self.generation_finished.emit(self._any_success)
 
     def _reset_button(self):
         self._gen_btn.setEnabled(bool(self._segments))
@@ -418,16 +429,35 @@ class YouTubePanel(QWidget):
             return
 
         key = _TAB_SPECS[idx].file_key if 0 <= idx < len(_TAB_SPECS) else "youtube"
-        stem = self._source_name or "youtube"
-        filename = f"{stem}_{key}.txt"
-
         try:
-            _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-            path = _OUTPUT_DIR / filename
-            path.write_text(text, encoding="utf-8")
+            path = self._write_tab_file(_OUTPUT_DIR, key, text)
         except OSError as exc:
             logger.warning("Failed to save YouTube file to %s: %s", _OUTPUT_DIR, exc)
             show_toast(self, tr("youtube_save_error"), kind="error")
             return
 
         show_toast(self, tr("youtube_saved", path=_friendly_path(path)), kind="success")
+
+    def save_all(self, output_dir: Path) -> list[Path]:
+        """Save every tab with generated content to *output_dir*. Used by
+        the preset-chain auto-save step (see MainWindow._finish_preset_chain);
+        unlike _save_to_file, saves all tabs at once rather than just the
+        currently-visible one, and doesn't show a toast (the caller shows
+        one summarizing the whole chain)."""
+        saved = []
+        for spec in _TAB_SPECS:
+            text = getattr(self, spec.edit_attr).toPlainText()
+            if not text:
+                continue
+            try:
+                saved.append(self._write_tab_file(output_dir, spec.file_key, text))
+            except OSError as exc:
+                logger.warning("Failed to save %s to %s: %s", spec.file_key, output_dir, exc)
+        return saved
+
+    def _write_tab_file(self, directory: Path, file_key: str, text: str) -> Path:
+        directory.mkdir(parents=True, exist_ok=True)
+        stem = self._source_name or "youtube"
+        path = directory / f"{stem}_{file_key}.txt"
+        path.write_text(text, encoding="utf-8")
+        return path
