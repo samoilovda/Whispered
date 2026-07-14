@@ -9,6 +9,14 @@ from core.logger import get_logger
 
 logger = get_logger(__name__)
 
+# Categorical palette for distinguishing speakers in the transcript view.
+# Same 8 colors regardless of light/dark theme (all mid-brightness/saturated
+# enough to read on either background) — a content palette, not UI chrome.
+SPEAKER_PALETTE: list[str] = [
+    "#6366f1", "#22c55e", "#f59e0b", "#ef4444",
+    "#06b6d4", "#ec4899", "#84cc16", "#8b5cf6",
+]
+
 
 @dataclass
 class Theme:
@@ -236,6 +244,14 @@ def build_stylesheet(t: Theme) -> str:
     }}
     QPushButton:checkable:hover {{
         background-color: rgba(99, 102, 241, 0.1);
+    }}
+
+    QPushButton[role="checkable-success"]:checkable:checked {{
+        border-color: {t.success};
+        color: {t.success};
+    }}
+    QPushButton[role="checkable-success"]:checkable:hover {{
+        background-color: {_rgba(t.success, 0.1)};
     }}
 
     /* ── ComboBox ── */
@@ -487,6 +503,12 @@ def build_stylesheet(t: Theme) -> str:
         background: transparent;
         border: none;
     }}
+    QPushButton[role="danger-text"] {{
+        color: {t.error};
+    }}
+    QPushButton[role="warning-text"] {{
+        color: {t.warning};
+    }}
     QLabel[role="success-text"] {{
         color: {t.success};
         background: transparent;
@@ -525,6 +547,34 @@ def build_stylesheet(t: Theme) -> str:
     QWidget[role="card"] {{
         background-color: {t.bg_surface};
         border-radius: {t.radius_lg};
+    }}
+    QWidget[role="accent-card"] {{
+        background-color: {_rgba(t.accent, 0.1)};
+        border-radius: {t.radius_md};
+    }}
+    QWidget[role="drop-zone"] {{
+        border: 2px dashed {t.border_input};
+        border-radius: {t.radius_lg};
+        background-color: {_rgba(t.accent, 0.05)};
+        min-height: 180px;
+    }}
+    QWidget[role="drop-zone"]:hover {{
+        border-color: {t.accent};
+        background-color: {_rgba(t.accent, 0.1)};
+    }}
+    QWidget[role="drop-zone-active"] {{
+        border: 2px dashed {t.accent};
+        border-radius: {t.radius_lg};
+        background-color: {_rgba(t.accent, 0.15)};
+        min-height: 180px;
+    }}
+    QPushButton[role="icon-button-danger"] {{
+        background: transparent;
+        border: none;
+    }}
+    QPushButton[role="icon-button-danger"]:hover {{
+        background: {_rgba(t.error, 0.1)};
+        border-radius: 12px;
     }}
     QLabel[role="chip"] {{
         background-color: {t.bg_elevated};

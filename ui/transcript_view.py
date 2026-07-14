@@ -19,18 +19,11 @@ from PyQt6.QtGui import (
 from transcriber import TranscriptionResult
 from utils import format_timestamp_vtt
 from ui.icons import get_icon, IconColors
-
+from ui.theme import SPEAKER_PALETTE, get_theme
 
 # Speaker color palette (keyed by original speaker id)
 SPEAKER_COLORS = {
-    "Speaker 1": "#6366f1",
-    "Speaker 2": "#22c55e",
-    "Speaker 3": "#f59e0b",
-    "Speaker 4": "#ef4444",
-    "Speaker 5": "#06b6d4",
-    "Speaker 6": "#ec4899",
-    "Speaker 7": "#84cc16",
-    "Speaker 8": "#8b5cf6",
+    f"Speaker {i + 1}": color for i, color in enumerate(SPEAKER_PALETTE)
 }
 
 # Pattern used when rendering for edit mode: "[HH:MM:SS.mmm] [SpeakerId] text"
@@ -137,10 +130,7 @@ class TranscriptView(QWidget):
         self.speakers_btn.setIcon(get_icon('user', IconColors.DEFAULT, 14))
         self.speakers_btn.setCheckable(True)
         self.speakers_btn.setChecked(self._show_speakers)
-        self.speakers_btn.setStyleSheet(
-            "QPushButton:checkable:checked { border-color: #22c55e; color: #22c55e; }"
-            "QPushButton:checkable:hover { background-color: rgba(34, 197, 94, 0.1); }"
-        )
+        self.speakers_btn.setProperty("role", "checkable-success")
         self.speakers_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.speakers_btn.clicked.connect(self._toggle_speakers)
         self.speakers_btn.setVisible(False)
@@ -215,7 +205,8 @@ class TranscriptView(QWidget):
         find_layout.addWidget(replace_all_btn)
 
         self._find_count = QLabel("")
-        self._find_count.setStyleSheet("color: #888888; font-size: 11px;")
+        self._find_count.setProperty("role", "muted")
+        self._find_count.setStyleSheet("font-size: 11px;")
         find_layout.addWidget(self._find_count)
 
         close_find_btn = QPushButton("×")
@@ -233,12 +224,14 @@ class TranscriptView(QWidget):
         stats_layout.setContentsMargins(0, 0, 0, 0)
 
         self.stats_label = QLabel()
-        self.stats_label.setStyleSheet("color: #888888; font-size: 11px;")
+        self.stats_label.setProperty("role", "muted")
+        self.stats_label.setStyleSheet("font-size: 11px;")
         stats_layout.addWidget(self.stats_label)
         stats_layout.addStretch()
 
         self._edit_hint = QLabel("Edit mode: one line per segment • click Save to apply")
-        self._edit_hint.setStyleSheet("color: #f59e0b; font-size: 11px;")
+        self._edit_hint.setProperty("role", "warning-text")
+        self._edit_hint.setStyleSheet("font-size: 11px;")
         self._edit_hint.setVisible(False)
         stats_layout.addWidget(self._edit_hint)
 
@@ -321,7 +314,7 @@ class TranscriptView(QWidget):
         return self._speaker_names.get(speaker_id, speaker_id)
 
     def _get_speaker_color(self, speaker_id: str) -> str:
-        return SPEAKER_COLORS.get(speaker_id, "#888888")
+        return SPEAKER_COLORS.get(speaker_id, get_theme().text_secondary)
 
     def _update_display(self):
         if not self._result:
@@ -349,17 +342,18 @@ class TranscriptView(QWidget):
         self._build_segment_map()
 
     def _render_with_speakers(self):
+        theme = get_theme()
         html_lines = []
         for seg in self._result.segments:
             parts = []
             if self._show_timestamps:
                 ts = format_timestamp_vtt(seg.start)
-                parts.append(f'<span style="color:#666;">[{ts}]</span>')
+                parts.append(f'<span style="color:{theme.text_muted};">[{ts}]</span>')
             if seg.speaker:
                 name = self._get_display_name(seg.speaker)
                 color = self._get_speaker_color(seg.speaker)
                 parts.append(f'<span style="color:{color};font-weight:bold;">[{name}]</span>')
-            parts.append(f'<span style="color:#e0e0e0;">{seg.text.strip()}</span>')
+            parts.append(f'<span style="color:{theme.text_primary};">{seg.text.strip()}</span>')
             html_lines.append(' '.join(parts))
         self.text_edit.setHtml('<br>'.join(html_lines))
         self._highlighted_block = -1

@@ -15,6 +15,7 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 
 from core.logger import get_logger
 from core.i18n import tr
+from ui.theme import set_role
 from utils import format_duration
 
 logger = get_logger(__name__)
@@ -65,7 +66,8 @@ class RecorderWidget(QWidget):
 
         # Timer label
         self._timer_label = QLabel("00:00")
-        self._timer_label.setStyleSheet("color: #888; font-size: 11px; min-width: 36px;")
+        self._timer_label.setProperty("role", "muted")
+        self._timer_label.setStyleSheet("font-size: 11px; min-width: 36px;")
         self._timer_label.setVisible(False)
         layout.addWidget(self._timer_label)
 
@@ -113,7 +115,7 @@ class RecorderWidget(QWidget):
             return  # error was emitted
         self._start_ts = time.monotonic()
         self._record_btn.setText("⏹")
-        self._record_btn.setStyleSheet("color: #ef4444;")
+        set_role(self._record_btn, "danger-text")
         self._pause_btn.setVisible(True)
         self._timer_label.setVisible(True)
         self._level_bar.setVisible(True)
@@ -124,7 +126,7 @@ class RecorderWidget(QWidget):
         rec = self._get_recorder()
         path = rec.stop()
         self._record_btn.setText("⏺")
-        self._record_btn.setStyleSheet("")
+        set_role(self._record_btn, "")
         self._pause_btn.setChecked(False)
         self._pause_btn.setVisible(False)
         self._timer_label.setVisible(False)
@@ -137,10 +139,10 @@ class RecorderWidget(QWidget):
         rec = self._get_recorder()
         if paused:
             rec.pause()
-            self._record_btn.setStyleSheet("color: #f59e0b;")
+            set_role(self._record_btn, "warning-text")
         else:
             rec.resume()
-            self._record_btn.setStyleSheet("color: #ef4444;")
+            set_role(self._record_btn, "danger-text")
 
     def _update_timer(self):
         rec = self._get_recorder()

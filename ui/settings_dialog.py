@@ -18,7 +18,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 from config import get_config, save_config
 from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, get_models_dir
-from ui.theme import apply_theme
+from ui.theme import apply_theme, set_role
 from core.logger import get_logger
 from core.i18n import tr
 
@@ -161,7 +161,8 @@ class SettingsDialog(QDialog):
         # Models directory (read-only)
         models_row = QHBoxLayout()
         self._models_dir_label = QLabel()
-        self._models_dir_label.setStyleSheet("color: #888888; font-size: 11px;")
+        self._models_dir_label.setProperty("role", "muted")
+        self._models_dir_label.setStyleSheet("font-size: 11px;")
         self._models_dir_label.setText(get_models_dir())
         models_row.addWidget(self._models_dir_label, stretch=1)
 
@@ -223,7 +224,8 @@ class SettingsDialog(QDialog):
         layout.addRow(tr("settings_num_speakers"), self._speakers_spin)
 
         note = QLabel(tr("diarization_note"))
-        note.setStyleSheet("color: #888888; font-size: 11px;")
+        note.setProperty("role", "muted")
+        note.setStyleSheet("font-size: 11px;")
         note.setWordWrap(True)
         layout.addRow(note)
 
@@ -408,7 +410,8 @@ class SettingsDialog(QDialog):
             return
         url = self._lm_url_edit.text().strip() or "http://localhost:1234/v1"
         self._check_result.setText(tr("connection_checking"))
-        self._check_result.setStyleSheet("color: #888888; font-size: 11px;")
+        set_role(self._check_result, "muted")
+        self._check_result.setStyleSheet("font-size: 11px;")
         self._check_btn.setEnabled(False)
 
         self._checker = _ConnectionChecker(url, self)
@@ -419,10 +422,11 @@ class SettingsDialog(QDialog):
         self._check_btn.setEnabled(True)
         if connected:
             self._check_result.setText(tr("connection_ok", detail=detail))
-            self._check_result.setStyleSheet("color: #22c55e; font-size: 11px;")
+            set_role(self._check_result, "success-text")
         else:
             self._check_result.setText(tr("connection_fail", detail=detail[:60]))
-            self._check_result.setStyleSheet("color: #ef4444; font-size: 11px;")
+            set_role(self._check_result, "danger-text")
+        self._check_result.setStyleSheet("font-size: 11px;")
 
     def _populate_mic_devices(self):
         """Fill the mic device combo with available input devices."""

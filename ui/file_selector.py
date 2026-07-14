@@ -12,6 +12,7 @@ from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 
 from utils import is_supported_format, SUPPORTED_FORMATS, get_audio_duration, format_duration
 from ui.icons import IconLabel, get_icon, IconColors
+from ui.theme import set_role
 
 
 class FileSelector(QWidget):
@@ -33,19 +34,7 @@ class FileSelector(QWidget):
 
         # Drop zone container
         self.drop_zone = QWidget()
-        self.drop_zone.setObjectName("dropZone")
-        self.drop_zone.setStyleSheet("""
-            #dropZone {
-                border: 2px dashed #4a4a4a;
-                border-radius: 12px;
-                background-color: rgba(99, 102, 241, 0.05);
-                min-height: 180px;
-            }
-            #dropZone:hover {
-                border-color: #6366f1;
-                background-color: rgba(99, 102, 241, 0.1);
-            }
-        """)
+        self.drop_zone.setProperty("role", "drop-zone")
 
         drop_layout = QVBoxLayout(self.drop_zone)
         drop_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -57,7 +46,8 @@ class FileSelector(QWidget):
 
         # Text label
         self.text_label = QLabel("Drop audio or video file here")
-        self.text_label.setStyleSheet("color: #888; font-size: 14px;")
+        self.text_label.setProperty("role", "muted")
+        self.text_label.setStyleSheet("font-size: 14px;")
         self.text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         drop_layout.addWidget(self.text_label)
 
@@ -71,7 +61,8 @@ class FileSelector(QWidget):
 
         # Formats hint
         formats_hint = QLabel("Supports: MP3, WAV, FLAC, MP4, MKV, and more")
-        formats_hint.setStyleSheet("color: #666; font-size: 11px;")
+        formats_hint.setProperty("role", "dim")
+        formats_hint.setStyleSheet("font-size: 11px;")
         formats_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         drop_layout.addWidget(formats_hint)
 
@@ -80,12 +71,7 @@ class FileSelector(QWidget):
         # Selected file info (hidden initially)
         self.file_info = QWidget()
         self.file_info.setVisible(False)
-        self.file_info.setStyleSheet("""
-            QWidget {
-                background-color: rgba(99, 102, 241, 0.1);
-                border-radius: 8px;
-            }
-        """)
+        self.file_info.setProperty("role", "accent-card")
         file_info_layout = QHBoxLayout(self.file_info)
         file_info_layout.setContentsMargins(12, 10, 12, 10)
 
@@ -98,22 +84,13 @@ class FileSelector(QWidget):
         file_info_layout.addWidget(self.file_name_label, stretch=1)
 
         self.file_duration_label = QLabel()
-        self.file_duration_label.setStyleSheet("color: #888;")
+        self.file_duration_label.setProperty("role", "muted")
         file_info_layout.addWidget(self.file_duration_label)
 
         self.clear_btn = QPushButton()
         self.clear_btn.setIcon(get_icon('close', IconColors.DEFAULT, 14))
         self.clear_btn.setFixedSize(24, 24)
-        self.clear_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                border: none;
-            }
-            QPushButton:hover {
-                background: rgba(248, 113, 113, 0.1);
-                border-radius: 12px;
-            }
-        """)
+        self.clear_btn.setProperty("role", "icon-button-danger")
         self.clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.clear_btn.clicked.connect(self._clear_selection)
         file_info_layout.addWidget(self.clear_btn)
@@ -128,14 +105,7 @@ class FileSelector(QWidget):
                 filepath = urls[0].toLocalFile()
                 if is_supported_format(filepath):
                     event.acceptProposedAction()
-                    self.drop_zone.setStyleSheet("""
-                        #dropZone {
-                            border: 2px dashed #6366f1;
-                            border-radius: 12px;
-                            background-color: rgba(99, 102, 241, 0.15);
-                            min-height: 180px;
-                        }
-                    """)
+                    set_role(self.drop_zone, "drop-zone-active")
                     return
         event.ignore()
 
@@ -159,18 +129,7 @@ class FileSelector(QWidget):
 
     def _reset_drop_zone_style(self):
         """Reset drop zone to default style."""
-        self.drop_zone.setStyleSheet("""
-            #dropZone {
-                border: 2px dashed #4a4a4a;
-                border-radius: 12px;
-                background-color: rgba(99, 102, 241, 0.05);
-                min-height: 180px;
-            }
-            #dropZone:hover {
-                border-color: #6366f1;
-                background-color: rgba(99, 102, 241, 0.1);
-            }
-        """)
+        set_role(self.drop_zone, "drop-zone")
 
     def _browse_files(self):
         """Open file browser dialog."""
@@ -209,7 +168,8 @@ class FileSelector(QWidget):
         self.icon_label.set_icon('check_circle')
         self.icon_label.set_color(IconColors.SUCCESS)
         self.text_label.setText("File ready for transcription")
-        self.text_label.setStyleSheet("color: #22c55e; font-size: 14px;")
+        set_role(self.text_label, "success-text")
+        self.text_label.setStyleSheet("font-size: 14px;")
 
         # Emit signal
         self.file_selected.emit(filepath)
@@ -221,7 +181,8 @@ class FileSelector(QWidget):
         self.icon_label.set_icon('music')
         self.icon_label.set_color(IconColors.DEFAULT)
         self.text_label.setText("Drop audio or video file here")
-        self.text_label.setStyleSheet("color: #888; font-size: 14px;")
+        set_role(self.text_label, "muted")
+        self.text_label.setStyleSheet("font-size: 14px;")
 
     def get_file(self) -> str | None:
         """Get the currently selected file path."""
