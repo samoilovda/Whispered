@@ -143,6 +143,9 @@
   "tooltip_play": "Воспроизведение / Пауза  (Space)",
   "tooltip_record": "Запись с микрофона  (Ctrl+R)",
   "tooltip_record_pause": "Пауза записи",
+  "sidebar_library": "Библиотека",
+  "sidebar_queue": "Очередь",
+  "sidebar_recorder": "Диктофон",
 
   "language_auto": "Авто-определение",
 

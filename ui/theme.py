@@ -295,6 +295,22 @@ def build_stylesheet(t: Theme) -> str:
         background-color: {rgba(t.success, 0.1)};
     }}
 
+    /* ── Sidebar nav buttons (QToolButton) ── */
+    QToolButton[role="nav-button"] {{
+        background: transparent;
+        border: none;
+        border-radius: {t.radius_md};
+        color: {t.text_secondary};
+    }}
+    QToolButton[role="nav-button"]:hover {{
+        background-color: {t.bg_surface};
+        color: {t.text_primary};
+    }}
+    QToolButton[role="nav-button"]:checked {{
+        background-color: {rgba(t.accent, 0.15)};
+        color: {t.accent};
+    }}
+
     /* ── ComboBox ── */
     QComboBox {{
         padding: 6px 10px;

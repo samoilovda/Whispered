@@ -143,6 +143,9 @@
   "tooltip_play": "Play / Pause  (Space)",
   "tooltip_record": "Record from microphone  (Ctrl+R)",
   "tooltip_record_pause": "Pause recording",
+  "sidebar_library": "Library",
+  "sidebar_queue": "Queue",
+  "sidebar_recorder": "Recorder",
 
   "language_auto": "Auto-detect",
 

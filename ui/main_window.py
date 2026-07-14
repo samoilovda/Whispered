@@ -10,12 +10,13 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QPushButton, QProgressBar, QLabel, QFileDialog, QMessageBox,
     QApplication, QComboBox, QCheckBox, QTabWidget, QScrollArea, QFrame,
-    QTextEdit, QLineEdit, QPlainTextEdit,
+    QTextEdit, QLineEdit, QPlainTextEdit, QStackedWidget,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QKeySequence, QShortcut, QDragEnterEvent, QDropEvent
 
 from ui.toast import show_toast
+from ui.sidebar import Sidebar
 from ui.file_selector import FileSelector
 from ui.transcript_view import TranscriptView
 from ui.ai_panel import AIProcessingPanel
@@ -123,15 +124,31 @@ class MainWindow(QMainWindow):
         return combo
 
     def _setup_ui(self):
-        """Set up the main window UI with header-bar layout."""
+        """Set up the main window UI: a narrow sidebar rail on the left,
+        switching between top-level sections (Library / Queue / Recorder)
+        shown in a QStackedWidget on the right."""
         self.setWindowTitle("Whispered")
         self.setMinimumSize(900, 550)
         self.resize(1100, 700)
 
-        # Central widget
+        # Central widget: sidebar + stacked sections
         central = QWidget()
         self.setCentralWidget(central)
-        main_layout = QVBoxLayout(central)
+        outer_layout = QHBoxLayout(central)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+
+        self.sidebar = Sidebar()
+        self.sidebar.section_changed.connect(self._on_section_changed)
+        self.sidebar.settings_requested.connect(self._open_settings)
+        outer_layout.addWidget(self.sidebar)
+
+        self._stack = QStackedWidget()
+        outer_layout.addWidget(self._stack, stretch=1)
+
+        # ===== Library section (the main transcription workspace) =====
+        library_page = QWidget()
+        main_layout = QVBoxLayout(library_page)
         main_layout.setContentsMargins(20, 16, 20, 20)
         main_layout.setSpacing(16)
 
@@ -257,22 +274,12 @@ class MainWindow(QMainWindow):
 
         row2_layout.addStretch()
 
-        # Recorder widget
+        # Recorder widget lives on its own sidebar section now; still
+        # created here so _connect_signals/_apply_config_defaults and the
+        # Ctrl+R shortcut keep a single stable reference.
         self.recorder_widget = RecorderWidget()
         self.recorder_widget.file_ready.connect(self._on_recording_ready)
         self.recorder_widget.error.connect(self._on_recording_error)
-        row2_layout.addWidget(self.recorder_widget)
-
-        row2_layout.addSpacing(4)
-
-        # Settings button (⚙) — opens the settings dialog
-        self.settings_btn = QPushButton("⚙")
-        self.settings_btn.setToolTip(tr("tooltip_settings"))
-        self.settings_btn.setFixedSize(28, 28)
-        self.settings_btn.setProperty("variant", "ghost")
-        self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.settings_btn.clicked.connect(self._open_settings)
-        row2_layout.addWidget(self.settings_btn)
 
         header_layout.addLayout(row2_layout)
 
@@ -327,10 +334,10 @@ class MainWindow(QMainWindow):
         self.ai_panel = AIProcessingPanel()
         left_layout.addWidget(self.ai_panel)
 
-        # Batch Processing Panel (posts mode)
+        # Batch Processing Panel lives on its own sidebar section (Queue);
+        # still created here so signal wiring stays with the rest of setup.
         self.batch_panel = BatchPanel()
         self.batch_panel.start_requested.connect(self._start_batch_processing)
-        left_layout.addWidget(self.batch_panel)
 
         # Book Pipeline Panel
         self.book_panel = BookPanel()
@@ -456,6 +463,39 @@ class MainWindow(QMainWindow):
 
         main_layout.addWidget(action_bar)
 
+        self._stack.addWidget(library_page)  # index 0
+
+        # ===== Queue section (batch folder processing) =====
+        queue_page = QWidget()
+        queue_layout = QVBoxLayout(queue_page)
+        queue_layout.setContentsMargins(20, 16, 20, 20)
+        queue_layout.addWidget(self.batch_panel)
+        self._stack.addWidget(queue_page)  # index 1
+
+        # ===== Recorder section =====
+        # RecorderWidget itself is a compact horizontal row (button + timer
+        # + level meter) designed for the header bar; center it on its own
+        # page rather than resizing its internals for this one placement.
+        recorder_page = QWidget()
+        recorder_outer = QVBoxLayout(recorder_page)
+        recorder_outer.setContentsMargins(20, 16, 20, 20)
+        recorder_outer.addStretch()
+        recorder_row = QHBoxLayout()
+        recorder_row.addStretch()
+        recorder_row.addWidget(self.recorder_widget)
+        recorder_row.addStretch()
+        recorder_outer.addLayout(recorder_row)
+        recorder_outer.addStretch()
+        self._stack.addWidget(recorder_page)  # index 2
+
+        self._section_index = {"library": 0, "queue": 1, "recorder": 2}
+
+    def _on_section_changed(self, key: str) -> None:
+        """Switch the visible page when a sidebar button is clicked."""
+        idx = self._section_index.get(key)
+        if idx is not None:
+            self._stack.setCurrentIndex(idx)
+
     def _connect_signals(self):
         """Connect widget signals."""
         self.file_selector.file_selected.connect(self._on_file_selected)
@@ -541,9 +581,9 @@ class MainWindow(QMainWindow):
         is_book  = mode == 'book'
         is_video = mode == 'video'
         is_posts = mode == 'posts'
-        # Posts mode panels
+        # Posts mode panel (batch_panel now lives on its own sidebar
+        # section, always available regardless of mode)
         self.ai_panel.setVisible(is_posts)
-        self.batch_panel.setVisible(is_posts)
         # Book mode panel
         self.book_panel.setVisible(is_book)
         # Video mode panel
