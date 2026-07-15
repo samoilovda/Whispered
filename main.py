@@ -10,9 +10,49 @@ import os
 # Add src to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+
+def _setup_frozen_runtime():
+    """Wire up the standalone (PyInstaller) build's external pieces.
+
+    The .app deliberately does NOT bundle pywhispercpp/libwhisper (see
+    build.py) — they live next to the whisper models in
+    ~/Library/Application Support/Whispered/lib, so the native Metal
+    build can be swapped/updated without rebuilding the app. Also, apps
+    launched from Finder inherit a minimal PATH that lacks Homebrew, so
+    ffmpeg (needed for audio extraction) would not be found without help.
+    No-op when running from source: the venv already has everything.
+    """
+    if not getattr(sys, "frozen", False):
+        return
+    lib_dir = os.path.expanduser("~/Library/Application Support/Whispered/lib")
+    if os.path.isdir(lib_dir):
+        sys.path.insert(0, lib_dir)
+    path = os.environ.get("PATH", "")
+    for extra in ("/opt/homebrew/bin", "/usr/local/bin"):
+        if extra not in path.split(os.pathsep):
+            path = path + os.pathsep + extra
+    os.environ["PATH"] = path
+
+
+_setup_frozen_runtime()
+
 # Initialize centralized logging BEFORE any other module imports
 from core.logger import setup_logging
 setup_logging()
+
+# Log where (and whether) the external whisper stack resolves, so a
+# missing lib/ dir in the standalone build is diagnosable from app.log
+# instead of surfacing only when the first transcription fails.
+import importlib.util as _ilu
+import logging as _logging
+_spec = _ilu.find_spec("pywhispercpp")
+if _spec is not None:
+    _logging.getLogger(__name__).info("pywhispercpp resolves from: %s", _spec.origin)
+else:
+    _logging.getLogger(__name__).warning(
+        "pywhispercpp NOT found — transcription will be unavailable. "
+        "Standalone builds expect it in ~/Library/Application Support/Whispered/lib"
+    )
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QFont

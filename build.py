@@ -1,127 +1,124 @@
-import os
-import sys
-import subprocess
+#!/usr/bin/env python3
+"""
+Whispered – Standalone build (macOS)
+
+Builds dist/Whispered.app with PyInstaller, deliberately EXCLUDING the
+whisper stack (pywhispercpp + its libwhisper/libggml dylibs). Those are
+deployed separately to ~/Library/Application Support/Whispered/lib and
+picked up at runtime by main.py's _setup_frozen_runtime(), so the native
+Metal build can be updated without rebuilding the app. GGML models were
+already external (~/Library/Application Support/Whispered/models).
+
+Usage:
+    .venv/bin/python build.py            # build .app + deploy whisper libs
+    .venv/bin/python build.py --no-libs  # build .app only
+
+Requirements: run with the project venv's python (it must have the same
+major.minor version as the interpreter the external _pywhispercpp
+extension was built for — the .so is tagged cpython-311).
+"""
+
+import argparse
 import shutil
+import subprocess
+import sys
+import sysconfig
+from pathlib import Path
 
-def main():
-    print("==================================================")
-    print("🚀 Starting Optimized Build Process for Whispered")
-    print("==================================================")
+PROJECT = Path(__file__).resolve().parent
+LIB_DEPLOY_DIR = Path.home() / "Library/Application Support/Whispered/lib"
 
-    # 1. Clean previous builds
-    for dir_name in ['build', 'dist']:
-        if os.path.exists(dir_name):
-            print(f"🧹 Cleaning {dir_name}/ directory...")
-            try:
-                shutil.rmtree(dir_name)
-            except Exception as e:
-                print(f"Warning: Could not remove {dir_name}/: {e}")
+# Whisper stack pieces to deploy from site-packages. The compiled
+# extension references its dylibs via @loader_path/pywhispercpp/.dylibs/,
+# so the package dir and the .so must sit side by side.
+_WHISPER_GLOBS = ("pywhispercpp", "_pywhispercpp.*.so", "libwhisper*.dylib")
 
-    for spec_file in ['Whisper Fedora.spec', 'Whispered.spec', 'main.spec']:
-        if os.path.exists(spec_file):
-            try:
-                os.remove(spec_file)
-            except OSError:
-                pass
 
-    # 2. Base arguments for PyInstaller
+def build_app() -> None:
+    for name in ("build", "dist"):
+        target = PROJECT / name
+        if target.exists():
+            print(f"🧹 cleaning {name}/")
+            shutil.rmtree(target)
+    spec = PROJECT / "Whispered.spec"
+    if spec.exists():
+        spec.unlink()
+
     args = [
-        sys.executable,
-        '-m',
-        'PyInstaller',
-        '--noconfirm',
-        '--clean',
-        '--name=Whispered',  # Cleaner application name
-        '--windowed',
-        '--add-data=ui:ui',
-        # CRITICAL: We deliberately omit --add-data "models:models" here
-        # Models are now downloaded dynamically at runtime to save gigabytes of space!
-        '--hidden-import=PyQt6',
-        '--hidden-import=pyqtdarktheme',
-        '--hidden-import=pywhispercpp',
+        sys.executable, "-m", "PyInstaller",
+        "--noconfirm", "--clean",
+        "--name=Whispered",
+        "--windowed",
+        # Runtime data files resolved relative to the code tree
+        "--add-data=locales:locales",
+        "--add-data=prompts:prompts",
+        # Imported dynamically (theme fallback), invisible to analysis
+        "--hidden-import=qdarktheme",
+        # The whole point of this build: whisper stays external
+        "--exclude-module=pywhispercpp",
+        "--exclude-module=_pywhispercpp",
+        # Bloat that is definitely not needed
+        "--exclude-module=tkinter",
+        "--exclude-module=pytest",
+        "--exclude-module=PyQt5",
+        "--exclude-module=PySide6",
+        "main.py",
     ]
+    print("🚀 PyInstaller:", " ".join(args[2:]))
+    subprocess.run(args, cwd=PROJECT, check=True)
 
-    # Check for icons depending on platform
-    if sys.platform == 'darwin' and os.path.exists('macos/whisper-fedora.icns'):
-        args.append('--icon=macos/whisper-fedora.icns')
-    elif sys.platform == 'win32' and os.path.exists('windows/whisper-fedora.ico'):
-        args.append('--icon=windows/whisper-fedora.ico')
-    elif sys.platform == 'linux' and os.path.exists('appimage/whisper-fedora.png'):
-        args.append('--icon=appimage/whisper-fedora.png')
+    app = PROJECT / "dist" / "Whispered.app"
+    if not app.is_dir():
+        raise SystemExit("❌ dist/Whispered.app was not produced")
 
-    # 3. Aggressive Exclusions to reduce bloat
-    excludes = [
-        'matplotlib',
-        'tkinter',
-        'IPython',
-        'jupyter',
-        'notebook',
-        'pytest',
-        'unittest',
-        'pydoc',
-        'tensorboard',
-        'triton',
-        'sphinx',
-        'PySide6',
-        'PyQt5',
-        'wx',
-        'cv2' # Exclude OpenCV unless needed
+    # Belt and braces: the excludes above should keep the whisper stack
+    # out, but a stray hook could still pull the dylibs in — and then the
+    # bundled (possibly stale) copy would shadow the external one. (Match
+    # the stack's actual artifact names, not bare "whisper" — the app
+    # binary itself is named Whispered.)
+    leaked = [
+        p for p in app.rglob("*")
+        if p.name.startswith(("libwhisper", "libggml", "_pywhispercpp"))
+        or p.name == "pywhispercpp"
     ]
+    if leaked:
+        raise SystemExit(f"❌ whisper artifacts leaked into the bundle: {leaked[:5]}")
+    print(f"✅ built {app} (whisper stack verified absent)")
 
-    # 4. OS-specific Exclusions (CUDA/ROCm)
-    if sys.platform == 'darwin':
-        print("\n🍎 macOS detected: Excluding NVIDIA CUDA and AMD ROCm dependencies...")
-        excludes.extend(['torch.cuda', 'nvidia', 'triton', 'torch.backends.cuda'])
 
-        print("\n💡 [TIP for macOS Size Reduction]")
-        print("To drastically reduce the macOS build size from ~3GB to ~300MB,")
-        print("make sure your virtual environment has the CPU/MPS-only version of PyTorch:")
-        print("   pip uninstall -y torch torchvision torchaudio")
-        print("   pip install torch torchvision torchaudio")
+def deploy_whisper_libs() -> None:
+    site = Path(sysconfig.get_paths()["purelib"])
+    sources: list[Path] = []
+    for pattern in _WHISPER_GLOBS:
+        sources.extend(site.glob(pattern))
+    if not any(s.name == "pywhispercpp" for s in sources):
+        raise SystemExit(
+            f"❌ pywhispercpp not found in {site} — run from the project venv"
+        )
 
-    elif sys.platform == 'linux':
-        print("\n🐧 Linux detected.")
-        print("\n💡 [TIP for Linux Size Reduction]")
-        print("If you don't need NVIDIA GPU support on Linux, install CPU-only PyTorch:")
-        print("   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu")
-
-    elif sys.platform == 'win32':
-        print("\n🪟 Windows detected.")
-        print("\n💡 [TIP for Windows Size Reduction]")
-        print("If you don't have an NVIDIA GPU, install CPU-only PyTorch to save space:")
-        print("   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu")
-
-    # Append all exclusion rules
-    for ex in excludes:
-        args.append(f'--exclude-module={ex}')
-
-    # 5. Collect necessary C/C++ libraries for the whisper wrapper
-    args.append('--collect-all=pywhispercpp')
-
-    # Target entry point
-    args.append('main.py')
-
-    print(f"\n⚙️ Running PyInstaller with {len(excludes)} exclusions...")
-    # print(f"Command: {' '.join(args)}\n")
-
-    # Run PyInstaller
-    try:
-        subprocess.run(args, check=True)
-        print("\n✅ Build completed successfully!")
-
-        # Output info
-        if sys.platform == 'darwin':
-            dist_path = os.path.join('dist', 'Whispered.app')
-        elif sys.platform == 'win32':
-            dist_path = os.path.join('dist', 'Whispered')
+    LIB_DEPLOY_DIR.mkdir(parents=True, exist_ok=True)
+    for src in sources:
+        dst = LIB_DEPLOY_DIR / src.name
+        if dst.exists():
+            shutil.rmtree(dst) if dst.is_dir() else dst.unlink()
+        if src.is_dir():
+            shutil.copytree(src, dst)
         else:
-            dist_path = os.path.join('dist', 'Whispered')
+            shutil.copy2(src, dst)
+        print(f"📦 {src.name} → {dst}")
+    print(f"✅ whisper libs deployed to {LIB_DEPLOY_DIR}")
 
-        print(f"📂 Output located at: {dist_path}")
 
-    except subprocess.CalledProcessError as e:
-        print(f"\n❌ Build failed with return code {e.returncode}")
-        sys.exit(1)
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--no-libs", action="store_true",
+                        help="skip deploying whisper libs to Application Support")
+    opts = parser.parse_args()
+
+    build_app()
+    if not opts.no_libs:
+        deploy_whisper_libs()
+
 
 if __name__ == "__main__":
     main()

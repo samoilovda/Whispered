@@ -638,7 +638,13 @@ class MainWindow(QMainWindow):
             enable_diarization=enable_diarization,
             num_speakers=None,  # Auto-detect
             initial_prompt=prompt,
-            word_timestamps=True,
+            # Sentence-level segments, not per-word: word_timestamps=True
+            # routes through _group_words_into_segments, whose ''.join
+            # gluing loses inter-word spaces for Cyrillic BPE tokens and
+            # wrecks the transcript. The Cut tab works fine on sentence
+            # segments; finer word-level cutting needs that merge fixed
+            # for non-Latin scripts first.
+            word_timestamps=False,
             on_progress=self._on_progress,
             on_finished=self._on_finished,
             on_error=self._on_error
