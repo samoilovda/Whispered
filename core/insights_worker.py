@@ -84,14 +84,36 @@ def _build_prompt_text(
     """
     system_prompt = load_prompt(insight_type, fallback="")
     lines = []
+    # Coalesce consecutive same-speaker segments into ~25s blocks: whisper
+    # emits thousands of sub-second segments, and one "[Ns] " prefix per
+    # segment bloats the prompt (slow prefill) and drowns a reasoning
+    # model in timestamps. One marker per block keeps every word of the
+    # transcript while cutting the line count from thousands to ~150; 25s
+    # resolution is far finer than any chapter/insight needs.
+    block_start: int | None = None
+    block_speaker = ""
+    block_texts: list[str] = []
+
+    def _flush():
+        if block_texts:
+            prefix = f"[{block_start}s] "
+            if block_speaker:
+                prefix += f"{block_speaker}: "
+            lines.append(prefix + " ".join(block_texts))
+
     for seg in segments:
         start_s = int(seg.get("start", 0) if isinstance(seg, dict) else seg.start)
         text = (seg.get("text", "") if isinstance(seg, dict) else seg.text).strip()
         speaker = (seg.get("speaker") if isinstance(seg, dict) else seg.speaker) or ""
-        prefix = f"[{start_s}s] "
-        if speaker:
-            prefix += f"{speaker}: "
-        lines.append(f"{prefix}{text}")
+        if not text:
+            continue
+        if (block_start is None or speaker != block_speaker
+                or start_s - block_start >= 25):
+            _flush()
+            block_start, block_speaker, block_texts = start_s, speaker, [text]
+        else:
+            block_texts.append(text)
+    _flush()
     transcript = sample_lines_evenly(lines, max_transcript_chars)
     lang_directive = f"Write all output in {language}.\n" if language else ""
     return system_prompt + "\n" + lang_directive + transcript
