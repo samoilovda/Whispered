@@ -8,7 +8,7 @@ speaker diarization on `pyannote.audio`, and content generation (articles,
 summaries, chapters, YouTube metadata, book chapters, social posts) on a
 local LLM via LM Studio's OpenAI-compatible API.
 
-See [APP_DETAILS.md](APP_DETAILS.md) for the full feature rundown and
+See [Description.md](Description.md) for the full feature rundown and
 [ROADMAP.md](ROADMAP.md) for architecture notes and planned work.
 
 ## Install
@@ -26,7 +26,8 @@ See [APP_DETAILS.md](APP_DETAILS.md) for the full feature rundown and
 ```
 
 AMD GPU (ROCm) users: see the ROCm setup steps in
-[APP_DETAILS.md](APP_DETAILS.md#-key-features) before running `setup.sh`.
+[docs/archive/APP_DETAILS.md](docs/archive/APP_DETAILS.md#-key-features)
+before running `setup.sh`.
 
 A prebuilt AppImage can be built with `appimage/build-appimage.sh`
 (see `appimage/`).
@@ -54,6 +55,6 @@ uv pip compile requirements-dev.txt -o requirements-dev.lock
 ```
 
 Contributing agents/humans: read [ROADMAP.md](ROADMAP.md) §1 (architecture
-and mandatory rules) before making changes, and
-[AUDIT_HANDOFF.md](AUDIT_HANDOFF.md) for the current quality backlog.
-See [TESTING.md](TESTING.md) for test conventions.
+and mandatory rules) before making changes.
+See [TESTING.md](TESTING.md) for test conventions; executed plans and
+historical audits live in `docs/archive/`.
