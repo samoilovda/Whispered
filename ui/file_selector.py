@@ -15,6 +15,42 @@ from ui.icons import IconLabel, get_icon, IconColors
 from ui.theme import set_role
 
 
+class ElidedLabel(QLabel):
+    """QLabel that elides its text with '…' instead of demanding the full
+    text width from the layout — a long filename must not balloon the
+    panel it sits in."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._full_text = ""
+
+    def setText(self, text: str) -> None:
+        self._full_text = text
+        self.setToolTip(text)
+        self._update_elide()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_elide()
+
+    def _update_elide(self) -> None:
+        metrics = self.fontMetrics()
+        elided = metrics.elidedText(
+            self._full_text, Qt.TextElideMode.ElideMiddle, max(self.width(), 1)
+        )
+        super().setText(elided)
+
+    def minimumSizeHint(self):
+        size = super().minimumSizeHint()
+        size.setWidth(0)
+        return size
+
+    def sizeHint(self):
+        size = super().sizeHint()
+        size.setWidth(0)
+        return size
+
+
 class FileSelector(QWidget):
     """Drag-and-drop file selector widget."""
 
@@ -81,7 +117,7 @@ class FileSelector(QWidget):
         self.file_icon = IconLabel('file', IconColors.PRIMARY, 18)
         file_info_layout.addWidget(self.file_icon)
 
-        self.file_name_label = QLabel()
+        self.file_name_label = ElidedLabel()
         self.file_name_label.setStyleSheet("font-weight: bold; margin-left: 8px;")
         file_info_layout.addWidget(self.file_name_label, stretch=1)
 
