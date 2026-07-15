@@ -12,6 +12,8 @@ Chapter titles:
 - STRICTLY faithful to the transcript: no exaggeration, no promising content that is not actually there. An intriguing title about what WAS said — never clickbait about what wasn't.
 - 4–10 words each.
 
+Work through the transcript once and write the final JSON directly — do not deliberate at length before answering.
+
 Return ONLY a valid JSON array with no other text, no markdown code fences, no explanation. Each chapter must have:
 - "start": start time in seconds (integer, taken from the nearest segment timestamp)
 - "title": the chapter title

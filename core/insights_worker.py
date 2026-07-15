@@ -27,7 +27,14 @@ _TRANSCRIPT_MAX_CHARS = 48_000   # ~12 k tokens; matches chat_worker._CONTEXT_CH
 # LM Studio's DEFAULT_MAX_TOKENS (4096) truncated Cyrillic/multi-byte JSON
 # responses mid-string on longer insight types (chapters, descriptions);
 # non-Latin scripts tokenize far less efficiently than English.
-_RESPONSE_MAX_TOKENS = 8000
+# Reasoning models (e.g. gemma-4) spend the same budget on their hidden
+# reasoning_content before emitting any visible JSON — on a dense chapters
+# request over a ~48K-char transcript the old 8000 ran out mid-reasoning
+# and the visible response came back empty.
+_RESPONSE_MAX_TOKENS = 16_000
+# Socket-read timeout per stream. The client default (300s) fired on long
+# prefills/reasoning stretches where LM Studio sends no content deltas.
+_STREAM_TIMEOUT_S = 600
 
 
 def _strip_json_fences(text: str) -> str:
@@ -148,6 +155,7 @@ class InsightsWorker(BaseWorker):
             is_cancelled=self._cancelled.is_set,
             temperature=0.2,
             max_tokens=_RESPONSE_MAX_TOKENS,
+            timeout=_STREAM_TIMEOUT_S,
         )
         if self._cancelled.is_set():
             # Emit empty list so InsightsPanel can decrement _pending cleanly
@@ -169,6 +177,7 @@ class InsightsWorker(BaseWorker):
                 is_cancelled=self._cancelled.is_set,
                 temperature=0.1,
                 max_tokens=_RESPONSE_MAX_TOKENS,
+                timeout=_STREAM_TIMEOUT_S,
             )
             if raw2:
                 result = _parse_json_response(raw2)
