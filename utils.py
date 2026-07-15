@@ -24,10 +24,6 @@ def is_supported_format(filepath: str) -> bool:
     return ext in SUPPORTED_FORMATS
 
 
-def get_file_extension(filepath: str) -> str:
-    """Get the lowercase file extension."""
-    return os.path.splitext(filepath)[1].lower()
-
 
 def format_duration(seconds: float) -> str:
     """Format duration in seconds to HH:MM:SS format."""

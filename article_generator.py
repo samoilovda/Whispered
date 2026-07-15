@@ -67,14 +67,6 @@ class TopicAnalysis:
     notable_quotes: list[str] = field(default_factory=list)
     suggested_titles: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> dict:
-        return {
-            "topics": self.main_topics,
-            "insights": self.key_insights,
-            "quotes": self.notable_quotes,
-            "titles": self.suggested_titles
-        }
-
 
 @dataclass
 class Article:
@@ -529,39 +521,6 @@ class ArticleGenerator:
             generation_time=generation_time
         )
 
-    def score_quality(self, article: Article) -> float:
-        """
-        Score article quality using LLM.
-
-        Args:
-            article: Article to score
-
-        Returns:
-            Quality score (0-10)
-        """
-        prompt = QUALITY_SCORING_PROMPT.format(article=article.content[:3000])
-        response = self.lm_client.chat_completion(
-            prompt=prompt,
-            temperature=0.3,
-            max_tokens=256
-        )
-
-        if response:
-            try:
-                clean_response = response.strip()
-                if clean_response.startswith("```"):
-                    clean_response = clean_response.split("```")[1]
-                    if clean_response.startswith("json"):
-                        clean_response = clean_response[4:]
-
-                data = json.loads(clean_response)
-                score = data.get("overall", 5.0)
-                article.quality_score = float(score)
-                return float(score)
-            except (json.JSONDecodeError, ValueError):
-                pass
-
-        return 5.0  # Default middle score
 
     def _condense_for_prompt(self, text: str, max_chars: int) -> str:
         """Fit long text under max_chars without dropping its second half.

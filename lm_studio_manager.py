@@ -178,10 +178,6 @@ class LMStudioManager:
 
         return True
 
-    def stop_server(self) -> bool:
-        """Stop the LM Studio server."""
-        success, _ = self._run_cli(['server', 'stop'], timeout=10)
-        return success
 
     # =========================================================================
     # MODEL MANAGEMENT
@@ -305,43 +301,11 @@ class LMStudioManager:
 
         return True
 
-    def unload_all(self) -> bool:
-        """Unload all currently loaded models."""
-        success, _ = self._run_cli(['unload', '--all'], timeout=30)
-        return success
 
     # =========================================================================
     # HIGH-LEVEL HELPERS
     # =========================================================================
 
-    def ensure_ready(self, auto_load_model: bool = True) -> bool:
-        """
-        Ensure LM Studio is ready for inference.
-
-        This will:
-        1. Check if CLI is available
-        2. Start server if not running
-        3. Optionally load a model if none is loaded
-
-        Returns:
-            True if LM Studio is ready
-        """
-        if not self.is_cli_available():
-            return False
-
-        if not self.start_server():
-            return False
-
-        if auto_load_model:
-            loaded = self.list_loaded_models()
-            if not loaded:
-                # Try to load the first available model
-                model = self.get_recommended_model()
-                if model:
-                    return self.load_model(model.path)
-                return False
-
-        return True
 
     def get_recommended_model(self) -> Optional[ModelInfo]:
         """

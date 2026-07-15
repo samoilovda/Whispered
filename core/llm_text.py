@@ -5,27 +5,6 @@ Shared helpers for preparing text before sending to an LLM.
 
 from __future__ import annotations
 
-_DEFAULT_TRUNCATION_MARKER = "\n\n[Transcript truncated due to context limit]"
-
-
-def fit_to_context(
-    text: str,
-    max_chars: int,
-    marker: str = _DEFAULT_TRUNCATION_MARKER,
-) -> str:
-    """Truncate *text* to *max_chars*, appending *marker* when truncation occurs.
-
-    The marker itself is counted toward *max_chars*, so the result never
-    exceeds the limit regardless of marker length.
-    """
-    if len(text) <= max_chars:
-        return text
-    cutoff = max_chars - len(marker)
-    if cutoff <= 0:
-        return marker[:max_chars]
-    return text[:cutoff] + marker
-
-
 _GAP_MARKER = "[... transcript continues, sampled for length ...]"
 
 
@@ -40,8 +19,8 @@ def sample_lines_evenly(
     truncating the tail.
 
     A long recording's last chapters/topics live at the end of the
-    transcript; simply cutting off everything past *max_chars* (as
-    ``fit_to_context`` does) meant the model never saw the back half of
+    transcript; simply cutting off everything past *max_chars* meant the
+    model never saw the back half of
     long recordings. This keeps the first and last *keep_edges* lines
     intact (they anchor the opening and closing context) and evenly
     samples the remaining middle lines to fill out the rest of the budget,

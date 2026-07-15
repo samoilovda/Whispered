@@ -1,46 +1,7 @@
 """Unit tests for core/llm_text.py"""
 
 # Qt and core.lm_client/core.ai_worker stand-ins come from tests/conftest.py.
-from core.llm_text import fit_to_context, sample_lines_evenly
-
-
-def test_short_text_unchanged():
-    assert fit_to_context("hello", 100) == "hello"
-
-
-def test_exact_limit_unchanged():
-    text = "a" * 100
-    assert fit_to_context(text, 100) == text
-
-
-def test_long_text_truncated():
-    text = "a" * 200
-    result = fit_to_context(text, 100)
-    assert len(result) <= 100
-
-
-def test_truncation_includes_marker():
-    text = "a" * 200
-    marker = "\n[truncated]"
-    result = fit_to_context(text, 100, marker=marker)
-    assert result.endswith(marker)
-
-
-def test_truncated_result_never_exceeds_limit():
-    for limit in (10, 50, 100, 500):
-        result = fit_to_context("x" * 1000, limit)
-        assert len(result) <= limit, f"limit={limit}: got len={len(result)}"
-
-
-def test_empty_text():
-    assert fit_to_context("", 100) == ""
-
-
-def test_marker_longer_than_limit():
-    """When marker itself exceeds limit, result is capped at max_chars."""
-    marker = "m" * 20
-    result = fit_to_context("x" * 100, 10, marker=marker)
-    assert len(result) <= 10
+from core.llm_text import sample_lines_evenly
 
 
 # ── sample_lines_evenly ──────────────────────────────────────────────────────

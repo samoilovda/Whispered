@@ -34,13 +34,6 @@ class CleanedText:
     sentences_fixed: int
     paragraphs_created: int
 
-    @property
-    def improvement_ratio(self) -> float:
-        """How much shorter the cleaned text is vs original."""
-        if len(self.original) == 0:
-            return 0.0
-        return 1.0 - (len(self.cleaned) / len(self.original))
-
 
 @dataclass
 class CoherentText:

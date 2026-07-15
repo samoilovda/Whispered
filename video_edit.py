@@ -75,9 +75,6 @@ def mark_pauses(
 # LLM-assisted filler detection (optional, requires LM Studio running)
 # ---------------------------------------------------------------------------
 
-from PyQt6.QtCore import pyqtSignal
-from core.base_worker import BaseWorker
-from core.prompts import load_prompt
 
 
 _FILLER_PROMPT_FALLBACK = """\
@@ -93,81 +90,6 @@ If nothing should be cut, return: []
 Transcript:
 """
 
-
-class LLMFillerWorker(BaseWorker):
-    """Ask the LLM to identify filler/pause segments by start time.
-
-    Emits finished(list[float]) — start times (seconds) of segments to cut.
-    The caller should match these to the nearest segment index.
-    """
-
-    finished = pyqtSignal(list)       # list[float] of start times to cut
-    error_occurred = pyqtSignal(str)
-
-    def __init__(self, segments, lm_url: str, parent=None):
-        super().__init__(parent)
-        self._segments = segments
-        self._lm_url = lm_url
-
-    def _on_error(self, msg: str) -> None:
-        self.error_occurred.emit(msg)
-
-    def _execute(self):
-        import json
-        import re as _re
-
-        from core.lm_client import LMStudioClient
-        from core.llm_text import fit_to_context
-
-        client = LMStudioClient(self._lm_url)
-        system_prompt = load_prompt("fillers", fallback=_FILLER_PROMPT_FALLBACK)
-
-        lines = []
-        for seg in self._segments:
-            start_s = int(seg.start) if hasattr(seg, "start") else 0
-            text = (seg.text if hasattr(seg, "text") else "").strip()
-            lines.append(f"[{start_s}s] {text}")
-        transcript = fit_to_context("\n".join(lines), 32_000)
-
-        messages = [{"role": "user", "content": system_prompt + "\n" + transcript}]
-        raw = client.chat_completion_stream(
-            messages=messages,
-            is_cancelled=self._cancelled.is_set,
-            temperature=0.1,
-        )
-
-        if self._cancelled.is_set():
-            self.finished.emit([])
-            return
-        if raw is None:
-            self.error_occurred.emit(f"LM Studio did not respond ({self._lm_url}).")
-            return
-
-        # Parse JSON array of numbers
-        try:
-            cleaned = raw.strip()
-            cleaned = _re.sub(r'^```[a-z]*\n?', '', cleaned, flags=_re.MULTILINE)
-            cleaned = _re.sub(r'\n?```$', '', cleaned, flags=_re.MULTILINE)
-            result = json.loads(cleaned)
-            if isinstance(result, list):
-                times = [float(x) for x in result if isinstance(x, (int, float))]
-                self.finished.emit(times)
-                return
-        except (json.JSONDecodeError, ValueError):
-            pass
-
-        # Fallback: extract first JSON array
-        match = _re.search(r'\[[\d.,\s]*\]', raw)
-        if match:
-            try:
-                times = [float(x) for x in json.loads(match.group())]
-                self.finished.emit(times)
-                return
-            except (json.JSONDecodeError, ValueError):
-                pass
-
-        logger.warning("LLMFillerWorker: could not parse response: %.80s", raw)
-        self.finished.emit([])
 
 
 def times_to_indices(start_times: list[float], segments, tolerance: float = 1.0) -> list[int]:

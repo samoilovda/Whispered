@@ -40,8 +40,4 @@ def load_prompt(name: str, fallback: str = "") -> str:
         return fallback
 
 
-def list_prompts() -> list[str]:
-    """Return names (without .md extension) of all available prompt files."""
-    if not PROMPTS_DIR.exists():
-        return []
-    return sorted(p.stem for p in PROMPTS_DIR.glob("*.md"))
+

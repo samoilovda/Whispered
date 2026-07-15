@@ -277,8 +277,7 @@ class TranscriptView(QWidget):
     def get_result(self) -> Optional[TranscriptionResult]:
         return self._result
 
-    def get_speaker_names(self) -> dict:
-        return dict(self._speaker_names)
+
 
     def apply_display_settings(self):
         """Re-read show timestamps / speaker labels from config and refresh."""

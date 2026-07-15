@@ -109,9 +109,7 @@ class ArticleTab(QWidget):
         self.export_md_btn.setEnabled(False)
         self.export_html_btn.setEnabled(False)
 
-    def get_article(self) -> Article | None:
-        """Get the current article."""
-        return self._article
+
 
     def _on_copy(self):
         """Copy article content to clipboard."""

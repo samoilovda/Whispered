@@ -346,7 +346,4 @@ class AIProcessingPanel(QWidget):
         """Handle Generate All button click."""
         self.generate_all_requested.emit()
 
-    def get_selected_format(self) -> ArticleFormat:
-        """Get the currently selected article format."""
-        format_key = self.format_combo.currentData()
-        return ArticleFormat(format_key)
+

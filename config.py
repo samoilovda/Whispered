@@ -29,10 +29,6 @@ class Config:
     diarization_enabled: bool = False
     default_num_speakers: Optional[int] = None  # None = auto-detect
 
-    # Batch processing settings
-    batch_output_dir: str = ""
-    batch_auto_export: bool = True
-
     # LM Studio settings
     lm_studio_url: str = "http://localhost:1234/v1"
 

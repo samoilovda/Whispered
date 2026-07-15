@@ -123,14 +123,7 @@ class CutView(QWidget):
         self._list.blockSignals(False)
         self._update_count()
 
-    def get_kept_duration(self) -> float:
-        """Return total duration (seconds) of checked segments."""
-        total = 0.0
-        for i in range(self._list.count()):
-            if self._list.item(i).checkState() == Qt.CheckState.Checked:
-                seg = self._segments[i]
-                total += max(0.0, seg.end - seg.start)
-        return total
+
 
     def clear(self) -> None:
         self._result = None

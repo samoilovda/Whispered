@@ -3,10 +3,9 @@ Whispered - Speaker Diarization
 Identify and label different speakers using pyannote-audio
 """
 
-import gc
 import warnings
 from dataclasses import dataclass
-from typing import Optional, Callable, List, Tuple
+from typing import Optional, Callable, List
 
 # Suppress some warnings from pyannote
 warnings.filterwarnings("ignore", message=".*torchaudio.*")
@@ -44,14 +43,7 @@ class DiarizationResult:
                 return seg.speaker
         return None
 
-    def get_speaker_times(self) -> dict[str, float]:
-        """Get total speaking time for each speaker."""
-        times = {}
-        for seg in self.segments:
-            if seg.speaker not in times:
-                times[seg.speaker] = 0.0
-            times[seg.speaker] += seg.end - seg.start
-        return times
+
 
 
 # ============================================================================
@@ -220,53 +212,10 @@ class Diarizer:
             duration=duration
         )
 
-    def release(self) -> None:
-        """Release the pipeline and free GPU/CPU memory."""
-        self._pipeline = None
-        gc.collect()
-        try:
-            import torch
-            if torch.backends.mps.is_available():
-                torch.mps.empty_cache()
-            elif torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except Exception:
-            pass
-        logger.debug("Diarization pipeline released from memory")
 
 
-def merge_transcription_with_diarization(
-    transcription_segments: List[Tuple[float, float, str]],
-    diarization: DiarizationResult
-) -> List[Tuple[float, float, str, str]]:
-    """
-    Merge transcription segments with speaker labels.
 
-    Args:
-        transcription_segments: List of (start, end, text) tuples
-        diarization: DiarizationResult with speaker segments
 
-    Returns:
-        List of (start, end, text, speaker) tuples
-    """
-    result = []
-
-    for start, end, text in transcription_segments:
-        # Find the speaker at the midpoint of this segment
-        midpoint = (start + end) / 2
-        speaker = diarization.get_speaker_at(midpoint)
-
-        # If no speaker found, try start of segment
-        if speaker is None:
-            speaker = diarization.get_speaker_at(start)
-
-        # Default to Unknown if still not found
-        if speaker is None:
-            speaker = "Unknown"
-
-        result.append((start, end, text, speaker))
-
-    return result
 
 
 # ============================================================================
@@ -314,22 +263,7 @@ class SimpleDiarizer:
         )
 
 
-def get_diarizer(prefer_pyannote: bool = True) -> Diarizer | SimpleDiarizer:
-    """
-    Get the best available diarizer.
 
-    Args:
-        prefer_pyannote: If True, try pyannote first
-
-    Returns:
-        Diarizer instance (pyannote or simple fallback)
-    """
-    if prefer_pyannote:
-        diarizer = Diarizer()
-        if diarizer.is_available():
-            return diarizer
-
-    return SimpleDiarizer()
 
 
 # ============================================================================

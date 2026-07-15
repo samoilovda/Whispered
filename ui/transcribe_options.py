@@ -110,10 +110,7 @@ class TranscribeOptionsPopover(QFrame):
         self.perf_combo.setCurrentIndex(perf_idx)
         self.diarization_checkbox.setChecked(cfg.diarization_enabled)
 
-    def apply_config_defaults(self) -> None:
-        """Re-seed from config after Settings dialog changes (Cancel-safe:
-        callers only invoke this after a saved change, same as before)."""
-        self._load_config()
+
 
     def summary_text(self) -> str:
         """Compact one-line summary shown next to the gear button."""

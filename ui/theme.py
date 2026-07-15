@@ -91,13 +91,6 @@ class Theme:
     font_lg: str
 
 
-# ── Spacing scale (px) — use these instead of ad-hoc margin/padding numbers ──
-SPACING_XS = 4
-SPACING_SM = 8
-SPACING_MD = 12
-SPACING_LG = 16
-SPACING_XL = 24
-
 DARK = Theme(
     name="dark",
     bg_base="#1a1a1a",

@@ -52,8 +52,7 @@ class _Bubble(QLabel):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self.setProperty("role", "chat-bubble-user" if role == "user" else "chat-bubble-assistant")
 
-    def append_text(self, delta: str):
-        self.setText(self.text() + delta)
+
 
 
 class ChatPanel(QWidget):
