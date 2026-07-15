@@ -49,6 +49,7 @@ class FileSelector(QWidget):
         self.text_label.setProperty("role", "muted")
         self.text_label.setStyleSheet("font-size: 14px;")
         self.text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.text_label.setWordWrap(True)
         drop_layout.addWidget(self.text_label)
 
         # Browse button
@@ -64,6 +65,7 @@ class FileSelector(QWidget):
         formats_hint.setProperty("role", "dim")
         formats_hint.setStyleSheet("font-size: 11px;")
         formats_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        formats_hint.setWordWrap(True)
         drop_layout.addWidget(formats_hint)
 
         layout.addWidget(self.drop_zone)

@@ -252,6 +252,11 @@ class MainWindow(QMainWindow):
         self.library_view.open_record.connect(self._open_record_view)
         content_splitter.addWidget(self.library_view)
         content_splitter.setSizes([280, 720])
+        # Keep the tool panel at its set width and give all extra space
+        # to the library; without stretch factors the splitter distributes
+        # by sizeHint and a long model name can balloon the left pane.
+        content_splitter.setStretchFactor(0, 0)
+        content_splitter.setStretchFactor(1, 1)
 
         main_layout.addWidget(content_splitter, stretch=1)
 

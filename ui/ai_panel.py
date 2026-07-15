@@ -124,6 +124,12 @@ class AIProcessingPanel(QWidget):
         model_layout.addWidget(model_label)
 
         self.model_combo = QComboBox()
+        # Long LM Studio model names must not dictate the panel width;
+        # keep the combo compact and let the dropdown show the full name.
+        self.model_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.model_combo.setMinimumContentsLength(14)
         self.model_combo.currentIndexChanged.connect(self._on_model_selected)
         model_layout.addWidget(self.model_combo, stretch=1)
 
