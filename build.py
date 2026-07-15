@@ -31,7 +31,23 @@ LIB_DEPLOY_DIR = Path.home() / "Library/Application Support/Whispered/lib"
 # Whisper stack pieces to deploy from site-packages. The compiled
 # extension references its dylibs via @loader_path/pywhispercpp/.dylibs/,
 # so the package dir and the .so must sit side by side.
-_WHISPER_GLOBS = ("pywhispercpp", "_pywhispercpp.*.so", "libwhisper*.dylib")
+# pywhispercpp's pure-python deps ride along too: the .app excludes the
+# whisper stack, so PyInstaller never collects what only pywhispercpp
+# imports (platformdirs/tqdm — "No module named 'platformdirs'" in the
+# transcription child otherwise). requests and friends are currently
+# pulled into the bundle by other imports, but the external stack must
+# not depend on that staying true.
+_WHISPER_GLOBS = (
+    "pywhispercpp", "_pywhispercpp.*.so", "libwhisper*.dylib",
+    "pywhispercpp-*.dist-info",
+    "platformdirs", "platformdirs-*.dist-info",
+    "tqdm", "tqdm-*.dist-info",
+    "requests", "requests-*.dist-info",
+    "urllib3", "urllib3-*.dist-info",
+    "idna", "idna-*.dist-info",
+    "certifi", "certifi-*.dist-info",
+    "charset_normalizer", "charset_normalizer-*.dist-info",
+)
 
 
 def build_app() -> None:
