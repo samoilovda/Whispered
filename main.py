@@ -6,6 +6,7 @@ A modern desktop transcription application using whisper.cpp
 
 import sys
 import os
+import multiprocessing
 
 # Add src to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -35,6 +36,16 @@ def _setup_frozen_runtime():
 
 
 _setup_frozen_runtime()
+
+# In the frozen (PyInstaller) build, transcription child processes are
+# spawned by re-executing this same binary. freeze_support() hands those
+# invocations to the multiprocessing worker machinery instead of booting
+# a second copy of the GUI — without it, clicking Process opened a new
+# app window and the transcription never started. It must run after
+# _setup_frozen_runtime() (workers import pywhispercpp from the external
+# lib dir) but before any Qt import.
+if __name__ == "__main__":
+    multiprocessing.freeze_support()
 
 # Initialize centralized logging BEFORE any other module imports
 from core.logger import setup_logging
