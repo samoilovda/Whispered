@@ -111,9 +111,21 @@ class RecordView(QWidget):
         self._left_layout.addWidget(main_tabs, stretch=1)
 
         self._content_splitter.addWidget(tools_tabs)
-        # Give left side more space by default (e.g., 2:1 ratio)
+
+        # The tools tabs ask for ~900px (the YouTube/Book panels are wide)
+        # and report that as their minimum too, which would pin the pane
+        # open and squeeze the transcript. Cap both sides to a workable
+        # minimum so the splitter can honour the ratio below instead of
+        # the children's size hints.
+        self._left_widget.setMinimumWidth(400)
+        tools_tabs.setMinimumWidth(360)
+
+        # Give the left (player + transcript) side a 2:1 share. Stretch
+        # factors alone only govern how *extra* space is handed out on
+        # resize — the initial split comes from size hints, so set it.
         self._content_splitter.setStretchFactor(0, 2)
         self._content_splitter.setStretchFactor(1, 1)
+        self._content_splitter.setSizes([2000, 1000])
 
     def set_title(self, name: str) -> None:
         self.title_label.setText(name)

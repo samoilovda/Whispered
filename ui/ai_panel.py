@@ -180,7 +180,6 @@ class AIProcessingPanel(QWidget):
 
         # Format selector
         self.format_combo = QComboBox()
-        self.format_combo.setFixedWidth(90)
 
         # Add format options
         for fmt in ArticleFormat:
@@ -188,6 +187,11 @@ class AIProcessingPanel(QWidget):
             # Use emoji in text, not as icon (QIcon requires actual icon, not string)
             display_text = f"{info['icon']} {info['name'].split()[1]}"
             self.format_combo.addItem(display_text, fmt.value)
+
+        # Size to the longest entry rather than a hard-coded width, which
+        # truncated labels ("📝 Blog" → "📝 Bl") as soon as the theme's
+        # font size grew.
+        self.format_combo.setFixedWidth(self.format_combo.sizeHint().width())
 
         articles_layout.addWidget(self.format_combo)
         layout.addLayout(articles_layout)
