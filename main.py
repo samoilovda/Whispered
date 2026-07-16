@@ -66,7 +66,7 @@ else:
     )
 
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QIcon
 from ui.main_window import MainWindow
 from ui.theme import apply_theme
 from config import get_config
@@ -84,6 +84,13 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Whispered")
     app.setApplicationDisplayName("Whispered")
+
+    # Window/taskbar icon. The .app carries its own icon via build.py's
+    # --icon, but running from source (and Linux) needs it set here.
+    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "assets", "icon.png")
+    if os.path.isfile(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
 
     # Set premium font stack (prioritizing system native fonts)
     font = QFont()

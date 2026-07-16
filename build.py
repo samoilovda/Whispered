@@ -65,9 +65,12 @@ def build_app() -> None:
         "--noconfirm", "--clean",
         "--name=Whispered",
         "--windowed",
+        # Bundle icon (Finder/Dock) + the PNG main.py sets on the windows
+        f"--icon={PROJECT / 'assets' / 'icon.icns'}",
         # Runtime data files resolved relative to the code tree
         "--add-data=locales:locales",
         "--add-data=prompts:prompts",
+        "--add-data=assets/icon.png:assets",
         # Imported dynamically (theme fallback), invisible to analysis
         "--hidden-import=qdarktheme",
         # The whole point of this build: whisper stays external

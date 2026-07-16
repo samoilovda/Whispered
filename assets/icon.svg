@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#818cf8"/>
+      <stop offset="1" stop-color="#4f46e5"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Plate on the macOS Big Sur grid: 824x824 inside a 1024 canvas, so
+       the icon lines up with system icons in the Dock instead of
+       overflowing them. -->
+  <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#bg)"/>
+
+  <!-- Stylised W: the middle peak rises past the outer arms like a
+       waveform crest. Round joins keep it soft at small sizes. -->
+  <path d="M 296 372 L 404 668 L 512 442 L 620 668 L 728 372"
+        fill="none" stroke="#ffffff" stroke-width="68"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
