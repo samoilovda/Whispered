@@ -34,6 +34,7 @@ from ui.chat_panel import ChatPanel
 from ui.insights_panel import InsightsPanel
 from ui.youtube_panel import YouTubePanel
 from ui.progress_timeline import ProgressTimeline
+from ui.animated_button import AnimatedButton
 from transcriber import Transcriber, TranscriptionResult
 from exporters import export_result, EXPORT_FORMATS
 from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, get_thread_count, is_supported_format
@@ -174,7 +175,7 @@ class MainWindow(QMainWindow):
         row1_layout.addStretch()
 
         # Clickable device toggle button
-        self.device_btn = QPushButton()
+        self.device_btn = AnimatedButton()
         self.device_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.device_btn.setToolTip(tr("tooltip_device"))
         self.device_btn.setMinimumWidth(130)  # Prevent truncation
@@ -294,7 +295,7 @@ class MainWindow(QMainWindow):
         action_layout.addSpacing(16)
 
         # Cancel button
-        self.cancel_btn = QPushButton(tr("btn_cancel"))
+        self.cancel_btn = AnimatedButton(tr("btn_cancel"))
         self.cancel_btn.setIcon(get_icon('close', IconColors.MUTED, 14))
         self.cancel_btn.setVisible(False)
         self.cancel_btn.setProperty("variant", "danger")
@@ -345,37 +346,38 @@ class MainWindow(QMainWindow):
         # Audio player (hidden when multimedia backend unavailable)
         self.player = PlayerWidget()
 
-        # Tabbed result view
-        self.content_tabs = QTabWidget()
+        # Tabbed result views (Split into Main Content and Tools)
+        self.main_tabs = QTabWidget()
+        self.tools_tabs = QTabWidget()
 
         self.transcript_view = TranscriptView()
-        self.content_tabs.addTab(self.transcript_view, tr("tab_transcript"))
+        self.main_tabs.addTab(self.transcript_view, tr("tab_transcript"))
 
         self.cleaned_view = CleanedTextView()
-        self.content_tabs.addTab(self.cleaned_view, tr("tab_cleaned"))
+        self.main_tabs.addTab(self.cleaned_view, tr("tab_cleaned"))
 
         self.article_view = ArticleView()
-        self.content_tabs.addTab(self.article_view, tr("tab_articles"))
+        self.tools_tabs.addTab(self.article_view, tr("tab_articles"))
 
         self.chat_panel = ChatPanel()
-        self.content_tabs.addTab(self.chat_panel, tr("tab_chat"))
+        self.tools_tabs.addTab(self.chat_panel, tr("tab_chat"))
 
         self.insights_panel = InsightsPanel()
-        self.content_tabs.addTab(self.insights_panel, tr("tab_insights"))
+        self.tools_tabs.addTab(self.insights_panel, tr("tab_insights"))
 
         self.cut_view = CutView()
         self.cut_view.video_panel.export_edl_requested.connect(self._export_edl)
         self.cut_view.video_panel.mark_pauses_requested.connect(self._mark_pauses)
         self.cut_view.video_panel.assemble_requested.connect(self._assemble_draft)
-        self.content_tabs.addTab(self.cut_view, tr("tab_cut"))
+        self.tools_tabs.addTab(self.cut_view, tr("tab_cut"))
 
         self.youtube_panel = YouTubePanel()
         self.youtube_panel.generation_finished.connect(self._on_chain_youtube_done)
-        self.content_tabs.addTab(self.youtube_panel, tr("tab_youtube"))
+        self.tools_tabs.addTab(self.youtube_panel, tr("tab_youtube"))
 
-        self.content_tabs.addTab(self.book_panel, tr("tab_book"))
+        self.tools_tabs.addTab(self.book_panel, tr("tab_book"))
 
-        self.record_view.add_content_widgets(self.player, self.content_tabs)
+        self.record_view.set_content_widgets(self.player, self.main_tabs, self.tools_tabs)
         self._record_index = self._stack.addWidget(self.record_view)  # index 3
 
         self._section_index = {"library": 0, "queue": 1, "recorder": 2}
@@ -771,7 +773,7 @@ class MainWindow(QMainWindow):
         # Populate the Cut tab's segment list and video actions
         self.cut_view.video_panel.set_has_transcript(True)
         self.cut_view.set_result(result)
-        self.content_tabs.setCurrentIndex(0)
+        self.main_tabs.setCurrentIndex(0)
 
         # A fresh transcription result is a record too — open the Record
         # view so the user immediately sees what they just produced.
@@ -939,7 +941,7 @@ class MainWindow(QMainWindow):
             self.cut_view.set_result(result)
             word_count = len(result.full_text.split())
             self.status_label.setText(tr("toast_loaded_history", words=word_count))
-            self.content_tabs.setCurrentIndex(0)
+            self.main_tabs.setCurrentIndex(0)
             self.record_view.set_title(Path(source_name).stem if source_name else tr("app_title"))
         except Exception as e:
             logger.warning("Failed to load history record %d: %s", record_id, e)
@@ -1112,7 +1114,7 @@ class MainWindow(QMainWindow):
             )
 
             # Switch to cleaned tab
-            self.content_tabs.setCurrentIndex(1)
+            self.main_tabs.setCurrentIndex(1)
 
             self.status_label.setText(
                 f"Cleaned in {result.processing_time:.1f}s - "
@@ -1135,7 +1137,7 @@ class MainWindow(QMainWindow):
             self.article_view.set_article(result)
 
             # Switch to articles tab
-            self.content_tabs.setCurrentIndex(2)
+            self.tools_tabs.setCurrentIndex(0)
 
             self.status_label.setText(f"Generated: {result.title} ({result.word_count} words)")
 
@@ -1151,7 +1153,7 @@ class MainWindow(QMainWindow):
             self.article_view.set_articles(result.articles)
 
             # Switch to articles tab
-            self.content_tabs.setCurrentIndex(2)
+            self.tools_tabs.setCurrentIndex(0)
 
             self.status_label.setText(
                 f"Generated {len(result.articles)} articles in {result.generation_time:.1f}s"
@@ -1294,7 +1296,7 @@ class MainWindow(QMainWindow):
                         removed_fillers=0,
                         paragraphs=result.final_text.count('\n\n') + 1,
                     )
-                    self.content_tabs.setCurrentIndex(1)
+                    self.main_tabs.setCurrentIndex(1)
             else:
                 failed = [s.error for s in result.stages if not s.success]
                 error = failed[0] if failed else tr("error_unknown")

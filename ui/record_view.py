@@ -6,13 +6,14 @@ Export menu (replaces the old always-visible 7 format checkboxes).
 
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMenu
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMenu, QSplitter
 from PyQt6.QtCore import Qt, pyqtSignal
 
 from config import get_config, save_config
 from core.i18n import tr
 from exporters import EXPORT_FORMATS
 from ui.icons import get_icon, IconColors
+from ui.animated_button import AnimatedButton
 
 # Order the Export menu lists formats in (subset of EXPORT_FORMATS that
 # makes sense as a persisted multi-select; matches the old checkbox order).
@@ -43,7 +44,7 @@ class RecordView(QWidget):
         header = QHBoxLayout()
         header.setSpacing(8)
 
-        back_btn = QPushButton(f"←  {tr('sidebar_library')}")
+        back_btn = AnimatedButton(f"←  {tr('sidebar_library')}")
         back_btn.setProperty("variant", "ghost")
         back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         back_btn.clicked.connect(self.back_requested.emit)
@@ -53,18 +54,26 @@ class RecordView(QWidget):
         self.title_label.setProperty("role", "title")
         header.addWidget(self.title_label, stretch=1)
 
-        self.export_btn = QPushButton(tr("record_export_menu"))
+        self.export_btn = AnimatedButton(tr("record_export_menu"))
         self.export_btn.setIcon(get_icon('save', IconColors.DEFAULT, 14))
         self._build_export_menu()
         header.addWidget(self.export_btn)
 
         self._layout.addLayout(header)
 
-        # Player and content_tabs are inserted here by MainWindow via
-        # add_content_widgets(), after this view is constructed.
-        self._content_layout = QVBoxLayout()
-        self._content_layout.setSpacing(4)
-        self._layout.addLayout(self._content_layout, stretch=1)
+        # Main Splitter for Content vs Tools
+        self._content_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._content_splitter.setHandleWidth(1)
+        
+        # Left side will contain Player and Main Tabs
+        self._left_widget = QWidget()
+        self._left_layout = QVBoxLayout(self._left_widget)
+        self._left_layout.setContentsMargins(0, 0, 0, 0)
+        self._left_layout.setSpacing(4)
+        
+        self._content_splitter.addWidget(self._left_widget)
+        
+        self._layout.addWidget(self._content_splitter, stretch=1)
 
     def _build_export_menu(self) -> None:
         cfg = get_config()
@@ -96,11 +105,15 @@ class RecordView(QWidget):
         cfg.export_formats = formats
         save_config()
 
-    def add_content_widgets(self, *widgets: QWidget) -> None:
-        """Add the player/content_tabs widgets MainWindow owns into this
-        view's content area, in order."""
-        for w in widgets:
-            self._content_layout.addWidget(w)
+    def set_content_widgets(self, player: QWidget, main_tabs: QWidget, tools_tabs: QWidget) -> None:
+        """Set the player and split tab widgets owned by MainWindow."""
+        self._left_layout.addWidget(player)
+        self._left_layout.addWidget(main_tabs, stretch=1)
+        
+        self._content_splitter.addWidget(tools_tabs)
+        # Give left side more space by default (e.g., 2:1 ratio)
+        self._content_splitter.setStretchFactor(0, 2)
+        self._content_splitter.setStretchFactor(1, 1)
 
     def set_title(self, name: str) -> None:
         self.title_label.setText(name)

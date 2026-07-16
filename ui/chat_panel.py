@@ -49,8 +49,28 @@ class _Bubble(QLabel):
         self.setTextFormat(Qt.TextFormat.MarkdownText)
         self.setText(text)
         self.setFont(QFont("Sans", 10))
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         self.setProperty("role", "chat-bubble-user" if role == "user" else "chat-bubble-assistant")
+
+
+class _ChatRow(QWidget):
+    """Horizontal wrapper row that aligns a bubble to the left or right."""
+
+    def __init__(self, text: str, role: str, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setSpacing(0)
+
+        self.bubble = _Bubble(text, role, self)
+        self.bubble.setMaximumWidth(600)
+
+        if role == "user":
+            layout.addStretch()
+            layout.addWidget(self.bubble)
+        else:
+            layout.addWidget(self.bubble)
+            layout.addStretch()
 
 
 
@@ -266,12 +286,12 @@ class ChatPanel(QWidget):
         self._input.setFocus()
 
     def _add_bubble(self, text: str, role: str) -> _Bubble:
-        bubble = _Bubble(text, role, self._msg_container)
+        row = _ChatRow(text, role, self._msg_container)
         # Insert before the trailing stretch (last item)
         count = self._msg_layout.count()
-        self._msg_layout.insertWidget(count - 1, bubble)
+        self._msg_layout.insertWidget(count - 1, row)
         QTimer.singleShot(0, self._scroll_to_bottom)
-        return bubble
+        return row.bubble
 
     def _scroll_to_bottom(self):
         sb = self._scroll.verticalScrollBar()

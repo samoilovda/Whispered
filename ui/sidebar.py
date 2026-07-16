@@ -6,8 +6,9 @@ Narrow vertical icon rail for switching between top-level sections
 
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QToolButton, QButtonGroup
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QToolButton, QButtonGroup, QGraphicsDropShadowEffect
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtGui import QColor
 
 from core.i18n import tr
 from ui.icons import get_icon, IconColors
@@ -36,6 +37,14 @@ class Sidebar(QWidget):
         super().__init__(parent)
         self.setProperty("role", "card")
         self.setFixedWidth(SIDEBAR_WIDTH)
+        
+        # Apply soft drop shadow casting to the right
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(12)
+        shadow.setColor(QColor(0, 0, 0, 50))
+        shadow.setOffset(2, 0)
+        self.setGraphicsEffect(shadow)
+
         self._buttons: dict[str, QToolButton] = {}
         self._setup_ui()
 

@@ -85,12 +85,21 @@ def main():
     app.setApplicationName("Whispered")
     app.setApplicationDisplayName("Whispered")
 
-    # Set modern font
-    font = QFont("Inter", 10)
-    if not font.exactMatch():
-        font = QFont("Roboto", 10)
-    if not font.exactMatch():
-        font = QFont("Sans Serif", 10)
+    # Set premium font stack (prioritizing system native fonts)
+    font = QFont()
+    font.setFamilies([
+        "SF Pro Display",
+        "SF Pro Text",
+        ".AppleSystemUIFont",
+        "Segoe UI",
+        "Segoe UI Variable Text",
+        "Inter",
+        "Roboto",
+        "Helvetica Neue",
+        "Arial",
+        "Sans Serif"
+    ])
+    font.setPointSize(10)
     app.setFont(font)
 
     # Apply theme from config (falls back to qdarktheme on error)

@@ -177,40 +177,57 @@ ICONS = {
 }
 
 
-def get_icon(name: str, color: str = IconColors.DEFAULT, size: int = 24) -> QIcon:
-    """
-    Generate a QIcon from SVG with specified color and size.
-
-    Args:
-        name: Icon name from ICONS dictionary
-        color: Hex color string (e.g., '#ffffff')
-        size: Icon size in pixels
-
-    Returns:
-        QIcon object ready to use
-    """
-    svg_data = ICONS.get(name, '')
-    if not svg_data:
-        return QIcon()
-
-    # Replace currentColor with the specified color
-    svg_data = svg_data.replace('currentColor', color)
-
-    # Create renderer from SVG data
-    renderer = QSvgRenderer(QByteArray(svg_data.encode()))
-
-    # Create transparent pixmap
+def _render_pixmap(svg_data: str, color: str, size: int) -> QPixmap:
+    """Helper to render SVG string into QPixmap with a specific tint color."""
+    svg = svg_data.replace('currentColor', color)
+    renderer = QSvgRenderer(QByteArray(svg.encode()))
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
-
-    # Render SVG to pixmap
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
     renderer.render(painter)
     painter.end()
+    return pixmap
 
-    return QIcon(pixmap)
+
+def get_icon(name: str, color: str = IconColors.DEFAULT, size: int = 24) -> QIcon:
+    """
+    Generate a QIcon from SVG with support for dynamic states (Hover, Checked, Disabled)
+    aligned with the active application theme.
+    """
+    svg_data = ICONS.get(name, '')
+    if not svg_data:
+        return QIcon()
+
+    # Render base (Normal, Off) state
+    pixmap_normal = _render_pixmap(svg_data, color, size)
+    icon = QIcon(pixmap_normal)
+
+    # Compile additional states based on active theme
+    try:
+        from ui.theme import get_theme
+        t = get_theme()
+
+        # Active (Hovered) state
+        pixmap_active = _render_pixmap(svg_data, t.text_primary, size)
+        icon.addPixmap(pixmap_active, QIcon.Mode.Active, QIcon.State.Off)
+        icon.addPixmap(pixmap_active, QIcon.Mode.Active, QIcon.State.On)
+
+        # Selected (Checked) state
+        pixmap_selected = _render_pixmap(svg_data, t.accent, size)
+        icon.addPixmap(pixmap_selected, QIcon.Mode.Normal, QIcon.State.On)
+        icon.addPixmap(pixmap_selected, QIcon.Mode.Active, QIcon.State.On)
+
+        # Disabled state
+        pixmap_disabled = _render_pixmap(svg_data, t.text_disabled, size)
+        icon.addPixmap(pixmap_disabled, QIcon.Mode.Disabled, QIcon.State.Off)
+        icon.addPixmap(pixmap_disabled, QIcon.Mode.Disabled, QIcon.State.On)
+    except Exception:
+        # Fallback if theme system is not yet initialized
+        pass
+
+    return icon
 
 
 def get_pixmap(name: str, color: str = IconColors.DEFAULT, size: int = 24) -> QPixmap:

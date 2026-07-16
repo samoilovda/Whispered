@@ -99,9 +99,9 @@ DARK = Theme(
     bg_elevated="#2d2d2d",
     bg_pressed="#4a4a4a",
     bg_disabled="#252525",
-    border="#3a3a3a",
-    border_input="#4a4a4a",
-    border_hover="#5a5a5a",
+    border="#2e2e2e",
+    border_input="#3a3a3a",
+    border_hover="#4a4a4a",
     accent="#6366f1",
     accent_hover="#818cf8",
     accent_pressed="#4f46e5",
@@ -112,13 +112,13 @@ DARK = Theme(
     success="#22c55e",
     warning="#f59e0b",
     error="#ef4444",
-    radius_sm="3px",
-    radius_md="6px",
-    radius_lg="10px",
-    font_xs="10px",
-    font_sm="11px",
-    font_md="12px",
-    font_lg="14px",
+    radius_sm="4px",
+    radius_md="8px",
+    radius_lg="12px",
+    font_xs="11px",
+    font_sm="12px",
+    font_md="13px",
+    font_lg="15px",
 )
 
 LIGHT = Theme(
@@ -129,9 +129,9 @@ LIGHT = Theme(
     bg_elevated="#dcdcdc",
     bg_pressed="#c8c8c8",
     bg_disabled="#eeeeee",
-    border="#c0c0c0",
-    border_input="#aaaaaa",
-    border_hover="#888888",
+    border="#e2e2e2",
+    border_input="#cccccc",
+    border_hover="#999999",
     accent="#6366f1",
     accent_hover="#818cf8",
     accent_pressed="#4f46e5",
@@ -142,13 +142,13 @@ LIGHT = Theme(
     success="#16a34a",
     warning="#d97706",
     error="#dc2626",
-    radius_sm="3px",
-    radius_md="6px",
-    radius_lg="10px",
-    font_xs="10px",
-    font_sm="11px",
-    font_md="12px",
-    font_lg="14px",
+    radius_sm="4px",
+    radius_md="8px",
+    radius_lg="12px",
+    font_xs="11px",
+    font_sm="12px",
+    font_md="13px",
+    font_lg="15px",
 )
 
 THEMES: dict[str, Theme] = {"dark": DARK, "light": LIGHT}
@@ -610,19 +610,28 @@ def build_stylesheet(t: Theme) -> str:
     }}
     QLabel[role="chat-bubble-user"] {{
         background-color: {rgba(t.accent, 0.18)};
-        border-radius: {t.radius_md};
+        border-top-left-radius: {t.radius_lg};
+        border-top-right-radius: {t.radius_lg};
+        border-bottom-left-radius: {t.radius_lg};
+        border-bottom-right-radius: 2px;
         padding: 8px 12px;
         color: {t.text_primary};
     }}
     QLabel[role="chat-bubble-assistant"] {{
         background-color: {rgba(t.text_primary, 0.06)};
-        border-radius: {t.radius_md};
+        border-top-left-radius: {t.radius_lg};
+        border-top-right-radius: {t.radius_lg};
+        border-bottom-left-radius: 2px;
+        border-bottom-right-radius: {t.radius_lg};
         padding: 8px 12px;
         color: {t.text_primary};
     }}
     QLabel[role="chat-bubble-error"] {{
         background-color: {rgba(t.error, 0.12)};
-        border-radius: {t.radius_md};
+        border-top-left-radius: {t.radius_lg};
+        border-top-right-radius: {t.radius_lg};
+        border-bottom-left-radius: 2px;
+        border-bottom-right-radius: {t.radius_lg};
         padding: 8px 12px;
         color: {t.error};
     }}
@@ -707,6 +716,46 @@ def build_stylesheet(t: Theme) -> str:
         border-radius: {t.radius_lg};
         color: {t.accent};
         font-size: 20px;
+        font-weight: bold;
+    }}
+
+    /* ── Library Card Widgets ── */
+    QWidget[role="library-item-card"] {{
+        background: transparent;
+    }}
+    QLabel[role="library-item-title"] {{
+        font-weight: bold;
+        font-size: {t.font_md};
+        color: {t.text_primary};
+        background: transparent;
+    }}
+    QLabel[role="library-item-meta"] {{
+        font-size: {t.font_xs};
+        color: {t.text_secondary};
+        background: transparent;
+    }}
+    QLabel[role="badge-pill-transcript"] {{
+        background-color: {rgba(t.accent, 0.15)};
+        color: {t.accent};
+        border-radius: 9px;
+        padding: 2px 8px;
+        font-size: {t.font_xs};
+        font-weight: bold;
+    }}
+    QLabel[role="badge-pill-youtube"] {{
+        background-color: {rgba(t.warning, 0.15)};
+        color: {t.warning};
+        border-radius: 9px;
+        padding: 2px 8px;
+        font-size: {t.font_xs};
+        font-weight: bold;
+    }}
+    QLabel[role="badge-pill-article"] {{
+        background-color: {rgba(t.success, 0.15)};
+        color: {t.success};
+        border-radius: 9px;
+        padding: 2px 8px;
+        font-size: {t.font_xs};
         font-weight: bold;
     }}
 

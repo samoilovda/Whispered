@@ -71,6 +71,51 @@ def _artifact_chip_line(rec) -> str:
     return f"✓ {'  ·  ✓ '.join(labels)}"
 
 
+class RecordItemWidget(QWidget):
+    """Custom rich widget for library items, replacing plain multi-line text."""
+
+    def __init__(self, name: str, meta: str, artifacts: list[str], snippet: str = "", parent=None):
+        super().__init__(parent)
+        self.setProperty("role", "library-item-card")
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(6, 6, 6, 6)
+        main_layout.setSpacing(4)
+
+        # Title/Name
+        self.title_label = QLabel(name)
+        self.title_label.setProperty("role", "library-item-title")
+        self.title_label.setWordWrap(True)
+        main_layout.addWidget(self.title_label)
+
+        # Meta line
+        self.meta_label = QLabel(meta)
+        self.meta_label.setProperty("role", "library-item-meta")
+        main_layout.addWidget(self.meta_label)
+
+        # Badges layout
+        badges_layout = QHBoxLayout()
+        badges_layout.setSpacing(6)
+        badges_layout.setContentsMargins(0, 2, 0, 0)
+
+        for art in artifacts:
+            label_text = tr(_ARTIFACT_LABEL_KEYS.get(art, art))
+            badge = QLabel(f"✓ {label_text}")
+            badge.setProperty("role", f"badge-pill-{art}")
+            badges_layout.addWidget(badge)
+
+        badges_layout.addStretch()
+        main_layout.addLayout(badges_layout)
+
+        # Snippet (only shown if present)
+        if snippet:
+            self.snippet_label = QLabel(snippet)
+            self.snippet_label.setProperty("role", "dim")
+            self.snippet_label.setStyleSheet("font-size: 11px; font-style: italic; margin-top: 2px;")
+            self.snippet_label.setWordWrap(True)
+            main_layout.addWidget(self.snippet_label)
+
+
 class LibraryView(QWidget):
     """Library section — search box + list of past transcriptions.
 
@@ -179,15 +224,16 @@ class LibraryView(QWidget):
             lang = rec.language.upper() if rec.language else "?"
 
             meta = f"{date}  ·  {dur}  ·  {lang}"
-            chips = _artifact_chip_line(rec)
-            lines = [name, meta, chips]
+            artifacts = rec.artifacts or ["transcript"]
+            snippet = ""
             if is_search and rec.preview:
                 snippet = _clean_snippet(rec.preview)
-                if snippet:
-                    lines.append(snippet)
-            item.setText("\n".join(lines))
-            item.setFont(QFont("Sans", 10))
+
+            widget = RecordItemWidget(name, meta, artifacts, snippet)
+            item.setSizeHint(widget.sizeHint())
+            
             self._list.addItem(item)
+            self._list.setItemWidget(item, widget)
 
         total = len(self._records)
         key = "history_status_plural" if total != 1 else "history_status"
