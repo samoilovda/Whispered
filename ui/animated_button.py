@@ -39,22 +39,22 @@ class AnimatedButton(QPushButton):
     def paintEvent(self, event):
         # Draw the standard QSS-styled button first
         super().paintEvent(event)
-        
+
         # Draw the animated overlay
         if self._hover_progress > 0 and self.isEnabled() and not self.isChecked():
             painter = QPainter(self)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            
+
             # Use the current text color for the overlay to naturally adapt to themes
             # e.g., in dark theme text is white -> light overlay.
             # in light theme text is dark -> dark overlay.
             text_color = self.palette().color(self.foregroundRole())
             overlay = QColor(text_color)
             overlay.setAlpha(int(self._hover_progress * 25)) # Max alpha 25/255
-            
+
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(overlay)
-            
+
             # Draw with rounded corners (assuming ~8px radius from theme)
             painter.drawRoundedRect(self.rect(), 8, 8)
             painter.end()

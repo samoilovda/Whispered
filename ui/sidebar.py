@@ -37,7 +37,7 @@ class Sidebar(QWidget):
         super().__init__(parent)
         self.setProperty("role", "card")
         self.setFixedWidth(SIDEBAR_WIDTH)
-        
+
         # Apply soft drop shadow casting to the right
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(12)

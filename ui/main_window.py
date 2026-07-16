@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QPushButton, QProgressBar, QLabel, QFileDialog, QMessageBox,
+    QProgressBar, QLabel, QFileDialog, QMessageBox,
     QApplication, QTabWidget, QScrollArea, QFrame,
     QTextEdit, QLineEdit, QPlainTextEdit, QStackedWidget,
 )

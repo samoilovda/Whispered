@@ -17,7 +17,6 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QLineEdit, QMenu, QMessageBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint
-from PyQt6.QtGui import QFont
 
 from core.logger import get_logger
 from core.i18n import tr
@@ -54,21 +53,6 @@ _ARTIFACT_LABEL_KEYS = {
     "youtube": "library_chip_youtube",
     "article": "library_chip_article",
 }
-
-
-def _artifact_chip_line(rec) -> str:
-    """One-line summary of which artifacts exist for *rec*.
-
-    Every record has a transcript by definition (that's what gets saved).
-    Records where a preset chain (Phase C.3) also generated a YouTube
-    package and/or an article carry that in rec.artifacts (a JSON list
-    written by HistoryStore.set_artifacts); older records or ones where
-    no chain ran yet have it as None, so they fall back to the one
-    guaranteed "transcript" chip.
-    """
-    types = rec.artifacts or ["transcript"]
-    labels = [tr(_ARTIFACT_LABEL_KEYS.get(t, t)) for t in types]
-    return f"✓ {'  ·  ✓ '.join(labels)}"
 
 
 class RecordItemWidget(QWidget):
@@ -231,7 +215,7 @@ class LibraryView(QWidget):
 
             widget = RecordItemWidget(name, meta, artifacts, snippet)
             item.setSizeHint(widget.sizeHint())
-            
+
             self._list.addItem(item)
             self._list.setItemWidget(item, widget)
 

@@ -6,7 +6,7 @@ Export menu (replaces the old always-visible 7 format checkboxes).
 
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMenu, QSplitter
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QMenu, QSplitter
 from PyQt6.QtCore import Qt, pyqtSignal
 
 from config import get_config, save_config
@@ -64,15 +64,15 @@ class RecordView(QWidget):
         # Main Splitter for Content vs Tools
         self._content_splitter = QSplitter(Qt.Orientation.Horizontal)
         self._content_splitter.setHandleWidth(1)
-        
+
         # Left side will contain Player and Main Tabs
         self._left_widget = QWidget()
         self._left_layout = QVBoxLayout(self._left_widget)
         self._left_layout.setContentsMargins(0, 0, 0, 0)
         self._left_layout.setSpacing(4)
-        
+
         self._content_splitter.addWidget(self._left_widget)
-        
+
         self._layout.addWidget(self._content_splitter, stretch=1)
 
     def _build_export_menu(self) -> None:
@@ -109,7 +109,7 @@ class RecordView(QWidget):
         """Set the player and split tab widgets owned by MainWindow."""
         self._left_layout.addWidget(player)
         self._left_layout.addWidget(main_tabs, stretch=1)
-        
+
         self._content_splitter.addWidget(tools_tabs)
         # Give left side more space by default (e.g., 2:1 ratio)
         self._content_splitter.setStretchFactor(0, 2)
