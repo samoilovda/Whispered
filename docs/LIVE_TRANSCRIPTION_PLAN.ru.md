@@ -1,6 +1,6 @@
 # Whispered Live: публичный план развития
 
-> Версия: 18 июля 2026. Статус: в разработке; L1–L9 реализованы на уровне кода и unit-тестов, L4–L9 требуют ручной приёмки; live-флаг выключен.
+> Версия: 18 июля 2026. Статус: в разработке; L1–L10 реализованы на уровне кода и unit-тестов, L4–L10 требуют ручной приёмки; live-флаг выключен.
 > Назначение: довести Whispered до законченного live-продукта для локальной
 > транскрипции онлайн-встреч, семинаров и эфиров, сохранив существующий batch-
 > конвейер без изменений.
@@ -278,6 +278,11 @@ S1–S3 блокируют dual-source capture. S4–S6 блокируют live 
   helper meter, monotonic timestamp validation, permission-denial message и
   graceful Stop/Cancel. Реальный 15-минутный YouTube/Meet прогон возможен
   после появления Swift helper и остаётся ручной приёмкой L9.
+- **L10** — добавлены `SourceClockAligner` и `DualSourceClockAligner`: mono
+  PCM приводится к 16 кГц, correction ограничен по ppm, initial offset не
+  считается drift, а report показывает source/monotonic/corrected drift и
+  target status. Synthetic 60-секундный dual-source прогон покрывает малый и
+  большой drift; 60-минутный реальный soak остаётся ручной приёмкой L10.
 
 ### Этап B. Системный звук и два источника
 
@@ -285,7 +290,7 @@ S1–S3 блокируют dual-source capture. S4–S6 блокируют live 
 |---|---|---|
 | L8 | Выбранная архитектура system capture и документированный IPC contract (`docs/SYSTEM_CAPTURE_IPC.ru.md`) | Запустить spike build, выбрать приложение, увидеть system meter, Stop освободил capture |
 | L9 | SystemAudioSource в приложении (`core/live/system_audio_source.py`) | 15 минут YouTube/Meet транскрибируются без микрофона; permission denial понятен |
-| L10 | SourceClockAligner + resampling/drift metrics | Два source идут на одной timeline 60 минут; отчёт drift <100 мс |
+| L10 | SourceClockAligner + resampling/drift metrics (`core/live/clock_aligner.py`) | Два source идут на одной timeline 60 минут; отчёт drift <100 мс |
 | L11 | Двухочередный ASR scheduler | Одновременная речь обоих source появляется без голодания одного канала |
 | L12 | Source speaker labels и overlap timeline | Mic/Meeting audio визуально различаются; одновременные реплики обе сохранены |
 | L13 | Echo/duplicate detector | Контрольный echo не удваивает текст; разные похожие фразы не удаляются |

@@ -29,6 +29,7 @@ from core.live.system_capture_protocol import (
     stop_frame,
 )
 from core.live.system_audio_source import SystemAudioSource
+from core.live.clock_aligner import ClockMetrics, DriftReport, DualSourceClockAligner, SourceClockAligner
 
 __all__ = [
     "AudioFrame",
@@ -60,6 +61,10 @@ __all__ = [
     "start_frame",
     "stop_frame",
     "SystemAudioSource",
+    "ClockMetrics",
+    "DriftReport",
+    "DualSourceClockAligner",
+    "SourceClockAligner",
     "PersistentWhisperWorker",
     "LiveASRResult",
     "LiveASRMetrics",
