@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import threading
 
+import pytest
+
 from core.live import AudioFrame, BoundedAudioRing, CancellationToken, MonotonicTimestamp
 
 
@@ -28,7 +30,7 @@ def test_ring_is_bounded_and_marks_the_first_frame_after_a_drop():
     stats = ring.stats()
     assert (stats.queued_frames, stats.queued_bytes) == (2, 8)
     assert (stats.dropped_frames, stats.dropped_bytes) == (1, 4)
-    assert stats.lag_seconds == 0.1
+    assert stats.lag_seconds == pytest.approx(0.100125)
 
     first = ring.get()
     assert first is not None

@@ -224,7 +224,17 @@ class BoundedAudioRing:
             timestamps = [item.monotonic_timestamp for item in self._items]
             oldest = timestamps[0] if timestamps else None
             newest = timestamps[-1] if timestamps else None
-            backlog = 0.0 if oldest is None else max(0.0, newest - oldest)
+            backlog_span = (
+                0.0
+                if oldest is None or newest is None
+                else max(0.0, newest - oldest)
+            )
+            newest_duration = (
+                len(self._items[-1].pcm) / (2 * self._items[-1].sample_rate)
+                if self._items
+                else 0.0
+            )
+            backlog = backlog_span + newest_duration
             return RingStats(
                 capacity_frames=self.capacity_frames,
                 capacity_bytes=self.capacity_bytes,

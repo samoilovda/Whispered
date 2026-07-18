@@ -65,3 +65,17 @@ def test_source_labels_can_be_renamed_without_changing_source_ids():
 
     assert timeline.entries()[0].source == "system"
     assert timeline.entries()[0].label == "Удалённый звук"
+
+
+def test_stale_or_partial_after_final_cannot_replace_terminal_revision():
+    timeline = LiveOverlapTimeline()
+    assert timeline.accept(
+        _update("mic:0:0", 0.0, 1.0, "final", "mic", revision=3)
+    )
+    assert not timeline.accept(
+        _update(
+            "mic:0:0", 0.0, 1.0, "stale", "mic", revision=2,
+            state=SegmentState.PARTIAL,
+        )
+    )
+    assert timeline.entries()[0].update.segment.text == "final"

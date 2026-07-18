@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
@@ -24,7 +24,7 @@ class CompatibilityCase:
 
     application: str
     duration_minutes: int = 20
-    checks: dict[str, CompatibilityStatus] | None = None
+    checks: dict[str, CompatibilityStatus] = field(default_factory=dict)
     notes: str = ""
 
     def __post_init__(self) -> None:
@@ -32,7 +32,7 @@ class CompatibilityCase:
             raise ValueError(f"unsupported application: {self.application}")
         if self.duration_minutes < 20:
             raise ValueError("compatibility run must be at least 20 minutes")
-        checks = dict(self.checks or {})
+        checks = dict(self.checks)
         unknown = set(checks) - set(CHECKS)
         if unknown:
             raise ValueError(f"unknown compatibility checks: {sorted(unknown)}")

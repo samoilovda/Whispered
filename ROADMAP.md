@@ -24,7 +24,7 @@ The original long-form development plan (2026-07) is preserved in
 - **Polish** — RU/EN localization, dark/light themes, mic recorder, batch
   queue, custom vocabulary, standalone macOS `.app` build (PyInstaller,
   external whisper stack), AppImage build script.
-- **Quality** — 292 unit tests with fully stubbed Qt, ruff-clean codebase,
+- **Quality** — 360 unit tests with fully stubbed Qt, ruff-clean codebase,
   headless UI smoke checks in the pre-commit gate.
 
 ## Current focus
@@ -35,6 +35,12 @@ The original long-form development plan (2026-07) is preserved in
 
 ## Next
 
+- **Live transcription stabilization** — the opt-in L1–L14 foundation is in
+  the development branch, including the UI-independent session pipeline and
+  a buildable ScreenCaptureKit helper. Gate A/Gate B are not complete: pass
+  the real mic/model soak and Zoom/Meet/Teams matrix while the implemented
+  L15–L21 UI/product path remains behind the disabled feature flag. See
+  [docs/LIVE_TRANSCRIPTION_PLAN.ru.md](docs/LIVE_TRANSCRIPTION_PLAN.ru.md#62-ревизия-l1l14-и-обязательная-стабилизация-перед-l15).
 - **Distribution** — Flathub package for Linux; signed, notarized DMG for
   macOS. Goal: install without cloning the repo.
 - **Windows support** — setup/run scripts, CI coverage, packaging. The code
@@ -43,7 +49,6 @@ The original long-form development plan (2026-07) is preserved in
 
 ## Ideas parked for later
 
-Live transcription, global dictation hotkey, system-audio capture (call
-transcription), user prompt library, watch-folder/CLI mode, word-level
-karaoke highlighting. These are documented in the archived plan; none are
-scheduled.
+Global dictation hotkey, user prompt library, watch-folder/CLI mode, and
+word-level karaoke highlighting. These are documented in the archived plan;
+none are scheduled.

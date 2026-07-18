@@ -121,6 +121,9 @@ class SettingsDialog(QDialog):
         self._history_chk = QCheckBox(tr("settings_history_enabled"))
         layout.addRow(self._history_chk)
 
+        self._live_chk = QCheckBox(tr("settings_live_enabled"))
+        layout.addRow(self._live_chk)
+
         clear_btn = QPushButton(tr("settings_clear_history"))
         clear_btn.clicked.connect(self._clear_history)
         layout.addRow(clear_btn)
@@ -285,6 +288,7 @@ class SettingsDialog(QDialog):
         self._timestamps_chk.setChecked(cfg.show_timestamps)
         self._speakers_chk.setChecked(cfg.show_speaker_labels)
         self._history_chk.setChecked(cfg.history_enabled)
+        self._live_chk.setChecked(getattr(cfg, "live_transcription_enabled", False))
         idx = self._lang_ui_combo.findData(getattr(cfg, "ui_language", "auto"))
         self._lang_ui_combo.setCurrentIndex(idx if idx >= 0 else 0)
 
@@ -322,6 +326,7 @@ class SettingsDialog(QDialog):
         cfg.show_timestamps = self._timestamps_chk.isChecked()
         cfg.show_speaker_labels = self._speakers_chk.isChecked()
         cfg.history_enabled = self._history_chk.isChecked()
+        cfg.live_transcription_enabled = self._live_chk.isChecked()
         cfg.ui_language = self._lang_ui_combo.currentData() or "auto"
 
         # Transcription

@@ -55,6 +55,21 @@ class SpeechTurn:
             raise ValueError("SpeechTurn sequence range is invalid")
 
 
+@dataclass(frozen=True, slots=True)
+class BufferedSpeechTurn:
+    """A VAD turn together with the exact bounded PCM submitted to ASR."""
+
+    turn: SpeechTurn
+    pcm: bytes
+    final: bool = True
+
+    def __post_init__(self) -> None:
+        if not self.pcm:
+            raise ValueError("BufferedSpeechTurn.pcm must not be empty")
+        if len(self.pcm) % 2:
+            raise ValueError("BufferedSpeechTurn.pcm must be int16-aligned")
+
+
 class SegmentState(str, Enum):
     """Visibility state of a live transcript segment."""
 

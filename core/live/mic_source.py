@@ -54,6 +54,7 @@ class MicSource(QObject):
         self._clock = MonotonicTimestamp()
         self._sequence = 0
         self._accept_frames = False
+        self._resume_discontinuity = False
 
         frame_sink = self._capture_frame if self.enabled else None
         self._recorder = recorder_factory(parent, frame_sink=frame_sink)
@@ -83,6 +84,7 @@ class MicSource(QObject):
         self._clock = MonotonicTimestamp()
         self._sequence = 0
         self._accept_frames = True
+        self._resume_discontinuity = False
         self._recorder.start(self.device if device is None else device)
         if not self._recorder.is_recording():
             self._accept_frames = False
@@ -93,6 +95,7 @@ class MicSource(QObject):
     def pause(self) -> None:
         """Pause recording; the wrapped recorder keeps its legacy semantics."""
         self._recorder.pause()
+        self._resume_discontinuity = True
 
     def resume(self) -> None:
         """Resume recording after pause."""
@@ -135,7 +138,9 @@ class MicSource(QObject):
             monotonic_timestamp=monotonic_timestamp,
             sample_rate=16_000,
             pcm=pcm,
+            discontinuity=self._resume_discontinuity,
         )
+        self._resume_discontinuity = False
         self._sequence += 1
         self._ring.put(frame)
 
@@ -155,6 +160,8 @@ def _input_timestamp(time_info, fallback: float) -> float:
     else:
         value = getattr(time_info, "inputBufferAdcTime", None)
     try:
+        if value is None:
+            return fallback
         value = float(value)
     except (TypeError, ValueError):
         return fallback

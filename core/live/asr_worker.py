@@ -25,6 +25,7 @@ class LiveASRResult:
     turn: SpeechTurn
     segments: tuple[Any, ...]
     latency_seconds: float
+    final: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,7 +56,9 @@ class _LiveDecodeEngine:
         self.abort_event = abort_event
         self._resolved_language: str | None = None
 
-    def decode(self, request_id: int, turn: SpeechTurn, pcm: bytes) -> dict:
+    def decode(
+        self, request_id: int, turn: SpeechTurn, pcm: bytes, final: bool = True
+    ) -> dict:
         audio = _pcm_to_float32(pcm)
         if audio.size == 0:
             return {
@@ -63,6 +66,7 @@ class _LiveDecodeEngine:
                 "turn": turn,
                 "segments": (),
                 "decode_seconds": 0.0,
+                "final": final,
             }
 
         language = self._language_for(audio)
@@ -92,6 +96,7 @@ class _LiveDecodeEngine:
             "turn": turn,
             "segments": segments,
             "decode_seconds": time.monotonic() - started,
+            "final": final,
         }
 
     def _language_for(self, audio) -> str:
@@ -158,10 +163,14 @@ def _serve_live_commands(commands, results, engine: _LiveDecodeEngine, abort_eve
             results.put(("error", f"Unknown live ASR command: {kind}"))
             continue
 
-        _, request_id, turn, pcm = command
+        if len(command) == 4:  # v1 compatibility for tests/older callers
+            _, request_id, turn, pcm = command
+            final = True
+        else:
+            _, request_id, turn, pcm, final = command
         try:
-            result = engine.decode(request_id, turn, pcm)
-            results.put(("final", result))
+            result = engine.decode(request_id, turn, pcm, final=bool(final))
+            results.put(("final" if final else "decoded", result))
         except Exception as exc:
             if abort_event.is_set():
                 return
@@ -172,6 +181,7 @@ class PersistentWhisperWorker(QThread):
     """Qt-facing parent worker around one cancellable whisper process."""
 
     ready = pyqtSignal(float)
+    partial = pyqtSignal(object)
     final = pyqtSignal(object)
     decode_error = pyqtSignal(str)
     decode_error_detail = pyqtSignal(object)
@@ -203,7 +213,7 @@ class PersistentWhisperWorker(QThread):
         self._abort_event = self._ctx.Event()
         self._cancelled = threading.Event()
         self._shutdown_requested = threading.Event()
-        self._process = None
+        self._process: Any = None
         self._next_request_id = 1
         self._pending: dict[int, float] = {}
         self._latencies: list[float] = []
@@ -213,7 +223,7 @@ class PersistentWhisperWorker(QThread):
         self._model_load_seconds: float | None = None
         self._metrics_lock = threading.Lock()
 
-    def submit(self, turn: SpeechTurn, pcm: bytes) -> int | None:
+    def submit(self, turn: SpeechTurn, pcm: bytes, *, final: bool = True) -> int | None:
         """Queue one VAD turn without waiting; return request id or ``None``."""
         if self._cancelled.is_set() or self._shutdown_requested.is_set():
             return None
@@ -221,7 +231,9 @@ class PersistentWhisperWorker(QThread):
             raise TypeError("turn must be a SpeechTurn")
         request_id = self._next_request_id
         try:
-            self._commands.put_nowait(("transcribe", request_id, turn, bytes(pcm)))
+            self._commands.put_nowait(
+                ("transcribe", request_id, turn, bytes(pcm), bool(final))
+            )
         except queue.Full:
             return None
         self._next_request_id += 1
@@ -316,7 +328,7 @@ class PersistentWhisperWorker(QThread):
             self.decode_error_detail.emit((request_id, str(error)))
             self.decode_error.emit(str(error))
             return
-        if kind != "final":
+        if kind not in {"final", "decoded"}:
             self.error.emit(f"Unknown live whisper result: {kind}")
             return
 
@@ -332,9 +344,13 @@ class PersistentWhisperWorker(QThread):
             turn=payload["turn"],
             segments=tuple(_to_batch_segments(payload["segments"])),
             latency_seconds=end_to_end,
+            final=bool(payload.get("final", True)),
         )
         self.latency.emit(end_to_end)
-        self.final.emit(result)
+        if result.final:
+            self.final.emit(result)
+        else:
+            self.partial.emit(result)
 
     def _stop_child(self) -> None:
         self._abort_event.set()

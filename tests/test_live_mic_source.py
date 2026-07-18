@@ -113,6 +113,20 @@ def test_adapter_cancel_discards_pending_frames():
     assert source.stats().cancelled is True
 
 
+def test_first_frame_after_resume_is_a_discontinuity():
+    factory = _Factory([])
+    source = MicSource(enabled=True, recorder_factory=factory)
+    recorder = factory.instances[0]
+    source.start()
+    recorder.emit_frame(b"\x00\x00")
+    assert source.get_frame(timeout=0).discontinuity is False
+    source.pause()
+    source.resume()
+    recorder.emit_frame(b"\x00\x00")
+    assert source.get_frame(timeout=0).discontinuity is True
+    source.cancel()
+
+
 def test_legacy_recorder_callback_keeps_wav_queue_and_optional_sink():
     numpy = pytest.importorskip("numpy")
     from core.recorder import Recorder

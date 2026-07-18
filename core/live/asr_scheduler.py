@@ -19,6 +19,7 @@ class SchedulerStats:
     completed: int
     failed: int
     dropped: int
+    dropped_partials: int
     in_flight: int
     queue_depths: dict[str, int]
     dispatched_by_source: dict[str, int]
@@ -30,6 +31,7 @@ class _QueuedTurn:
     turn: SpeechTurn
     pcm: bytes
     enqueued_at: float
+    final: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +54,7 @@ class DualQueueASRScheduler:
         worker: Any | None = None,
         *,
         max_pending_per_source: int = 16,
-        max_in_flight: int = 8,
+        max_in_flight: int = 1,
         fairness_quantum_seconds: float = 0.05,
         clock: Callable[[], float] = time.monotonic,
         result_callback: Callable[[Any], None] | None = None,
@@ -77,6 +79,7 @@ class DualQueueASRScheduler:
         self._completed = 0
         self._failed = 0
         self._dropped = 0
+        self._dropped_partials = 0
         self._max_wait_seconds = 0.0
         self._dispatched_by_source: dict[str, int] = {}
         if worker is not None:
@@ -88,6 +91,9 @@ class DualQueueASRScheduler:
             raise RuntimeError("ASR worker is already attached")
         self._worker = worker
         worker.final.connect(self._on_result)
+        partial_signal = getattr(worker, "partial", None)
+        if partial_signal is not None:
+            partial_signal.connect(self._on_result)
         detail_signal = getattr(worker, "decode_error_detail", None)
         if detail_signal is not None:
             detail_signal.connect(self._on_decode_error_detail)
@@ -95,15 +101,40 @@ class DualQueueASRScheduler:
             worker.decode_error.connect(self._on_decode_error)
         self.pump()
 
-    def submit(self, turn: SpeechTurn, pcm: bytes) -> bool:
+    def submit(self, turn: SpeechTurn, pcm: bytes, *, final: bool = True) -> bool:
         """Enqueue a turn, returning ``False`` only when its source is full."""
         if not isinstance(turn, SpeechTurn):
             raise TypeError("turn must be a SpeechTurn")
         source_queue = self._queues.setdefault(turn.source, deque())
+        if final:
+            retained = deque(
+                item
+                for item in source_queue
+                if item.final or item.turn.first_sequence != turn.first_sequence
+            )
+            removed = len(source_queue) - len(retained)
+            if removed:
+                self._queued -= removed
+                self._dropped_partials += removed
+                source_queue = retained
+                self._queues[turn.source] = source_queue
         if len(source_queue) >= self.max_pending_per_source:
-            self._dropped += 1
-            return False
-        source_queue.append(_QueuedTurn(turn, bytes(pcm), self._clock()))
+            if final:
+                partial_index = next(
+                    (index for index, item in enumerate(source_queue) if not item.final),
+                    None,
+                )
+                if partial_index is not None:
+                    del source_queue[partial_index]
+                    self._queued -= 1
+                    self._dropped_partials += 1
+                else:
+                    self._dropped += 1
+                    return False
+            else:
+                self._dropped_partials += 1
+                return False
+        source_queue.append(_QueuedTurn(turn, bytes(pcm), self._clock(), bool(final)))
         self._queued += 1
         self.pump()
         return True
@@ -120,7 +151,10 @@ class DualQueueASRScheduler:
             if source is None:
                 break
             item = self._queues[source][0]
-            request_id = self._worker.submit(item.turn, item.pcm)
+            try:
+                request_id = self._worker.submit(item.turn, item.pcm, final=item.final)
+            except TypeError:
+                request_id = self._worker.submit(item.turn, item.pcm)
             if request_id is None:
                 break
             self._queues[source].popleft()
@@ -145,6 +179,7 @@ class DualQueueASRScheduler:
             completed=self._completed,
             failed=self._failed,
             dropped=self._dropped,
+            dropped_partials=self._dropped_partials,
             in_flight=len(self._in_flight),
             queue_depths={source: len(queue) for source, queue in self._queues.items()},
             dispatched_by_source=dict(self._dispatched_by_source),

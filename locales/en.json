@@ -62,6 +62,7 @@
   "settings_book_model": "Book model name:",
   "settings_book_temp": "Book temperature:",
   "settings_history_enabled": "Save transcription history",
+  "settings_live_enabled": "Enable experimental Live transcription (restart required)",
   "settings_clear_history": "Clear history…",
   "settings_ui_language": "Interface language:",
   "settings_vocab": "Custom vocabulary:",
@@ -164,6 +165,18 @@
   "sidebar_library": "Library",
   "sidebar_queue": "Queue",
   "sidebar_recorder": "Recorder",
+  "sidebar_live": "Live",
+
+  "live_title": "Live transcription",
+  "live_source_mic": "Microphone",
+  "live_source_system": "Meeting audio",
+  "live_source_both": "Microphone + meeting audio",
+  "live_preflight": "Check setup",
+  "live_preflight_hint": "Run preflight before starting. Permissions are requested by macOS on first use.",
+  "live_start": "Start",
+  "live_pause": "Pause",
+  "live_stop": "Stop",
+  "live_transcript_placeholder": "Partial and final transcript will appear here…",
 
   "language_auto": "Auto-detect",
 

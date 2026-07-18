@@ -69,6 +69,8 @@ class SystemAudioSource(QObject):
         self._helper_process: subprocess.Popen | None = None
         self._reader: threading.Thread | None = None
         self._stop_event = threading.Event()
+        self._stopped_event = threading.Event()
+        self._stopped_emitted = False
         self._sequence_fallback = 0
         self._lock = threading.Lock()
 
@@ -87,6 +89,8 @@ class SystemAudioSource(QObject):
         self._lifecycle = CaptureLifecycle()
         self._sequence_fallback = 0
         self._stop_event.clear()
+        self._stopped_event.clear()
+        self._stopped_emitted = False
         self._launch_helper()
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()
@@ -94,6 +98,7 @@ class SystemAudioSource(QObject):
 
     def stop(self) -> None:
         """Request helper Stop and wait at most two seconds for socket cleanup."""
+        deadline = time.monotonic() + 2.0
         with self._lock:
             sock = self._socket
             lifecycle = self._lifecycle
@@ -103,13 +108,17 @@ class SystemAudioSource(QObject):
                 sock.sendall(stop_frame())
             except (OSError, ProtocolError):
                 pass
+        # Keep the reader alive long enough to consume the helper's STOPPED
+        # acknowledgement and any final control frame.
+        if sock is not None:
+            self._stopped_event.wait(timeout=max(0.0, deadline - time.monotonic()))
         self._stop_event.set()
         if self._reader is not None:
-            self._reader.join(timeout=2.0)
+            self._reader.join(timeout=max(0.0, deadline - time.monotonic()))
         self._close_socket()
-        self._stop_helper()
+        self._stop_helper(timeout=max(0.0, deadline - time.monotonic()))
         self._ring.close()
-        self.stopped.emit()
+        self._emit_stopped_once()
 
     def cancel(self) -> None:
         """Abort socket/helper immediately and discard pending system audio."""
@@ -203,8 +212,9 @@ class SystemAudioSource(QObject):
         elif frame.message_type is MessageType.ERROR:
             self.error_occurred.emit(_friendly_capture_error_from_frame(frame))
         elif frame.message_type is MessageType.STOPPED:
+            self._stopped_event.set()
             self._stop_event.set()
-            self.stopped.emit()
+            self._emit_stopped_once()
 
     def _consume_audio(self, frame: IPCFrame) -> None:
         header = frame.header
@@ -237,7 +247,7 @@ class SystemAudioSource(QObject):
             except OSError:
                 pass
 
-    def _stop_helper(self, force: bool = False) -> None:
+    def _stop_helper(self, force: bool = False, timeout: float = 1.0) -> None:
         process, self._helper_process = self._helper_process, None
         if process is None or process.poll() is not None:
             return
@@ -246,13 +256,23 @@ class SystemAudioSource(QObject):
         else:
             process.terminate()
         try:
-            process.wait(timeout=1.0)
+            process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             process.kill()
-            process.wait(timeout=0.5)
+            try:
+                process.wait(timeout=0.5)
+            except subprocess.TimeoutExpired:
+                logger.warning("System capture helper did not exit after SIGKILL")
 
     def _new_ring(self) -> BoundedAudioRing:
         return BoundedAudioRing(self._capacity_frames, self._capacity_bytes)
+
+    def _emit_stopped_once(self) -> None:
+        with self._lock:
+            if self._stopped_emitted:
+                return
+            self._stopped_emitted = True
+        self.stopped.emit()
 
 
 def _connect_unix_socket(path: str):

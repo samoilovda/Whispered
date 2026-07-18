@@ -29,12 +29,13 @@ class _FakeWorker:
     def __init__(self, capacity=1):
         self.capacity = capacity
         self.final = _Signal()
+        self.partial = _Signal()
         self.decode_error = _Signal()
         self.calls = []
         self._active = {}
         self._next_id = 1
 
-    def submit(self, turn, pcm):
+    def submit(self, turn, pcm, *, final=True):
         if len(self._active) >= self.capacity:
             return None
         request_id = self._next_id
@@ -92,3 +93,29 @@ def test_scheduler_forwards_result_and_recovers_after_decode_error():
 
     assert received[0].request_id == request_id
     assert scheduler.stats().completed == 1
+
+
+def test_default_single_inflight_does_not_prequeue_one_source_ahead_of_another():
+    worker = _FakeWorker(capacity=8)
+    scheduler = DualQueueASRScheduler(worker)
+    for sequence in range(8):
+        scheduler.submit(_turn("mic", sequence), b"mic")
+    scheduler.submit(_turn("system", 0), b"system")
+
+    assert worker.calls == ["mic"]
+    worker.complete_one()
+    assert worker.calls == ["mic", "system"]
+
+
+def test_final_replaces_queued_partial_for_same_turn():
+    worker = _FakeWorker(capacity=1)
+    scheduler = DualQueueASRScheduler(worker, max_pending_per_source=2)
+    first = _turn("mic", 0)
+    scheduler.submit(first, b"partial-in-flight", final=False)
+    scheduler.submit(first, b"partial-queued", final=False)
+    scheduler.submit(first, b"final", final=True)
+
+    assert scheduler.queued_for("mic") == 1
+    assert scheduler.stats().dropped_partials == 1
+    worker.complete_one()
+    assert scheduler.stats().in_flight == 1

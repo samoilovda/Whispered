@@ -60,6 +60,12 @@ class LiveOverlapTimeline:
 
     def accept(self, update: SegmentUpdate) -> bool:
         """Store the newest revision; return false when L13 filters an echo."""
+        previous = self._updates.get(update.segment_id)
+        if previous is not None:
+            if previous.state is SegmentState.FINAL:
+                return False
+            if update.revision <= previous.revision:
+                return False
         source = _source_for(update)
         if update.state is SegmentState.FINAL and self.detector is not None:
             decision = self.detector.register(update.segment_id, source, update.segment)
@@ -82,22 +88,30 @@ class LiveOverlapTimeline:
                 item.segment_id,
             ),
         )
+        overlaps_by_id: dict[str, list[str]] = {
+            update.segment_id: [] for update in updates
+        }
+        for index, update in enumerate(updates):
+            update_end = float(update.segment.end)
+            source = self._sources[update.segment_id]
+            for other in updates[index + 1 :]:
+                if float(other.segment.start) >= update_end:
+                    break
+                if self._sources[other.segment_id] == source:
+                    continue
+                if _overlap(update.segment, other.segment) > 0:
+                    overlaps_by_id[update.segment_id].append(other.segment_id)
+                    overlaps_by_id[other.segment_id].append(update.segment_id)
+
         entries = []
         for update in updates:
             source = self._sources[update.segment_id]
-            overlaps = tuple(
-                other.segment_id
-                for other in updates
-                if other.segment_id != update.segment_id
-                and self._sources[other.segment_id] != source
-                and _overlap(update.segment, other.segment) > 0
-            )
             entries.append(
                 TimelineEntry(
                     update=update,
                     source=source,
                     label=self.labels.label(source),
-                    overlap_ids=overlaps,
+                    overlap_ids=tuple(overlaps_by_id[update.segment_id]),
                     ambiguous=update.segment_id in self._ambiguous,
                 )
             )

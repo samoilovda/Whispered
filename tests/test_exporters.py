@@ -133,6 +133,18 @@ class TestExportSrt:
         export_srt(_make_result(), out)
         assert "," in open(out, encoding="utf-8").read()
 
+    def test_overlapping_live_cues_are_preserved(self, tmp_path):
+        result = _TranscriptionResult(
+            [_Segment(1.0, 3.0, "local", "mic"), _Segment(1.5, 2.5, "remote", "system")],
+            "en", 3.0, {"mic": "Microphone", "system": "Meeting audio"},
+        )
+        out = str(tmp_path / "overlap.srt")
+        export_srt(result, out)
+        content = open(out, encoding="utf-8").read()
+        assert "Microphone: local" in content
+        assert "Meeting audio: remote" in content
+        assert content.count("-->") == 2
+
 
 class TestExportVtt:
     def test_webvtt_header(self, tmp_path):
@@ -169,6 +181,7 @@ class TestExportJson:
         assert "text" in data
         assert "segments" in data
         assert "language" in data
+        assert data["overlap_policy"] == "preserve"
 
     def test_segment_fields(self, tmp_path):
         out = str(tmp_path / "out.json")

@@ -33,7 +33,7 @@ class Sidebar(QWidget):
     section_changed = pyqtSignal(str)
     settings_requested = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, live_enabled: bool = False):
         super().__init__(parent)
         self.setProperty("role", "card")
         self.setFixedWidth(SIDEBAR_WIDTH)
@@ -46,6 +46,7 @@ class Sidebar(QWidget):
         self.setGraphicsEffect(shadow)
 
         self._buttons: dict[str, QToolButton] = {}
+        self._sections = _SECTIONS + (("live", "music", "sidebar_live"),) if live_enabled else _SECTIONS
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -56,7 +57,7 @@ class Sidebar(QWidget):
         self._group = QButtonGroup(self)
         self._group.setExclusive(True)
 
-        for key, icon_name, tooltip_key in _SECTIONS:
+        for key, icon_name, tooltip_key in self._sections:
             btn = self._make_nav_button(icon_name, tr(tooltip_key))
             btn.clicked.connect(lambda _checked, k=key: self.section_changed.emit(k))
             self._group.addButton(btn)

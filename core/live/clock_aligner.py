@@ -69,6 +69,11 @@ class SourceClockAligner:
         self._last_input_duration = 0.0
         self._correction_ppm = 0.0
         self._discontinuities = 0
+        self._source_elapsed_total = 0.0
+        self._monotonic_elapsed_total = 0.0
+        self._epoch_source_timestamp: float | None = None
+        self._epoch_audio_duration = 0.0
+        self._resample_remainder = 0.0
 
     def process(self, frame: AudioFrame) -> AudioFrame:
         """Resample *frame*, apply bounded clock correction, and update metrics."""
@@ -91,19 +96,46 @@ class SourceClockAligner:
         if discontinuity:
             self._discontinuities += 1
 
-        if self._first_source_timestamp is None or discontinuity:
-            if self._first_source_timestamp is None:
-                self._first_source_timestamp = frame.source_timestamp
-                self._first_monotonic_timestamp = frame.monotonic_timestamp
-
         sample_count = len(frame.pcm) // 2
         input_duration = sample_count / frame.sample_rate
-        correction_ppm = self._estimate_correction(frame.source_timestamp, input_duration)
+        if self._first_source_timestamp is None:
+            self._first_source_timestamp = frame.source_timestamp
+            self._first_monotonic_timestamp = frame.monotonic_timestamp
+        if discontinuity or self._epoch_source_timestamp is None:
+            self._epoch_source_timestamp = frame.source_timestamp
+            self._epoch_audio_duration = 0.0
+            self._resample_remainder = 0.0
+
+        if self._last_source_timestamp is None or discontinuity:
+            self._source_elapsed_total += input_duration
+            self._monotonic_elapsed_total += input_duration
+        else:
+            assert self._last_monotonic_timestamp is not None
+            self._source_elapsed_total += max(
+                0.0, frame.source_timestamp - self._last_source_timestamp
+            )
+            self._monotonic_elapsed_total += max(
+                0.0, frame.monotonic_timestamp - self._last_monotonic_timestamp
+            )
+
+        correction_ppm = self._estimate_correction(
+            frame.source_timestamp, input_duration
+        )
+        exact_output_count = (
+            sample_count
+            * self.target_sample_rate
+            * (1.0 + correction_ppm / 1_000_000.0)
+            / frame.sample_rate
+            + self._resample_remainder
+        )
+        output_count = max(1, int(round(exact_output_count))) if sample_count else 0
+        self._resample_remainder = exact_output_count - output_count
         output = _resample_int16(
             frame.pcm,
             frame.sample_rate,
             self.target_sample_rate,
             correction_ppm,
+            output_count=output_count,
         )
         output_samples = len(output) // 2
 
@@ -111,6 +143,7 @@ class SourceClockAligner:
         self._input_samples += sample_count
         self._output_samples += output_samples
         self._audio_duration += input_duration
+        self._epoch_audio_duration += input_duration
         self._last_input_duration = input_duration
         self._correction_ppm = correction_ppm
         self._last_source_timestamp = frame.source_timestamp
@@ -127,12 +160,8 @@ class SourceClockAligner:
         )
 
     def metrics(self) -> ClockMetrics:
-        source_elapsed = self._elapsed(self._first_source_timestamp, self._last_source_timestamp)
-        source_elapsed += self._last_input_duration
-        monotonic_elapsed = self._elapsed(
-            self._first_monotonic_timestamp, self._last_monotonic_timestamp
-        )
-        monotonic_elapsed += self._last_input_duration
+        source_elapsed = self._source_elapsed_total
+        monotonic_elapsed = self._monotonic_elapsed_total
         corrected_elapsed = self._output_samples / self.target_sample_rate
         return ClockMetrics(
             source=self.source,
@@ -153,7 +182,9 @@ class SourceClockAligner:
 
     def reset(self) -> None:
         """Reset clock baselines after a source/device restart."""
-        self.__init__(self.source, self.target_sample_rate, self.max_correction_ppm)
+        self.__init__(  # type: ignore[misc]
+            self.source, self.target_sample_rate, self.max_correction_ppm
+        )
 
     @staticmethod
     def _elapsed(first: float | None, last: float | None) -> float:
@@ -162,13 +193,13 @@ class SourceClockAligner:
         return max(0.0, last - first)
 
     def _estimate_correction(self, current_timestamp: float, current_duration: float) -> float:
-        if self._first_source_timestamp is None or self._last_source_timestamp is None:
+        if self._epoch_source_timestamp is None:
             return 0.0
         source_elapsed = max(
             0.0,
-            current_timestamp - self._first_source_timestamp,
+            current_timestamp - self._epoch_source_timestamp,
         ) + current_duration
-        audio_duration = self._audio_duration + current_duration
+        audio_duration = self._epoch_audio_duration + current_duration
         raw_ppm = _ppm(source_elapsed, audio_duration)
         return max(-self.max_correction_ppm, min(self.max_correction_ppm, raw_ppm))
 
@@ -234,12 +265,13 @@ def _resample_int16(
     source_rate: int,
     target_rate: int,
     correction_ppm: float = 0.0,
+    output_count: int | None = None,
 ) -> bytes:
     if source_rate < 1:
         raise ValueError("source sample rate must be positive")
     if not pcm:
         return b""
-    if source_rate == target_rate and correction_ppm == 0:
+    if source_rate == target_rate and correction_ppm == 0 and output_count is None:
         return pcm
     import numpy as np
 
@@ -247,9 +279,10 @@ def _resample_int16(
     if samples.size == 1:
         return samples.tobytes()
     effective_target = target_rate * (1.0 + correction_ppm / 1_000_000.0)
-    output_count = max(1, int(round(samples.size * effective_target / source_rate)))
-    source_positions = np.arange(samples.size, dtype=np.float64)
-    target_positions = np.linspace(0, samples.size - 1, output_count)
+    if output_count is None:
+        output_count = max(1, int(round(samples.size * effective_target / source_rate)))
+    source_positions: Any = np.arange(samples.size, dtype=np.float64)
+    target_positions: Any = np.linspace(0, samples.size - 1, output_count)
     resampled = np.interp(target_positions, source_positions, samples.astype(np.float64))
     return np.clip(np.rint(resampled), -32768, 32767).astype(np.int16).tobytes()
 

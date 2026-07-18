@@ -1,6 +1,6 @@
 # System Capture Helper: IPC contract v1
 
-Статус: L8. Выбран вариант **маленький Swift helper на ScreenCaptureKit +
+Статус: L8. Реализован вариант **маленький Swift helper на ScreenCaptureKit +
 локальный Unix socket**. Этот документ фиксирует границу между helper и
 Python-приложением; реализация `SystemAudioSource` и UI относятся к L9/L15.
 
@@ -53,7 +53,7 @@ KiB, payload — 1 MiB.
 helper -> hello
 app    -> start {target: bundle_id | process_id | window_id}
 helper -> started
-helper -> meter / audio* 
+helper -> meter / audio*
 app    -> stop
 helper -> stopped
 ```
@@ -73,9 +73,11 @@ process exit.
 - helper не отправляет собственный Whispered playback;
 - более двух удалённых участников остаются общим `Meeting audio` mix.
 
-Python reference implementation и tests находятся в
+Swift helper находится в `native/system_capture_helper`; release-сборка и
+реальный HELLO handshake проверены 18 июля 2026. Python reference
+implementation и tests находятся в
 `core/live/system_capture_protocol.py`,
 `core/live/system_audio_source.py` и
 `tests/test_system_capture_protocol.py` /
-`tests/test_system_audio_source.py`. Реальный ScreenCaptureKit spike,
+`tests/test_system_audio_source.py`. Реальный ScreenCaptureKit capture,
 permissions и выбор Zoom/Meet/Teams остаются ручной приёмкой L8/S1/L9.

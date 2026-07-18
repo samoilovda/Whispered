@@ -120,3 +120,18 @@ def test_source_isolation_and_invalid_pcm_are_explicit():
 
     with pytest.raises(ValueError, match="even number"):
         pcm_rms(b"odd")
+
+
+def test_completed_turn_retains_exact_pcm_and_active_snapshot_is_partial():
+    vad = PerSourceVAD("mic", _config(end_silence_seconds=0.2))
+    vad.feed(_frame(0, 0.0, 8_000))
+    snapshot = vad.snapshot()
+    assert snapshot is not None
+    assert snapshot.final is False
+    assert snapshot.turn.first_sequence == snapshot.turn.last_sequence == 0
+
+    vad.feed(_frame(1, 0.1))
+    turn = vad.feed(_frame(2, 0.2))[0]
+    buffered = vad.pop_buffered(turn)
+    assert buffered.final is True
+    assert len(buffered.pcm) == 3 * _FRAME_SAMPLES * 2

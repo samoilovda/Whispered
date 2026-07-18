@@ -31,10 +31,17 @@ class _Candidate:
 class EchoDuplicateDetector:
     """Drop only exact normalized text with temporal cross-source overlap."""
 
-    def __init__(self, minimum_overlap_seconds: float = 0.05) -> None:
+    def __init__(
+        self,
+        minimum_overlap_seconds: float = 0.05,
+        lookback_seconds: float = 10.0,
+    ) -> None:
         if minimum_overlap_seconds < 0:
             raise ValueError("minimum_overlap_seconds must be non-negative")
+        if lookback_seconds <= 0:
+            raise ValueError("lookback_seconds must be positive")
         self.minimum_overlap_seconds = minimum_overlap_seconds
+        self.lookback_seconds = lookback_seconds
         self._accepted: dict[str, _Candidate] = {}
         self._ambiguous: set[str] = set()
         self._duplicate_count = 0
@@ -45,6 +52,12 @@ class EchoDuplicateDetector:
             raise ValueError("segment_id must not be empty")
         if not source:
             raise ValueError("source must not be empty")
+        cutoff = float(segment.start) - self.lookback_seconds
+        self._accepted = {
+            key: candidate
+            for key, candidate in self._accepted.items()
+            if float(candidate.segment.end) >= cutoff
+        }
         normalized = normalize_text(segment.text)
         for candidate in self._accepted.values():
             if candidate.source == source:

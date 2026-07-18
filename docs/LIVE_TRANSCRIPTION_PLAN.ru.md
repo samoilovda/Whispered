@@ -1,6 +1,11 @@
 # Whispered Live: публичный план развития
 
-> Версия: 18 июля 2026. Статус: в разработке; L1–L14 реализованы на уровне кода, unit-тестов и acceptance-шаблона, L4–L14 требуют ручной приёмки; live-флаг выключен.
+> Версия: 18 июля 2026. Статус: в разработке; по итогам ревизии L1–L14
+> прошли кодовую стабилизацию перед L15: есть UI-независимый mic/dual-source
+> pipeline и собираемый Swift ScreenCaptureKit helper. Аппаратные Gate A и
+> Gate B ещё не закрыты, поэтому live-флаг выключен и релизная активация
+> запрещена. Этап C реализован на уровне кода и headless smoke; текущее
+> состояние и оставшаяся ручная приёмка описаны в §6.2–§6.3.
 > Назначение: довести Whispered до законченного live-продукта для локальной
 > транскрипции онлайн-встреч, семинаров и эфиров, сохранив существующий batch-
 > конвейер без изменений.
@@ -240,7 +245,7 @@ S1–S3 блокируют dual-source capture. S4–S6 блокируют live 
 **Гейт A:** 30 минут mic-only, 0 drops, final p95 ≤5 сек, WER в пределах
 +2 п.п. от batch, Cancel ≤2 сек, старый batch полностью зелёный.
 
-### 6.1. Точка продолжения в текущей ветке
+### 6.1. Реализованный фундамент в текущей ветке
 
 - **L1–L2** — контракты и golden batch baseline уже находятся в истории.
 - **L3** — добавлен `MicSource` adapter поверх `core.recorder.Recorder`.
@@ -303,6 +308,47 @@ S1–S3 блокируют dual-source capture. S4–S6 блокируют live 
   чек-листом capture/permissions/device switch/echo/Stop. Реальные 20-минутные
   прогоны пока имеют честный status `not run` и остаются ручной приёмкой L14.
 
+### 6.2. Ревизия L1–L14 и обязательная стабилизация перед L15
+
+Ревизия и стабилизация от 18 июля 2026 подтверждают хорошую изоляцию live-кода
+от batch-конвейера, чистый lint/compileall, собираемый Swift helper и 357
+проходящих unit-тестов. При этом
+наличие класса или unit-теста не считается завершением backlog-пункта без его
+вечерней приёмки и соответствующего gate. Текущее состояние:
+
+| ID | Фактический статус | Что обязательно закрыть |
+|---|---|---|
+| L1 | **частично** | Добавить локальный согласованный 10-минутный fixture, сохранить batch/export baseline и метрики; сейчас есть только малый JSON contract fixture |
+| L2 | **code-complete** | `LiveSessionPipeline` покрывает frames → buffered turns → partial revisions → immutable final → обычные `Segment`; остаётся реальная Gate A приёмка |
+| L3 | **code-complete, acceptance pending** | Pause/Resume теперь обозначает discontinuity; остаётся реальный mic Start/Pause/Resume/Stop/WAV |
+| L4 | **code-complete, acceptance pending** | Lag учитывает span и длительность последнего frame; остаётся 30-минутный bounded-memory/slow-consumer soak |
+| L5 | **code-complete, acceptance pending** | VAD хранит bounded exact PCM для final и rolling snapshot для partial; остаются S4 и реальные speech/music samples |
+| L6 | **code-complete, acceptance pending** | Worker и scheduler различают rolling partial/final; остаются реальная модель, Cancel и p95 |
+| L7 | **code-complete, acceptance pending** | Partial/final подключены к reconciler/timeline; terminal final защищён также от stale update; остаётся live-паузный сценарий |
+| L8 | **helper implemented, acceptance pending** | Swift helper собирается release и проходит IPC HELLO smoke; остаются реальный capture, permissions, meter и Stop ≤2 сек |
+| L9 | **code-complete, acceptance pending** | Stop ждёт `stopped` в общем двухсекундном deadline и не дублирует signal; остаётся 15-минутный system-only прогон |
+| L10 | **code-complete, acceptance pending** | Correction имеет накопительный resampling remainder и новый epoch при discontinuity; остаётся 60-минутный S3 |
+| L11 | **code-complete, acceptance pending** | Одна последовательная модель держит только один in-flight turn, поэтому второй source не оказывается за глубокой очередью первого; остаётся S6 |
+| L12 | **code-complete, acceptance pending** | Stale revision/partial-after-final отклоняются, overlap scan ограничен отсортированным временным окном; остаётся визуальная приёмка |
+| L13 | **code-complete, acceptance pending** | Echo candidates ограничены 10-секундным lookback; остаётся S7 и продуктовая фиксация canonical policy |
+| L14 | **template only** | После L8–L13 выполнить и сохранить три реальных 20-минутных прогона; сейчас все статусы `not run` |
+
+До приёмки L15 работа продолжается в таком порядке:
+
+1. **Закрыть доказательства L1**: реальный batch fixture, все экспорты и
+   воспроизводимый отчёт с моделью, машиной, временем и WER.
+2. **Пройти mic-only Gate A** на уже собранном vertical slice L2–L7:
+   реальный микрофон/модель, 30 минут, WER, partial/final p95 и Cancel.
+3. **Пройти L8/S1** реальным capture через собранный Swift helper: permissions,
+   meter, выбор приложения и Stop ≤2 сек.
+4. **Проверить dual-source core L9–L13 на реальном аудио**: device switch,
+   60-минутный drift, fairness/0 drops, overlap и echo corpus.
+5. **Пройти S2, S3, S6, S7 и Gate B** на Zoom/Meet/Teams с сохранёнными
+   counters и latency/drift reports.
+6. Разработку **L15 Live UI** можно вести поверх `LiveSessionPipeline`, не
+   собирая audio/ASR примитивы внутри виджетов. Feature flag нельзя включать
+   по умолчанию и L15 нельзя считать принятым до зелёных Gate A и Gate B.
+
 ### Этап B. Системный звук и два источника
 
 | ID | Результат | Вечерняя приёмка без чтения кода |
@@ -330,6 +376,24 @@ duplicates = 0 на эталоне, 0 dropped audio frames.
 | L19 | Existing content pipeline после Live | На live-записи запускаются прежние YouTube/article/insights шаги; batch-запись рядом даёт прежний результат |
 | L20 | Error/recovery UX | Permission revoked, source disconnect, helper crash, LM app audio switch дают видимое состояние; доступный source продолжает работу |
 | L21 | 16/24-ГБ capability profiles | Preflight выбирает допустимые параметры; на 16 ГБ live не выключается, только реже обновляет partial |
+
+### 6.3. Реализация этапа C
+
+Кодовый проход L15–L21 завершён 18 июля 2026; feature flag остаётся opt-in.
+
+| ID | Реализовано | Оставшаяся приёмка |
+|---|---|---|
+| L15 | Отдельный Live-раздел: mic/system/both, Zoom/Meet/Teams target, meters, elapsed, lag/drops, partial/final transcript, Pause/Stop | Провести 15-минутную встречу целиком из UI |
+| L16 | Повторяемый preflight для source, microphone, helper/ScreenCaptureKit, model, memory profile и FFmpeg; permission error остаётся видимым и повторяемым | Проверить настоящий первый permission flow и повтор после изменения System Settings |
+| L17 | `LiveSessionPipeline.build_result()` создаёт обычный `TranscriptionResult`; MainWindow передаёт его в существующие History/Library/Record view | Проверить сохранение/перезапуск на реальной live-записи |
+| L18 | Пересекающиеся segments сохраняются раздельно во всех прежних экспортерах; SRT/VTT допускают одновременные cues, JSON содержит `overlap_policy: preserve` | Экспортировать реальный overlap fixture во все девять форматов |
+| L19 | Live completion использует прежний `_on_finished`, поэтому Chat/Insights/YouTube/Article/Book/Cut и preset-chain получают тот же результат без отдельной ветки | Прогнать content preset на сохранённой live-записи и рядом batch baseline |
+| L20 | Состояние и ошибка каждого source видимы отдельно; падение system source не останавливает mic; Pause помечает discontinuity; Stop/Cancel ограничены | Отозвать permission, убить helper и переключить mic device во время реальной встречи |
+| L21 | Профили `<16`, `16` и `24 GB`: 16 GB поддерживается с partial раз в 3 сек и меньшей очередью, 24 GB — раз в 1,5 сек | Выполнить 60-минутный resource soak на обеих машинах |
+
+Headless smoke с реальным Qt подтвердил создание MainWindow, наличие opt-in
+Live navigation, переход на Live page и выполнение preflight. Этот smoke не
+заменяет Gate A/Gate B и не включает feature flag по умолчанию.
 
 ### Этап D. Релизный гейт
 

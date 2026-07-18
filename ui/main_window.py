@@ -33,6 +33,7 @@ from ui.recorder_widget import RecorderWidget
 from ui.chat_panel import ChatPanel
 from ui.insights_panel import InsightsPanel
 from ui.youtube_panel import YouTubePanel
+from ui.live_view import LiveView
 from ui.progress_timeline import ProgressTimeline
 from ui.animated_button import AnimatedButton
 from transcriber import Transcriber, TranscriptionResult
@@ -46,6 +47,9 @@ from transcriber import _build_initial_prompt
 from timeline_export import write_edl
 from video_edit import mark_pauses
 from video_cut import assemble_draft, VideoCutError
+from core.live.preflight import LivePreflight, default_helper_path
+from core.live.runtime import LiveRuntime
+from core.live.system_capture_protocol import CaptureTarget
 
 logger = get_logger(__name__)
 
@@ -120,6 +124,9 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'book_panel') and self.book_panel._batch_worker:
             self.book_panel._cancel_batch()
 
+        if hasattr(self, "live_runtime") and self.live_runtime.is_running():
+            self.live_runtime.cancel()
+
         event.accept()
 
 
@@ -138,7 +145,8 @@ class MainWindow(QMainWindow):
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.setSpacing(0)
 
-        self.sidebar = Sidebar()
+        cfg = get_config()
+        self.sidebar = Sidebar(live_enabled=cfg.live_transcription_enabled)
         self.sidebar.section_changed.connect(self._on_section_changed)
         self.sidebar.settings_requested.connect(self._open_settings)
         outer_layout.addWidget(self.sidebar)
@@ -337,6 +345,22 @@ class MainWindow(QMainWindow):
         recorder_outer.addStretch()
         self._stack.addWidget(recorder_page)  # index 2
 
+        # ===== Live section (opt-in until standalone/release gates) =====
+        self.live_view = LiveView()
+        self.live_runtime = LiveRuntime(self)
+        self.live_preflight = LivePreflight()
+        self.live_view.preflight_requested.connect(self._run_live_preflight)
+        self.live_view.start_requested.connect(self._start_live)
+        self.live_view.pause_requested.connect(self._pause_live)
+        self.live_view.stop_requested.connect(self._stop_live)
+        self.live_runtime.segment_update.connect(self.live_view.accept_update)
+        self.live_runtime.source_state_changed.connect(self.live_view.set_source_state)
+        self.live_runtime.level_changed.connect(self.live_view.set_level)
+        self.live_runtime.error_occurred.connect(self._on_live_error)
+        self.live_runtime.finished.connect(self._on_live_finished)
+        self.live_view._timer.timeout.connect(self._update_live_metrics)
+        self._live_index = self._stack.addWidget(self.live_view)
+
         # ===== Record section (not a sidebar destination — opened by
         # clicking a Library entry or finishing a fresh transcription) =====
         self.record_view = RecordView()
@@ -381,6 +405,8 @@ class MainWindow(QMainWindow):
         self._record_index = self._stack.addWidget(self.record_view)  # index 3
 
         self._section_index = {"library": 0, "queue": 1, "recorder": 2}
+        if cfg.live_transcription_enabled:
+            self._section_index["live"] = self._live_index
 
     def _on_section_changed(self, key: str) -> None:
         """Switch the visible page when a sidebar button is clicked."""
@@ -399,6 +425,70 @@ class MainWindow(QMainWindow):
         """Load a history record and switch to the Record page."""
         self._load_from_history(record_id)
         self._stack.setCurrentIndex(self._record_index)
+
+    def _live_options(self):
+        use_mic, use_system = self.live_view.selected_sources()
+        return use_mic, use_system, self.model_combo.currentData() or get_config().default_model
+
+    def _run_live_preflight(self):
+        use_mic, use_system, model = self._live_options()
+        checks = self.live_preflight.run(
+            use_mic=use_mic,
+            use_system=use_system,
+            model_name=model,
+            helper_path=default_helper_path(),
+        )
+        self.live_view.show_preflight(checks)
+        return checks
+
+    def _start_live(self):
+        checks = self._run_live_preflight()
+        if not self.live_preflight.can_start(checks):
+            return
+        use_mic, use_system, model = self._live_options()
+        self.live_view.reset_session()
+        started = self.live_runtime.start(
+            use_mic=use_mic,
+            use_system=use_system,
+            model_name=model,
+            language=self.language_combo.currentData() or "auto",
+            mic_device=get_config().mic_device_index,
+            target=CaptureTarget(bundle_id=self.live_view.target_bundle_id()) if use_system else None,
+            helper_path=default_helper_path(),
+        )
+        self.live_view.set_running(started)
+        if started:
+            self.live_view._timer.start()
+
+    def _pause_live(self, paused: bool):
+        if paused:
+            self.live_runtime.pause()
+        else:
+            self.live_runtime.resume()
+
+    def _stop_live(self):
+        self.live_view.pause_btn.setEnabled(False)
+        self.live_view.stop_btn.setEnabled(False)
+        self.live_runtime.stop()
+
+    def _update_live_metrics(self):
+        if self.live_runtime.is_running():
+            self.live_view.set_metrics(self.live_runtime.metrics())
+
+    def _on_live_error(self, source: str, message: str):
+        self.live_view.set_source_state(source, "failed")
+        self.live_view.preflight_label.setText(f"{source}: {message}")
+        # A surviving source deliberately continues; ASR/session errors stop all.
+        if source == "asr" or not self.live_runtime.is_running():
+            self.live_view.set_running(False)
+
+    def _on_live_finished(self, result: TranscriptionResult, source_path: str):
+        self.live_view._timer.stop()
+        self.live_view.set_running(False)
+        stamp = time.strftime("%Y-%m-%d_%H-%M-%S")
+        self._source_filepath = source_path or f"live-{stamp}.wav"
+        self._transcription_start = self.live_runtime._started_at
+        self._on_finished(result)
 
     def _connect_signals(self):
         """Connect widget signals."""
@@ -1312,4 +1402,3 @@ class MainWindow(QMainWindow):
 
         self.status_label.setText(tr("status_book_error", error=error_message[:60]))
         QMessageBox.warning(self, tr("error_book_pipeline_title"), tr("error_occurred", detail=error_message))
-

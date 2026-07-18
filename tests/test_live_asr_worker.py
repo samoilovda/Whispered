@@ -124,3 +124,16 @@ def test_live_result_is_a_stable_envelope():
     assert result.request_id == 1
     assert result.turn.source == "mic"
     assert result.latency_seconds == pytest.approx(0.25)
+
+
+def test_partial_command_preserves_non_terminal_result_marker():
+    commands: queue.Queue = queue.Queue()
+    results: queue.Queue = queue.Queue()
+    engine = _LiveDecodeEngine(_FakeModel(), "ru", 2, threading.Event())
+    commands.put(("transcribe", 1, _turn(), b"\x00\x00" * 800, False))
+    commands.put(("shutdown",))
+    _serve_live_commands(commands, results, engine, threading.Event())
+
+    kind, payload = results.get_nowait()
+    assert kind == "decoded"
+    assert payload["final"] is False

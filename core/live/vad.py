@@ -15,7 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Deque
 
-from core.live.contracts import AudioFrame, SpeechTurn
+from core.live.contracts import AudioFrame, BufferedSpeechTurn, SpeechTurn
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +79,8 @@ class PerSourceVAD:
         self._silence_seconds = 0.0
         self._turn_discontinuity = False
         self._last_timestamp: float | None = None
+        self._completed_audio: dict[tuple[int, int], bytes] = {}
+        self._completed_order: Deque[tuple[int, int]] = deque()
 
     def feed(self, frame: AudioFrame) -> list[SpeechTurn]:
         """Consume one frame and return any turns completed by it."""
@@ -151,6 +153,39 @@ class PerSourceVAD:
         self._history.clear()
         return [turn]
 
+    def pop_buffered(self, turn: SpeechTurn) -> BufferedSpeechTurn:
+        """Return and forget the PCM retained for a completed turn."""
+        key = (turn.first_sequence, turn.last_sequence)
+        try:
+            pcm = self._completed_audio.pop(key)
+        except KeyError as exc:
+            raise KeyError("PCM for this SpeechTurn is no longer available") from exc
+        try:
+            self._completed_order.remove(key)
+        except ValueError:
+            pass
+        return BufferedSpeechTurn(turn, pcm, final=True)
+
+    def snapshot(self) -> BufferedSpeechTurn | None:
+        """Return a non-terminal snapshot for rolling partial ASR."""
+        if not self._active_frames:
+            return None
+        first = self._active_frames[0]
+        last = self._active_frames[-1]
+        turn = SpeechTurn(
+            source=self.source,
+            start=first.monotonic_timestamp,
+            end=last.monotonic_timestamp + _frame_duration(last),
+            first_sequence=first.sequence,
+            last_sequence=last.sequence,
+            discontinuity=self._turn_discontinuity,
+        )
+        return BufferedSpeechTurn(
+            turn,
+            b"".join(frame.pcm for frame in self._active_frames),
+            final=False,
+        )
+
     def reset(self) -> None:
         """Discard active state, typically after source restart."""
         self._active_frames.clear()
@@ -159,6 +194,8 @@ class PerSourceVAD:
         self._silence_seconds = 0.0
         self._turn_discontinuity = False
         self._last_timestamp = None
+        self._completed_audio.clear()
+        self._completed_order.clear()
 
     def _is_speech(self, frame: AudioFrame) -> bool:
         detected = bool(self._speech_detector(frame))
@@ -193,7 +230,7 @@ class PerSourceVAD:
         last = self._active_frames[-1]
         start = first.monotonic_timestamp
         bounded_end = max(start, end if end is not None else last.monotonic_timestamp)
-        return SpeechTurn(
+        turn = SpeechTurn(
             source=self.source,
             start=start,
             end=bounded_end,
@@ -201,6 +238,13 @@ class PerSourceVAD:
             last_sequence=last.sequence,
             discontinuity=discontinuity,
         )
+        key = (turn.first_sequence, turn.last_sequence)
+        self._completed_audio[key] = b"".join(frame.pcm for frame in self._active_frames)
+        self._completed_order.append(key)
+        while len(self._completed_order) > 8:
+            expired = self._completed_order.popleft()
+            self._completed_audio.pop(expired, None)
+        return turn
 
     def _reset_active(self) -> None:
         self._active_frames.clear()

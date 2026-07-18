@@ -82,3 +82,18 @@ python build.py
   - Linux: `dist/Whispered/Whispered`
 - [ ] Bundle size is < 100 MB (no model weights bundled)
 - [ ] Models download on first run from the built app
+
+## 9. Live transcription (experimental opt-in)
+
+- [ ] Enable Live in Settings and restart; the Live sidebar item appears.
+- [ ] Run preflight for microphone, meeting audio, and both sources.
+- [ ] Start a 15-minute session from the UI; verify meters, elapsed time,
+  lag/drops, partial revisions, immutable finals, Pause/Resume and Stop.
+- [ ] After Stop, verify the record appears in Library, survives restart, and
+  opens in the normal Record view with Microphone/Meeting audio labels.
+- [ ] Export an overlapping section to all nine formats. SRT/VTT preserve
+  simultaneous cues; JSON declares `overlap_policy: preserve`.
+- [ ] Run the existing content preset on the live record.
+- [ ] Revoke permission/kill the helper: the failed source is visible and the
+  surviving source continues.
+- [ ] Record 16/24-GB profile, drops, partial/final p95, drift and Stop time.

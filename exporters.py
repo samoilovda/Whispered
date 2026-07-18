@@ -83,6 +83,7 @@ def export_json(result: TranscriptionResult, filepath: str) -> None:
         'language': result.language,
         'duration': result.duration,
         'text': result.full_text,
+        'overlap_policy': 'preserve',
         'speaker_names': getattr(result, 'speaker_names', None) or {},
         'segments': [
             {

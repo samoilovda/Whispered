@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from array import array
+from dataclasses import replace
 
 import pytest
 
@@ -86,3 +87,19 @@ def test_invalid_source_and_pcm_are_rejected():
         aligner.process(_frame("system", 0, 0.0, 0.0))
     with pytest.raises(ValueError, match="int16"):
         aligner.process(AudioFrame("mic", 0, 0.0, 0.0, 16_000, b"odd"))
+
+
+def test_device_timestamp_reset_starts_a_new_correction_epoch():
+    aligner = SourceClockAligner("mic")
+    for sequence in range(10):
+        aligner.process(
+            _frame("mic", sequence, sequence * 0.1, sequence * 0.1, rate=16_000, samples=1_600)
+        )
+    reset = _frame("mic", 10, 0.0, 1.0, rate=16_000, samples=1_600)
+    reset = replace(reset, discontinuity=True)
+    aligner.process(reset)
+
+    metrics = aligner.metrics()
+    assert metrics.correction_ppm == pytest.approx(0.0)
+    assert metrics.discontinuities == 1
+    assert abs(metrics.source_drift_seconds) < 0.01

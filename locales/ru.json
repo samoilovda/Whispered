@@ -62,6 +62,7 @@
   "settings_book_model": "Модель (книга):",
   "settings_book_temp": "Температура (книга):",
   "settings_history_enabled": "Сохранять историю транскрипций",
+  "settings_live_enabled": "Включить экспериментальную Live-транскрипцию (нужен перезапуск)",
   "settings_clear_history": "Очистить историю…",
   "settings_ui_language": "Язык интерфейса:",
   "settings_vocab": "Пользовательский словарь:",
@@ -164,6 +165,18 @@
   "sidebar_library": "Библиотека",
   "sidebar_queue": "Очередь",
   "sidebar_recorder": "Диктофон",
+  "sidebar_live": "Live",
+
+  "live_title": "Live-транскрипция",
+  "live_source_mic": "Микрофон",
+  "live_source_system": "Звук встречи",
+  "live_source_both": "Микрофон + звук встречи",
+  "live_preflight": "Проверить готовность",
+  "live_preflight_hint": "Перед запуском выполните проверку. macOS запросит разрешения при первом использовании.",
+  "live_start": "Старт",
+  "live_pause": "Пауза",
+  "live_stop": "Стоп",
+  "live_transcript_placeholder": "Здесь появятся черновые и финальные реплики…",
 
   "language_auto": "Авто-определение",
 

@@ -50,3 +50,11 @@ def test_different_text_and_non_overlapping_repetition_are_preserved():
 
     assert len(timeline.final_segments()) == 3
     assert detector.duplicate_count == 0
+
+
+def test_candidates_outside_bounded_lookback_are_forgotten():
+    detector = EchoDuplicateDetector(lookback_seconds=2.0)
+    detector.register("mic:0", "mic", _Segment(0.0, 1.0, "old", "mic"))
+    detector.register("system:0", "system", _Segment(10.0, 11.0, "new", "system"))
+
+    assert list(detector._accepted) == ["system:0"]

@@ -2,6 +2,7 @@
 
 from core.live.contracts import (
     AudioFrame,
+    BufferedSpeechTurn,
     LiveSegmentRevisions,
     SegmentState,
     SegmentUpdate,
@@ -45,9 +46,11 @@ from core.live.overlap_timeline import (
     SourceSpeakerLabels,
     TimelineEntry,
 )
+from core.live.session_pipeline import LiveSessionPipeline
 
 __all__ = [
     "AudioFrame",
+    "BufferedSpeechTurn",
     "LiveSegmentRevisions",
     "SegmentState",
     "SegmentUpdate",
@@ -94,6 +97,7 @@ __all__ = [
     "LiveOverlapTimeline",
     "SourceSpeakerLabels",
     "TimelineEntry",
+    "LiveSessionPipeline",
     "PersistentWhisperWorker",
     "LiveASRResult",
     "LiveASRMetrics",
