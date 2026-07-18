@@ -78,6 +78,7 @@ class LivePreflight:
         use_mic: bool,
         use_system: bool,
         model_name: str,
+        target_available: bool = True,
         helper_path: Path | None = None,
         memory_gb: float | None = None,
     ) -> tuple[PreflightCheck, ...]:
@@ -104,6 +105,10 @@ class LivePreflight:
                 "Microphone device available" if devices else "Microphone permission/device will be verified on Start",
             ))
         if use_system:
+            if not target_available:
+                checks.append(PreflightCheck(
+                    "target", PreflightStatus.FAIL, "Select a running meeting application"
+                ))
             helper = helper_path or default_helper_path()
             if platform.system() != "Darwin":
                 checks.append(PreflightCheck("system_audio", PreflightStatus.FAIL, "System audio currently requires macOS"))

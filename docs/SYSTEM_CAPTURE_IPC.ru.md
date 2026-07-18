@@ -19,6 +19,12 @@ Whispered Python --Unix socket--> Swift helper --ScreenCaptureKit--> app/window 
        +-------- framed PCM + status -----+
 ```
 
+Helper также поддерживает read-only режим `--list-targets`. Он выводит
+JSON-массив доступных приложений ScreenCaptureKit с `display_name`,
+`bundle_id` и `process_id`, не создаёт `SCStream` и не начинает захват. UI
+выполняет этот вызов в worker-потоке и только затем передаёт выбранную цель
+обычному START-сообщению.
+
 ## Wire format
 
 Каждый frame:

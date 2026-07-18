@@ -85,15 +85,39 @@ python build.py
 
 ## 9. Live transcription (experimental opt-in)
 
-- [ ] Enable Live in Settings and restart; the Live sidebar item appears.
-- [ ] Run preflight for microphone, meeting audio, and both sources.
+- [ ] Enable Live in Settings; the Live sidebar item appears without restart.
+- [ ] Start Zoom, open Live, refresh targets, and verify the running Zoom
+  process is selected ahead of other shareable applications.
+- [ ] Run preflight for microphone, meeting audio, and both sources. Changing
+  any setup value invalidates the result; warnings permit Start and failures do not.
 - [ ] Start a 15-minute session from the UI; verify meters, elapsed time,
-  lag/drops, partial revisions, immutable finals, Pause/Resume and Stop.
+  incremental partial revisions, immutable finals, overlap/ambiguity labels,
+  Pause/Resume and the `starting → running → finalizing → completed` states.
+- [ ] Open Diagnostics and verify profile, per-source backlog/drops, ASR and
+  clock data. Copied diagnostics must contain no transcript, paths, prompts,
+  audio, API keys, or tokens.
 - [ ] After Stop, verify the record appears in Library, survives restart, and
-  opens in the normal Record view with Microphone/Meeting audio labels.
+  the completed-state button opens the normal Record view.
 - [ ] Export an overlapping section to all nine formats. SRT/VTT preserve
   simultaneous cues; JSON declares `overlap_policy: preserve`.
 - [ ] Run the existing content preset on the live record.
 - [ ] Revoke permission/kill the helper: the failed source is visible and the
   surviving source continues.
 - [ ] Record 16/24-GB profile, drops, partial/final p95, drift and Stop time.
+
+### UI release gate
+
+```bash
+ruff check .
+python -m pytest tests/ -q
+python -m compileall -q . -x '.venv|.claude|build|dist'
+QT_QPA_PLATFORM=offscreen .venv/bin/python tools/render_ui_gallery.py --check
+```
+
+- [ ] Review RU/EN × dark/light at 1100×700 and 1440×900.
+- [ ] Repeat the primary flows at the supported minimum 900×550 using only
+  the keyboard; focus must remain visible and every primary action reachable.
+- [ ] Close the window during Queue, Recorder, preset, and every active Live
+  state. Workers must cancel or finish cleanly without a hung process.
+- [ ] On macOS 26.5.1 / M4 Pro / 24 GB complete the 15-minute Zoom walkthrough
+  above before changing Live from opt-in to enabled by default.

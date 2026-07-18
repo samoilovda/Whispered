@@ -34,6 +34,7 @@ from ui.chat_panel import ChatPanel
 from ui.insights_panel import InsightsPanel
 from ui.youtube_panel import YouTubePanel
 from ui.live_view import LiveView
+from ui.live_preflight_panel import LivePreflightWorker
 from ui.progress_timeline import ProgressTimeline
 from ui.animated_button import AnimatedButton
 from ui.components import FormSection, OperationBar, PageHeader
@@ -48,9 +49,8 @@ from transcriber import _build_initial_prompt
 from timeline_export import write_edl
 from video_edit import mark_pauses
 from video_cut import assemble_draft, VideoCutError
-from core.live.preflight import LivePreflight, default_helper_path
+from core.live.preflight import default_helper_path
 from core.live.runtime import LiveRuntime
-from core.live.system_capture_protocol import CaptureTarget
 
 logger = get_logger(__name__)
 
@@ -127,6 +127,11 @@ class MainWindow(QMainWindow):
 
         if hasattr(self, "live_runtime") and self.live_runtime.is_running():
             self.live_runtime.cancel()
+        if hasattr(self, "live_view"):
+            self.live_view.setup.shutdown()
+        if self._live_preflight_worker and self._live_preflight_worker.isRunning():
+            self._live_preflight_worker.requestInterruption()
+            self._live_preflight_worker.wait(2500)
 
         event.accept()
 
@@ -295,7 +300,7 @@ class MainWindow(QMainWindow):
         # ===== Live section (opt-in until standalone/release gates) =====
         self.live_view = LiveView()
         self.live_runtime = LiveRuntime(self)
-        self.live_preflight = LivePreflight()
+        self._live_preflight_worker = None
         self.live_view.preflight_requested.connect(self._run_live_preflight)
         self.live_view.start_requested.connect(self._start_live)
         self.live_view.pause_requested.connect(self._pause_live)
@@ -305,6 +310,8 @@ class MainWindow(QMainWindow):
         self.live_runtime.level_changed.connect(self.live_view.set_level)
         self.live_runtime.error_occurred.connect(self._on_live_error)
         self.live_runtime.finished.connect(self._on_live_finished)
+        self.live_runtime.session_state_changed.connect(self.live_view.set_session_state)
+        self.live_view.open_record_requested.connect(self._open_completed_live)
         self.live_view._timer.timeout.connect(self._update_live_metrics)
         self._live_index = self._stack.addWidget(self.live_view)
 
@@ -365,6 +372,8 @@ class MainWindow(QMainWindow):
         idx = self._section_index.get(key)
         if idx is not None:
             self._stack.setCurrentIndex(idx)
+            if key == "live" and os.environ.get("WHISPERED_UI_GALLERY") != "1":
+                self.live_view.setup.refresh_targets()
 
     def _on_sidebar_collapsed(self, collapsed: bool) -> None:
         cfg = get_config()
@@ -385,35 +394,41 @@ class MainWindow(QMainWindow):
 
     def _live_options(self):
         use_mic, use_system = self.live_view.selected_sources()
-        return use_mic, use_system, self.model_combo.currentData() or get_config().default_model
+        return use_mic, use_system, self.live_view.selected_model()
 
     def _run_live_preflight(self):
+        if self._live_preflight_worker and self._live_preflight_worker.isRunning():
+            return
         use_mic, use_system, model = self._live_options()
-        checks = self.live_preflight.run(
+        self.live_view.set_preflighting()
+        worker = LivePreflightWorker(
             use_mic=use_mic,
             use_system=use_system,
             model_name=model,
+            target_available=not use_system or self.live_view.selected_target() is not None,
             helper_path=default_helper_path(),
+            parent=self,
         )
-        self.live_view.show_preflight(checks)
-        return checks
+        worker.completed.connect(self.live_view.show_preflight)
+        self._live_preflight_worker = worker
+        worker.start()
 
     def _start_live(self):
-        checks = self._run_live_preflight()
-        if not self.live_preflight.can_start(checks):
-            return
         use_mic, use_system, model = self._live_options()
+        discovered = self.live_view.selected_target()
+        if use_system and discovered is None:
+            self.live_view.invalidate_preflight()
+            return
         self.live_view.reset_session()
         started = self.live_runtime.start(
             use_mic=use_mic,
             use_system=use_system,
             model_name=model,
-            language=self.language_combo.currentData() or "auto",
-            mic_device=get_config().mic_device_index,
-            target=CaptureTarget(bundle_id=self.live_view.target_bundle_id()) if use_system else None,
+            language=self.live_view.selected_language(),
+            mic_device=self.live_view.selected_mic_device(),
+            target=discovered.capture_target() if discovered else None,
             helper_path=default_helper_path(),
         )
-        self.live_view.set_running(started)
         if started:
             self.live_view._timer.start()
 
@@ -424,28 +439,26 @@ class MainWindow(QMainWindow):
             self.live_runtime.resume()
 
     def _stop_live(self):
-        self.live_view.pause_btn.setEnabled(False)
-        self.live_view.stop_btn.setEnabled(False)
         self.live_runtime.stop()
 
     def _update_live_metrics(self):
-        if self.live_runtime.is_running():
+        if self.live_runtime.session_state.value not in {"idle", "completed"}:
             self.live_view.set_metrics(self.live_runtime.metrics())
 
     def _on_live_error(self, source: str, message: str):
         self.live_view.set_source_state(source, "failed")
-        self.live_view.preflight_label.setText(f"{source}: {message}")
-        # A surviving source deliberately continues; ASR/session errors stop all.
-        if source == "asr" or not self.live_runtime.is_running():
-            self.live_view.set_running(False)
+        logger.error("Live %s failure: %s", source, message)
 
     def _on_live_finished(self, result: TranscriptionResult, source_path: str):
         self.live_view._timer.stop()
-        self.live_view.set_running(False)
         stamp = time.strftime("%Y-%m-%d_%H-%M-%S")
         self._source_filepath = source_path or f"live-{stamp}.wav"
         self._transcription_start = self.live_runtime._started_at
-        self._on_finished(result)
+        self._on_finished(result, open_record=False)
+
+    def _open_completed_live(self):
+        if self._current_result is not None:
+            self._stack.setCurrentIndex(self._record_index)
 
     def _connect_signals(self):
         """Connect widget signals."""
@@ -798,7 +811,7 @@ class MainWindow(QMainWindow):
             local = max(0, min(100, int((percentage - 10) / 80 * 100)))
             self.progress_timeline.set_stage(2, local)
 
-    def _on_finished(self, result: TranscriptionResult):
+    def _on_finished(self, result: TranscriptionResult, open_record: bool = True):
         """Handle transcription completion."""
         self._current_result = result
         self.transcript_view.set_result(result)
@@ -839,8 +852,9 @@ class MainWindow(QMainWindow):
         title = Path(self._source_filepath).stem if self._source_filepath else tr("app_title")
         self.record_view.set_title(title)
         self.record_view.set_has_result(True)
-        self.sidebar.set_active("library")
-        self._stack.setCurrentIndex(self._record_index)
+        if open_record:
+            self.sidebar.set_active("library")
+            self._stack.setCurrentIndex(self._record_index)
 
         self._start_preset_chain()
 

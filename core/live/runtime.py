@@ -30,6 +30,18 @@ class SourceState(str, Enum):
     STOPPED = "stopped"
 
 
+class SessionState(str, Enum):
+    IDLE = "idle"
+    PREFLIGHTING = "preflighting"
+    READY = "ready"
+    STARTING = "starting"
+    RUNNING = "running"
+    PAUSED = "paused"
+    FINALIZING = "finalizing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 @dataclass(frozen=True, slots=True)
 class LiveRuntimeMetrics:
     elapsed_seconds: float
@@ -37,6 +49,8 @@ class LiveRuntimeMetrics:
     source_stats: dict[str, Any]
     scheduler: Any
     drift: Any
+    asr: Any
+    profile: Any
 
 
 class LiveRuntime(QObject):
@@ -47,6 +61,7 @@ class LiveRuntime(QObject):
     level_changed = pyqtSignal(str, float)
     error_occurred = pyqtSignal(str, str)
     finished = pyqtSignal(object, str)
+    session_state_changed = pyqtSignal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -61,6 +76,13 @@ class LiveRuntime(QObject):
         self._started_at = 0.0
         self._language = "auto"
         self._output_path = ""
+        self._session_state = SessionState.IDLE
+        self._worker_ready = False
+        self._profile = resource_profile()
+
+    @property
+    def session_state(self) -> SessionState:
+        return self._session_state
 
     def start(
         self,
@@ -85,10 +107,14 @@ class LiveRuntime(QObject):
         self._paused.clear()
         self._sources.clear()
         self._states = {source: SourceState.STARTING for source in source_ids}
+        self._set_session_state(SessionState.STARTING)
+        self._worker_ready = False
         self._language = language
         self._started_at = time.monotonic()
         profile = resource_profile()
+        self._profile = profile
         self._worker = PersistentWhisperWorker(model_name, language=language, parent=self)
+        self._worker.ready.connect(self._on_worker_ready)
         self._worker.error.connect(lambda message: self._source_error("asr", message))
         self._pipeline = LiveSessionPipeline(
             self._worker,
@@ -131,7 +157,10 @@ class LiveRuntime(QObject):
                 self._start_drain("system", system)
             else:
                 self._set_state("system", SourceState.FAILED)
-        return any(state is not SourceState.FAILED for state in self._states.values())
+        started = any(state is not SourceState.FAILED for state in self._states.values())
+        if not started:
+            self._set_session_state(SessionState.FAILED)
+        return started
 
     def pause(self) -> None:
         self._paused.set()
@@ -141,6 +170,7 @@ class LiveRuntime(QObject):
         for source in self._states:
             if self._states[source] is SourceState.RUNNING:
                 self._set_state(source, SourceState.PAUSED)
+        self._set_session_state(SessionState.PAUSED)
 
     def resume(self) -> None:
         mic = self._sources.get("mic")
@@ -150,10 +180,12 @@ class LiveRuntime(QObject):
         for source in self._states:
             if self._states[source] is SourceState.PAUSED:
                 self._set_state(source, SourceState.RUNNING)
+        self._set_session_state(SessionState.RUNNING)
 
     def stop(self) -> None:
         if not self.is_running():
             return
+        self._set_session_state(SessionState.FINALIZING)
         threading.Thread(target=self._finish_session, daemon=True).start()
 
     def cancel(self) -> None:
@@ -177,6 +209,8 @@ class LiveRuntime(QObject):
             source_stats={source: adapter.stats() for source, adapter in self._sources.items()},
             scheduler=pipeline.scheduler.stats() if pipeline else None,
             drift=pipeline.drift_report() if pipeline else None,
+            asr=self._worker.metrics() if self._worker else None,
+            profile=self._profile,
         )
 
     def _start_drain(self, source: str, adapter: Any) -> None:
@@ -238,13 +272,40 @@ class LiveRuntime(QObject):
         for source in self._states:
             self._set_state(source, SourceState.STOPPED)
         if result is not None:
+            self._set_session_state(SessionState.COMPLETED)
             self.finished.emit(result, self._output_path)
 
     def _source_error(self, source: str, message: str) -> None:
         if source in self._states:
             self._set_state(source, SourceState.FAILED)
         self.error_occurred.emit(source, message)
+        if source in {"asr", "session"}:
+            self._set_session_state(SessionState.FAILED)
+            self.cancel()
+        elif self._states and all(
+            state in {SourceState.FAILED, SourceState.STOPPED}
+            for state in self._states.values()
+        ):
+            self._set_session_state(SessionState.FAILED)
 
     def _set_state(self, source: str, state: SourceState) -> None:
         self._states[source] = state
         self.source_state_changed.emit(source, state.value)
+        if state is SourceState.RUNNING:
+            self._maybe_mark_running()
+
+    def _on_worker_ready(self, _load_seconds: float) -> None:
+        self._worker_ready = True
+        self._maybe_mark_running()
+
+    def _maybe_mark_running(self) -> None:
+        if self._worker_ready and any(
+            state is SourceState.RUNNING for state in self._states.values()
+        ):
+            self._set_session_state(SessionState.RUNNING)
+
+    def _set_session_state(self, state: SessionState) -> None:
+        if state is self._session_state:
+            return
+        self._session_state = state
+        self.session_state_changed.emit(state.value)

@@ -17,6 +17,16 @@ The Python adapter launches
 `WHISPERED_CAPTURE_SOCKET=<path>`. A production `.app` must copy and sign this
 binary as part of L23; the development build is intentionally not committed.
 
+List currently shareable applications as JSON without starting capture:
+
+```bash
+.build/release/whispered-capture-helper --list-targets
+```
+
+Each entry contains `display_name`, `bundle_id`, and `process_id`. Discovery
+does not create an `SCStream`; the selected target is sent later in the normal
+START control frame.
+
 The first real capture triggers the standard macOS Screen Recording permission
 flow. A successful `swift build` and HELLO handshake prove the native/IPC
 boundary only; application capture and permission UX remain manual acceptance.

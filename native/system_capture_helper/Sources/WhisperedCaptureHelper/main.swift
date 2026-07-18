@@ -214,8 +214,31 @@ private func listeningSocket(path: String) throws -> Int32 {
 @main
 struct Main {
     static func main() async {
-        guard #available(macOS 13.0, *),
-              let socketPath = ProcessInfo.processInfo.environment["WHISPERED_CAPTURE_SOCKET"] else {
+        guard #available(macOS 13.0, *) else {
+            fputs("ScreenCaptureKit macOS 13+ is required\n", stderr)
+            exit(2)
+        }
+        if CommandLine.arguments.contains("--list-targets") {
+            do {
+                let content = try await SCShareableContent.excludingDesktopWindows(
+                    false, onScreenWindowsOnly: false
+                )
+                let targets: [[String: Any]] = content.applications.map { application in
+                    [
+                        "display_name": application.applicationName,
+                        "bundle_id": application.bundleIdentifier,
+                        "process_id": Int(application.processID),
+                    ]
+                }
+                let data = try JSONSerialization.data(withJSONObject: targets, options: [.sortedKeys])
+                FileHandle.standardOutput.write(data)
+                exit(0)
+            } catch {
+                fputs("Target discovery failed: \(error.localizedDescription)\n", stderr)
+                exit(3)
+            }
+        }
+        guard let socketPath = ProcessInfo.processInfo.environment["WHISPERED_CAPTURE_SOCKET"] else {
             fputs("ScreenCaptureKit macOS 13+ and WHISPERED_CAPTURE_SOCKET are required\n", stderr)
             exit(2)
         }

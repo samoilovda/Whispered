@@ -1,103 +1,115 @@
-"""Live transcription page: source controls, preflight, meters and transcript."""
+"""Production Live page composed from setup, status and transcript widgets."""
 
 from __future__ import annotations
 
-from typing import Any
-
 from PyQt6.QtCore import QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QComboBox,
     QHBoxLayout,
     QLabel,
-    QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QScrollArea,
+    QFrame,
     QVBoxLayout,
     QWidget,
 )
 
 from core.i18n import tr
-from core.live.contracts import SegmentState
+from core.live.preflight import LivePreflight
+from ui.components import InlineBanner, PageHeader, StatusBadge
+from ui.live_diagnostics_panel import LiveDiagnosticsPanel
+from ui.live_preflight_panel import LivePreflightPanel
+from ui.live_setup_panel import LiveSetupPanel
+from ui.live_transcript_view import LiveTranscriptView
 from utils import format_duration
 
 
 class LiveView(QWidget):
-    """Presentation-only Live page; device/model ownership stays in runtime."""
-
     preflight_requested = pyqtSignal()
     start_requested = pyqtSignal()
     pause_requested = pyqtSignal(bool)
     stop_requested = pyqtSignal()
+    open_record_requested = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self._updates: dict[str, Any] = {}
+        self._preflight_valid = False
+        self._state = "idle"
         self._setup_ui()
 
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 16, 20, 20)
         root.setSpacing(12)
+        header = PageHeader(tr("live_title"), tr("page_live_subtitle"))
+        self.state_badge = StatusBadge(tr("live_health_idle"))
+        header.add_action(self.state_badge)
+        root.addWidget(header)
 
-        title = QLabel(tr("live_title"))
-        title.setProperty("role", "title")
-        root.addWidget(title)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        body = QWidget()
+        content = QVBoxLayout(body)
+        content.setContentsMargins(0, 0, 0, 0)
+        content.setSpacing(12)
+        scroll.setWidget(body)
+        root.addWidget(scroll, 1)
 
-        controls = QHBoxLayout()
-        self.source_combo = QComboBox()
-        self.source_combo.addItem(tr("live_source_mic"), "mic")
-        self.source_combo.addItem(tr("live_source_system"), "system")
-        self.source_combo.addItem(tr("live_source_both"), "both")
-        controls.addWidget(self.source_combo)
-        self.target_combo = QComboBox()
-        self.target_combo.addItem("Zoom", "us.zoom.xos")
-        self.target_combo.addItem("Google Meet (Chrome)", "com.google.Chrome")
-        self.target_combo.addItem("Microsoft Teams", "com.microsoft.teams2")
-        controls.addWidget(self.target_combo)
+        self.setup = LiveSetupPanel()
+        self.setup.setup_changed.connect(self.invalidate_preflight)
+        content.addWidget(self.setup)
+
+        actions = QHBoxLayout()
         self.preflight_btn = QPushButton(tr("live_preflight"))
         self.preflight_btn.clicked.connect(self.preflight_requested.emit)
-        controls.addWidget(self.preflight_btn)
+        actions.addWidget(self.preflight_btn)
+        actions.addStretch()
         self.start_btn = QPushButton(tr("live_start"))
         self.start_btn.setProperty("variant", "primary")
+        self.start_btn.setEnabled(False)
         self.start_btn.clicked.connect(self.start_requested.emit)
-        controls.addWidget(self.start_btn)
+        actions.addWidget(self.start_btn)
+        content.addLayout(actions)
+
+        self.preflight_panel = LivePreflightPanel()
+        content.addWidget(self.preflight_panel)
+        self.banner = InlineBanner()
+        content.addWidget(self.banner)
+
+        session = QHBoxLayout()
+        self.elapsed_label = QLabel("00:00")
+        session.addWidget(self.elapsed_label)
+        self.mic_state = QLabel(tr("live_source_idle").format(source=tr("live_source_mic")))
+        session.addWidget(self.mic_state)
+        self.mic_meter = self._meter()
+        session.addWidget(self.mic_meter)
+        self.system_state = QLabel(tr("live_source_idle").format(source=tr("live_zoom")))
+        session.addWidget(self.system_state)
+        self.system_meter = self._meter()
+        session.addWidget(self.system_meter)
+        session.addStretch()
         self.pause_btn = QPushButton(tr("live_pause"))
         self.pause_btn.setCheckable(True)
         self.pause_btn.setEnabled(False)
-        self.pause_btn.toggled.connect(self.pause_requested.emit)
-        controls.addWidget(self.pause_btn)
+        self.pause_btn.toggled.connect(self._pause_toggled)
+        session.addWidget(self.pause_btn)
         self.stop_btn = QPushButton(tr("live_stop"))
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self.stop_requested.emit)
-        controls.addWidget(self.stop_btn)
-        root.addLayout(controls)
+        session.addWidget(self.stop_btn)
+        self.open_btn = QPushButton(tr("live_open_record"))
+        self.open_btn.setProperty("variant", "primary")
+        self.open_btn.setVisible(False)
+        self.open_btn.clicked.connect(self.open_record_requested.emit)
+        session.addWidget(self.open_btn)
+        content.addLayout(session)
 
-        self.preflight_label = QLabel(tr("live_preflight_hint"))
-        self.preflight_label.setWordWrap(True)
-        self.preflight_label.setProperty("role", "muted")
-        root.addWidget(self.preflight_label)
-
-        status = QHBoxLayout()
-        self.elapsed_label = QLabel("00:00")
-        status.addWidget(self.elapsed_label)
-        self.mic_state = QLabel("Microphone: idle")
-        status.addWidget(self.mic_state)
-        self.mic_meter = self._meter()
-        status.addWidget(self.mic_meter)
-        self.system_state = QLabel("Meeting audio: idle")
-        status.addWidget(self.system_state)
-        self.system_meter = self._meter()
-        status.addWidget(self.system_meter)
-        self.lag_label = QLabel("lag 0.0s · drops 0")
-        status.addWidget(self.lag_label)
-        status.addStretch()
-        root.addLayout(status)
-
-        self.transcript = QPlainTextEdit()
-        self.transcript.setReadOnly(True)
-        self.transcript.setPlaceholderText(tr("live_transcript_placeholder"))
-        root.addWidget(self.transcript, stretch=1)
-
+        self.transcript = LiveTranscriptView()
+        self.transcript.setMinimumHeight(180)
+        content.addWidget(self.transcript, 1)
+        self.diagnostics = LiveDiagnosticsPanel()
+        content.addWidget(self.diagnostics)
         self._timer = QTimer(self)
         self._timer.setInterval(500)
 
@@ -107,37 +119,88 @@ class LiveView(QWidget):
         meter.setRange(0, 100)
         meter.setValue(0)
         meter.setTextVisible(False)
-        meter.setFixedWidth(80)
-        meter.setFixedHeight(7)
+        meter.setFixedWidth(90)
+        meter.setFixedHeight(8)
         return meter
 
     def selected_sources(self) -> tuple[bool, bool]:
-        value = self.source_combo.currentData()
-        return value in {"mic", "both"}, value in {"system", "both"}
+        return self.setup.selected_sources()
 
-    def target_bundle_id(self) -> str:
-        return str(self.target_combo.currentData())
+    def selected_model(self) -> str:
+        return str(self.setup.model_combo.currentData())
+
+    def selected_language(self) -> str:
+        return str(self.setup.language_combo.currentData())
+
+    def selected_mic_device(self) -> int | None:
+        return self.setup.mic_combo.currentData()
+
+    def selected_target(self):
+        return self.setup.selected_target()
+
+    def invalidate_preflight(self) -> None:
+        self._preflight_valid = False
+        self.start_btn.setEnabled(False)
+        if self._state in {"idle", "ready"}:
+            self._state = "idle"
+            self.state_badge.set_status(tr("live_health_idle"), "neutral")
+
+    def set_preflighting(self) -> None:
+        self._state = "preflighting"
+        self.preflight_btn.setEnabled(False)
+        self.start_btn.setEnabled(False)
+        self.state_badge.set_status(tr("live_preflighting"), "info")
 
     def show_preflight(self, checks) -> None:
-        icons = {"pass": "✓", "warning": "!", "fail": "✕"}
-        self.preflight_label.setText(
-            "  ·  ".join(f"{icons[check.status.value]} {check.message}" for check in checks)
+        self.preflight_btn.setEnabled(True)
+        self.preflight_panel.show_checks(checks)
+        self._preflight_valid = LivePreflight.can_start(checks)
+        self._state = "ready" if self._preflight_valid else "idle"
+        self.start_btn.setEnabled(self._preflight_valid)
+        self.state_badge.set_status(
+            tr("live_ready") if self._preflight_valid else tr("live_not_ready"),
+            "success" if self._preflight_valid else "error",
         )
 
-    def set_running(self, running: bool) -> None:
-        self.start_btn.setEnabled(not running)
-        self.preflight_btn.setEnabled(not running)
-        self.source_combo.setEnabled(not running)
-        self.target_combo.setEnabled(not running)
-        self.pause_btn.setEnabled(running)
-        self.stop_btn.setEnabled(running)
-        if not running:
+    def set_session_state(self, state: str) -> None:
+        self._state = state
+        active = state in {"starting", "running", "paused", "finalizing"}
+        self.setup.set_locked(active)
+        self.preflight_btn.setEnabled(not active)
+        self.start_btn.setEnabled(state in {"ready", "failed"} and self._preflight_valid)
+        self.pause_btn.setEnabled(state in {"running", "paused"})
+        self.stop_btn.setEnabled(state in {"starting", "running", "paused"})
+        self.open_btn.setVisible(state == "completed")
+        labels = {
+            "idle": (tr("live_health_idle"), "neutral", ""),
+            "starting": (tr("live_starting"), "info", tr("live_starting")),
+            "running": (tr("live_running"), "success", ""),
+            "paused": (tr("live_paused"), "warning", tr("live_paused")),
+            "finalizing": (tr("live_finalizing"), "info", tr("live_finalizing")),
+            "completed": (tr("live_completed"), "success", tr("live_completed")),
+            "failed": (tr("live_health_error"), "error", tr("live_session_failed")),
+        }
+        label, kind, banner = labels.get(state, (state, "neutral", ""))
+        self.state_badge.set_status(label, kind)
+        self.banner.set_message(banner, severity=kind if kind != "neutral" else "info")
+        if state != "paused" and self.pause_btn.isChecked():
+            self.pause_btn.blockSignals(True)
             self.pause_btn.setChecked(False)
+            self.pause_btn.blockSignals(False)
+
+    def _pause_toggled(self, paused: bool) -> None:
+        self.pause_btn.setText(tr("live_resume") if paused else tr("live_pause"))
+        self.pause_requested.emit(paused)
 
     def set_source_state(self, source: str, state: str) -> None:
         label = self.mic_state if source == "mic" else self.system_state
-        name = "Microphone" if source == "mic" else "Meeting audio"
-        label.setText(f"{name}: {state}")
+        name = tr("live_source_mic") if source == "mic" else tr("live_zoom")
+        localized_state = tr(f"live_state_{state}")
+        label.setText(tr("live_source_state").format(source=name, state=localized_state))
+        if state == "failed" and self._state in {"running", "paused"}:
+            self.banner.set_message(
+                tr("live_source_failed_continues").format(source=name), severity="warning"
+            )
 
     def set_level(self, source: str, value: float) -> None:
         meter = self.mic_meter if source == "mic" else self.system_meter
@@ -145,25 +208,13 @@ class LiveView(QWidget):
 
     def set_metrics(self, metrics) -> None:
         self.elapsed_label.setText(format_duration(metrics.elapsed_seconds))
-        source_stats = metrics.source_stats
-        lag = max((stats.lag_seconds for stats in source_stats.values()), default=0.0)
-        drops = sum(stats.dropped_frames for stats in source_stats.values())
-        asr_lag = metrics.scheduler.max_wait_seconds if metrics.scheduler else 0.0
-        self.lag_label.setText(f"lag {max(lag, asr_lag):.1f}s · drops {drops}")
+        self.diagnostics.set_metrics(metrics, self._state)
 
     def accept_update(self, update) -> None:
-        self._updates[update.segment_id] = update
-        lines = []
-        for item in sorted(
-            self._updates.values(), key=lambda value: (value.segment.start, value.segment_id)
-        ):
-            speaker = item.segment.speaker or item.segment_id.split(":", 1)[0]
-            marker = "" if item.state is SegmentState.FINAL else " …"
-            lines.append(f"[{item.segment.start:07.1f}] {speaker}: {item.segment.text.strip()}{marker}")
-        self.transcript.setPlainText("\n".join(lines))
+        self.transcript.accept_update(update)
 
     def reset_session(self) -> None:
-        self._updates.clear()
-        self.transcript.clear()
+        self.transcript.reset()
         self.elapsed_label.setText("00:00")
-        self.lag_label.setText("lag 0.0s · drops 0")
+        self.mic_meter.setValue(0)
+        self.system_meter.setValue(0)

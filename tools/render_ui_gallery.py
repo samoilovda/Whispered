@@ -12,6 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault("WHISPERED_UI_GALLERY", "1")
 
 from PyQt6.QtWidgets import QApplication
 
@@ -21,7 +22,7 @@ from core.i18n import load_locale
 from ui.theme import apply_theme
 
 
-SIZES = ((1100, 700), (1440, 900))
+SIZES = ((900, 550), (1100, 700), (1440, 900))
 SECTIONS = ("library", "queue", "recorder", "live")
 
 
@@ -66,6 +67,8 @@ def render(output: Path, check: bool = False) -> list[Path]:
                 for key in SECTIONS:
                     window._on_section_changed(key)
                     app.processEvents()
+                    window.repaint()
+                    app.processEvents()
                     path = output / f"{language}-{theme}-{width}x{height}-{key}.png"
                     if not window.grab().save(str(path)):
                         raise RuntimeError(f"Could not render {path}")
@@ -88,7 +91,10 @@ def render(output: Path, check: bool = False) -> list[Path]:
             path = output / f"{language}-{theme}-settings.png"
             settings.grab().save(str(path))
             rendered.append(path)
-            if check and not _inside(settings, settings.layout().itemAt(0).widget()):
+            if check and not all(
+                _inside(settings, widget)
+                for widget in (settings._categories, settings._pages)
+            ):
                 raise AssertionError("Settings content is outside its viewport")
             settings.close()
             window.close()

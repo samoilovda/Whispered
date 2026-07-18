@@ -94,7 +94,18 @@ same tab.
 
 ### UI
 Dark / light themes, RU / EN localization, drag-and-drop, animated progress
-timeline, toast notifications.
+timeline, toast notifications. The production workspace uses a labelled,
+collapsible sidebar, a task-focused Library, full-height Queue and Recorder
+pages, a category-based Settings dialog, and a shared operation bar that is
+hidden while idle. The opt-in Live workspace adds asynchronous readiness
+checks, real ScreenCaptureKit target discovery (Zoom is prioritised), an
+incremental dual-source transcript, and privacy-safe collapsible diagnostics.
+
+To render the current UI reference gallery without user data:
+
+```bash
+QT_QPA_PLATFORM=offscreen .venv/bin/python tools/render_ui_gallery.py --check
+```
 
 ---
 
