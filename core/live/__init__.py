@@ -13,6 +13,7 @@ from core.live.audio_buffer import (
     MonotonicTimestamp,
     RingStats,
 )
+from core.live.vad import EnergyVAD, PerSourceVAD, VADConfig, pcm_rms
 
 __all__ = [
     "AudioFrame",
@@ -25,6 +26,10 @@ __all__ = [
     "MonotonicTimestamp",
     "RingStats",
     "MicSource",
+    "EnergyVAD",
+    "PerSourceVAD",
+    "VADConfig",
+    "pcm_rms",
 ]
 
 

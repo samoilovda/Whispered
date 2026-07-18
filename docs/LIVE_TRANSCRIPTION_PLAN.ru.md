@@ -1,6 +1,6 @@
 # Whispered Live: публичный план развития
 
-> Версия: 18 июля 2026. Статус: в разработке; L1–L3 реализованы на уровне кода и unit-тестов, L4 реализован на уровне unit-тестов; live-флаг выключен.
+> Версия: 18 июля 2026. Статус: в разработке; L1–L5 реализованы на уровне кода и unit-тестов, L4–L5 требуют ручной приёмки; live-флаг выключен.
 > Назначение: довести Whispered до законченного live-продукта для локальной
 > транскрипции онлайн-встреч, семинаров и эфиров, сохранив существующий batch-
 > конвейер без изменений.
@@ -233,7 +233,7 @@ S1–S3 блокируют dual-source capture. S4–S6 блокируют live 
 | L2 | `AudioFrame`, `SpeechTurn`, `SegmentUpdate` и state machine на симуляторе | В demo partial меняется, final больше не меняется; результат — обычные `Segment` |
 | L3 | `MicSource` adapter поверх существующего recorder (`core/live/mic_source.py`) | Старые Record/Pause/Resume/Stop и WAV работают; новый meter/frames включаются feature flag |
 | L4 | Bounded RAM ring, monotonic timestamps, lag/drops, cancellation (`core/live/audio_buffer.py`) | 30 минут без роста памяти; искусственное торможение видно, UI не зависает |
-| L5 | Per-source VAD | Десять фраз и короткие ответы не обрезаны; музыка не создаёт бесконечный utterance |
+| L5 | Per-source VAD (`core/live/vad.py`) | Десять фраз и короткие ответы не обрезаны; музыка не создаёт бесконечный utterance |
 | L6 | Persistent whisper worker для mic | Модель грузится один раз; 15 минут live; Cancel ≤2 сек; final p95 измерен |
 | L7 | Stable-prefix/revisions/dedup одного source | Черновой хвост видим; после паузы не прыгает; повторяющаяся фраза не дублируется |
 
@@ -253,6 +253,11 @@ S1–S3 блокируют dual-source capture. S4–S6 блокируют live 
   вытеснении backlog следующий кадр получает `discontinuity=True`; callback
   никогда не ждёт потребителя. Полный 30-минутный ручной/интеграционный soak
   остаётся частью приёмки L4.
+- **L5** — добавлен `PerSourceVAD` с dependency-free energy backend,
+  hysteresis, pre-roll 200 мс, post-roll 200 мс, endpoint после 600 мс тишины
+  и split длинных utterances по 15 сек. Backend заменяемый, поэтому Silero или
+  WebRTC можно подключить без изменения `SpeechTurn`; ручной набор из десяти
+  фраз и музыкальный sample остаются частью приёмки L5.
 
 ### Этап B. Системный звук и два источника
 
