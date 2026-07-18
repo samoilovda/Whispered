@@ -74,6 +74,8 @@ process exit.
 - более двух удалённых участников остаются общим `Meeting audio` mix.
 
 Python reference implementation и tests находятся в
-`core/live/system_capture_protocol.py` и
-`tests/test_system_capture_protocol.py`. Реальный ScreenCaptureKit spike,
-permissions и выбор Zoom/Meet/Teams остаются ручной приёмкой L8/S1.
+`core/live/system_capture_protocol.py`,
+`core/live/system_audio_source.py` и
+`tests/test_system_capture_protocol.py` /
+`tests/test_system_audio_source.py`. Реальный ScreenCaptureKit spike,
+permissions и выбор Zoom/Meet/Teams остаются ручной приёмкой L8/S1/L9.

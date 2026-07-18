@@ -1,6 +1,6 @@
 # Whispered Live: публичный план развития
 
-> Версия: 18 июля 2026. Статус: в разработке; L1–L8 реализованы на уровне кода и unit-тестов, L4–L8 требуют ручной приёмки; live-флаг выключен.
+> Версия: 18 июля 2026. Статус: в разработке; L1–L9 реализованы на уровне кода и unit-тестов, L4–L9 требуют ручной приёмки; live-флаг выключен.
 > Назначение: довести Whispered до законченного live-продукта для локальной
 > транскрипции онлайн-встреч, семинаров и эфиров, сохранив существующий batch-
 > конвейер без изменений.
@@ -273,13 +273,18 @@ S1–S3 блокируют dual-source capture. S4–S6 блокируют live 
   messages + binary s16le PCM, fragmented-read decoder и lifecycle, запрещающий
   audio после `stopped`. Реальный helper spike, permissions, meter и
   освобождение `SCStream` остаются ручной приёмкой L8/S1.
+- **L9** — добавлен Python `SystemAudioSource` поверх L8 contract: async
+  helper connection, hello/start/started handshake, per-source bounded ring,
+  helper meter, monotonic timestamp validation, permission-denial message и
+  graceful Stop/Cancel. Реальный 15-минутный YouTube/Meet прогон возможен
+  после появления Swift helper и остаётся ручной приёмкой L9.
 
 ### Этап B. Системный звук и два источника
 
 | ID | Результат | Вечерняя приёмка без чтения кода |
 |---|---|---|
 | L8 | Выбранная архитектура system capture и документированный IPC contract (`docs/SYSTEM_CAPTURE_IPC.ru.md`) | Запустить spike build, выбрать приложение, увидеть system meter, Stop освободил capture |
-| L9 | SystemAudioSource в приложении | 15 минут YouTube/Meet транскрибируются без микрофона; permission denial понятен |
+| L9 | SystemAudioSource в приложении (`core/live/system_audio_source.py`) | 15 минут YouTube/Meet транскрибируются без микрофона; permission denial понятен |
 | L10 | SourceClockAligner + resampling/drift metrics | Два source идут на одной timeline 60 минут; отчёт drift <100 мс |
 | L11 | Двухочередный ASR scheduler | Одновременная речь обоих source появляется без голодания одного канала |
 | L12 | Source speaker labels и overlap timeline | Mic/Meeting audio визуально различаются; одновременные реплики обе сохранены |

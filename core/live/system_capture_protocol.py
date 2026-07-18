@@ -154,6 +154,16 @@ class CaptureLifecycle:
         elif kind in {MessageType.PING, MessageType.PONG}:
             return
 
+    def prepare_start(self) -> None:
+        """Record the app-side start command before sending it."""
+        self._expect({"hello", "stopped"}, MessageType.START)
+        self.state = "starting"
+
+    def prepare_stop(self) -> None:
+        """Record the app-side stop command before sending it."""
+        self._expect({"running", "starting"}, MessageType.STOP)
+        self.state = "stopping"
+
     def _expect(self, allowed: set[str], kind: MessageType) -> None:
         if self.state not in allowed:
             raise ProtocolError(

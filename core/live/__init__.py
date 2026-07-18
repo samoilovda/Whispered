@@ -28,6 +28,7 @@ from core.live.system_capture_protocol import (
     start_frame,
     stop_frame,
 )
+from core.live.system_audio_source import SystemAudioSource
 
 __all__ = [
     "AudioFrame",
@@ -58,6 +59,7 @@ __all__ = [
     "hello_frame",
     "start_frame",
     "stop_frame",
+    "SystemAudioSource",
     "PersistentWhisperWorker",
     "LiveASRResult",
     "LiveASRMetrics",
