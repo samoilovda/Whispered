@@ -34,6 +34,17 @@ python main.py
   - macOS: `~/Library/Application Support/Whispered/models/`
   - Linux: `~/.local/share/Whispered/models/`
 
+### L1 batch baseline (before any live work)
+
+- [ ] Run `python -m pytest tests/ -q` and save the passing test count.
+- [ ] Transcribe the consented ten-minute fixture named in
+  `tests/fixtures/README.md` with the release candidate model and settings.
+- [ ] Verify the resulting transcript and every export still use the stable
+  `Segment(start, end, text, speaker, words)` / `TranscriptionResult` contract.
+- [ ] Record elapsed time, model, machine profile, WER (when a reference is
+  available), and any failures in the release task. Do not commit private
+  recordings or their transcript.
+
 ## 4. Speaker Diarization
 
 - [ ] **Enable diarization** with valid HF token → Speaker labels appear in output

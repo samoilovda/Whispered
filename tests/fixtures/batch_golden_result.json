@@ -1,0 +1,34 @@
+{
+  "language": "ru",
+  "duration": 12.5,
+  "speaker_names": {
+    "Speaker 1": "Анна",
+    "Speaker 2": "Mikhail"
+  },
+  "segments": [
+    {
+      "start": 0.0,
+      "end": 3.2,
+      "text": " Привет, мир! ",
+      "speaker": "Speaker 1",
+      "words": [
+        {"start": 0.0, "end": 0.8, "text": " Привет,"},
+        {"start": 0.9, "end": 1.4, "text": " мир!"}
+      ]
+    },
+    {
+      "start": 3.4,
+      "end": 7.8,
+      "text": " Hello from Whispered. ",
+      "speaker": "Speaker 2",
+      "words": []
+    },
+    {
+      "start": 8.1,
+      "end": 12.5,
+      "text": " Финальная реплика.",
+      "speaker": null,
+      "words": []
+    }
+  ]
+}
