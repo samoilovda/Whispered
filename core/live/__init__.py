@@ -15,6 +15,19 @@ from core.live.audio_buffer import (
 )
 from core.live.vad import EnergyVAD, PerSourceVAD, VADConfig, pcm_rms
 from core.live.reconciler import LiveSegmentReconciler, ReconcileStats, StablePrefixTracker
+from core.live.system_capture_protocol import (
+    CaptureLifecycle,
+    CaptureTarget,
+    FrameDecoder,
+    IPCFrame,
+    MessageType,
+    ProtocolError,
+    audio_frame,
+    encode_frame,
+    hello_frame,
+    start_frame,
+    stop_frame,
+)
 
 __all__ = [
     "AudioFrame",
@@ -34,6 +47,17 @@ __all__ = [
     "LiveSegmentReconciler",
     "ReconcileStats",
     "StablePrefixTracker",
+    "CaptureLifecycle",
+    "CaptureTarget",
+    "FrameDecoder",
+    "IPCFrame",
+    "MessageType",
+    "ProtocolError",
+    "audio_frame",
+    "encode_frame",
+    "hello_frame",
+    "start_frame",
+    "stop_frame",
     "PersistentWhisperWorker",
     "LiveASRResult",
     "LiveASRMetrics",
