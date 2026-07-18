@@ -107,6 +107,12 @@ class LiveSegmentRevisions:
         previous = self._active(segment_id)
         return self._store(segment_id, SegmentState.FINAL, segment, previous.revision + 1)
 
+    def finalize_new(self, segment_id: str, segment: Any) -> SegmentUpdate:
+        """Publish a final segment that had no visible partial revision."""
+        if segment_id in self._updates:
+            return self.finalize(segment_id, segment)
+        return self._store(segment_id, SegmentState.FINAL, segment, revision=1)
+
     def latest(self, segment_id: str) -> SegmentUpdate | None:
         """Return the most recently published revision, if any."""
         return self._updates.get(segment_id)

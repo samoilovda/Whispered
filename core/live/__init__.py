@@ -14,6 +14,7 @@ from core.live.audio_buffer import (
     RingStats,
 )
 from core.live.vad import EnergyVAD, PerSourceVAD, VADConfig, pcm_rms
+from core.live.reconciler import LiveSegmentReconciler, ReconcileStats, StablePrefixTracker
 
 __all__ = [
     "AudioFrame",
@@ -30,6 +31,9 @@ __all__ = [
     "PerSourceVAD",
     "VADConfig",
     "pcm_rms",
+    "LiveSegmentReconciler",
+    "ReconcileStats",
+    "StablePrefixTracker",
     "PersistentWhisperWorker",
     "LiveASRResult",
     "LiveASRMetrics",
