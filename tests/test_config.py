@@ -50,6 +50,9 @@ class TestConfigDefaults:
         assert cfg.yt_openai_api_key == ""
         assert cfg.yt_anthropic_api_key == ""
 
+    def test_live_transcription_is_disabled_by_default(self):
+        assert Config().live_transcription_enabled is False
+
 
 class TestConfigRoundTrip:
     def test_save_and_load(self, tmp_path):
@@ -81,6 +84,7 @@ class TestConfigRoundTrip:
         loaded = Config.load()
         assert loaded.yt_provider == "lmstudio"
         assert loaded.yt_openai_base_url == "https://api.openai.com/v1"
+        assert loaded.live_transcription_enabled is False
 
     def test_load_missing_file_returns_defaults(self):
         loaded = Config.load()

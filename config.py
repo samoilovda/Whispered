@@ -60,6 +60,10 @@ class Config:
     # Recording settings
     mic_device_index: Optional[int] = None   # None = system default
 
+    # Live transcription remains opt-in until the standalone release gate.
+    # The batch pipeline never reads this flag.
+    live_transcription_enabled: bool = False
+
     # AI Chat settings
     chat_context_chars: int = 48_000   # max transcript chars sent as system context
 
