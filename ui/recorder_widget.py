@@ -9,13 +9,15 @@ import time
 from typing import Optional
 
 from PyQt6.QtWidgets import (
-    QWidget, QHBoxLayout, QPushButton, QLabel, QProgressBar
+    QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel, QProgressBar,
+    QComboBox,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 
 from core.logger import get_logger
 from core.i18n import tr
 from ui.theme import set_role
+from ui.icons import IconColors, get_icon
 from utils import format_duration
 
 logger = get_logger(__name__)
@@ -43,33 +45,54 @@ class RecorderWidget(QWidget):
     # ------------------------------------------------------------------ UI
 
     def _setup_ui(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
+        self.setProperty("role", "form-section")
+
+        device_row = QHBoxLayout()
+        device_label = QLabel(tr("settings_mic_device"))
+        device_label.setProperty("role", "muted")
+        device_row.addWidget(device_label)
+        self._device_combo = QComboBox()
+        self._device_combo.addItem(tr("settings_mic_default"), None)
+        self._device_combo.currentIndexChanged.connect(
+            lambda _index: self.set_device(self._device_combo.currentData())
+        )
+        device_row.addWidget(self._device_combo, stretch=1)
+        refresh_btn = QPushButton(tr("recorder_refresh_devices"))
+        refresh_btn.clicked.connect(self._refresh_devices)
+        device_row.addWidget(refresh_btn)
+        layout.addLayout(device_row)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(12)
 
         # Record button
-        self._record_btn = QPushButton("⏺")
+        self._record_btn = QPushButton(tr("recorder_start"))
+        self._record_btn.setIcon(get_icon("microphone", IconColors.WHITE, 16))
+        self._record_btn.setProperty("variant", "primary")
         self._record_btn.setToolTip(tr("tooltip_record"))
-        self._record_btn.setFixedSize(32, 32)
+        self._record_btn.setMinimumHeight(40)
         self._record_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._record_btn.clicked.connect(self._toggle_recording)
-        layout.addWidget(self._record_btn)
+        controls.addWidget(self._record_btn)
 
         # Pause button (visible only while recording)
-        self._pause_btn = QPushButton("⏸")
+        self._pause_btn = QPushButton(tr("recorder_pause"))
         self._pause_btn.setToolTip(tr("tooltip_record_pause"))
-        self._pause_btn.setFixedSize(28, 28)
+        self._pause_btn.setMinimumHeight(40)
         self._pause_btn.setVisible(False)
         self._pause_btn.setCheckable(True)
         self._pause_btn.toggled.connect(self._on_pause_toggled)
-        layout.addWidget(self._pause_btn)
+        controls.addWidget(self._pause_btn)
+        controls.addStretch()
 
         # Timer label
         self._timer_label = QLabel("00:00")
-        self._timer_label.setProperty("role", "muted")
-        self._timer_label.setStyleSheet("font-size: 11px; min-width: 36px;")
-        self._timer_label.setVisible(False)
-        layout.addWidget(self._timer_label)
+        self._timer_label.setProperty("role", "page-title")
+        controls.addWidget(self._timer_label)
+        layout.addLayout(controls)
 
         # Level meter
         self._level_bar = QProgressBar()
@@ -77,9 +100,12 @@ class RecorderWidget(QWidget):
         self._level_bar.setValue(0)
         self._level_bar.setTextVisible(False)
         self._level_bar.setFixedHeight(6)
-        self._level_bar.setFixedWidth(60)
-        self._level_bar.setVisible(False)
+        self._level_bar.setMinimumWidth(260)
         layout.addWidget(self._level_bar)
+
+        self._status_label = QLabel(tr("recorder_ready"))
+        self._status_label.setProperty("role", "muted")
+        layout.addWidget(self._status_label)
 
         # Timer
         self._timer = QTimer(self)
@@ -90,6 +116,28 @@ class RecorderWidget(QWidget):
 
     def set_device(self, device_index: Optional[int]) -> None:
         self._device = device_index
+        index = self._device_combo.findData(device_index)
+        if index >= 0 and index != self._device_combo.currentIndex():
+            self._device_combo.blockSignals(True)
+            self._device_combo.setCurrentIndex(index)
+            self._device_combo.blockSignals(False)
+
+    def _refresh_devices(self) -> None:
+        current = self._device
+        self._device_combo.blockSignals(True)
+        self._device_combo.clear()
+        self._device_combo.addItem(tr("settings_mic_default"), None)
+        try:
+            from core.recorder import list_input_devices
+
+            for device in list_input_devices():
+                self._device_combo.addItem(device["name"], device["index"])
+        except Exception as exc:
+            self._status_label.setText(str(exc))
+            set_role(self._status_label, "danger-text")
+        index = self._device_combo.findData(current)
+        self._device_combo.setCurrentIndex(index if index >= 0 else 0)
+        self._device_combo.blockSignals(False)
 
     # ------------------------------------------------------------------ internals
 
@@ -114,24 +162,25 @@ class RecorderWidget(QWidget):
         if not rec.is_recording():
             return  # error was emitted
         self._start_ts = time.monotonic()
-        self._record_btn.setText("⏹")
+        self._record_btn.setText(tr("recorder_stop"))
         set_role(self._record_btn, "danger-text")
         self._pause_btn.setVisible(True)
-        self._timer_label.setVisible(True)
-        self._level_bar.setVisible(True)
+        self._status_label.setText(tr("recorder_recording"))
+        set_role(self._status_label, "success-text")
         self._timer.start()
 
     def _stop_recording(self):
         self._timer.stop()
         rec = self._get_recorder()
         path = rec.stop()
-        self._record_btn.setText("⏺")
+        self._record_btn.setText(tr("recorder_start"))
         set_role(self._record_btn, "")
         self._pause_btn.setChecked(False)
         self._pause_btn.setVisible(False)
-        self._timer_label.setVisible(False)
-        self._level_bar.setVisible(False)
+        self._timer_label.setText("00:00")
         self._level_bar.setValue(0)
+        self._status_label.setText(tr("recorder_ready"))
+        set_role(self._status_label, "muted")
         if path:
             self.file_ready.emit(path)
 
@@ -140,9 +189,15 @@ class RecorderWidget(QWidget):
         if paused:
             rec.pause()
             set_role(self._record_btn, "warning-text")
+            self._pause_btn.setText(tr("recorder_resume"))
+            self._status_label.setText(tr("recorder_paused"))
+            set_role(self._status_label, "warning-text")
         else:
             rec.resume()
             set_role(self._record_btn, "danger-text")
+            self._pause_btn.setText(tr("recorder_pause"))
+            self._status_label.setText(tr("recorder_recording"))
+            set_role(self._status_label, "success-text")
 
     def _update_timer(self):
         rec = self._get_recorder()
@@ -156,4 +211,6 @@ class RecorderWidget(QWidget):
 
     def _on_error(self, msg: str):
         self._stop_recording()
+        self._status_label.setText(msg)
+        set_role(self._status_label, "danger-text")
         self.error.emit(msg)

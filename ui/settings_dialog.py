@@ -9,7 +9,7 @@ import sys
 from typing import Optional
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget,
+    QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QStackedWidget, QWidget,
     QPushButton, QLabel, QComboBox, QCheckBox, QLineEdit,
     QDialogButtonBox, QSpinBox, QFormLayout,
     QDoubleSpinBox, QMessageBox, QPlainTextEdit
@@ -53,6 +53,8 @@ class _ConnectionChecker(QThread):
 class SettingsDialog(QDialog):
     """Unified settings dialog (Ctrl+,)."""
 
+    settings_applied = pyqtSignal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._cfg = get_config()
@@ -61,26 +63,43 @@ class SettingsDialog(QDialog):
         self._lang_changed: bool = False
         self._setup_ui()
         self._load_values()
+        self._connect_dirty_signals()
+        self._apply_button.setEnabled(False)
 
     # ------------------------------------------------------------------ setup
 
     def _setup_ui(self):
-        self.setWindowTitle("Settings")
-        self.setMinimumSize(520, 460)
-        self.resize(560, 520)
+        self.setWindowTitle(tr("settings_title"))
+        self.setMinimumSize(760, 560)
+        self.resize(840, 680)
         self.setModal(True)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 12)
-        root.setSpacing(0)
+        root.setContentsMargins(16, 16, 16, 12)
+        root.setSpacing(12)
 
-        self._tabs = QTabWidget()
-        root.addWidget(self._tabs, stretch=1)
-
-        self._tabs.addTab(self._build_general_tab(),        tr("tab_settings_general"))
-        self._tabs.addTab(self._build_transcription_tab(),  tr("tab_settings_transcription"))
-        self._tabs.addTab(self._build_diarization_tab(),    tr("tab_settings_diarization"))
-        self._tabs.addTab(self._build_ai_tab(),             tr("tab_settings_ai"))
+        content = QHBoxLayout()
+        content.setSpacing(16)
+        self._categories = QListWidget()
+        self._categories.setFixedWidth(190)
+        self._categories.setAccessibleName(tr("settings_title"))
+        self._pages = QStackedWidget()
+        pages = (
+            ("settings_category_general", self._build_general_tab()),
+            ("settings_category_transcription", self._build_transcription_tab()),
+            ("settings_category_recording_live", self._build_recording_live_tab()),
+            ("settings_category_diarization", self._build_diarization_tab()),
+            ("settings_category_ai", self._build_ai_tab()),
+        )
+        for label_key, page in pages:
+            page.setProperty("role", "form-section")
+            self._categories.addItem(tr(label_key))
+            self._pages.addWidget(page)
+        self._categories.currentRowChanged.connect(self._pages.setCurrentIndex)
+        self._categories.setCurrentRow(0)
+        content.addWidget(self._categories)
+        content.addWidget(self._pages, stretch=1)
+        root.addLayout(content, stretch=1)
 
         # Button box
         btn_box = QDialogButtonBox(
@@ -88,10 +107,14 @@ class SettingsDialog(QDialog):
             | QDialogButtonBox.StandardButton.Cancel
             | QDialogButtonBox.StandardButton.Apply
         )
-        btn_box.setContentsMargins(12, 0, 12, 0)
+        btn_box.setContentsMargins(0, 0, 0, 0)
         btn_box.accepted.connect(self._on_ok)
         btn_box.rejected.connect(self.reject)
-        btn_box.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(self._on_apply)
+        btn_box.button(QDialogButtonBox.StandardButton.Ok).setText(tr("settings_ok"))
+        btn_box.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("settings_cancel"))
+        self._apply_button = btn_box.button(QDialogButtonBox.StandardButton.Apply)
+        self._apply_button.setText(tr("settings_apply"))
+        self._apply_button.clicked.connect(self._on_apply)
         root.addWidget(btn_box)
 
     # ------------------------------------------------------------------ tabs
@@ -120,9 +143,6 @@ class SettingsDialog(QDialog):
         # History
         self._history_chk = QCheckBox(tr("settings_history_enabled"))
         layout.addRow(self._history_chk)
-
-        self._live_chk = QCheckBox(tr("settings_live_enabled"))
-        layout.addRow(self._live_chk)
 
         clear_btn = QPushButton(tr("settings_clear_history"))
         clear_btn.clicked.connect(self._clear_history)
@@ -183,11 +203,25 @@ class SettingsDialog(QDialog):
         self._vocab_edit.setMaximumHeight(90)
         layout.addRow(tr("settings_vocab"), self._vocab_edit)
 
-        # Microphone device
+        return tab
+
+    def _build_recording_live_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QFormLayout(tab)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
         self._mic_combo = QComboBox()
         self._populate_mic_devices()
         layout.addRow(tr("settings_mic_device"), self._mic_combo)
 
+        self._live_chk = QCheckBox(tr("settings_live_enabled"))
+        layout.addRow(self._live_chk)
+
+        hint = QLabel(tr("settings_live_hint"))
+        hint.setProperty("role", "muted")
+        hint.setWordWrap(True)
+        layout.addRow(hint)
         return tab
 
     def _build_diarization_tab(self) -> QWidget:
@@ -206,7 +240,7 @@ class SettingsDialog(QDialog):
         self._hf_token_edit.setPlaceholderText("hf_…")
         token_row.addWidget(self._hf_token_edit, stretch=1)
 
-        show_btn = QPushButton("Show")
+        show_btn = QPushButton(tr("settings_show_secret"))
         show_btn.setCheckable(True)
         show_btn.toggled.connect(
             lambda checked: self._hf_token_edit.setEchoMode(
@@ -354,6 +388,23 @@ class SettingsDialog(QDialog):
         if cfg.ui_language != prev_lang:
             self._lang_changed = True
 
+    def _connect_dirty_signals(self) -> None:
+        for widget in self.findChildren(QComboBox):
+            widget.currentIndexChanged.connect(self._mark_dirty)
+        for widget in self.findChildren(QCheckBox):
+            widget.toggled.connect(self._mark_dirty)
+        for widget in self.findChildren(QLineEdit):
+            widget.textChanged.connect(self._mark_dirty)
+        for widget in self.findChildren(QPlainTextEdit):
+            widget.textChanged.connect(self._mark_dirty)
+        for widget in self.findChildren(QSpinBox):
+            widget.valueChanged.connect(self._mark_dirty)
+        for widget in self.findChildren(QDoubleSpinBox):
+            widget.valueChanged.connect(self._mark_dirty)
+
+    def _mark_dirty(self, *_args) -> None:
+        self._apply_button.setEnabled(True)
+
     def _on_theme_changed(self, _index: int):
         """Apply theme immediately for preview."""
         from PyQt6.QtWidgets import QApplication
@@ -366,21 +417,24 @@ class SettingsDialog(QDialog):
     def _on_apply(self):
         self._lang_changed = False
         self._save_values()
+        self._apply_button.setEnabled(False)
+        self.settings_applied.emit()
         if self._lang_changed:
             QMessageBox.information(
                 self,
                 tr("app_title"),
-                "Restart the application to apply the language change.",
+                tr("settings_language_restart"),
             )
 
     def _on_ok(self):
         self._lang_changed = False
         self._save_values()
+        self.settings_applied.emit()
         if self._lang_changed:
             QMessageBox.information(
                 self,
                 tr("app_title"),
-                "Restart the application to apply the language change.",
+                tr("settings_language_restart"),
             )
         self.accept()
 

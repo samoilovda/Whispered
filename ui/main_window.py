@@ -7,9 +7,9 @@ import os
 import time
 from pathlib import Path
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QProgressBar, QLabel, QFileDialog, QMessageBox,
-    QApplication, QTabWidget, QScrollArea, QFrame,
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QFileDialog, QMessageBox,
+    QApplication, QTabWidget,
     QTextEdit, QLineEdit, QPlainTextEdit, QStackedWidget,
 )
 from PyQt6.QtCore import Qt
@@ -18,7 +18,7 @@ from PyQt6.QtGui import QKeySequence, QShortcut, QDragEnterEvent, QDropEvent
 from ui.toast import show_toast
 from ui.sidebar import Sidebar
 from ui.library_view import LibraryView
-from ui.record_view import RecordView
+from ui.record_view import RecordView, ToolWorkspace
 from ui.launch_bar import LaunchBar
 from ui.file_selector import FileSelector
 from ui.transcript_view import TranscriptView
@@ -27,7 +27,7 @@ from ui.article_view import ArticleView, CleanedTextView
 from ui.batch_panel import BatchPanel
 from ui.book_panel import BookPanel
 from ui.cut_view import CutView
-from ui.icons import IconLabel, get_icon, IconColors
+from ui.icons import get_icon, IconColors
 from ui.player_widget import PlayerWidget
 from ui.recorder_widget import RecorderWidget
 from ui.chat_panel import ChatPanel
@@ -36,10 +36,11 @@ from ui.youtube_panel import YouTubePanel
 from ui.live_view import LiveView
 from ui.progress_timeline import ProgressTimeline
 from ui.animated_button import AnimatedButton
+from ui.components import FormSection, OperationBar, PageHeader
 from transcriber import Transcriber, TranscriptionResult
 from exporters import export_result, EXPORT_FORMATS
 from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, get_thread_count, is_supported_format
-from config import get_config
+from config import get_config, save_config
 from core.ai_worker import AIProcessingWorker
 from core.logger import get_logger
 from core.i18n import tr
@@ -146,13 +147,22 @@ class MainWindow(QMainWindow):
         outer_layout.setSpacing(0)
 
         cfg = get_config()
-        self.sidebar = Sidebar(live_enabled=cfg.live_transcription_enabled)
+        self.sidebar = Sidebar(
+            live_enabled=cfg.live_transcription_enabled,
+            collapsed=getattr(cfg, "sidebar_collapsed", False),
+        )
         self.sidebar.section_changed.connect(self._on_section_changed)
         self.sidebar.settings_requested.connect(self._open_settings)
+        self.sidebar.collapsed_changed.connect(self._on_sidebar_collapsed)
         outer_layout.addWidget(self.sidebar)
 
+        workspace = QWidget()
+        workspace_layout = QVBoxLayout(workspace)
+        workspace_layout.setContentsMargins(0, 0, 0, 0)
+        workspace_layout.setSpacing(0)
         self._stack = QStackedWidget()
-        outer_layout.addWidget(self._stack, stretch=1)
+        workspace_layout.addWidget(self._stack, stretch=1)
+        outer_layout.addWidget(workspace, stretch=1)
 
         # ===== Library section (the main transcription workspace) =====
         library_page = QWidget()
@@ -166,22 +176,6 @@ class MainWindow(QMainWindow):
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(12)
 
-        # Row 1: Logo, Title, and Device Toggle
-        row1_layout = QHBoxLayout()
-        row1_layout.setContentsMargins(0, 0, 0, 0)
-        row1_layout.setSpacing(16)
-
-        # Logo and title
-        logo = IconLabel('microphone', IconColors.PRIMARY, 28)
-        row1_layout.addWidget(logo)
-
-        title = QLabel("Whispered")
-        title.setProperty("role", "title")
-        title.setStyleSheet("font-size: 18px;")
-        row1_layout.addWidget(title)
-
-        row1_layout.addStretch()
-
         # Clickable device toggle button
         self.device_btn = AnimatedButton()
         self.device_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -189,9 +183,11 @@ class MainWindow(QMainWindow):
         self.device_btn.setMinimumWidth(130)  # Prevent truncation
         self.device_btn.clicked.connect(self._toggle_device)
         self._update_device_badge()
-        row1_layout.addWidget(self.device_btn)
-
-        header_layout.addLayout(row1_layout)
+        library_header = PageHeader(
+            tr("page_library_title"), tr("page_library_subtitle")
+        )
+        library_header.add_action(self.device_btn)
+        header_layout.addWidget(library_header)
 
         # Row 2: Launch bar — preset combo, Process button, options gear.
         # The old row of always-visible Model/Language/Translate/
@@ -205,7 +201,6 @@ class MainWindow(QMainWindow):
         self.translate_checkbox = self.launch_bar.options.translate_checkbox
         self.perf_combo = self.launch_bar.options.perf_combo
         self.diarization_checkbox = self.launch_bar.options.diarization_checkbox
-        header_layout.addWidget(self.launch_bar)
 
         # Recorder widget lives on its own sidebar section now; still
         # created here so _connect_signals/_apply_config_defaults and the
@@ -216,26 +211,18 @@ class MainWindow(QMainWindow):
 
         main_layout.addWidget(header)
 
-        # ===== Main Content Area =====
-        content_splitter = QSplitter(Qt.Orientation.Horizontal)
-        content_splitter.setHandleWidth(1)
-
-        # Left: File selector and AI Panel (Scrollable)
-        left_scroll = QScrollArea()
-        left_scroll.setWidgetResizable(True)
-        left_scroll.setFrameShape(QFrame.Shape.NoFrame)
-
-        left_panel = QWidget()
-        left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(0, 0, 12, 0)
-        left_layout.setSpacing(12)
-
         self.file_selector = FileSelector()
-        left_layout.addWidget(self.file_selector)
+        new_transcription = FormSection(
+            tr("library_new_title"), tr("library_new_description")
+        )
+        new_transcription.add_widget(self.launch_bar)
+        new_transcription.add_widget(self.file_selector)
+        main_layout.addWidget(new_transcription)
 
-        # AI Processing Panel
+        # AIProcessingPanel remains the existing worker-facing controller,
+        # but its disabled actions no longer clutter an empty Library page.
         self.ai_panel = AIProcessingPanel()
-        left_layout.addWidget(self.ai_panel)
+        self.ai_panel.setVisible(False)
 
         # Batch Processing Panel lives on its own sidebar section (Queue);
         # still created here so signal wiring stays with the rest of setup.
@@ -249,67 +236,29 @@ class MainWindow(QMainWindow):
         self.book_panel.run_single_requested.connect(self._on_book_run)
         self.book_panel.cancel_requested.connect(self._cancel_operation)
 
-        left_layout.addStretch()
-        left_scroll.setWidget(left_panel)
-
-        content_splitter.addWidget(left_scroll)
-
-        # Right: Library list (search + past recordings). Opening a record
-        # switches to the Record page built below, which hosts the player
-        # and result tabs.
+        # Recent records occupy the primary remaining space.
         self.library_view = LibraryView()
         self.library_view.open_record.connect(self._open_record_view)
-        content_splitter.addWidget(self.library_view)
-        content_splitter.setSizes([280, 720])
-        # Keep the tool panel at its set width and give all extra space
-        # to the library; without stretch factors the splitter distributes
-        # by sizeHint and a long model name can balloon the left pane.
-        content_splitter.setStretchFactor(0, 0)
-        content_splitter.setStretchFactor(1, 1)
+        main_layout.addWidget(self.library_view, stretch=1)
 
-        main_layout.addWidget(content_splitter, stretch=1)
-
-        # ===== Bottom Action Bar =====
-        action_bar = QWidget()
-        action_bar.setProperty("role", "card")
-        action_layout = QHBoxLayout(action_bar)
-        action_layout.setContentsMargins(16, 12, 16, 12)
-
-        # Status and progress
-        status_section = QWidget()
-        status_layout = QVBoxLayout(status_section)
-        status_layout.setContentsMargins(0, 0, 0, 0)
-        status_layout.setSpacing(4)
-
-        self.status_label = QLabel(tr("label_status_ready"))
-        self.status_label.setProperty("role", "muted")
-        status_layout.addWidget(self.status_label)
-
+        # ===== Shared bottom operation bar (hidden while idle) =====
+        self.operation_bar = OperationBar()
+        self.status_label = self.operation_bar.status_label
+        self.progress_bar = self.operation_bar.progress
+        self.cancel_btn = self.operation_bar.cancel_button
+        self.cancel_btn.setText(tr("btn_cancel"))
+        self.cancel_btn.setIcon(get_icon('close', IconColors.MUTED, 14))
+        self.operation_bar.cancel_requested.connect(self._cancel_operation)
         self.progress_timeline = ProgressTimeline()
         self.progress_timeline.stages = [
             tr("timeline_select"), tr("timeline_extract"), tr("timeline_transcribe"),
             tr("timeline_diarize"), tr("timeline_clean"), tr("timeline_generate"),
         ]
         self.progress_timeline.setVisible(False)
-        status_layout.addWidget(self.progress_timeline)
-
-        self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        self.progress_bar.setTextVisible(False)
-        self.progress_bar.setFixedHeight(4)
-        status_layout.addWidget(self.progress_bar)
-
-        action_layout.addWidget(status_section, stretch=1)
-        action_layout.addSpacing(16)
-
-        # Cancel button
-        self.cancel_btn = AnimatedButton(tr("btn_cancel"))
-        self.cancel_btn.setIcon(get_icon('close', IconColors.MUTED, 14))
         self.cancel_btn.setVisible(False)
-        self.cancel_btn.setProperty("variant", "danger")
-        self.cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.cancel_btn.clicked.connect(self._cancel_operation)
-        action_layout.addWidget(self.cancel_btn)
+        self.operation_bar.add_detail_widget(self.progress_timeline)
+        workspace_layout.addWidget(self.operation_bar)
 
         # The Process button now lives in the launch bar at the top of the
         # page; alias it under its historical name so the many existing
@@ -318,30 +267,28 @@ class MainWindow(QMainWindow):
         self.transcribe_btn = self.launch_bar.process_btn
         self.launch_bar.process_requested.connect(self._start_transcription)
 
-        main_layout.addWidget(action_bar)
-
         self._stack.addWidget(library_page)  # index 0
 
         # ===== Queue section (batch folder processing) =====
         queue_page = QWidget()
         queue_layout = QVBoxLayout(queue_page)
         queue_layout.setContentsMargins(20, 16, 20, 20)
+        queue_layout.setSpacing(16)
+        queue_layout.addWidget(
+            PageHeader(tr("page_queue_title"), tr("page_queue_subtitle"))
+        )
         queue_layout.addWidget(self.batch_panel)
         self._stack.addWidget(queue_page)  # index 1
 
         # ===== Recorder section =====
-        # RecorderWidget itself is a compact horizontal row (button + timer
-        # + level meter) designed for the header bar; center it on its own
-        # page rather than resizing its internals for this one placement.
         recorder_page = QWidget()
         recorder_outer = QVBoxLayout(recorder_page)
         recorder_outer.setContentsMargins(20, 16, 20, 20)
-        recorder_outer.addStretch()
-        recorder_row = QHBoxLayout()
-        recorder_row.addStretch()
-        recorder_row.addWidget(self.recorder_widget)
-        recorder_row.addStretch()
-        recorder_outer.addLayout(recorder_row)
+        recorder_outer.setSpacing(16)
+        recorder_outer.addWidget(
+            PageHeader(tr("page_recorder_title"), tr("page_recorder_subtitle"))
+        )
+        recorder_outer.addWidget(self.recorder_widget)
         recorder_outer.addStretch()
         self._stack.addWidget(recorder_page)  # index 2
 
@@ -366,13 +313,15 @@ class MainWindow(QMainWindow):
         self.record_view = RecordView()
         self.record_view.back_requested.connect(self._show_library)
         self.record_view.export_requested.connect(self._export_result)
+        self.record_view.clean_requested.connect(self._start_text_cleaning)
+        self.record_view.articles_requested.connect(self._start_generate_all)
 
         # Audio player (hidden when multimedia backend unavailable)
         self.player = PlayerWidget()
 
         # Tabbed result views (Split into Main Content and Tools)
         self.main_tabs = QTabWidget()
-        self.tools_tabs = QTabWidget()
+        self.tools_tabs = ToolWorkspace()
 
         self.transcript_view = TranscriptView()
         self.main_tabs.addTab(self.transcript_view, tr("tab_transcript"))
@@ -404,15 +353,23 @@ class MainWindow(QMainWindow):
         self.record_view.set_content_widgets(self.player, self.main_tabs, self.tools_tabs)
         self._record_index = self._stack.addWidget(self.record_view)  # index 3
 
-        self._section_index = {"library": 0, "queue": 1, "recorder": 2}
-        if cfg.live_transcription_enabled:
-            self._section_index["live"] = self._live_index
+        self._section_index = {
+            "library": 0,
+            "queue": 1,
+            "recorder": 2,
+            "live": self._live_index,
+        }
 
     def _on_section_changed(self, key: str) -> None:
         """Switch the visible page when a sidebar button is clicked."""
         idx = self._section_index.get(key)
         if idx is not None:
             self._stack.setCurrentIndex(idx)
+
+    def _on_sidebar_collapsed(self, collapsed: bool) -> None:
+        cfg = get_config()
+        cfg.sidebar_collapsed = collapsed
+        save_config()
 
     def _show_library(self) -> None:
         """Navigate back to the Library page (from the Record view) and
@@ -578,13 +535,16 @@ class MainWindow(QMainWindow):
         """Open the Settings dialog and apply any changes to the live UI."""
         from ui.settings_dialog import SettingsDialog
         dlg = SettingsDialog(self)
+        dlg.settings_applied.connect(self._on_settings_applied)
         dlg.exec()
-        # Settings only persist on OK/Apply; re-seeding is a no-op on Cancel.
+
+    def _on_settings_applied(self) -> None:
+        """Apply saved preferences without requiring an application restart."""
         self._apply_config_defaults()
         self.transcript_view.apply_display_settings()
-        # Update recorder device from config
         cfg = get_config()
         self.recorder_widget.set_device(getattr(cfg, "mic_device_index", None))
+        self.sidebar.set_live_enabled(cfg.live_transcription_enabled)
 
     def _apply_config_defaults(self):
         """Re-seed header controls from the saved config (after settings change)."""
@@ -646,6 +606,11 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        if hasattr(self, "sidebar"):
+            compact = event.size().width() < 1180 or bool(
+                getattr(get_config(), "sidebar_collapsed", False)
+            )
+            self.sidebar.set_collapsed(compact, emit=False)
         if hasattr(self, "_drop_overlay") and self._drop_overlay.isVisible():
             self._drop_overlay.setGeometry(self.centralWidget().geometry())
 
@@ -694,6 +659,7 @@ class MainWindow(QMainWindow):
         self.transcribe_btn.setVisible(False)
         self.cancel_btn.setVisible(True)
         self.progress_bar.setVisible(True)
+        self.operation_bar.setVisible(True)
         self.progress_bar.setValue(0)
         # Select is done (file chosen); Extract is the first active stage
         self.progress_timeline.setVisible(True)
@@ -786,6 +752,9 @@ class MainWindow(QMainWindow):
         enable_diarization = self.diarization_checkbox.isChecked()
 
         self.status_label.setText(tr("status_batch_starting"))
+        self.operation_bar.set_operation(
+            tr("status_batch_starting"), cancel_text=tr("btn_cancel")
+        )
 
         self.batch_panel.start_processing(
             model_name=model,
@@ -869,6 +838,7 @@ class MainWindow(QMainWindow):
         # view so the user immediately sees what they just produced.
         title = Path(self._source_filepath).stem if self._source_filepath else tr("app_title")
         self.record_view.set_title(title)
+        self.record_view.set_has_result(True)
         self.sidebar.set_active("library")
         self._stack.setCurrentIndex(self._record_index)
 
@@ -1033,6 +1003,7 @@ class MainWindow(QMainWindow):
             self.status_label.setText(tr("toast_loaded_history", words=word_count))
             self.main_tabs.setCurrentIndex(0)
             self.record_view.set_title(Path(source_name).stem if source_name else tr("app_title"))
+            self.record_view.set_has_result(True)
         except Exception as e:
             logger.warning("Failed to load history record %d: %s", record_id, e)
 
@@ -1061,6 +1032,7 @@ class MainWindow(QMainWindow):
         self.cancel_btn.setVisible(chain_active)
         self.progress_bar.setVisible(False)
         self.progress_timeline.setVisible(False)
+        self.operation_bar.setVisible(chain_active)
 
     def _copy_to_clipboard(self):
         """Copy transcription to clipboard."""

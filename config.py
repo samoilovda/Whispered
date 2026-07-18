@@ -50,6 +50,9 @@ class Config:
     theme: str = "dark"
     show_timestamps: bool = True
     show_speaker_labels: bool = True
+    sidebar_collapsed: bool = False
+    record_tools_width: int = 360
+    live_diagnostics_expanded: bool = False
 
     # UI language
     ui_language: str = "auto"   # "auto" | "en" | "ru"

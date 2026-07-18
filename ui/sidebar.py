@@ -1,92 +1,152 @@
-"""
-Whispered – Sidebar Navigation
-Narrow vertical icon rail for switching between top-level sections
-(Library / Queue / Recorder), with Settings pinned to the bottom.
-"""
+"""Responsive signed sidebar for top-level application navigation."""
 
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QToolButton, QButtonGroup, QGraphicsDropShadowEffect
-from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QColor
+from PyQt6.QtWidgets import (
+    QButtonGroup,
+    QGraphicsDropShadowEffect,
+    QLabel,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from core.i18n import tr
-from ui.icons import get_icon, IconColors
+from ui.icons import IconColors, get_icon
 
-SIDEBAR_WIDTH = 56
+COMPACT_WIDTH = 64
+EXPANDED_WIDTH = 200
 _ICON_SIZE = 20
-_BUTTON_SIZE = 40
+_BUTTON_HEIGHT = 40
 
-# (key, icon name, i18n tooltip key) — order defines button order.
 _SECTIONS = (
     ("library", "list", "sidebar_library"),
     ("queue", "layers", "sidebar_queue"),
     ("recorder", "microphone", "sidebar_recorder"),
+    ("live", "music", "sidebar_live"),
 )
 
 
 class Sidebar(QWidget):
-    """Icon-only navigation rail. Emits section_changed(key) when a nav
-    button is clicked, and settings_requested() for the pinned-bottom
-    settings button (which opens a dialog rather than switching pages)."""
+    """Expanded labels on roomy windows, compact accessible rail otherwise."""
 
     section_changed = pyqtSignal(str)
     settings_requested = pyqtSignal()
+    collapsed_changed = pyqtSignal(bool)
 
-    def __init__(self, parent=None, *, live_enabled: bool = False):
+    def __init__(
+        self,
+        parent=None,
+        *,
+        live_enabled: bool = False,
+        collapsed: bool = False,
+    ) -> None:
         super().__init__(parent)
         self.setProperty("role", "card")
-        self.setFixedWidth(SIDEBAR_WIDTH)
-
-        # Apply soft drop shadow casting to the right
+        self._collapsed = bool(collapsed)
+        self._live_enabled = bool(live_enabled)
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(12)
         shadow.setColor(QColor(0, 0, 0, 50))
         shadow.setOffset(2, 0)
         self.setGraphicsEffect(shadow)
-
         self._buttons: dict[str, QToolButton] = {}
-        self._sections = _SECTIONS + (("live", "music", "sidebar_live"),) if live_enabled else _SECTIONS
         self._setup_ui()
+        self.set_collapsed(self._collapsed, emit=False)
+        self.set_live_enabled(live_enabled)
 
     def _setup_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 16, 8, 16)
-        layout.setSpacing(4)
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(10, 16, 10, 16)
+        self._layout.setSpacing(4)
+
+        self.brand_label = QLabel("Whispered")
+        self.brand_label.setProperty("role", "section-title")
+        self.brand_label.setContentsMargins(8, 0, 0, 12)
+        self._layout.addWidget(self.brand_label)
 
         self._group = QButtonGroup(self)
         self._group.setExclusive(True)
+        for key, icon_name, label_key in _SECTIONS:
+            label = tr(label_key)
+            button = self._make_nav_button(icon_name, label)
+            button.clicked.connect(
+                lambda _checked, section=key: self.section_changed.emit(section)
+            )
+            self._group.addButton(button)
+            self._buttons[key] = button
+            self._layout.addWidget(button)
 
-        for key, icon_name, tooltip_key in self._sections:
-            btn = self._make_nav_button(icon_name, tr(tooltip_key))
-            btn.clicked.connect(lambda _checked, k=key: self.section_changed.emit(k))
-            self._group.addButton(btn)
-            self._buttons[key] = btn
-            layout.addWidget(btn)
+        self._layout.addStretch()
+        self.settings_button = self._make_nav_button(
+            "settings", tr("tooltip_settings"), checkable=False
+        )
+        self.settings_button.clicked.connect(self.settings_requested.emit)
+        self._layout.addWidget(self.settings_button)
 
-        layout.addStretch()
-
-        settings_btn = self._make_nav_button("settings", tr("tooltip_settings"), checkable=False)
-        settings_btn.clicked.connect(self.settings_requested.emit)
-        layout.addWidget(settings_btn)
-
-        # Default to the Library section.
+        self.collapse_button = QToolButton()
+        self.collapse_button.setProperty("role", "nav-button")
+        self.collapse_button.setText(tr("sidebar_collapse"))
+        self.collapse_button.setToolTip(tr("sidebar_collapse"))
+        self.collapse_button.setAccessibleName(tr("sidebar_collapse"))
+        self.collapse_button.setFixedHeight(32)
+        self.collapse_button.clicked.connect(
+            lambda: self.set_collapsed(not self._collapsed)
+        )
+        self._layout.addWidget(self.collapse_button)
         self._buttons["library"].setChecked(True)
 
-    def _make_nav_button(self, icon_name: str, tooltip: str, checkable: bool = True) -> QToolButton:
-        btn = QToolButton()
-        btn.setProperty("role", "nav-button")
-        btn.setCheckable(checkable)
-        btn.setIcon(get_icon(icon_name, IconColors.DEFAULT, _ICON_SIZE))
-        btn.setIconSize(QSize(_ICON_SIZE, _ICON_SIZE))
-        btn.setFixedSize(_BUTTON_SIZE, _BUTTON_SIZE)
-        btn.setToolTip(tooltip)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        return btn
+    def _make_nav_button(
+        self, icon_name: str, label: str, checkable: bool = True
+    ) -> QToolButton:
+        button = QToolButton()
+        button.setProperty("role", "nav-button")
+        button.setCheckable(checkable)
+        button.setIcon(get_icon(icon_name, IconColors.DEFAULT, _ICON_SIZE))
+        button.setIconSize(QSize(_ICON_SIZE, _ICON_SIZE))
+        button.setText(label)
+        button.setToolTip(label)
+        button.setAccessibleName(label)
+        button.setFixedHeight(_BUTTON_HEIGHT)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        return button
+
+    def set_collapsed(self, collapsed: bool, *, emit: bool = True) -> None:
+        collapsed = bool(collapsed)
+        self._collapsed = collapsed
+        self.setFixedWidth(COMPACT_WIDTH if collapsed else EXPANDED_WIDTH)
+        style = (
+            Qt.ToolButtonStyle.ToolButtonIconOnly
+            if collapsed
+            else Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        for button in (*self._buttons.values(), self.settings_button):
+            button.setToolButtonStyle(style)
+        self.brand_label.setText("W" if collapsed else "Whispered")
+        self.brand_label.setAlignment(
+            Qt.AlignmentFlag.AlignCenter if collapsed else Qt.AlignmentFlag.AlignLeft
+        )
+        self.collapse_button.setText("›" if collapsed else "‹")
+        self.collapse_button.setToolTip(
+            tr("sidebar_expand") if collapsed else tr("sidebar_collapse")
+        )
+        self.collapse_button.setAccessibleName(self.collapse_button.toolTip())
+        if emit:
+            self.collapsed_changed.emit(collapsed)
+
+    def is_collapsed(self) -> bool:
+        return self._collapsed
+
+    def set_live_enabled(self, enabled: bool) -> None:
+        self._live_enabled = bool(enabled)
+        self._buttons["live"].setVisible(self._live_enabled)
+        if not self._live_enabled and self._buttons["live"].isChecked():
+            self.set_active("library")
+            self.section_changed.emit("library")
 
     def set_active(self, key: str) -> None:
-        """Programmatically mark *key* as the active section (e.g. when the
-        page is switched by something other than a sidebar click)."""
-        btn = self._buttons.get(key)
-        if btn is not None:
-            btn.setChecked(True)
+        button = self._buttons.get(key)
+        if button is not None and button.isVisible():
+            button.setChecked(True)

@@ -6,7 +6,16 @@ Export menu (replaces the old always-visible 7 format checkboxes).
 
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QMenu, QSplitter
+from PyQt6.QtWidgets import (
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QMenu,
+    QSplitter,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
 from PyQt6.QtCore import Qt, pyqtSignal
 
 from config import get_config, save_config
@@ -20,6 +29,38 @@ from ui.animated_button import AnimatedButton
 _FORMAT_KEYS = ("txt", "srt", "vtt", "json", "md", "html", "docx")
 
 
+class ToolWorkspace(QWidget):
+    """Compact selector + stack used instead of a crowded second tab bar."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 0, 0, 0)
+        layout.setSpacing(8)
+        header = QHBoxLayout()
+        label = QLabel(tr("record_tools"))
+        label.setProperty("role", "section-title")
+        header.addWidget(label)
+        self.selector = QComboBox()
+        self.selector.setAccessibleName(tr("record_tools"))
+        header.addWidget(self.selector, stretch=1)
+        layout.addLayout(header)
+        self.stack = QStackedWidget()
+        layout.addWidget(self.stack, stretch=1)
+        self.selector.currentIndexChanged.connect(self.stack.setCurrentIndex)
+
+    def addTab(self, widget: QWidget, label: str) -> int:  # noqa: N802 - Qt parity
+        index = self.stack.addWidget(widget)
+        self.selector.addItem(label)
+        return index
+
+    def setCurrentIndex(self, index: int) -> None:  # noqa: N802 - Qt parity
+        self.selector.setCurrentIndex(index)
+
+    def currentIndex(self) -> int:  # noqa: N802 - Qt parity
+        return self.selector.currentIndex()
+
+
 class RecordView(QWidget):
     """Hosts the player + result tabs for one open transcription record.
 
@@ -31,6 +72,8 @@ class RecordView(QWidget):
 
     back_requested = pyqtSignal()
     export_requested = pyqtSignal()
+    clean_requested = pyqtSignal()
+    articles_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -51,8 +94,18 @@ class RecordView(QWidget):
         header.addWidget(back_btn)
 
         self.title_label = QLabel("")
-        self.title_label.setProperty("role", "title")
+        self.title_label.setProperty("role", "page-title")
         header.addWidget(self.title_label, stretch=1)
+
+        self.clean_btn = AnimatedButton(tr("record_clean_action"))
+        self.clean_btn.setEnabled(False)
+        self.clean_btn.clicked.connect(self.clean_requested.emit)
+        header.addWidget(self.clean_btn)
+
+        self.articles_btn = AnimatedButton(tr("record_articles_action"))
+        self.articles_btn.setEnabled(False)
+        self.articles_btn.clicked.connect(self.articles_requested.emit)
+        header.addWidget(self.articles_btn)
 
         self.export_btn = AnimatedButton(tr("record_export_menu"))
         self.export_btn.setIcon(get_icon('save', IconColors.DEFAULT, 14))
@@ -118,17 +171,29 @@ class RecordView(QWidget):
         # minimum so the splitter can honour the ratio below instead of
         # the children's size hints.
         self._left_widget.setMinimumWidth(400)
-        tools_tabs.setMinimumWidth(360)
+        tools_tabs.setMinimumWidth(320)
 
         # Give the left (player + transcript) side a 2:1 share. Stretch
         # factors alone only govern how *extra* space is handed out on
         # resize — the initial split comes from size hints, so set it.
         self._content_splitter.setStretchFactor(0, 2)
         self._content_splitter.setStretchFactor(1, 1)
-        self._content_splitter.setSizes([2000, 1000])
+        preferred_tools = max(320, int(getattr(get_config(), "record_tools_width", 360)))
+        self._content_splitter.setSizes([900, preferred_tools])
+        self._content_splitter.splitterMoved.connect(self._save_splitter)
+
+    def _save_splitter(self, _position: int, _index: int) -> None:
+        sizes = self._content_splitter.sizes()
+        if len(sizes) > 1 and sizes[1] >= 0:
+            get_config().record_tools_width = sizes[1]
+            save_config()
 
     def set_title(self, name: str) -> None:
         self.title_label.setText(name)
+
+    def set_has_result(self, has_result: bool) -> None:
+        self.clean_btn.setEnabled(has_result)
+        self.articles_btn.setEnabled(has_result)
 
     def get_export_formats(self) -> list[str]:
         """Currently-checked formats, falling back to ['txt'] if none."""

@@ -9,6 +9,16 @@ from core.logger import get_logger
 
 logger = get_logger(__name__)
 
+# Shared layout scale. UI modules should use these values instead of growing
+# their own collection of almost-identical margins.
+SPACE_1 = 4
+SPACE_2 = 8
+SPACE_3 = 12
+SPACE_4 = 16
+SPACE_5 = 20
+SPACE_6 = 24
+SPACE_8 = 32
+
 # Categorical palette for distinguishing speakers in the transcript view.
 # Same 8 colors regardless of light/dark theme (all mid-brightness/saturated
 # enough to read on either background) — a content palette, not UI chrome.
@@ -80,6 +90,7 @@ class Theme:
     success: str
     warning: str
     error: str
+    info: str
     # Radii
     radius_sm: str
     radius_md: str
@@ -112,6 +123,7 @@ DARK = Theme(
     success="#22c55e",
     warning="#f59e0b",
     error="#ef4444",
+    info="#38bdf8",
     radius_sm="4px",
     radius_md="8px",
     radius_lg="12px",
@@ -142,6 +154,7 @@ LIGHT = Theme(
     success="#16a34a",
     warning="#d97706",
     error="#dc2626",
+    info="#0284c7",
     radius_sm="4px",
     radius_md="8px",
     radius_lg="12px",
@@ -554,6 +567,20 @@ def build_stylesheet(t: Theme) -> str:
         background: transparent;
         border: none;
     }}
+    QLabel[role="page-title"] {{
+        color: {t.text_primary};
+        font-weight: 700;
+        font-size: 20px;
+        background: transparent;
+        border: none;
+    }}
+    QLabel[role="section-title"] {{
+        color: {t.text_primary};
+        font-weight: 600;
+        font-size: {t.font_lg};
+        background: transparent;
+        border: none;
+    }}
     QLabel[role="danger-text"] {{
         color: {t.error};
         background: transparent;
@@ -603,6 +630,78 @@ def build_stylesheet(t: Theme) -> str:
     QWidget[role="card"] {{
         background-color: {t.bg_surface};
         border-radius: {t.radius_lg};
+    }}
+    QWidget[role="form-section"] {{
+        background-color: {t.bg_surface};
+        border: 1px solid {t.border};
+        border-radius: {t.radius_lg};
+    }}
+    QWidget[role="operation-bar"] {{
+        background-color: {t.bg_surface};
+        border-top: 1px solid {t.border};
+    }}
+    QWidget[role="inline-banner"] {{
+        background-color: {rgba(t.info, 0.10)};
+        border: 1px solid {rgba(t.info, 0.35)};
+        border-radius: {t.radius_md};
+    }}
+    QWidget[role="inline-banner-warning"] {{
+        background-color: {rgba(t.warning, 0.10)};
+        border: 1px solid {rgba(t.warning, 0.35)};
+        border-radius: {t.radius_md};
+    }}
+    QWidget[role="inline-banner-error"] {{
+        background-color: {rgba(t.error, 0.10)};
+        border: 1px solid {rgba(t.error, 0.35)};
+        border-radius: {t.radius_md};
+    }}
+    QWidget[role="inline-banner-success"] {{
+        background-color: {rgba(t.success, 0.10)};
+        border: 1px solid {rgba(t.success, 0.35)};
+        border-radius: {t.radius_md};
+    }}
+    QLabel[role="status-neutral"], QLabel[role="status-info"],
+    QLabel[role="status-success"], QLabel[role="status-warning"],
+    QLabel[role="status-error"] {{
+        border-radius: 10px;
+        padding: 3px 8px;
+        font-size: {t.font_xs};
+        font-weight: 600;
+    }}
+    QLabel[role="status-neutral"] {{
+        background-color: {rgba(t.text_secondary, 0.14)};
+        color: {t.text_secondary};
+    }}
+    QLabel[role="status-info"] {{
+        background-color: {rgba(t.info, 0.14)};
+        color: {t.info};
+    }}
+    QLabel[role="status-success"] {{
+        background-color: {rgba(t.success, 0.14)};
+        color: {t.success};
+    }}
+    QLabel[role="status-warning"] {{
+        background-color: {rgba(t.warning, 0.14)};
+        color: {t.warning};
+    }}
+    QLabel[role="status-error"] {{
+        background-color: {rgba(t.error, 0.14)};
+        color: {t.error};
+    }}
+    QToolButton[role="collapsible-header"] {{
+        background: transparent;
+        border: none;
+        color: {t.text_primary};
+        padding: 6px 0;
+        font-weight: 600;
+        text-align: left;
+    }}
+    QToolButton[role="collapsible-header"]:hover {{
+        color: {t.accent};
+    }}
+    QToolButton:focus, QPushButton:focus, QComboBox:focus,
+    QLineEdit:focus, QListWidget:focus {{
+        border-color: {t.accent};
     }}
     QWidget[role="accent-card"] {{
         background-color: {rgba(t.accent, 0.1)};

@@ -13,6 +13,7 @@ from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 from utils import is_supported_format, SUPPORTED_FORMATS, get_audio_duration, format_duration
 from ui.icons import IconLabel, get_icon, IconColors
 from ui.theme import set_role
+from core.i18n import tr
 
 
 class ElidedLabel(QLabel):
@@ -81,25 +82,23 @@ class FileSelector(QWidget):
         drop_layout.addWidget(self.icon_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # Text label
-        self.text_label = QLabel("Drop audio or video file here")
+        self.text_label = QLabel(tr("file_drop_title"))
         self.text_label.setProperty("role", "muted")
-        self.text_label.setStyleSheet("font-size: 14px;")
         self.text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.text_label.setWordWrap(True)
         drop_layout.addWidget(self.text_label)
 
         # Browse button
-        self.browse_btn = QPushButton("Browse Files")
+        self.browse_btn = QPushButton(tr("file_browse"))
         self.browse_btn.setProperty("variant", "primary")
-        self.browse_btn.setToolTip("Open file  (Ctrl+O)")
+        self.browse_btn.setToolTip(tr("tooltip_browse"))
         self.browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.browse_btn.clicked.connect(self._browse_files)
         drop_layout.addWidget(self.browse_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # Formats hint
-        formats_hint = QLabel("Supports: MP3, WAV, FLAC, MP4, MKV, and more")
+        formats_hint = QLabel(tr("file_formats_hint"))
         formats_hint.setProperty("role", "dim")
-        formats_hint.setStyleSheet("font-size: 11px;")
         formats_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         formats_hint.setWordWrap(True)
         drop_layout.addWidget(formats_hint)
@@ -118,7 +117,7 @@ class FileSelector(QWidget):
         file_info_layout.addWidget(self.file_icon)
 
         self.file_name_label = ElidedLabel()
-        self.file_name_label.setStyleSheet("font-weight: bold; margin-left: 8px;")
+        self.file_name_label.setProperty("role", "heading")
         file_info_layout.addWidget(self.file_name_label, stretch=1)
 
         self.file_duration_label = QLabel()
@@ -129,6 +128,8 @@ class FileSelector(QWidget):
         self.clear_btn.setIcon(get_icon('close', IconColors.DEFAULT, 14))
         self.clear_btn.setFixedSize(24, 24)
         self.clear_btn.setProperty("role", "icon-button-danger")
+        self.clear_btn.setToolTip(tr("file_clear"))
+        self.clear_btn.setAccessibleName(tr("file_clear"))
         self.clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.clear_btn.clicked.connect(self._clear_selection)
         file_info_layout.addWidget(self.clear_btn)
@@ -174,9 +175,9 @@ class FileSelector(QWidget):
         formats = ' '.join(f'*{ext}' for ext in SUPPORTED_FORMATS)
         filepath, _ = QFileDialog.getOpenFileName(
             self,
-            "Select Audio or Video File",
+            tr("file_dialog_title"),
             "",
-            f"Media Files ({formats});;All Files (*)"
+            tr("file_dialog_filter", formats=formats)
         )
         if filepath:
             self._set_file(filepath)
@@ -205,9 +206,8 @@ class FileSelector(QWidget):
         self.file_info.setVisible(True)
         self.icon_label.set_icon('check_circle')
         self.icon_label.set_color(IconColors.SUCCESS)
-        self.text_label.setText("File ready for transcription")
+        self.text_label.setText(tr("file_ready"))
         set_role(self.text_label, "success-text")
-        self.text_label.setStyleSheet("font-size: 14px;")
 
         # Emit signal
         self.file_selected.emit(filepath)
@@ -218,9 +218,8 @@ class FileSelector(QWidget):
         self.file_info.setVisible(False)
         self.icon_label.set_icon('music')
         self.icon_label.set_color(IconColors.DEFAULT)
-        self.text_label.setText("Drop audio or video file here")
+        self.text_label.setText(tr("file_drop_title"))
         set_role(self.text_label, "muted")
-        self.text_label.setStyleSheet("font-size: 14px;")
 
     def get_file(self) -> str | None:
         """Get the currently selected file path."""

@@ -6,37 +6,22 @@ Widget for managing batch file queue
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QListWidget, QListWidgetItem, QProgressBar,
-    QFileDialog, QFrame, QAbstractItemView
+    QFileDialog, QAbstractItemView
 )
 from PyQt6.QtCore import pyqtSignal
 
 from batch_processor import BatchProcessor, BatchItem, BatchStatus
-from ui.theme import get_theme
-
-
-# ============================================================================
-# STATUS COLORS
-# ============================================================================
-
-def _status_colors() -> dict:
-    """Map each BatchStatus to a theme color, resolved fresh on each call so
-    it stays correct if the active theme changes."""
-    t = get_theme()
-    return {
-        BatchStatus.PENDING: t.text_secondary,
-        BatchStatus.PROCESSING: t.accent,
-        BatchStatus.COMPLETE: t.success,
-        BatchStatus.ERROR: t.error,
-        BatchStatus.CANCELLED: t.warning,
-    }
+from ui.theme import set_role
+from ui.empty_state import EmptyStateWidget
+from core.i18n import tr
 
 
 STATUS_ICONS = {
-    BatchStatus.PENDING: "⏸️",
-    BatchStatus.PROCESSING: "⏳",
-    BatchStatus.COMPLETE: "✅",
-    BatchStatus.ERROR: "❌",
-    BatchStatus.CANCELLED: "⚠️",
+    BatchStatus.PENDING: "○",
+    BatchStatus.PROCESSING: "●",
+    BatchStatus.COMPLETE: "✓",
+    BatchStatus.ERROR: "×",
+    BatchStatus.CANCELLED: "!",
 }
 
 
@@ -68,7 +53,7 @@ class BatchItemWidget(QWidget):
 
         # Filename
         self.name_label = QLabel()
-        self.name_label.setStyleSheet("font-size: 11px;")
+        self.name_label.setProperty("role", "muted")
         layout.addWidget(self.name_label, stretch=1)
 
         # Progress bar (only visible during processing)
@@ -83,6 +68,8 @@ class BatchItemWidget(QWidget):
         self.remove_btn = QPushButton("×")
         self.remove_btn.setFixedSize(20, 20)
         self.remove_btn.setProperty("variant", "danger")
+        self.remove_btn.setAccessibleName(tr("batch_remove"))
+        self.remove_btn.setToolTip(tr("batch_remove"))
         self.remove_btn.clicked.connect(lambda: self.remove_requested.emit(self.index))
         layout.addWidget(self.remove_btn)
 
@@ -93,9 +80,16 @@ class BatchItemWidget(QWidget):
         self.status_label.setText(icon)
 
         # Filename with color
-        color = _status_colors().get(self.item.status, get_theme().text_secondary)
         self.name_label.setText(self.item.filename)
-        self.name_label.setStyleSheet(f"color: {color}; font-size: 11px;")
+        role = {
+            BatchStatus.PENDING: "muted",
+            BatchStatus.PROCESSING: "warning-text",
+            BatchStatus.COMPLETE: "success-text",
+            BatchStatus.ERROR: "danger-text",
+            BatchStatus.CANCELLED: "warning-text",
+        }.get(self.item.status, "muted")
+        set_role(self.name_label, role)
+        set_role(self.status_label, role)
 
         # Progress bar
         if self.item.status == BatchStatus.PROCESSING:
@@ -125,34 +119,25 @@ class BatchPanel(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 8, 0, 0)
-        layout.setSpacing(8)
-
-        # Divider
-        divider = QFrame()
-        divider.setFrameShape(QFrame.Shape.HLine)
-        divider.setProperty("role", "divider")
-        divider.setFixedHeight(1)
-        layout.addWidget(divider)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
 
         # Header
         header_layout = QHBoxLayout()
 
-        header_label = QLabel("📂 Batch Queue")
-        header_label.setProperty("role", "heading")
+        header_label = QLabel(tr("batch_summary_title"))
+        header_label.setProperty("role", "section-title")
         header_layout.addWidget(header_label)
 
-        self.count_label = QLabel("(0)")
+        self.count_label = QLabel(tr("batch_summary", pending=0, complete=0, error=0))
         self.count_label.setProperty("role", "dim")
-        self.count_label.setStyleSheet("font-size: 11px;")
         header_layout.addWidget(self.count_label)
 
         header_layout.addStretch()
 
         # Add files button
-        self.add_btn = QPushButton("+")
-        self.add_btn.setFixedSize(24, 24)
-        self.add_btn.setToolTip("Add files to queue")
+        self.add_btn = QPushButton(tr("batch_add_files"))
+        self.add_btn.setToolTip(tr("batch_add_files"))
         self.add_btn.clicked.connect(self._add_files)
         header_layout.addWidget(self.add_btn)
 
@@ -160,21 +145,35 @@ class BatchPanel(QWidget):
 
         # File list
         self.file_list = QListWidget()
-        self.file_list.setMaximumHeight(150)
         self.file_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
-        layout.addWidget(self.file_list)
+        layout.addWidget(self.file_list, stretch=1)
+
+        self.empty_state = EmptyStateWidget(
+            "layers",
+            tr("batch_empty_title"),
+            tr("batch_empty_hint"),
+            tr("batch_add_files"),
+        )
+        self.empty_state.action_button.clicked.connect(self._add_files)
+        layout.addWidget(self.empty_state, stretch=1)
 
         # Action buttons
         actions_layout = QHBoxLayout()
         actions_layout.setSpacing(4)
 
-        self.start_btn = QPushButton("▶ Start All")
+        self.start_btn = QPushButton(tr("batch_start_all"))
         self.start_btn.setProperty("variant", "primary")
         self.start_btn.clicked.connect(self._start_batch)
         self.start_btn.setEnabled(False)
         actions_layout.addWidget(self.start_btn)
 
-        self.clear_btn = QPushButton("Clear")
+        self.cancel_btn = QPushButton(tr("btn_cancel"))
+        self.cancel_btn.setProperty("variant", "danger")
+        self.cancel_btn.clicked.connect(self.cancel_processing)
+        self.cancel_btn.setVisible(False)
+        actions_layout.addWidget(self.cancel_btn)
+
+        self.clear_btn = QPushButton(tr("batch_clear"))
         self.clear_btn.clicked.connect(self._clear_queue)
         self.clear_btn.setEnabled(False)
         actions_layout.addWidget(self.clear_btn)
@@ -193,9 +192,9 @@ class BatchPanel(QWidget):
         """Open file dialog to add files."""
         filepaths, _ = QFileDialog.getOpenFileNames(
             self,
-            "Add Audio/Video Files",
+            tr("batch_add_files_title"),
             "",
-            "Media Files (*.mp3 *.mp4 *.m4a *.wav *.ogg *.flac *.mkv *.avi *.mov *.webm);;All Files (*)"
+            tr("batch_file_filter")
         )
 
         for path in filepaths:
@@ -218,9 +217,17 @@ class BatchPanel(QWidget):
 
         # Update counts and buttons
         count = self.processor.count
-        self.count_label.setText(f"({count})")
+        complete = sum(item.status == BatchStatus.COMPLETE for item in self.processor.items)
+        errors = sum(item.status == BatchStatus.ERROR for item in self.processor.items)
+        pending = max(0, count - complete - errors)
+        self.count_label.setText(
+            tr("batch_summary", pending=pending, complete=complete, error=errors)
+        )
         self.start_btn.setEnabled(count > 0 and not self.processor.is_processing)
         self.clear_btn.setEnabled(count > 0 and not self.processor.is_processing)
+        self.file_list.setVisible(count > 0)
+        self.empty_state.setVisible(count == 0)
+        self.cancel_btn.setVisible(self.processor.is_processing)
 
     def _remove_item(self, index: int):
         """Remove an item from the queue."""
@@ -237,6 +244,7 @@ class BatchPanel(QWidget):
         self.start_btn.setEnabled(False)
         self.clear_btn.setEnabled(False)
         self.add_btn.setEnabled(False)
+        self.cancel_btn.setVisible(True)
         self.start_requested.emit()
 
     def start_processing(
@@ -283,6 +291,7 @@ class BatchPanel(QWidget):
         self.start_btn.setEnabled(self.processor.count > 0)
         self.clear_btn.setEnabled(self.processor.count > 0)
         self.add_btn.setEnabled(True)
+        self.cancel_btn.setVisible(False)
         self._refresh_list()
 
     def _update_item_widget(self, index: int):

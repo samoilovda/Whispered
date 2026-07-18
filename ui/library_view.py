@@ -13,10 +13,19 @@ import re
 from datetime import datetime
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
-    QPushButton, QLabel, QLineEdit, QMenu, QMessageBox
+    QButtonGroup,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QPoint
+from PyQt6.QtCore import QPoint, Qt, QTimer, pyqtSignal
 
 from core.logger import get_logger
 from core.i18n import tr
@@ -58,7 +67,17 @@ _ARTIFACT_LABEL_KEYS = {
 class RecordItemWidget(QWidget):
     """Custom rich widget for library items, replacing plain multi-line text."""
 
-    def __init__(self, name: str, meta: str, artifacts: list[str], snippet: str = "", parent=None):
+    open_requested = pyqtSignal()
+
+    def __init__(
+        self,
+        name: str,
+        meta: str,
+        artifacts: list[str],
+        snippet: str = "",
+        kind: str = "file",
+        parent=None,
+    ):
         super().__init__(parent)
         self.setProperty("role", "library-item-card")
 
@@ -67,10 +86,19 @@ class RecordItemWidget(QWidget):
         main_layout.setSpacing(4)
 
         # Title/Name
+        title_row = QHBoxLayout()
         self.title_label = QLabel(name)
         self.title_label.setProperty("role", "library-item-title")
         self.title_label.setWordWrap(True)
-        main_layout.addWidget(self.title_label)
+        title_row.addWidget(self.title_label, stretch=1)
+        kind_label = QLabel(tr(f"library_filter_{kind}"))
+        kind_label.setProperty("role", "chip")
+        title_row.addWidget(kind_label)
+        self.open_button = QPushButton(tr("btn_open"))
+        self.open_button.setProperty("variant", "ghost")
+        self.open_button.clicked.connect(self.open_requested.emit)
+        title_row.addWidget(self.open_button)
+        main_layout.addLayout(title_row)
 
         # Meta line
         self.meta_label = QLabel(meta)
@@ -95,7 +123,6 @@ class RecordItemWidget(QWidget):
         if snippet:
             self.snippet_label = QLabel(snippet)
             self.snippet_label.setProperty("role", "dim")
-            self.snippet_label.setStyleSheet("font-size: 11px; font-style: italic; margin-top: 2px;")
             self.snippet_label.setWordWrap(True)
             main_layout.addWidget(self.snippet_label)
 
@@ -113,6 +140,7 @@ class LibraryView(QWidget):
         super().__init__(parent)
         self._store = None   # lazy: avoid import at startup if history_enabled=False
         self._records: list = []
+        self._active_filter = "all"
         self._setup_ui()
 
     # ------------------------------------------------------------------ UI
@@ -122,13 +150,17 @@ class LibraryView(QWidget):
         layout.setContentsMargins(0, 4, 0, 0)
         layout.setSpacing(8)
 
+        title = QLabel(tr("library_recent_title"))
+        title.setProperty("role", "section-title")
+        layout.addWidget(title)
+
         # ── Toolbar ──────────────────────────────────────────────
         toolbar = QHBoxLayout()
 
         self._search_edit = QLineEdit()
         self._search_edit.setPlaceholderText(tr("history_search_placeholder"))
         self._search_edit.setClearButtonEnabled(True)
-        self._search_edit.textChanged.connect(self._on_search)
+        self._search_edit.textChanged.connect(self._schedule_search)
         toolbar.addWidget(self._search_edit, stretch=1)
 
         self._refresh_btn = QPushButton("↺")
@@ -137,12 +169,38 @@ class LibraryView(QWidget):
         self._refresh_btn.clicked.connect(self.refresh)
         toolbar.addWidget(self._refresh_btn)
 
-        self._clear_btn = QPushButton(tr("history_clear_all"))
-        self._clear_btn.setProperty("variant", "danger")
-        self._clear_btn.clicked.connect(self._clear_all)
-        toolbar.addWidget(self._clear_btn)
+        self._more_btn = QPushButton("⋯")
+        self._more_btn.setAccessibleName(tr("library_more_actions"))
+        self._more_btn.setToolTip(tr("library_more_actions"))
+        menu = QMenu(self._more_btn)
+        clear_action = menu.addAction(tr("history_clear_all"))
+        clear_action.triggered.connect(self._clear_all)
+        self._more_btn.setMenu(menu)
+        toolbar.addWidget(self._more_btn)
 
         layout.addLayout(toolbar)
+
+        filters = QHBoxLayout()
+        self._filter_group = QButtonGroup(self)
+        self._filter_group.setExclusive(True)
+        for key in ("all", "file", "recorder", "live"):
+            button = QPushButton(tr(f"library_filter_{key}"))
+            button.setCheckable(True)
+            button.setProperty("role", "quick-chip")
+            button.clicked.connect(
+                lambda _checked, filter_key=key: self._set_filter(filter_key)
+            )
+            self._filter_group.addButton(button)
+            filters.addWidget(button)
+            if key == "all":
+                button.setChecked(True)
+        filters.addStretch()
+        layout.addLayout(filters)
+
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(220)
+        self._search_timer.timeout.connect(self._run_search)
 
         # ── List ─────────────────────────────────────────────────
         self._list = QListWidget()
@@ -160,11 +218,17 @@ class LibraryView(QWidget):
         )
         self._empty_state.setVisible(False)
         layout.addWidget(self._empty_state, stretch=1)
+        self._no_results_state = EmptyStateWidget(
+            "list",
+            tr("library_no_results_title"),
+            tr("library_no_results_hint"),
+        )
+        self._no_results_state.setVisible(False)
+        layout.addWidget(self._no_results_state, stretch=1)
 
         # ── Status bar ───────────────────────────────────────────
         self._status = QLabel()
         self._status.setProperty("role", "muted")
-        self._status.setStyleSheet("font-size: 11px;")
         layout.addWidget(self._status)
 
     # ------------------------------------------------------------------ public API
@@ -198,7 +262,12 @@ class LibraryView(QWidget):
     def _populate(self):
         self._list.clear()
         is_search = bool(self._search_edit.text().strip())
-        for rec in self._records:
+        visible_records = [
+            record
+            for record in self._records
+            if self._active_filter == "all" or _record_kind(record) == self._active_filter
+        ]
+        for rec in visible_records:
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, rec.id)
 
@@ -213,25 +282,39 @@ class LibraryView(QWidget):
             if is_search and rec.preview:
                 snippet = _clean_snippet(rec.preview)
 
-            widget = RecordItemWidget(name, meta, artifacts, snippet)
+            widget = RecordItemWidget(
+                name, meta, artifacts, snippet, kind=_record_kind(rec)
+            )
+            widget.open_requested.connect(
+                lambda record_id=rec.id: self.open_record.emit(record_id)
+            )
             item.setSizeHint(widget.sizeHint())
 
             self._list.addItem(item)
             self._list.setItemWidget(item, widget)
 
-        total = len(self._records)
+        total = len(visible_records)
         key = "history_status_plural" if total != 1 else "history_status"
         self._status.setText(tr(key, count=total))
 
         # The friendly empty state is for "no records exist at all", not
         # "this search has no matches" — the latter already reads clearly
         # from the "0 records" status line above an empty list.
-        show_empty_state = total == 0 and not is_search
+        show_empty_state = total == 0 and not is_search and self._active_filter == "all"
+        show_no_results = total == 0 and not show_empty_state
         self._empty_state.setVisible(show_empty_state)
-        self._list.setVisible(not show_empty_state)
+        self._no_results_state.setVisible(show_no_results)
+        self._list.setVisible(not show_empty_state and not show_no_results)
 
-    def _on_search(self, text: str):
-        self._load(text.strip())
+    def _schedule_search(self, _text: str):
+        self._search_timer.start()
+
+    def _run_search(self):
+        self._load(self._search_edit.text().strip())
+
+    def _set_filter(self, filter_key: str) -> None:
+        self._active_filter = filter_key
+        self._populate()
 
     def _open_selected(self, item: QListWidgetItem):
         record_id = item.data(Qt.ItemDataRole.UserRole)
@@ -284,3 +367,14 @@ class LibraryView(QWidget):
         except Exception as e:
             logger.warning("Library clear failed: %s", e)
         self.refresh()
+
+
+def _record_kind(record) -> str:
+    path = str(getattr(record, "source_path", ""))
+    name = str(getattr(record, "source_name", ""))
+    lower_name = name.lower()
+    if lower_name.startswith("live-") or lower_name.startswith("zoom-"):
+        return "live"
+    if name.startswith("REC_") or "/recordings/" in path.replace("\\", "/"):
+        return "recorder"
+    return "file"
