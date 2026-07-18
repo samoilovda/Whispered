@@ -24,4 +24,14 @@ __all__ = [
     "CancellationToken",
     "MonotonicTimestamp",
     "RingStats",
+    "MicSource",
 ]
+
+
+def __getattr__(name: str):
+    """Load the Qt-backed adapter only when the caller asks for it."""
+    if name == "MicSource":
+        from core.live.mic_source import MicSource
+
+        return MicSource
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

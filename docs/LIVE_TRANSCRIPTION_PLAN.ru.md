@@ -1,6 +1,6 @@
 # Whispered Live: публичный план развития
 
-> Версия: 18 июля 2026. Статус: в разработке; L1–L2 закрыты, L3 ещё не закрыт, L4 реализован на уровне unit-тестов; live-флаг выключен.  
+> Версия: 18 июля 2026. Статус: в разработке; L1–L3 реализованы на уровне кода и unit-тестов, L4 реализован на уровне unit-тестов; live-флаг выключен.
 > Назначение: довести Whispered до законченного live-продукта для локальной
 > транскрипции онлайн-встреч, семинаров и эфиров, сохранив существующий batch-
 > конвейер без изменений.
@@ -231,7 +231,7 @@ S1–S3 блокируют dual-source capture. S4–S6 блокируют live 
 |---|---|---|
 | L1 | Baseline: batch-smoke, golden `Segment/TranscriptionResult`, 10-минутный audio fixture и метрики | Обычный файл даёт прежний transcript/export; весь старый suite зелёный |
 | L2 | `AudioFrame`, `SpeechTurn`, `SegmentUpdate` и state machine на симуляторе | В demo partial меняется, final больше не меняется; результат — обычные `Segment` |
-| L3 | `MicSource` adapter поверх существующего recorder | Старые Record/Pause/Resume/Stop и WAV работают; новый meter/frames включаются feature flag |
+| L3 | `MicSource` adapter поверх существующего recorder (`core/live/mic_source.py`) | Старые Record/Pause/Resume/Stop и WAV работают; новый meter/frames включаются feature flag |
 | L4 | Bounded RAM ring, monotonic timestamps, lag/drops, cancellation (`core/live/audio_buffer.py`) | 30 минут без роста памяти; искусственное торможение видно, UI не зависает |
 | L5 | Per-source VAD | Десять фраз и короткие ответы не обрезаны; музыка не создаёт бесконечный utterance |
 | L6 | Persistent whisper worker для mic | Модель грузится один раз; 15 минут live; Cancel ≤2 сек; final p95 измерен |
@@ -243,8 +243,11 @@ S1–S3 блокируют dual-source capture. S4–S6 блокируют live 
 ### 6.1. Точка продолжения в текущей ветке
 
 - **L1–L2** — контракты и golden batch baseline уже находятся в истории.
-- **L3** — `MicSource` adapter поверх `core.recorder.Recorder` ещё нужно
-  реализовать; старый recorder пока не изменяется.
+- **L3** — добавлен `MicSource` adapter поверх `core.recorder.Recorder`.
+  Legacy recorder получает только необязательный non-blocking `frame_sink`;
+  при выключенном live-флаге sink не устанавливается. Fake-device тесты
+  покрывают Start/Pause/Resume/Stop, meter, frames и Cancel; ручной прогон с
+  реальным микрофоном остаётся частью приёмки L3.
 - **L4** — добавлен независимый `BoundedAudioRing` с ограничением по кадрам и
   байтам, `MonotonicTimestamp`, `CancellationToken` и `RingStats`. При
   вытеснении backlog следующий кадр получает `discontinuity=True`; callback

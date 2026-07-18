@@ -17,7 +17,7 @@ import queue
 import threading
 import wave
 from datetime import datetime
-from typing import Optional
+from typing import Callable, Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
@@ -78,7 +78,7 @@ class Recorder(QObject):
     level_changed = pyqtSignal(float)
     error_occurred = pyqtSignal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, frame_sink: Optional[Callable] = None):
         super().__init__(parent)
         self._stream = None
         self._wav: Optional[wave.Wave_write] = None
@@ -89,6 +89,10 @@ class Recorder(QObject):
         self._q: queue.Queue = queue.Queue()
         self._writer_thread: Optional[threading.Thread] = None
         self._elapsed_frames: int = 0
+        # Optional live adapter hook. It must be non-blocking: this is called
+        # from PortAudio's callback thread and is deliberately absent for the
+        # legacy recorder path.
+        self._frame_sink = frame_sink
 
     # ------------------------------------------------------------------ public
 
@@ -200,9 +204,15 @@ class Recorder(QObject):
             logger.debug("Audio stream status: %s", status)
         if not self._paused.is_set():
             try:
-                self._q.put(bytes(indata))
+                chunk = bytes(indata)
+                self._q.put(chunk)
                 if _NUMPY_AVAILABLE:
                     self.level_changed.emit(_rms(indata))
+                if self._frame_sink is not None:
+                    try:
+                        self._frame_sink(chunk, frames, time_info)
+                    except Exception as exc:
+                        logger.debug("Live frame sink error: %s", exc)
             except Exception as exc:
                 logger.debug("Audio callback error: %s", exc)
 
