@@ -30,6 +30,9 @@ __all__ = [
     "PerSourceVAD",
     "VADConfig",
     "pcm_rms",
+    "PersistentWhisperWorker",
+    "LiveASRResult",
+    "LiveASRMetrics",
 ]
 
 
@@ -39,4 +42,12 @@ def __getattr__(name: str):
         from core.live.mic_source import MicSource
 
         return MicSource
+    if name in {"PersistentWhisperWorker", "LiveASRResult", "LiveASRMetrics"}:
+        from core.live.asr_worker import LiveASRMetrics, LiveASRResult, PersistentWhisperWorker
+
+        return {
+            "PersistentWhisperWorker": PersistentWhisperWorker,
+            "LiveASRResult": LiveASRResult,
+            "LiveASRMetrics": LiveASRMetrics,
+        }[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

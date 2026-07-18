@@ -1,6 +1,6 @@
 # Whispered Live: публичный план развития
 
-> Версия: 18 июля 2026. Статус: в разработке; L1–L5 реализованы на уровне кода и unit-тестов, L4–L5 требуют ручной приёмки; live-флаг выключен.
+> Версия: 18 июля 2026. Статус: в разработке; L1–L6 реализованы на уровне кода и unit-тестов, L4–L6 требуют ручной приёмки; live-флаг выключен.
 > Назначение: довести Whispered до законченного live-продукта для локальной
 > транскрипции онлайн-встреч, семинаров и эфиров, сохранив существующий batch-
 > конвейер без изменений.
@@ -234,7 +234,7 @@ S1–S3 блокируют dual-source capture. S4–S6 блокируют live 
 | L3 | `MicSource` adapter поверх существующего recorder (`core/live/mic_source.py`) | Старые Record/Pause/Resume/Stop и WAV работают; новый meter/frames включаются feature flag |
 | L4 | Bounded RAM ring, monotonic timestamps, lag/drops, cancellation (`core/live/audio_buffer.py`) | 30 минут без роста памяти; искусственное торможение видно, UI не зависает |
 | L5 | Per-source VAD (`core/live/vad.py`) | Десять фраз и короткие ответы не обрезаны; музыка не создаёт бесконечный utterance |
-| L6 | Persistent whisper worker для mic | Модель грузится один раз; 15 минут live; Cancel ≤2 сек; final p95 измерен |
+| L6 | Persistent whisper worker для mic (`core/live/asr_worker.py`) | Модель грузится один раз; 15 минут live; Cancel ≤2 сек; final p95 измерен |
 | L7 | Stable-prefix/revisions/dedup одного source | Черновой хвост видим; после паузы не прыгает; повторяющаяся фраза не дублируется |
 
 **Гейт A:** 30 минут mic-only, 0 drops, final p95 ≤5 сек, WER в пределах
@@ -258,6 +258,11 @@ S1–S3 блокируют dual-source capture. S4–S6 блокируют live 
   и split длинных utterances по 15 сек. Backend заменяемый, поэтому Silero или
   WebRTC можно подключить без изменения `SpeechTurn`; ручной набор из десяти
   фраз и музыкальный sample остаются частью приёмки L5.
+- **L6** — добавлен `PersistentWhisperWorker`: child process загружает модель
+  один раз, принимает raw PCM VAD turns, поддерживает `abort_callback` и
+  возвращает обычные `transcriber.Segment` в parent. Metrics считают
+  end-to-end final latency и p95; ручной 15-минутный live прогон с реальной
+  моделью и проверка Cancel ≤2 сек остаются частью приёмки L6.
 
 ### Этап B. Системный звук и два источника
 
