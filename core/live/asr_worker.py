@@ -174,6 +174,7 @@ class PersistentWhisperWorker(QThread):
     ready = pyqtSignal(float)
     final = pyqtSignal(object)
     decode_error = pyqtSignal(str)
+    decode_error_detail = pyqtSignal(object)
     error = pyqtSignal(str)
     latency = pyqtSignal(float)
 
@@ -312,6 +313,7 @@ class PersistentWhisperWorker(QThread):
             with self._metrics_lock:
                 self._pending.pop(request_id, None)
                 self._failed += 1
+            self.decode_error_detail.emit((request_id, str(error)))
             self.decode_error.emit(str(error))
             return
         if kind != "final":

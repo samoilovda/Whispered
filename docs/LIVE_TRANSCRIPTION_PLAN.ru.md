@@ -1,6 +1,6 @@
 # Whispered Live: публичный план развития
 
-> Версия: 18 июля 2026. Статус: в разработке; L1–L10 реализованы на уровне кода и unit-тестов, L4–L10 требуют ручной приёмки; live-флаг выключен.
+> Версия: 18 июля 2026. Статус: в разработке; L1–L14 реализованы на уровне кода, unit-тестов и acceptance-шаблона, L4–L14 требуют ручной приёмки; live-флаг выключен.
 > Назначение: довести Whispered до законченного live-продукта для локальной
 > транскрипции онлайн-встреч, семинаров и эфиров, сохранив существующий batch-
 > конвейер без изменений.
@@ -283,6 +283,25 @@ S1–S3 блокируют dual-source capture. S4–S6 блокируют live 
   считается drift, а report показывает source/monotonic/corrected drift и
   target status. Synthetic 60-секундный dual-source прогон покрывает малый и
   большой drift; 60-минутный реальный soak остаётся ручной приёмкой L10.
+- **L11** — добавлен `DualQueueASRScheduler`: один persistent ASR worker
+  обслуживает отдельные mic/system очереди по максимальному ожиданию с
+  round-robin tie-break, bounded per-source backlog и counters dropped/lag.
+  Fake-worker тест подтверждает, что второй source получает decode до
+  повторной отправки первого; реальный dual-source p95 остаётся ручной
+  приёмкой L11.
+- **L12** — добавлены `SourceSpeakerLabels` и `LiveOverlapTimeline`: source ID
+  остаётся `mic`/`system`, UI label по умолчанию — `Microphone`/`Meeting audio`,
+  а пересекающиеся segments сортируются, но не схлопываются. Synthetic
+  overlap fixture сохраняет обе реплики; ручная визуальная приёмка остаётся
+  частью L12.
+- **L13** — добавлен консервативный `EchoDuplicateDetector`: удаляется только
+  exact normalized text с cross-source temporal overlap; повторения без overlap
+  и похожие, но разные тексты сохраняются. Canonical segment получает
+  `ambiguous` marker в timeline; контрольный echo fixture покрыт тестом.
+- **L14** — добавлены `CompatibilityMatrix`, machine-readable statuses и
+  `docs/LIVE_COMPATIBILITY_MATRIX.ru.md` для Zoom, Google Meet и Teams с
+  чек-листом capture/permissions/device switch/echo/Stop. Реальные 20-минутные
+  прогоны пока имеют честный status `not run` и остаются ручной приёмкой L14.
 
 ### Этап B. Системный звук и два источника
 
@@ -291,10 +310,10 @@ S1–S3 блокируют dual-source capture. S4–S6 блокируют live 
 | L8 | Выбранная архитектура system capture и документированный IPC contract (`docs/SYSTEM_CAPTURE_IPC.ru.md`) | Запустить spike build, выбрать приложение, увидеть system meter, Stop освободил capture |
 | L9 | SystemAudioSource в приложении (`core/live/system_audio_source.py`) | 15 минут YouTube/Meet транскрибируются без микрофона; permission denial понятен |
 | L10 | SourceClockAligner + resampling/drift metrics (`core/live/clock_aligner.py`) | Два source идут на одной timeline 60 минут; отчёт drift <100 мс |
-| L11 | Двухочередный ASR scheduler | Одновременная речь обоих source появляется без голодания одного канала |
-| L12 | Source speaker labels и overlap timeline | Mic/Meeting audio визуально различаются; одновременные реплики обе сохранены |
-| L13 | Echo/duplicate detector | Контрольный echo не удваивает текст; разные похожие фразы не удаляются |
-| L14 | Zoom/Meet/Teams compatibility matrix | По одному 20-минутному прогону: capture, permissions, device switch, echo, Stop; результат сохранён в отчёте |
+| L11 | Двухочередный ASR scheduler (`core/live/asr_scheduler.py`) | Одновременная речь обоих source появляется без голодания одного канала |
+| L12 | Source speaker labels и overlap timeline (`core/live/overlap_timeline.py`) | Mic/Meeting audio визуально различаются; одновременные реплики обе сохранены |
+| L13 | Echo/duplicate detector (`core/live/echo_detector.py`) | Контрольный echo не удваивает текст; разные похожие фразы не удаляются |
+| L14 | Zoom/Meet/Teams compatibility matrix (`docs/LIVE_COMPATIBILITY_MATRIX.ru.md`) | По одному 20-минутному прогону: capture, permissions, device switch, echo, Stop; результат сохранён в отчёте |
 
 **Гейт B:** Zoom, Google Meet и Teams проходят 20 минут каждый; оба source
 присутствуют, role accuracy ≥98% для non-overlap speech, boundary/echo

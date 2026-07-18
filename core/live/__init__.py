@@ -30,6 +30,21 @@ from core.live.system_capture_protocol import (
 )
 from core.live.system_audio_source import SystemAudioSource
 from core.live.clock_aligner import ClockMetrics, DriftReport, DualSourceClockAligner, SourceClockAligner
+from core.live.asr_scheduler import DualQueueASRScheduler, SchedulerStats
+from core.live.compatibility import (
+    CHECKS,
+    SUPPORTED_APPS,
+    CompatibilityCase,
+    CompatibilityMatrix,
+    CompatibilityStatus,
+)
+from core.live.echo_detector import DuplicateDecision, EchoDuplicateDetector, normalize_text
+from core.live.overlap_timeline import (
+    DEFAULT_SOURCE_LABELS,
+    LiveOverlapTimeline,
+    SourceSpeakerLabels,
+    TimelineEntry,
+)
 
 __all__ = [
     "AudioFrame",
@@ -65,6 +80,20 @@ __all__ = [
     "DriftReport",
     "DualSourceClockAligner",
     "SourceClockAligner",
+    "DualQueueASRScheduler",
+    "SchedulerStats",
+    "CHECKS",
+    "SUPPORTED_APPS",
+    "CompatibilityCase",
+    "CompatibilityMatrix",
+    "CompatibilityStatus",
+    "DuplicateDecision",
+    "EchoDuplicateDetector",
+    "normalize_text",
+    "DEFAULT_SOURCE_LABELS",
+    "LiveOverlapTimeline",
+    "SourceSpeakerLabels",
+    "TimelineEntry",
     "PersistentWhisperWorker",
     "LiveASRResult",
     "LiveASRMetrics",
