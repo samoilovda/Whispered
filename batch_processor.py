@@ -67,6 +67,7 @@ class BatchWorker(QThread):
         n_threads: int = 4,
         enable_diarization: bool = False,
         num_speakers: Optional[int] = None,
+        use_gpu: bool = True,
         parent: Optional[QObject] = None
     ):
         super().__init__(parent)
@@ -77,6 +78,7 @@ class BatchWorker(QThread):
         self.n_threads = n_threads
         self.enable_diarization = enable_diarization
         self.num_speakers = num_speakers
+        self.use_gpu = use_gpu
         self._cancelled = False
         self._transcriber = Transcriber()
         self._current_index = -1
@@ -142,6 +144,7 @@ class BatchWorker(QThread):
             n_threads=self.n_threads,
             enable_diarization=self.enable_diarization,
             num_speakers=self.num_speakers,
+            use_gpu=self.use_gpu,
             on_progress=on_progress,
             on_finished=on_finished,
             on_error=on_error
@@ -266,7 +269,8 @@ class BatchProcessor(QObject):
         translate: bool = False,
         n_threads: int = 4,
         enable_diarization: bool = False,
-        num_speakers: Optional[int] = None
+        num_speakers: Optional[int] = None,
+        use_gpu: bool = True,
     ):
         """Start processing the batch queue."""
         if self.is_processing:
@@ -290,7 +294,8 @@ class BatchProcessor(QObject):
             translate=translate,
             n_threads=n_threads,
             enable_diarization=enable_diarization,
-            num_speakers=num_speakers
+            num_speakers=num_speakers,
+            use_gpu=use_gpu,
         )
 
         # Connect signals

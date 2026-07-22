@@ -6,7 +6,13 @@ import os
 import platform
 import subprocess
 import shutil
+import threading
+import time
 from typing import Optional, Tuple
+
+
+_GPU_CACHE: Optional[Tuple[str, str]] = None
+_GPU_CACHE_LOCK = threading.Lock()
 
 
 # Supported audio/video formats
@@ -54,57 +60,107 @@ def format_timestamp_vtt(seconds: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d}.{millis:03d}"
 
 
-def detect_gpu() -> Tuple[str, str]:
+def get_cached_gpu() -> Optional[Tuple[str, str]]:
+    """Return the last detected device without running system commands."""
+    with _GPU_CACHE_LOCK:
+        return _GPU_CACHE
+
+
+def clear_gpu_cache() -> None:
+    """Clear cached detection (primarily for diagnostics and tests)."""
+    global _GPU_CACHE
+    with _GPU_CACHE_LOCK:
+        _GPU_CACHE = None
+
+
+def _run_probe(
+    args: list[str],
+    timeout: float,
+    cancel_event: Optional[threading.Event],
+) -> tuple[bool, str]:
+    """Run a hardware probe with prompt cancellation."""
+    try:
+        process = subprocess.Popen(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        deadline = time.monotonic() + timeout
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                process.terminate()
+                try:
+                    process.communicate(timeout=0.5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate()
+                return False, ""
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                process.kill()
+                process.communicate()
+                return False, ""
+            try:
+                stdout, _stderr = process.communicate(timeout=min(0.2, remaining))
+                return process.returncode == 0, stdout
+            except subprocess.TimeoutExpired:
+                continue
+    except Exception:
+        return False, ""
+
+
+def detect_gpu(
+    refresh: bool = False,
+    cancel_event: Optional[threading.Event] = None,
+) -> Tuple[str, str]:
     """
     Detect available GPU acceleration.
     Returns: (gpu_type, description)
     - gpu_type: 'cuda', 'rocm', 'metal', or 'cpu'
     """
+    global _GPU_CACHE
+    if not refresh:
+        cached = get_cached_gpu()
+        if cached is not None:
+            return cached
+
+    # Apple Silicon has a built-in Metal backend and needs no subprocess.
+    if platform.system() == 'Darwin' and platform.machine().lower() in {'arm64', 'aarch64'}:
+        detected = ('metal', "Apple Metal (Apple Silicon)")
+        with _GPU_CACHE_LOCK:
+            _GPU_CACHE = detected
+        return detected
+
+    detected: Tuple[str, str] = ('cpu', "CPU (No GPU detected)")
+
     # Check for NVIDIA CUDA
     if shutil.which('nvidia-smi'):
-        try:
-            result = subprocess.run(
-                ['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'],
-                capture_output=True, text=True, timeout=5
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                gpu_name = result.stdout.strip().split('\n')[0]
-                return ('cuda', f"NVIDIA {gpu_name}")
-        except (subprocess.TimeoutExpired, Exception):
-            pass
+        success, output = _run_probe(
+            ['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'],
+            5,
+            cancel_event,
+        )
+        if success and output.strip():
+            gpu_name = output.strip().split('\n')[0]
+            detected = ('cuda', f"NVIDIA {gpu_name}")
 
     # Check for AMD ROCm
-    if shutil.which('rocminfo'):
-        try:
-            result = subprocess.run(
-                ['rocminfo'],
-                capture_output=True, text=True, timeout=5
-            )
-            if result.returncode == 0:
-                # Parse GPU name from rocminfo output
-                for line in result.stdout.split('\n'):
-                    if 'Marketing Name:' in line:
-                        gpu_name = line.split(':')[1].strip()
-                        return ('rocm', f"AMD {gpu_name}")
-                return ('rocm', "AMD GPU (ROCm)")
-        except (subprocess.TimeoutExpired, Exception):
-            pass
+    if detected[0] == 'cpu' and shutil.which('rocminfo'):
+        success, output = _run_probe(['rocminfo'], 5, cancel_event)
+        if success:
+            for line in output.split('\n'):
+                if 'Marketing Name:' in line:
+                    gpu_name = line.split(':', 1)[1].strip()
+                    detected = ('rocm', f"AMD {gpu_name}")
+                    break
+            else:
+                detected = ('rocm', "AMD GPU (ROCm)")
 
-    # Check for Apple Metal (macOS with Apple Silicon)
-    if platform.system() == 'Darwin':
-        try:
-            result = subprocess.run(
-                ['sysctl', '-n', 'machdep.cpu.brand_string'],
-                capture_output=True, text=True, timeout=5
-            )
-            if result.returncode == 0:
-                chip_name = result.stdout.strip()
-                if 'Apple' in chip_name:
-                    return ('metal', f"Apple Metal ({chip_name})")
-        except (subprocess.TimeoutExpired, Exception):
-            pass
-
-    return ('cpu', "CPU (No GPU detected)")
+    if cancel_event is None or not cancel_event.is_set():
+        with _GPU_CACHE_LOCK:
+            _GPU_CACHE = detected
+    return detected
 
 
 def get_audio_duration(filepath: str) -> Optional[float]:

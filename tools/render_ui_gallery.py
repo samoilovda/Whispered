@@ -78,6 +78,12 @@ def render(output: Path, check: bool = False) -> list[Path]:
                             if widget.isVisible() and widget.minimumWidth() > 0:
                                 if widget.width() <= 0 or widget.height() <= 0:
                                     raise AssertionError(f"Invalid geometry: {widget.objectName()}")
+                        if key == "library" and not _inside(
+                            window, window.file_selector.browse_btn
+                        ):
+                            raise AssertionError(
+                                f"File browse action is clipped at {width}x{height}"
+                            )
                 window._stack.setCurrentIndex(window._record_index)
                 app.processEvents()
                 path = output / f"{language}-{theme}-{width}x{height}-record.png"

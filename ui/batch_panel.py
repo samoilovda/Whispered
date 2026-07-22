@@ -254,7 +254,8 @@ class BatchPanel(QWidget):
         translate: bool = False,
         n_threads: int = 4,
         enable_diarization: bool = False,
-        num_speakers: int = None
+        num_speakers: int = None,
+        use_gpu: bool = True,
     ):
         """Start the batch processing with given settings."""
         self.processor.start(
@@ -263,7 +264,8 @@ class BatchPanel(QWidget):
             translate=translate,
             n_threads=n_threads,
             enable_diarization=enable_diarization,
-            num_speakers=num_speakers
+            num_speakers=num_speakers,
+            use_gpu=use_gpu,
         )
 
     def cancel_processing(self):

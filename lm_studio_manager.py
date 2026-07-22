@@ -7,8 +7,14 @@ import subprocess
 import shutil
 import json
 import time
+import threading
 from dataclasses import dataclass
 from typing import Optional, List
+
+from core.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 # ============================================================================
@@ -97,7 +103,12 @@ class LMStudioManager:
 
         return None
 
-    def _run_cli(self, args: List[str], timeout: int = 30) -> tuple[bool, str]:
+    def _run_cli(
+        self,
+        args: List[str],
+        timeout: int = 30,
+        cancel_event: Optional[threading.Event] = None,
+    ) -> tuple[bool, str]:
         """
         Run an LM Studio CLI command.
 
@@ -109,43 +120,73 @@ class LMStudioManager:
             return False, "LM Studio CLI not found"
 
         try:
-            result = subprocess.run(
+            process = subprocess.Popen(
                 [cli_path] + args,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=timeout
             )
-
-            if result.returncode == 0:
-                return True, result.stdout
-            else:
-                return False, result.stderr or result.stdout
-
-        except subprocess.TimeoutExpired:
-            return False, "Command timed out"
+            deadline = time.monotonic() + timeout
+            while True:
+                if cancel_event is not None and cancel_event.is_set():
+                    self._stop_process(process)
+                    return False, "Cancelled"
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    self._stop_process(process)
+                    return False, "Command timed out"
+                try:
+                    stdout, stderr = process.communicate(timeout=min(0.2, remaining))
+                    output = stderr or stdout
+                    return process.returncode == 0, output
+                except subprocess.TimeoutExpired:
+                    continue
         except Exception as e:
             return False, str(e)
+
+    @staticmethod
+    def _stop_process(process: subprocess.Popen) -> None:
+        """Terminate a CLI child promptly, escalating only when necessary."""
+        if process.poll() is not None:
+            return
+        process.terminate()
+        try:
+            process.communicate(timeout=1)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate()
 
     # =========================================================================
     # SERVER CONTROL
     # =========================================================================
 
-    def is_server_running(self) -> bool:
+    def is_server_running(
+        self, cancel_event: Optional[threading.Event] = None
+    ) -> bool:
         """Check if LM Studio server is running."""
         # Quick HTTP check first (faster than CLI)
         try:
             import urllib.request
             req = urllib.request.Request("http://localhost:1234/v1/models")
-            with urllib.request.urlopen(req, timeout=2) as response:
+            with urllib.request.urlopen(req, timeout=1) as response:
                 return response.status == 200
         except Exception:
             pass
 
         # Fall back to CLI check
-        success, output = self._run_cli(['server', 'status'], timeout=5)
+        if cancel_event is not None and cancel_event.is_set():
+            return False
+        success, output = self._run_cli(
+            ['server', 'status'], timeout=5, cancel_event=cancel_event
+        )
         return success and 'running' in output.lower()
 
-    def start_server(self, wait: bool = True, timeout: int = 30) -> bool:
+    def start_server(
+        self,
+        wait: bool = True,
+        timeout: int = 30,
+        cancel_event: Optional[threading.Event] = None,
+    ) -> bool:
         """
         Start the LM Studio local server.
 
@@ -156,23 +197,31 @@ class LMStudioManager:
         Returns:
             True if server started successfully
         """
-        if self.is_server_running():
+        if self.is_server_running(cancel_event=cancel_event):
             return True
 
         # Start server in background
-        success, output = self._run_cli(['server', 'start'], timeout=10)
+        success, output = self._run_cli(
+            ['server', 'start'], timeout=10, cancel_event=cancel_event
+        )
 
         if not success:
-            print(f"Failed to start server: {output}")
+            if output != "Cancelled":
+                logger.warning("Failed to start LM Studio server: %s", output)
             return False
 
         if wait:
             # Wait for server to be ready
             start_time = time.time()
             while time.time() - start_time < timeout:
-                if self.is_server_running():
+                if cancel_event is not None and cancel_event.is_set():
+                    return False
+                if self.is_server_running(cancel_event=cancel_event):
                     return True
-                time.sleep(0.5)
+                if cancel_event is not None:
+                    cancel_event.wait(0.5)
+                else:
+                    time.sleep(0.5)
 
             return False
 
@@ -183,7 +232,11 @@ class LMStudioManager:
     # MODEL MANAGEMENT
     # =========================================================================
 
-    def list_downloaded_models(self, refresh: bool = False) -> List[ModelInfo]:
+    def list_downloaded_models(
+        self,
+        refresh: bool = False,
+        cancel_event: Optional[threading.Event] = None,
+    ) -> List[ModelInfo]:
         """
         Get list of all downloaded models.
 
@@ -193,7 +246,9 @@ class LMStudioManager:
         if self._cached_models is not None and not refresh:
             return self._cached_models
 
-        success, output = self._run_cli(['ls', '--json'], timeout=30)
+        success, output = self._run_cli(
+            ['ls', '--json'], timeout=30, cancel_event=cancel_event
+        )
 
         if not success:
             return []
@@ -249,9 +304,13 @@ class LMStudioManager:
             self._cached_models = models
             return models
 
-    def list_loaded_models(self) -> List[str]:
+    def list_loaded_models(
+        self, cancel_event: Optional[threading.Event] = None
+    ) -> List[str]:
         """Get list of currently loaded model identifiers."""
-        success, output = self._run_cli(['ps', '--json'], timeout=10)
+        success, output = self._run_cli(
+            ['ps', '--json'], timeout=10, cancel_event=cancel_event
+        )
 
         if not success:
             return []
@@ -270,7 +329,8 @@ class LMStudioManager:
         gpu: str = "auto",
         context_length: Optional[int] = None,
         wait: bool = True,
-        timeout: int = 120
+        timeout: int = 120,
+        cancel_event: Optional[threading.Event] = None,
     ) -> bool:
         """
         Load a model into memory.
@@ -290,13 +350,16 @@ class LMStudioManager:
         if context_length:
             args.append(f'--context-length={context_length}')
 
-        if not wait:
-            args.append('--yes')  # Non-interactive mode
+        # Never let a GUI-launched CLI command open an interactive picker.
+        args.append('--yes')
 
-        success, output = self._run_cli(args, timeout=timeout)
+        success, output = self._run_cli(
+            args, timeout=timeout, cancel_event=cancel_event
+        )
 
         if not success:
-            print(f"Failed to load model: {output}")
+            if output != "Cancelled":
+                logger.warning("Failed to load LM Studio model: %s", output)
             return False
 
         return True
@@ -329,9 +392,11 @@ class LMStudioManager:
         # Return the first model if no preferred quantization found
         return models[0] if models else None
 
-    def get_current_model(self) -> Optional[str]:
+    def get_current_model(
+        self, cancel_event: Optional[threading.Event] = None
+    ) -> Optional[str]:
         """Get the currently loaded model name, if any."""
-        loaded = self.list_loaded_models()
+        loaded = self.list_loaded_models(cancel_event=cancel_event)
         return loaded[0] if loaded else None
 
 

@@ -1,5 +1,7 @@
 """Tests for utils.py — no Qt, no GPU, no ffmpeg required."""
 from utils import (
+    clear_gpu_cache,
+    detect_gpu,
     format_timestamp_srt,
     format_timestamp_vtt,
     format_duration,
@@ -7,6 +9,19 @@ from utils import (
     get_thread_count,
     language_name_for_code,
 )
+
+
+def test_detect_gpu_falls_back_to_metal_on_sandboxed_apple_silicon(monkeypatch):
+    clear_gpu_cache()
+    monkeypatch.setattr("utils.shutil.which", lambda _name: None)
+    monkeypatch.setattr("utils.platform.system", lambda: "Darwin")
+    monkeypatch.setattr("utils.platform.machine", lambda: "arm64")
+    gpu_type, name = detect_gpu()
+
+    assert gpu_type == "metal"
+    assert "Apple" in name
+    assert detect_gpu() == (gpu_type, name)
+    clear_gpu_cache()
 
 
 class TestLanguageNameForCode:

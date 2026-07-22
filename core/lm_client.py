@@ -45,20 +45,20 @@ class LMStudioClient:
     def _auth_headers(self) -> dict:
         return {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
 
-    def check_connection(self) -> bool:
+    def check_connection(self, timeout: float = 5) -> bool:
         """Check if LM Studio server is running and accessible."""
         try:
             req = urllib.request.Request(f"{self.base_url}/models")
-            with urllib.request.urlopen(req, timeout=5) as response:
+            with urllib.request.urlopen(req, timeout=timeout) as response:
                 return response.status == 200
         except Exception:
             return False
 
-    def get_loaded_model(self) -> Optional[str]:
+    def get_loaded_model(self, timeout: float = 5) -> Optional[str]:
         """Get the currently loaded model name."""
         try:
             req = urllib.request.Request(f"{self.base_url}/models")
-            with urllib.request.urlopen(req, timeout=5) as response:
+            with urllib.request.urlopen(req, timeout=timeout) as response:
                 data = json.loads(response.read().decode('utf-8'))
                 models = data.get('data', [])
                 if models:

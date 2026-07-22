@@ -4,6 +4,7 @@ Wrapper for pywhispercpp to handle transcription tasks
 """
 
 import os
+import re
 import threading
 import tempfile
 import subprocess
@@ -13,7 +14,7 @@ from typing import Callable, Optional, List, Dict
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
 
 
-from utils import detect_gpu
+from utils import get_cached_gpu
 from core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -102,6 +103,14 @@ import queue
 _PHRASE_PAUSE_GAP = 0.6    # seconds of silence that forces a new phrase
 _PHRASE_MAX_WORDS = 14     # max words before forcing a new phrase
 
+# Offline whisper.cpp can emit very short fragments on long, continuous
+# recordings.  Keep live ASR untouched, but make saved batch transcripts and
+# subtitles sentence-like without creating cues that are too long to edit.
+_BATCH_MERGE_MAX_GAP = 0.8
+_BATCH_MERGE_MAX_DURATION = 15.0
+_BATCH_MERGE_MAX_WORDS = 35
+_SENTENCE_END_RE = re.compile(r"[.!?…][\"'”’»)]*$")
+
 
 def _group_words_into_segments(words: list) -> list:
     """Group word-level items into phrase Segments.
@@ -144,6 +153,60 @@ def _group_words_into_segments(words: list) -> list:
     return segments
 
 
+def _coalesce_batch_segments(segments: list[Segment]) -> list[Segment]:
+    """Merge adjacent offline fragments into readable sentence-level cues.
+
+    Boundaries are preserved at sentence punctuation, meaningful pauses,
+    overlaps and speaker changes.  Start/end timestamps come from the first
+    and last fragment, word timing objects are retained, and joining text uses
+    the same whitespace semantics as ``TranscriptionResult.full_text``.
+    Live transcription intentionally does not call this helper.
+    """
+    if len(segments) < 2:
+        return list(segments)
+
+    result: list[Segment] = []
+    group: list[Segment] = []
+
+    def flush() -> None:
+        if not group:
+            return
+        result.append(Segment(
+            start=group[0].start,
+            end=group[-1].end,
+            text=" ".join(item.text.strip() for item in group if item.text.strip()),
+            speaker=group[0].speaker,
+            words=[word for item in group for word in item.words],
+        ))
+        group.clear()
+
+    for segment in segments:
+        if not group:
+            group.append(segment)
+            continue
+
+        previous = group[-1]
+        gap = segment.start - previous.end
+        group_duration = segment.end - group[0].start
+        group_words = sum(len(item.text.split()) for item in group)
+        next_words = len(segment.text.split())
+        sentence_complete = bool(_SENTENCE_END_RE.search(previous.text.strip()))
+        same_speaker = previous.speaker == segment.speaker
+        can_merge = (
+            same_speaker
+            and not sentence_complete
+            and -0.05 <= gap <= _BATCH_MERGE_MAX_GAP
+            and group_duration <= _BATCH_MERGE_MAX_DURATION
+            and group_words + next_words <= _BATCH_MERGE_MAX_WORDS
+        )
+        if not can_merge:
+            flush()
+        group.append(segment)
+
+    flush()
+    return result
+
+
 def _build_initial_prompt(vocabulary: list[str]) -> Optional[str]:
     """Build an initial-prompt string from a vocabulary list.
 
@@ -171,6 +234,7 @@ def _run_transcription_process(
     q: mp.Queue,
     initial_prompt: Optional[str] = None,
     word_timestamps: bool = False,
+    use_gpu: bool = True,
 ):
     """Run transcription in a separate process to allow hard cancellation."""
     temp_wav_path = None
@@ -211,7 +275,11 @@ def _run_transcription_process(
         models_dir = get_models_dir()
         try:
             from pywhispercpp.model import Model
-            model = Model(model_name, models_dir=models_dir)
+            model = Model(
+                model_name,
+                models_dir=models_dir,
+                context_params={"use_gpu": use_gpu},
+            )
         except MemoryError:
             q.put(('error',
                 f"Not enough memory to load model '{model_name}'.\n\n"
@@ -330,6 +398,11 @@ def _run_transcription_process(
             except Exception as e:
                 q.put(('progress', 90, f"Diarization error: {str(e)[:30]}..."))
 
+        # Word-timestamp mode deliberately keeps its finer phrase grouping for
+        # Cut.  The default offline path benefits from sentence-level cues.
+        if not word_timestamps:
+            segments = _coalesce_batch_segments(segments)
+
         if not segments:
             q.put(('error', "No speech detected in the audio file."))
             return
@@ -381,6 +454,7 @@ class TranscriptionWorker(QThread):
         num_speakers: Optional[int] = None,
         initial_prompt: Optional[str] = None,
         word_timestamps: bool = False,
+        use_gpu: bool = True,
         parent: Optional[QObject] = None
     ):
         super().__init__(parent)
@@ -393,6 +467,7 @@ class TranscriptionWorker(QThread):
         self.num_speakers = num_speakers
         self.initial_prompt = initial_prompt
         self.word_timestamps = word_timestamps
+        self.use_gpu = use_gpu
         self._cancelled = threading.Event()
         self._process = None
 
@@ -419,6 +494,7 @@ class TranscriptionWorker(QThread):
                 q,
                 self.initial_prompt,
                 self.word_timestamps,
+                self.use_gpu,
             )
         )
         self._process.start()
@@ -488,7 +564,10 @@ class Transcriber:
 
     def __init__(self):
         self.current_worker: Optional[TranscriptionWorker] = None
-        self.gpu_type, self.gpu_name = detect_gpu()
+        cached_device = get_cached_gpu()
+        self.gpu_type, self.gpu_name = cached_device or (
+            "detecting", "Detecting hardware…"
+        )
 
     def is_busy(self) -> bool:
         """Check if a transcription is in progress."""
@@ -505,6 +584,7 @@ class Transcriber:
         num_speakers: Optional[int] = None,
         initial_prompt: Optional[str] = None,
         word_timestamps: bool = False,
+        use_gpu: bool = True,
         on_progress: Optional[Callable[[int, str], None]] = None,
         on_finished: Optional[Callable[[TranscriptionResult], None]] = None,
         on_error: Optional[Callable[[str], None]] = None
@@ -521,6 +601,7 @@ class Transcriber:
             enable_diarization: If True, identify speakers
             num_speakers: Number of speakers (None = auto-detect)
             word_timestamps: If True, request word-level timing (video mode)
+            use_gpu: Load whisper.cpp with GPU acceleration when available
             on_progress: Callback for progress updates (percentage, message)
             on_finished: Callback when transcription completes
             on_error: Callback for errors
@@ -566,6 +647,7 @@ class Transcriber:
             num_speakers=num_speakers,
             initial_prompt=initial_prompt,
             word_timestamps=word_timestamps,
+            use_gpu=use_gpu,
         )
 
         # Connect signals

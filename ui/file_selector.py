@@ -4,13 +4,14 @@ Drag-and-drop file upload with format validation
 """
 
 import os
+import shutil
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QFileDialog, QHBoxLayout
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QProcess, Qt, pyqtSignal
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 
-from utils import is_supported_format, SUPPORTED_FORMATS, get_audio_duration, format_duration
+from utils import is_supported_format, SUPPORTED_FORMATS, format_duration
 from ui.icons import IconLabel, get_icon, IconColors
 from ui.theme import set_role
 from core.i18n import tr
@@ -61,6 +62,11 @@ class FileSelector(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.selected_file = None
+        self._compact = False
+        self._probe_path: str | None = None
+        self._pending_probe_path: str | None = None
+        self._duration_probe = QProcess(self)
+        self._duration_probe.finished.connect(self._on_duration_probe_finished)
         self._setup_ui()
         self.setAcceptDrops(True)
 
@@ -74,6 +80,7 @@ class FileSelector(QWidget):
         self.drop_zone.setProperty("role", "drop-zone")
 
         drop_layout = QVBoxLayout(self.drop_zone)
+        self._drop_layout = drop_layout
         drop_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         drop_layout.setSpacing(16)
 
@@ -97,11 +104,11 @@ class FileSelector(QWidget):
         drop_layout.addWidget(self.browse_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # Formats hint
-        formats_hint = QLabel(tr("file_formats_hint"))
-        formats_hint.setProperty("role", "dim")
-        formats_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        formats_hint.setWordWrap(True)
-        drop_layout.addWidget(formats_hint)
+        self.formats_hint = QLabel(tr("file_formats_hint"))
+        self.formats_hint.setProperty("role", "dim")
+        self.formats_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.formats_hint.setWordWrap(True)
+        drop_layout.addWidget(self.formats_hint)
 
         layout.addWidget(self.drop_zone)
 
@@ -195,15 +202,13 @@ class FileSelector(QWidget):
         filename = os.path.basename(filepath)
         self.file_name_label.setText(filename)
 
-        # Get duration if possible
-        duration = get_audio_duration(filepath)
-        if duration:
-            self.file_duration_label.setText(format_duration(duration))
-        else:
-            self.file_duration_label.setText("")
+        self.file_duration_label.setText(tr("file_duration_checking"))
+        self._start_duration_probe(filepath)
 
         # Show file info, update drop zone with success state
         self.file_info.setVisible(True)
+        if self._compact:
+            self.drop_zone.setVisible(False)
         self.icon_label.set_icon('check_circle')
         self.icon_label.set_color(IconColors.SUCCESS)
         self.text_label.setText(tr("file_ready"))
@@ -216,6 +221,8 @@ class FileSelector(QWidget):
         """Clear the current selection."""
         self.selected_file = None
         self.file_info.setVisible(False)
+        self.drop_zone.setVisible(True)
+        self._cancel_duration_probe()
         self.icon_label.set_icon('music')
         self.icon_label.set_color(IconColors.DEFAULT)
         self.text_label.setText(tr("file_drop_title"))
@@ -224,3 +231,82 @@ class FileSelector(QWidget):
     def get_file(self) -> str | None:
         """Get the currently selected file path."""
         return self.selected_file
+
+    def cleanup(self) -> None:
+        """Stop an in-flight ffprobe without delaying window shutdown."""
+        self._cancel_duration_probe()
+
+    def _start_duration_probe(self, filepath: str) -> None:
+        if self._duration_probe.state() != QProcess.ProcessState.NotRunning:
+            self._probe_path = None
+            self._pending_probe_path = filepath
+            self._duration_probe.kill()
+            return
+        self._launch_duration_probe(filepath)
+
+    def _launch_duration_probe(self, filepath: str) -> None:
+        executable = shutil.which("ffprobe")
+        if not executable:
+            self.file_duration_label.setText("")
+            return
+        self._probe_path = filepath
+        self._duration_probe.start(executable, [
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            filepath,
+        ])
+
+    def _cancel_duration_probe(self) -> None:
+        self._probe_path = None
+        self._pending_probe_path = None
+        if self._duration_probe.state() != QProcess.ProcessState.NotRunning:
+            self._duration_probe.kill()
+
+    def _on_duration_probe_finished(self, exit_code: int, _status) -> None:
+        probed_path = self._probe_path
+        self._probe_path = None
+        if not probed_path or probed_path != self.selected_file or exit_code != 0:
+            if probed_path == self.selected_file:
+                self.file_duration_label.setText("")
+        else:
+            try:
+                duration = float(
+                    bytes(self._duration_probe.readAllStandardOutput()).decode().strip()
+                )
+            except (TypeError, ValueError):
+                duration = 0.0
+            self.file_duration_label.setText(
+                format_duration(duration) if duration > 0 else ""
+            )
+        pending = self._pending_probe_path
+        self._pending_probe_path = None
+        if pending and pending == self.selected_file:
+            self._launch_duration_probe(pending)
+
+    def set_compact(self, compact: bool) -> None:
+        """Keep the primary file action reachable in short windows.
+
+        At the supported 900x550 minimum, the full illustration and format
+        hint forced the browse button below the form's viewport.  Compact
+        mode preserves the meaningful title and action while removing only
+        decorative/help content already available in the file dialog.
+        """
+        self._compact = compact
+        self.drop_zone.setVisible(not (compact and self.selected_file is not None))
+        self.icon_label.setVisible(not compact)
+        self.formats_hint.setVisible(not compact)
+        self.text_label.setWordWrap(not compact)
+        self._drop_layout.setSpacing(6 if compact else 16)
+        margin = 8 if compact else 9
+        self._drop_layout.setContentsMargins(margin, margin, margin, margin)
+        if compact:
+            # Theme rules give buttons a 34px minimum height. Pinning the
+            # compact drop zone to the exact one-line layout prevents its
+            # former 184px geometry from overflowing a 78px parent.
+            self.drop_zone.setFixedHeight(72)
+            self.setMinimumHeight(72)
+        else:
+            self.drop_zone.setMinimumHeight(0)
+            self.drop_zone.setMaximumHeight(16_777_215)
+            self.setMinimumHeight(0)

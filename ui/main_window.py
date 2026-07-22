@@ -4,6 +4,7 @@ Main application window with compact header-bar layout and AI processing
 """
 
 import os
+import threading
 import time
 from pathlib import Path
 from PyQt6.QtWidgets import (
@@ -12,7 +13,7 @@ from PyQt6.QtWidgets import (
     QApplication, QTabWidget,
     QTextEdit, QLineEdit, QPlainTextEdit, QStackedWidget,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut, QDragEnterEvent, QDropEvent
 
 from ui.toast import show_toast
@@ -40,7 +41,14 @@ from ui.animated_button import AnimatedButton
 from ui.components import FormSection, OperationBar, PageHeader
 from transcriber import Transcriber, TranscriptionResult
 from exporters import export_result, EXPORT_FORMATS
-from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, get_thread_count, is_supported_format
+from utils import (
+    WHISPER_MODELS,
+    WHISPER_LANGUAGES,
+    PERFORMANCE_MODES,
+    detect_gpu,
+    get_thread_count,
+    is_supported_format,
+)
 from config import get_config, save_config
 from core.ai_worker import AIProcessingWorker
 from core.logger import get_logger
@@ -59,6 +67,24 @@ logger = get_logger(__name__)
 # MAIN WINDOW
 # ============================================================================
 
+
+class GPUDetectionWorker(QThread):
+    """Detect hardware without delaying construction of the main window."""
+
+    detected = pyqtSignal(str, str)
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._cancelled = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancelled.set()
+
+    def run(self) -> None:
+        gpu_type, gpu_name = detect_gpu(cancel_event=self._cancelled)
+        if not self._cancelled.is_set():
+            self.detected.emit(gpu_type, gpu_name)
+
 class MainWindow(QMainWindow):
     """Main application window with header-bar settings layout."""
 
@@ -68,6 +94,7 @@ class MainWindow(QMainWindow):
         self._current_result: TranscriptionResult | None = None
         self._cleaned_text: str | None = None
         self._ai_worker: AIProcessingWorker | None = None
+        self._gpu_worker: GPUDetectionWorker | None = None
         self._source_filepath: str | None = None
         self._use_gpu = True
         self._gpu_type, self._gpu_name = self.transcriber.gpu_type, self.transcriber.gpu_name
@@ -93,6 +120,8 @@ class MainWindow(QMainWindow):
         # navigating back to it or saving a new record, neither of which
         # has happened yet on a cold start.
         self.library_view.refresh()
+        if os.environ.get("WHISPERED_UI_GALLERY") != "1":
+            self._start_gpu_detection()
 
     def closeEvent(self, event):
         """Handle window close - cleanup resources."""
@@ -108,6 +137,11 @@ class MainWindow(QMainWindow):
         # Cleanup AI panel timers
         if hasattr(self, 'ai_panel'):
             self.ai_panel.cleanup()
+        if hasattr(self, "file_selector"):
+            self.file_selector.cleanup()
+        if self._gpu_worker and self._gpu_worker.isRunning():
+            self._gpu_worker.cancel()
+            self._gpu_worker.wait(1500)
 
         # Stop any running YouTube / Insights / Chat workers
         if hasattr(self, 'youtube_panel'):
@@ -217,6 +251,7 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(header)
 
         self.file_selector = FileSelector()
+        self.file_selector.set_compact(self.height() < 650)
         new_transcription = FormSection(
             tr("library_new_title"), tr("library_new_description")
         )
@@ -525,17 +560,43 @@ class MainWindow(QMainWindow):
         device_name = self._gpu_name if self._use_gpu else "CPU"
         self.status_label.setText(tr("status_switched_device", device=device_name))
 
+    def _start_gpu_detection(self) -> None:
+        if self._gpu_worker and self._gpu_worker.isRunning():
+            return
+        worker = GPUDetectionWorker(self)
+        self._gpu_worker = worker
+        worker.detected.connect(self._on_gpu_detected)
+        worker.finished.connect(lambda current=worker: self._on_gpu_worker_finished(current))
+        worker.start()
+
+    def _on_gpu_detected(self, gpu_type: str, gpu_name: str) -> None:
+        self._gpu_type, self._gpu_name = gpu_type, gpu_name
+        self.transcriber.gpu_type, self.transcriber.gpu_name = gpu_type, gpu_name
+        self._update_device_badge()
+
+    def _on_gpu_worker_finished(self, worker: GPUDetectionWorker) -> None:
+        if self._gpu_worker is worker:
+            self._gpu_worker = None
+        worker.deleteLater()
+
     def _update_device_badge(self):
         """Update the device button appearance based on current selection."""
-        if self._use_gpu and self._gpu_type in ('cuda', 'rocm'):
+        if self._gpu_type == "detecting":
+            self.device_btn.setText(tr("device_detecting"))
+            self.device_btn.setEnabled(False)
+            role = "muted-badge"
+        elif self._use_gpu and self._gpu_type in ('cuda', 'rocm'):
             self.device_btn.setText(f"🚀 {self._gpu_name}")
+            self.device_btn.setEnabled(True)
             role = "success-badge"
         elif self._use_gpu and self._gpu_type == 'metal':
             self.device_btn.setText(f"🍎 {self._gpu_name}")
+            self.device_btn.setEnabled(True)
             role = "accent-badge"
         else:
             # CPU mode or no GPU
             self.device_btn.setText("💻 CPU")
+            self.device_btn.setEnabled(self._gpu_type != "cpu")
             role = "muted-badge"
 
         self.device_btn.setProperty("role", role)
@@ -619,6 +680,8 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        if hasattr(self, "file_selector"):
+            self.file_selector.set_compact(event.size().height() < 650)
         if hasattr(self, "sidebar"):
             compact = event.size().width() < 1180 or bool(
                 getattr(get_config(), "sidebar_collapsed", False)
@@ -721,6 +784,7 @@ class MainWindow(QMainWindow):
             # segments; finer word-level cutting needs that merge fixed
             # for non-Latin scripts first.
             word_timestamps=False,
+            use_gpu=self._use_gpu,
             on_progress=self._on_progress,
             on_finished=self._on_finished,
             on_error=self._on_error
@@ -775,7 +839,8 @@ class MainWindow(QMainWindow):
             translate=translate,
             n_threads=n_threads,
             enable_diarization=enable_diarization,
-            num_speakers=None
+            num_speakers=None,
+            use_gpu=self._use_gpu,
         )
 
     def _on_progress(self, percentage: int, message: str):
