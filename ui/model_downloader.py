@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 
 from utils import get_models_dir
+from core.i18n import tr
 
 
 class DownloadWorker(QThread):
@@ -65,11 +66,11 @@ class DownloadWorker(QThread):
         except requests.exceptions.HTTPError as e:
             # Check if 404
             if e.response.status_code == 404:
-                self.finished.emit(False, "Model file not found on server (404).")
+                self.finished.emit(False, tr("download_error_not_found"))
             else:
-                self.finished.emit(False, f"HTTP Error: {str(e)}")
+                self.finished.emit(False, tr("download_error_http", error=str(e)))
         except Exception as e:
-            self.finished.emit(False, f"Download failed: {str(e)}")
+            self.finished.emit(False, tr("download_error_generic", error=str(e)))
 
 
 class DiarizationCacheWorker(QThread):
@@ -95,9 +96,9 @@ class DiarizationCacheWorker(QThread):
             )
             self.finished.emit(True, "Success")
         except ImportError:
-            self.finished.emit(False, "pyannote.audio or torch is not installed.")
+            self.finished.emit(False, tr("download_error_diarization_missing"))
         except Exception as e:
-            self.finished.emit(False, f"Failed to cache pyannote models: {str(e)}")
+            self.finished.emit(False, tr("download_error_diarization", error=str(e)))
 
 
 class ModelDownloaderDialog(QDialog):
@@ -122,7 +123,7 @@ class ModelDownloaderDialog(QDialog):
         self._setup_ui()
 
     def _setup_ui(self):
-        self.setWindowTitle("Downloading Model")
+        self.setWindowTitle(tr("download_model_title"))
         self.setFixedSize(450, 180)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
         self.setModal(True)
@@ -131,13 +132,21 @@ class ModelDownloaderDialog(QDialog):
         layout.setSpacing(12)
 
         # Title
-        title_text = "Downloading Pyannote Models..." if self.is_diarization else f"Downloading Model: {self.model_name}"
+        title_text = (
+            tr("download_pyannote_title")
+            if self.is_diarization
+            else tr("download_model_name", model=self.model_name)
+        )
         self.title_label = QLabel(title_text)
         self.title_label.setStyleSheet("font-size: 14px; font-weight: bold;")
         layout.addWidget(self.title_label)
 
         # Info
-        info_text = "Required models are being cached locally." if self.is_diarization else "This model is required for transcription and is not found locally."
+        info_text = (
+            tr("download_pyannote_info")
+            if self.is_diarization
+            else tr("download_model_info")
+        )
         self.info_label = QLabel(info_text)
         self.info_label.setProperty("role", "muted")
         self.info_label.setStyleSheet("font-size: 12px;")
@@ -153,7 +162,7 @@ class ModelDownloaderDialog(QDialog):
         layout.addWidget(self.progress_bar)
 
         # Stats
-        self.stats_label = QLabel("Starting download...")
+        self.stats_label = QLabel(tr("download_starting"))
         self.stats_label.setProperty("role", "muted")
         self.stats_label.setStyleSheet("font-size: 11px;")
         layout.addWidget(self.stats_label)
@@ -164,7 +173,7 @@ class ModelDownloaderDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
 
-        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn = QPushButton(tr("btn_cancel"))
         self.cancel_btn.clicked.connect(self._on_cancel)
         btn_layout.addWidget(self.cancel_btn)
 
@@ -202,13 +211,19 @@ class ModelDownloaderDialog(QDialog):
                 total_mb = total_bytes / (1024 * 1024)
 
                 self.stats_label.setText(
-                    f"{downloaded_mb:.1f} MB of {total_mb:.1f} MB "
-                    f"({speed_mbps:.1f} MB/s)"
+                    tr(
+                        "download_progress",
+                        downloaded=f"{downloaded_mb:.1f}",
+                        total=f"{total_mb:.1f}",
+                        speed=f"{speed_mbps:.1f}",
+                    )
                 )
         else:
             # Unknown total size
             downloaded_mb = bytes_read / (1024 * 1024)
-            self.stats_label.setText(f"{downloaded_mb:.1f} MB downloaded...")
+            self.stats_label.setText(
+                tr("download_progress_unknown", downloaded=f"{downloaded_mb:.1f}")
+            )
 
     def _on_download_finished(self, success: bool, message: str):
         """Handle download completion."""
@@ -217,7 +232,11 @@ class ModelDownloaderDialog(QDialog):
             self.accept()
         else:
             if message != "Cancelled":
-                QMessageBox.critical(self, "Download Failed", f"Failed to download model:\n{message}")
+                QMessageBox.critical(
+                    self,
+                    tr("download_failed_title"),
+                    tr("download_failed_message", error=message),
+                )
             self.reject()
 
     def _on_cancel(self):

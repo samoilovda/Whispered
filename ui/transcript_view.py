@@ -21,6 +21,7 @@ from transcriber import TranscriptionResult
 from utils import format_timestamp_vtt
 from ui.icons import get_icon, IconColors
 from ui.theme import SPEAKER_PALETTE, get_theme
+from core.i18n import tr
 
 # Speaker color palette (keyed by original speaker id)
 SPEAKER_COLORS = {
@@ -48,7 +49,7 @@ class _SpeakerRenameDialog(QDialog):
 
     def __init__(self, speaker_names: dict, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Rename Speakers")
+        self.setWindowTitle(tr("rename_speakers_title"))
         self.setMinimumWidth(340)
         self._edits: dict[str, QLineEdit] = {}
         layout = QVBoxLayout(self)
@@ -112,13 +113,13 @@ class TranscriptView(QWidget):
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(6)
 
-        title = QLabel("Transcription")
+        title = QLabel(tr("transcription_label"))
         title.setStyleSheet("font-weight: bold; font-size: 14px;")
         header_layout.addWidget(title)
         header_layout.addStretch()
 
         # Timestamps toggle
-        self.timestamps_btn = QPushButton("Timestamps")
+        self.timestamps_btn = QPushButton(tr("btn_timestamps"))
         self.timestamps_btn.setIcon(get_icon('clock', IconColors.DEFAULT, 14))
         self.timestamps_btn.setCheckable(True)
         self.timestamps_btn.setChecked(self._show_timestamps)
@@ -127,7 +128,7 @@ class TranscriptView(QWidget):
         header_layout.addWidget(self.timestamps_btn)
 
         # Speakers toggle (green accent when checked)
-        self.speakers_btn = QPushButton("Speakers")
+        self.speakers_btn = QPushButton(tr("btn_speakers"))
         self.speakers_btn.setIcon(get_icon('user', IconColors.DEFAULT, 14))
         self.speakers_btn.setCheckable(True)
         self.speakers_btn.setChecked(self._show_speakers)
@@ -138,32 +139,32 @@ class TranscriptView(QWidget):
         header_layout.addWidget(self.speakers_btn)
 
         # Rename speakers button
-        self.rename_btn = QPushButton("Rename…")
+        self.rename_btn = QPushButton(tr("btn_rename_speakers"))
         self.rename_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.rename_btn.clicked.connect(self._rename_speakers)
         self.rename_btn.setVisible(False)
         header_layout.addWidget(self.rename_btn)
 
         # Edit toggle
-        self.edit_btn = QPushButton("Edit")
+        self.edit_btn = QPushButton(tr("btn_edit"))
         self.edit_btn.setCheckable(True)
         self.edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.edit_btn.clicked.connect(self._toggle_edit)
         header_layout.addWidget(self.edit_btn)
 
         # Copy
-        self.copy_btn = QPushButton("Copy")
+        self.copy_btn = QPushButton(tr("btn_copy"))
         self.copy_btn.setIcon(get_icon('clipboard', IconColors.DEFAULT, 14))
-        self.copy_btn.setToolTip("Copy transcript  (Ctrl+Shift+C)")
+        self.copy_btn.setToolTip(tr("tooltip_copy"))
         self.copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.copy_btn.clicked.connect(self.copy_requested.emit)
         header_layout.addWidget(self.copy_btn)
 
         # Export
-        self.export_btn = QPushButton("Export")
+        self.export_btn = QPushButton(tr("btn_export"))
         self.export_btn.setIcon(get_icon('save', IconColors.WHITE, 14))
         self.export_btn.setProperty("variant", "primary")
-        self.export_btn.setToolTip("Export transcript  (Ctrl+E)")
+        self.export_btn.setToolTip(tr("tooltip_export"))
         self.export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.export_btn.clicked.connect(self.export_requested.emit)
         header_layout.addWidget(self.export_btn)
@@ -174,7 +175,7 @@ class TranscriptView(QWidget):
         self.text_edit = QTextEdit()
         self.text_edit.setReadOnly(True)
         self.text_edit.setFont(QFont("Monospace", 11))
-        self.text_edit.setPlaceholderText("Transcription will appear here…")
+        self.text_edit.setPlaceholderText(tr("transcript_placeholder"))
         self.text_edit.mousePressEvent = self._on_click
         layout.addWidget(self.text_edit, stretch=1)
 
@@ -185,23 +186,23 @@ class TranscriptView(QWidget):
         find_layout.setSpacing(6)
 
         self._find_edit = QLineEdit()
-        self._find_edit.setPlaceholderText("Find…")
+        self._find_edit.setPlaceholderText(tr("find_placeholder"))
         self._find_edit.returnPressed.connect(self._find_next)
         find_layout.addWidget(self._find_edit, stretch=1)
 
         self._replace_edit = QLineEdit()
-        self._replace_edit.setPlaceholderText("Replace with…")
+        self._replace_edit.setPlaceholderText(tr("replace_placeholder"))
         find_layout.addWidget(self._replace_edit, stretch=1)
 
-        find_next_btn = QPushButton("Next")
+        find_next_btn = QPushButton(tr("find_btn_next"))
         find_next_btn.clicked.connect(self._find_next)
         find_layout.addWidget(find_next_btn)
 
-        replace_btn = QPushButton("Replace")
+        replace_btn = QPushButton(tr("find_btn_replace"))
         replace_btn.clicked.connect(self._replace_one)
         find_layout.addWidget(replace_btn)
 
-        replace_all_btn = QPushButton("All")
+        replace_all_btn = QPushButton(tr("find_btn_all"))
         replace_all_btn.clicked.connect(self._replace_all)
         find_layout.addWidget(replace_all_btn)
 
@@ -230,7 +231,7 @@ class TranscriptView(QWidget):
         stats_layout.addWidget(self.stats_label)
         stats_layout.addStretch()
 
-        self._edit_hint = QLabel("Edit mode: one line per segment • click Save to apply")
+        self._edit_hint = QLabel(tr("edit_hint"))
         self._edit_hint.setProperty("role", "warning-text")
         self._edit_hint.setStyleSheet("font-size: 11px;")
         self._edit_hint.setVisible(False)
@@ -258,9 +259,12 @@ class TranscriptView(QWidget):
         self._set_buttons_enabled(True)
 
         word_count = len(result.full_text.split())
-        self.stats_label.setText(
-            f"{len(result.segments)} segments  •  {word_count} words  •  {result.duration / 60:.1f} min"
-        )
+        self.stats_label.setText(tr(
+            "transcript_stats",
+            segments=len(result.segments),
+            words=word_count,
+            minutes=f"{result.duration / 60:.1f}",
+        ))
         self.stats_bar.setVisible(True)
 
     def clear(self):
@@ -525,16 +529,17 @@ class TranscriptView(QWidget):
         text = doc.toPlainText()
         count = text.count(query)
         if count == 0:
-            self._find_count.setText("0 matches")
+            self._find_count.setText(tr("find_count_plural", count=0))
             return
         new_text = text.replace(query, replacement)
         self.text_edit.setPlainText(new_text)
-        self._find_count.setText(f"Replaced {count}")
+        self._find_count.setText(tr("find_replaced", count=count))
 
     def _update_find_count(self, query: str):
         text = self.text_edit.document().toPlainText()
         count = text.count(query)
-        self._find_count.setText(f"{count} match{'es' if count != 1 else ''}")
+        key = "find_count" if count == 1 else "find_count_plural"
+        self._find_count.setText(tr(key, count=count))
 
     # ------------------------------------------------------------------ player sync
 

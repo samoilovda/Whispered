@@ -6,6 +6,7 @@ Main application window with compact header-bar layout and AI processing
 import os
 import threading
 import time
+import re
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -61,6 +62,33 @@ from core.live.preflight import default_helper_path
 from core.live.runtime import LiveRuntime
 
 logger = get_logger(__name__)
+
+
+def _localized_progress(message: str) -> str:
+    """Translate known worker progress messages emitted across processes."""
+    exact = {
+        "Converting audio format...": "progress_converting",
+        "Loading model (downloading if needed)...": "progress_loading_model",
+        "Preparing transcription...": "progress_preparing",
+        "Detecting language...": "progress_detecting_language",
+        "Transcribing audio...": "progress_transcribing",
+        "Processing results...": "progress_processing_results",
+        "Identifying speakers...": "progress_identifying_speakers",
+        "Diarization not available, skipping...": "progress_diarization_skipped",
+        "Complete!": "progress_complete",
+        "Cancelling...": "progress_cancelling",
+    }
+    if message in exact:
+        return tr(exact[message])
+    match = re.fullmatch(r"Transcribing\.\.\. (\d+)s / (\d+)s", message)
+    if match:
+        return tr("progress_transcribing_time", current=match[1], total=match[2])
+    match = re.fullmatch(r"Found (\d+) speakers", message)
+    if match:
+        return tr("progress_speakers_found", count=match[1])
+    if message.startswith("Diarization error:"):
+        return tr("progress_diarization_error", error=message.split(":", 1)[1].strip())
+    return message
 
 
 # ============================================================================
@@ -847,14 +875,15 @@ class MainWindow(QMainWindow):
         """Handle progress updates with ETA calculation."""
         self.progress_bar.setValue(percentage)
         self._update_timeline(percentage, message)
+        message = _localized_progress(message)
         if percentage > 5 and self._transcription_start > 0:
             elapsed = time.monotonic() - self._transcription_start
             eta_sec = (elapsed / percentage) * (100 - percentage)
             eta_min, eta_s = divmod(int(eta_sec), 60)
             if eta_min:
-                eta_str = f"~{eta_min}m {eta_s}s left"
+                eta_str = tr("status_eta_minutes", minutes=eta_min, seconds=eta_s)
             else:
-                eta_str = f"~{eta_s}s left"
+                eta_str = tr("status_eta_seconds", seconds=eta_s)
             self.status_label.setText(f"{message}  ·  {eta_str}")
         else:
             self.status_label.setText(message)
@@ -1089,7 +1118,7 @@ class MainWindow(QMainWindow):
     def _on_error(self, error_message: str):
         """Handle transcription error."""
         self._reset_ui()
-        self.status_label.setText(f"Error: {error_message[:50]}...")
+        self.status_label.setText(tr("status_error", error=f"{error_message[:50]}..."))
 
         QMessageBox.critical(
             self,
@@ -1280,7 +1309,13 @@ class MainWindow(QMainWindow):
             # Switch to articles tab
             self.tools_tabs.setCurrentIndex(0)
 
-            self.status_label.setText(f"Generated: {result.title} ({result.word_count} words)")
+            self.status_label.setText(
+                tr(
+                    "status_article_generated",
+                    title=result.title,
+                    words=result.word_count,
+                )
+            )
 
     def _on_generate_all_finished(self, result):
         """Handle all articles generation completion."""
@@ -1296,9 +1331,11 @@ class MainWindow(QMainWindow):
             # Switch to articles tab
             self.tools_tabs.setCurrentIndex(0)
 
-            self.status_label.setText(
-                f"Generated {len(result.articles)} articles in {result.generation_time:.1f}s"
-            )
+            self.status_label.setText(tr(
+                "status_articles_generated",
+                count=len(result.articles),
+                seconds=f"{result.generation_time:.1f}",
+            ))
 
         if "article" in self._chain_pending:
             self._chain_pending.discard("article")
@@ -1317,8 +1354,14 @@ class MainWindow(QMainWindow):
             self._maybe_finish_chain()
         else:
             self._reset_ui()
-            self.status_label.setText(f"AI Error: {error_message[:50]}...")
-            QMessageBox.warning(self, "AI Processing Error", f"An error occurred:\n\n{error_message}")
+            self.status_label.setText(
+                tr("status_ai_error", error=f"{error_message[:50]}...")
+            )
+            QMessageBox.warning(
+                self,
+                tr("error_ai"),
+                tr("error_occurred", detail=error_message),
+            )
 
     # ===== Video Pipeline Methods =====
 

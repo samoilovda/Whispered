@@ -17,7 +17,12 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from config import get_config, save_config
-from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES, get_models_dir
+from utils import get_models_dir
+from ui.option_labels import (
+    performance_mode_options,
+    whisper_language_options,
+    whisper_model_options,
+)
 from ui.theme import apply_theme, set_role
 from core.logger import get_logger
 from core.i18n import tr
@@ -165,19 +170,19 @@ class SettingsDialog(QDialog):
 
         # Default model
         self._model_combo = QComboBox()
-        for key, label in WHISPER_MODELS:
+        for key, label in whisper_model_options():
             self._model_combo.addItem(label, key)
         layout.addRow(tr("settings_default_model"), self._model_combo)
 
         # Default language
         self._lang_combo = QComboBox()
-        for key, label in WHISPER_LANGUAGES:
+        for key, label in whisper_language_options():
             self._lang_combo.addItem(label, key)
         layout.addRow(tr("settings_default_language"), self._lang_combo)
 
         # Performance mode
         self._perf_combo = QComboBox()
-        for key, label, *_ in PERFORMANCE_MODES:
+        for key, label, *_ in performance_mode_options():
             self._perf_combo.addItem(label, key)
         layout.addRow(tr("settings_performance"), self._perf_combo)
 
@@ -298,7 +303,7 @@ class SettingsDialog(QDialog):
 
         # Book model name
         self._book_model_edit = QLineEdit()
-        self._book_model_edit.setPlaceholderText("leave empty to auto-detect")
+        self._book_model_edit.setPlaceholderText(tr("settings_book_model_placeholder"))
         layout.addRow(tr("settings_book_model"), self._book_model_edit)
 
         # Book temperature

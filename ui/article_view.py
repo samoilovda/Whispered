@@ -13,6 +13,16 @@ from article_generator import (
     Article, ArticleFormat, ARTICLE_FORMAT_INFO,
     export_article_md, export_article_html, export_all_articles
 )
+from core.i18n import tr
+
+
+_FORMAT_LABEL_KEYS = {
+    ArticleFormat.BLOG_POST: "article_format_blog",
+    ArticleFormat.FAQ: "article_format_faq",
+    ArticleFormat.LISTICLE: "article_format_listicle",
+    ArticleFormat.SUMMARY: "article_format_summary",
+    ArticleFormat.SOCIAL: "article_format_social",
+}
 
 
 class ArticleTab(QWidget):
@@ -34,7 +44,7 @@ class ArticleTab(QWidget):
         # Title and stats row
         header = QHBoxLayout()
 
-        self.title_label = QLabel("No article")
+        self.title_label = QLabel(tr("article_empty"))
         self.title_label.setStyleSheet("font-size: 14px; font-weight: bold;")
         self.title_label.setWordWrap(True)
         header.addWidget(self.title_label, stretch=1)
@@ -56,17 +66,17 @@ class ArticleTab(QWidget):
         actions = QHBoxLayout()
         actions.setSpacing(8)
 
-        self.copy_btn = QPushButton("📋 Copy")
+        self.copy_btn = QPushButton(f"📋 {tr('btn_copy')}")
         self.copy_btn.clicked.connect(self._on_copy)
         self.copy_btn.setEnabled(False)
         actions.addWidget(self.copy_btn)
 
-        self.export_md_btn = QPushButton("💾 Export .md")
+        self.export_md_btn = QPushButton(f"💾 {tr('btn_export')} .md")
         self.export_md_btn.clicked.connect(lambda: self._on_export('md'))
         self.export_md_btn.setEnabled(False)
         actions.addWidget(self.export_md_btn)
 
-        self.export_html_btn = QPushButton("🌐 Export .html")
+        self.export_html_btn = QPushButton(f"🌐 {tr('btn_export')} .html")
         self.export_html_btn.clicked.connect(lambda: self._on_export('html'))
         self.export_html_btn.setEnabled(False)
         actions.addWidget(self.export_html_btn)
@@ -87,10 +97,12 @@ class ArticleTab(QWidget):
 
         self.title_label.setText(article.title)
         self.content_edit.setMarkdown(article.content)
-        self.stats_label.setText(f"{article.word_count} words")
+        self.stats_label.setText(tr("article_words", count=article.word_count))
 
         if article.quality_score > 0:
-            self.score_label.setText(f"Quality: {article.quality_score:.1f}/10")
+            self.score_label.setText(
+                tr("article_quality", score=f"{article.quality_score:.1f}")
+            )
 
         # Enable buttons
         self.copy_btn.setEnabled(True)
@@ -100,7 +112,7 @@ class ArticleTab(QWidget):
     def clear(self):
         """Clear the article display."""
         self._article = None
-        self.title_label.setText("No article")
+        self.title_label.setText(tr("article_empty"))
         self.content_edit.clear()
         self.stats_label.setText("")
         self.score_label.setText("")
@@ -129,27 +141,27 @@ class ArticleTab(QWidget):
 
         if format == 'md':
             filepath, _ = QFileDialog.getSaveFileName(
-                self, "Export Markdown", f"{safe_title}.md",
-                "Markdown Files (*.md);;All Files (*)"
+                self, tr("article_export_markdown"), f"{safe_title}.md",
+                tr("article_markdown_filter")
             )
             if filepath:
                 try:
                     export_article_md(self._article, filepath)
                     self.export_requested.emit()
                 except Exception as e:
-                    QMessageBox.critical(self, "Export Error", str(e))
+                    QMessageBox.critical(self, tr("error_export"), str(e))
 
         elif format == 'html':
             filepath, _ = QFileDialog.getSaveFileName(
-                self, "Export HTML", f"{safe_title}.html",
-                "HTML Files (*.html);;All Files (*)"
+                self, tr("article_export_html"), f"{safe_title}.html",
+                tr("article_html_filter")
             )
             if filepath:
                 try:
                     export_article_html(self._article, filepath)
                     self.export_requested.emit()
                 except Exception as e:
-                    QMessageBox.critical(self, "Export Error", str(e))
+                    QMessageBox.critical(self, tr("error_export"), str(e))
 
 
 class ArticleView(QWidget):
@@ -180,7 +192,7 @@ class ArticleView(QWidget):
             tab.copy_requested.connect(lambda: self.copy_done.emit())
             tab.export_requested.connect(lambda: self.export_done.emit("exported"))
 
-            self.tabs.addTab(tab, f"{info['icon']} {info['name'].split()[1]}")
+            self.tabs.addTab(tab, f"{info['icon']} {tr(_FORMAT_LABEL_KEYS[fmt])}")
             self.format_tabs[fmt] = tab
 
         layout.addWidget(self.tabs)
@@ -190,7 +202,7 @@ class ArticleView(QWidget):
         export_all_layout.setContentsMargins(0, 8, 0, 0)
         export_all_layout.addStretch()
 
-        self.export_all_btn = QPushButton("📦 Export All to Folder")
+        self.export_all_btn = QPushButton(tr("article_export_all"))
         self.export_all_btn.setProperty("variant", "primary")
         self.export_all_btn.clicked.connect(self._on_export_all)
         self.export_all_btn.setEnabled(False)
@@ -243,14 +255,18 @@ class ArticleView(QWidget):
         if not self._articles:
             return
 
-        directory = QFileDialog.getExistingDirectory(self, "Select Export Folder")
+        directory = QFileDialog.getExistingDirectory(
+            self, tr("article_select_export_folder")
+        )
         if directory:
             try:
                 articles = list(self._articles.values())
                 created_files = export_all_articles(articles, directory)
-                self.export_done.emit(f"Exported {len(created_files)} files")
+                self.export_done.emit(
+                    tr("article_exported_files", count=len(created_files))
+                )
             except Exception as e:
-                QMessageBox.critical(self, "Export Error", str(e))
+                QMessageBox.critical(self, tr("error_export"), str(e))
 
 
 class CleanedTextView(QWidget):
@@ -271,7 +287,7 @@ class CleanedTextView(QWidget):
         # Stats row
         stats = QHBoxLayout()
 
-        self.stats_label = QLabel("No processed text")
+        self.stats_label = QLabel(tr("cleaned_empty"))
         self.stats_label.setProperty("role", "muted")
         self.stats_label.setStyleSheet("font-size: 12px;")
         stats.addWidget(self.stats_label)
@@ -293,7 +309,7 @@ class CleanedTextView(QWidget):
         # Actions
         actions = QHBoxLayout()
 
-        self.copy_btn = QPushButton("📋 Copy Cleaned Text")
+        self.copy_btn = QPushButton(tr("cleaned_copy"))
         self.copy_btn.clicked.connect(self._on_copy)
         self.copy_btn.setEnabled(False)
         actions.addWidget(self.copy_btn)
@@ -310,13 +326,17 @@ class CleanedTextView(QWidget):
 
         # Update stats
         word_count = len(cleaned_text.split())
-        self.stats_label.setText(f"{word_count} words • {paragraphs} paragraphs")
+        self.stats_label.setText(
+            tr("cleaned_stats", words=word_count, paragraphs=paragraphs)
+        )
 
         if original_length > 0 and len(cleaned_text) < original_length:
             reduction = ((original_length - len(cleaned_text)) / original_length) * 100
-            self.improvement_label.setText(
-                f"✨ Removed {removed_fillers} fillers • {reduction:.0f}% shorter"
-            )
+            self.improvement_label.setText(tr(
+                "cleaned_improvement",
+                fillers=removed_fillers,
+                reduction=f"{reduction:.0f}",
+            ))
 
         self.copy_btn.setEnabled(True)
 
@@ -324,7 +344,7 @@ class CleanedTextView(QWidget):
         """Clear the view."""
         self._cleaned_text = ""
         self.content_edit.clear()
-        self.stats_label.setText("No processed text")
+        self.stats_label.setText(tr("cleaned_empty"))
         self.improvement_label.setText("")
         self.copy_btn.setEnabled(False)
 

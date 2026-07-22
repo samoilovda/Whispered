@@ -20,7 +20,7 @@ from core.i18n import tr
 from core.live.preflight import default_helper_path
 from core.live.target_discovery import DiscoveredTarget, discover_targets
 from ui.components import FormSection
-from utils import WHISPER_LANGUAGES, WHISPER_MODELS
+from ui.option_labels import whisper_language_options, whisper_model_options
 
 
 class TargetDiscoveryWorker(QThread):
@@ -77,14 +77,14 @@ class LiveSetupPanel(FormSection):
         form.addRow(tr("live_meeting_target"), target_row)
 
         self.model_combo = QComboBox()
-        for key, label in WHISPER_MODELS:
+        for key, label in whisper_model_options():
             self.model_combo.addItem(label.split(" - ", 1)[0], key)
         self._select(self.model_combo, get_config().default_model)
         form.addRow(tr("live_model"), self.model_combo)
 
         self.language_combo = QComboBox()
-        for key, _label in WHISPER_LANGUAGES:
-            self.language_combo.addItem(tr("language_auto") if key == "auto" else key.upper(), key)
+        for key, label in whisper_language_options():
+            self.language_combo.addItem(label, key)
         self._select(self.language_combo, get_config().default_language)
         form.addRow(tr("live_language"), self.language_combo)
         self.layout.addLayout(form)

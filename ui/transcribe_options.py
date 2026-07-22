@@ -13,6 +13,11 @@ from PyQt6.QtCore import Qt, pyqtSignal
 
 from config import get_config
 from core.i18n import tr
+from ui.option_labels import (
+    performance_mode_options,
+    whisper_language_options,
+    whisper_model_options,
+)
 from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES
 
 
@@ -53,7 +58,7 @@ class TranscribeOptionsPopover(QFrame):
         model_row.addWidget(model_label)
         self.model_combo = QComboBox()
         self.model_combo.setMinimumWidth(200)
-        _fill_combo(self.model_combo, WHISPER_MODELS)
+        _fill_combo(self.model_combo, whisper_model_options())
         self.model_combo.currentIndexChanged.connect(self.changed.emit)
         model_row.addWidget(self.model_combo, stretch=1)
         layout.addLayout(model_row)
@@ -65,7 +70,7 @@ class TranscribeOptionsPopover(QFrame):
         lang_row.addWidget(lang_label)
         self.language_combo = QComboBox()
         self.language_combo.setMinimumWidth(140)
-        _fill_combo(self.language_combo, WHISPER_LANGUAGES)
+        _fill_combo(self.language_combo, whisper_language_options())
         self.language_combo.currentIndexChanged.connect(self.changed.emit)
         lang_row.addWidget(self.language_combo, stretch=1)
         layout.addLayout(lang_row)
@@ -82,7 +87,7 @@ class TranscribeOptionsPopover(QFrame):
         perf_row.addWidget(perf_label)
         self.perf_combo = QComboBox()
         self.perf_combo.setMinimumWidth(160)
-        _fill_combo(self.perf_combo, [(m[0], m[1]) for m in PERFORMANCE_MODES])
+        _fill_combo(self.perf_combo, [(m[0], m[1]) for m in performance_mode_options()])
         self.perf_combo.setToolTip(tr("tooltip_performance_mode"))
         self.perf_combo.currentIndexChanged.connect(self.changed.emit)
         perf_row.addWidget(self.perf_combo, stretch=1)

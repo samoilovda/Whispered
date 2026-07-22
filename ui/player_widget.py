@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QUrl
 
 from core.logger import get_logger
+from core.i18n import tr
 from utils import format_duration
 
 logger = get_logger(__name__)
@@ -74,19 +75,19 @@ class PlayerWidget(QWidget):
 
         self._rewind_btn = QPushButton("⏮ 10s")
         self._rewind_btn.setFixedWidth(52)
-        self._rewind_btn.setToolTip("Rewind 10 seconds")
+        self._rewind_btn.setToolTip(tr("tooltip_rewind"))
         self._rewind_btn.clicked.connect(lambda: self._seek_relative(-10))
         controls.addWidget(self._rewind_btn)
 
         self._play_btn = QPushButton("▶")
         self._play_btn.setFixedWidth(36)
-        self._play_btn.setToolTip("Play / Pause  (Space)")
+        self._play_btn.setToolTip(tr("tooltip_play"))
         self._play_btn.clicked.connect(self._toggle_play)
         controls.addWidget(self._play_btn)
 
         self._forward_btn = QPushButton("10s ⏭")
         self._forward_btn.setFixedWidth(52)
-        self._forward_btn.setToolTip("Forward 10 seconds")
+        self._forward_btn.setToolTip(tr("tooltip_forward"))
         self._forward_btn.clicked.connect(lambda: self._seek_relative(10))
         controls.addWidget(self._forward_btn)
 
@@ -113,7 +114,7 @@ class PlayerWidget(QWidget):
         row2 = QHBoxLayout()
         row2.setSpacing(8)
 
-        speed_label = QLabel("Speed:")
+        speed_label = QLabel(tr("label_speed"))
         speed_label.setProperty("role", "muted")
         speed_label.setStyleSheet("font-size: 11px;")
         row2.addWidget(speed_label)
@@ -129,7 +130,7 @@ class PlayerWidget(QWidget):
 
         row2.addSpacing(12)
 
-        vol_label = QLabel("Vol:")
+        vol_label = QLabel(tr("label_volume"))
         vol_label.setProperty("role", "muted")
         vol_label.setStyleSheet("font-size: 11px;")
         row2.addWidget(vol_label)
