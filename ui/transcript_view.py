@@ -3,6 +3,7 @@ Whispered UI - Transcript View Widget
 Display, edit and search transcription results with timestamp and speaker support.
 """
 
+import html
 import re
 from typing import Optional
 
@@ -277,6 +278,21 @@ class TranscriptView(QWidget):
     def get_result(self) -> Optional[TranscriptionResult]:
         return self._result
 
+    def showEvent(self, event):
+        """Re-render on show.
+
+        set_result() is often called while this widget's page is still
+        hidden inside a QStackedWidget (e.g. RecordView isn't current yet),
+        so text_edit lays out its document against stale construction-time
+        geometry and only ~1/5 of the content appears reachable until some
+        unrelated event (like a modal dialog) forces Qt to relayout. Redoing
+        the render here, once the widget has its real on-screen geometry,
+        fixes that without depending on caller ordering.
+        """
+        super().showEvent(event)
+        if self._result and not self._edit_mode:
+            self._update_display()
+
 
 
     def apply_display_settings(self):
@@ -349,10 +365,11 @@ class TranscriptView(QWidget):
                 ts = format_timestamp_vtt(seg.start)
                 parts.append(f'<span style="color:{theme.text_muted};">[{ts}]</span>')
             if seg.speaker:
-                name = self._get_display_name(seg.speaker)
+                name = html.escape(self._get_display_name(seg.speaker))
                 color = self._get_speaker_color(seg.speaker)
                 parts.append(f'<span style="color:{color};font-weight:bold;">[{name}]</span>')
-            parts.append(f'<span style="color:{theme.text_primary};">{seg.text.strip()}</span>')
+            text = html.escape(seg.text.strip())
+            parts.append(f'<span style="color:{theme.text_primary};">{text}</span>')
             html_lines.append(' '.join(parts))
         self.text_edit.setHtml('<br>'.join(html_lines))
         self._highlighted_block = -1
