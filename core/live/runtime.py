@@ -18,7 +18,8 @@ from core.live.preflight import default_helper_path, resource_profile
 from core.live.session_pipeline import LiveSessionPipeline
 from core.live.system_audio_source import SystemAudioSource
 from core.live.system_capture_protocol import CaptureTarget
-from core.paths import data_dir
+from core.paths import runtime_dir
+from core.platform_support import live_system_audio_unavailable_message, supports_live_system_audio
 
 
 class SourceState(str, Enum):
@@ -97,6 +98,9 @@ class LiveRuntime(QObject):
     ) -> bool:
         if self.is_running():
             return True
+        if use_system and not supports_live_system_audio():
+            self.error_occurred.emit("system", live_system_audio_unavailable_message())
+            use_system = False
         source_ids = tuple(
             source for source, enabled in (("mic", use_mic), ("system", use_system)) if enabled
         )
@@ -139,8 +143,7 @@ class LiveRuntime(QObject):
 
         if use_system:
             helper = helper_path or default_helper_path()
-            socket_dir = data_dir() / "runtime"
-            socket_dir.mkdir(parents=True, exist_ok=True)
+            socket_dir = runtime_dir()
             socket_path = socket_dir / f"capture-{os.getpid()}-{int(time.time())}.sock"
             system = SystemAudioSource(
                 self,

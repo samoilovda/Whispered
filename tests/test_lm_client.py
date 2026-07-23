@@ -54,6 +54,24 @@ class TestApiKeyAndModel:
             headers = mock_req.call_args.kwargs["headers"]
             assert headers["Authorization"] == "Bearer secret-key"
 
+    def test_connection_check_uses_authorization_header(self):
+        client = LMStudioClient("https://api.example.com/v1", api_key="secret-key")
+        with patch("urllib.request.urlopen") as mock_open, \
+             patch("urllib.request.Request") as mock_req:
+            response = _fake_response({})
+            response.status = 200
+            mock_open.return_value = response
+            assert client.check_connection()
+            assert mock_req.call_args.kwargs["headers"]["Authorization"] == "Bearer secret-key"
+
+    def test_loaded_model_check_uses_authorization_header(self):
+        client = LMStudioClient("https://api.example.com/v1", api_key="secret-key")
+        with patch("urllib.request.urlopen") as mock_open, \
+             patch("urllib.request.Request") as mock_req:
+            mock_open.return_value = _fake_response({"data": [{"id": "model"}]})
+            assert client.get_loaded_model() == "model"
+            assert mock_req.call_args.kwargs["headers"]["Authorization"] == "Bearer secret-key"
+
     def test_model_added_to_payload(self):
         client = LMStudioClient("https://api.example.com/v1", model="gpt-4o-mini")
         with patch("urllib.request.urlopen") as mock_open, \

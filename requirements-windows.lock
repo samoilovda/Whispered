@@ -1,0 +1,23 @@
+# Windows 11 x64 / Python 3.11 runtime lock.
+# Keep this in sync with requirements.lock after validating the resulting
+# Windows wheels in CI. pip selects the appropriate wheel for each package.
+certifi==2026.6.17
+cffi==2.1.0
+charset-normalizer==3.4.9
+darkdetect==0.7.1
+idna==3.18
+lxml==6.1.1
+numpy==2.4.6
+platformdirs==4.10.0
+pycparser==3.0
+pyqt6==6.11.0
+pyqt6-qt6==6.11.1
+pyqt6-sip==13.11.1
+pyqtdarktheme==2.1.0
+python-docx==1.2.0
+pywhispercpp==1.5.0
+requests==2.34.2
+sounddevice==0.5.5
+tqdm==4.68.4
+typing-extensions==4.16.0
+urllib3==2.7.0

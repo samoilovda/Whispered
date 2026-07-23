@@ -1,7 +1,24 @@
 """Unit tests for core/llm_text.py"""
 
 # Qt and core.lm_client/core.ai_worker stand-ins come from tests/conftest.py.
-from core.llm_text import sample_lines_evenly
+import pytest
+
+from core.llm_text import sample_lines_evenly, split_into_chunks
+
+
+def test_split_into_chunks_preserves_text_boundaries_and_overlap():
+    text = "Sentence one. Sentence two. Sentence three. Sentence four."
+    chunks = split_into_chunks(text, chunk_size=28, overlap=6, separators=(". ", " "))
+    assert len(chunks) > 1
+    assert all(chunks)
+    assert chunks[0].startswith("Sentence one")
+    assert "Sentence four" in chunks[-1]
+
+
+@pytest.mark.parametrize("chunk_size,overlap", [(0, 0), (10, -1), (10, 10)])
+def test_split_into_chunks_rejects_invalid_sizes(chunk_size, overlap):
+    with pytest.raises(ValueError):
+        split_into_chunks("text " * 10, chunk_size, overlap)
 
 
 # ── sample_lines_evenly ──────────────────────────────────────────────────────

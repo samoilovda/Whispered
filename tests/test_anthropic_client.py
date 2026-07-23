@@ -58,6 +58,18 @@ class TestAnthropicClient:
             result = client.chat_completion_stream([{"role": "user", "content": "Hi"}])
             assert result == "Hello, world!"
 
+    def test_completed_text_is_reported_to_token_callback(self):
+        client = AnthropicClient(api_key="key", model="claude-sonnet-5")
+        received = []
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_open.return_value = _fake_response(
+                {"content": [{"type": "text", "text": "answer"}]}
+            )
+            assert client.chat_completion_stream(
+                [{"role": "user", "content": "Hi"}], on_token=received.append
+            ) == "answer"
+        assert received == ["answer"]
+
     def test_non_text_blocks_ignored(self):
         client = AnthropicClient(api_key="key", model="claude-sonnet-5")
         with patch("urllib.request.urlopen") as mock_open:

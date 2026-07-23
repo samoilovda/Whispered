@@ -33,3 +33,13 @@ def test_preflight_blocks_missing_source_and_missing_system_helper(tmp_path, mon
     )
     system = next(check for check in missing_helper if check.key == "system_audio")
     assert system.status is PreflightStatus.FAIL
+
+
+def test_preflight_rejects_windows_system_audio(monkeypatch):
+    monkeypatch.setattr("core.live.preflight.platform.system", lambda: "Windows")
+    checks = LivePreflight().run(
+        use_mic=True, use_system=True, model_name="tiny", memory_gb=24
+    )
+    system = next(check for check in checks if check.key == "system_audio")
+    assert system.status is PreflightStatus.FAIL
+    assert "Windows" in system.message

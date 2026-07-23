@@ -17,7 +17,7 @@ from PyQt6.QtGui import QFont
 
 from core.i18n import tr
 from core.logger import get_logger
-from core.paths import data_dir
+from core.paths import output_dir
 from core.youtube_description import compose_full_description, format_youtube_description
 from ui.toast import show_toast
 from utils import language_name_for_code
@@ -51,7 +51,7 @@ _YT_TYPES = tuple(spec.insight_type for spec in _TAB_SPECS)
 # Save location for generated files: the user data directory (same base as
 # config.json/history.db), not a path under the app's own install location —
 # in a PyInstaller bundle that location is read-only and saving would fail.
-_OUTPUT_DIR = data_dir() / "output"
+_OUTPUT_DIR = output_dir()
 
 
 def _friendly_path(path: Path) -> str:

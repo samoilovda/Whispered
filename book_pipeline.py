@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from core.lm_client import LMStudioClient
+from core.llm_text import split_into_chunks
 from core.prompts import load_prompt
 from core.logger import get_logger
 from config import get_config
@@ -76,33 +77,23 @@ def _versioned_path(path: Path) -> Path:
     # Strip existing _vN suffix to get a clean base
     base = re.sub(r"_v\d+$", "", stem)
     n = 2
-    while True:
+    while n <= 1000:
         candidate = parent / f"{base}_v{n}{suffix}"
         if not candidate.exists():
             return candidate
         n += 1
+    raise RuntimeError("Too many versions for output file")
 
 
 def _chunk_text(text: str, chunk_size: int = BOOK_CHUNK_SIZE,
                 overlap: int = BOOK_CHUNK_OVERLAP) -> list[str]:
     """Split text into overlapping chunks for large-document processing."""
-    if len(text) <= chunk_size:
-        return [text]
-
-    chunks = []
-    start = 0
-    while start < len(text):
-        end = start + chunk_size
-        # Try to break at paragraph/sentence boundary
-        if end < len(text):
-            for sep in ("\n\n", "\n", ". ", " "):
-                pos = text.rfind(sep, start, end)
-                if pos > start:
-                    end = pos + len(sep)
-                    break
-        chunks.append(text[start:end])
-        start = end - overlap
-    return chunks
+    return split_into_chunks(
+        text, chunk_size, overlap,
+        separators=("\n\n", "\n", ". ", " "),
+        boundary_window=chunk_size,
+        strip=False,
+    )
 
 
 def _call_lm(

@@ -10,6 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+
+
 @dataclass
 class ProviderSettings:
     kind: str            # "lmstudio" | "openai" | "anthropic"
@@ -41,6 +44,8 @@ def provider_from_config(cfg) -> ProviderSettings:
             kind="openai",
             base_url=cfg.yt_openai_base_url,
             api_key=cfg.yt_openai_api_key,
-            model=cfg.yt_openai_model,
+            # OpenAI-compatible endpoints require a model, unlike LM Studio.
+            # Keep older/hand-edited configurations with an empty value usable.
+            model=cfg.yt_openai_model or DEFAULT_OPENAI_MODEL,
         )
     return ProviderSettings(kind="lmstudio", base_url=cfg.lm_studio_url)

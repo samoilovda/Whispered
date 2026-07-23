@@ -32,7 +32,7 @@ _stub_transcriber.TranscriptionResult = object
 # what ran before it.
 sys.modules["transcriber"] = _stub_transcriber
 
-from batch_processor import BatchProcessor, BatchItem, BatchStatus
+from batch_processor import BatchProcessor, BatchItem, BatchStatus, BatchWorker
 
 
 @pytest.fixture
@@ -163,6 +163,21 @@ class TestStart:
     def test_cancel_without_running_worker_is_safe(self):
         processor = BatchProcessor()
         processor.cancel()  # should not raise
+
+
+class TestBatchWorkerFailures:
+    def test_model_setup_failure_does_not_wait_forever(self, monkeypatch):
+        item = BatchItem(filepath="recording.mp3")
+        worker = BatchWorker([item], model_name="base")
+        monkeypatch.setattr(worker._transcriber, "transcribe", lambda **kwargs: None)
+        errors = []
+        worker.item_error.connect(lambda index, error: errors.append((index, error)))
+
+        worker._process_item(0, item)
+
+        assert item.status is BatchStatus.ERROR
+        assert item.error == "Model download failed"
+        assert errors == [(0, "Model download failed")]
 
 
 class TestResultsAndExport:

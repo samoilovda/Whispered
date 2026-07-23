@@ -48,24 +48,26 @@ class TestParseJsonResponse:
 # ── chat_worker helpers ───────────────────────────────────────────────────────
 
 from core.chat_worker import _build_system_prompt, _CONTEXT_CHARS
+from core.i18n import tr
 
 
 class TestBuildSystemPrompt:
     def test_short_transcript_unchanged(self):
         prompt = _build_system_prompt("hello world")
         assert "hello world" in prompt
-        assert "[truncated" not in prompt
+        assert tr("chat_transcript_truncated") not in prompt
 
     def test_long_transcript_truncated(self):
         long = "x" * (_CONTEXT_CHARS + 1000)
         prompt = _build_system_prompt(long)
         assert len(prompt) < len(long) + 500  # some overhead from template
-        assert "[truncated" in prompt.lower() or "truncated" in prompt
+        assert tr("chat_transcript_truncated") in prompt
 
     def test_system_template_present(self):
         prompt = _build_system_prompt("test")
-        assert "TRANSCRIPTION" in prompt
+        template_prefix = tr("chat_system_prompt", transcript="").split("\n", 1)[0]
+        assert template_prefix in prompt
 
     def test_custom_max_chars(self):
         prompt = _build_system_prompt("a" * 1000, max_chars=100)
-        assert "truncated" in prompt.lower()
+        assert tr("chat_transcript_truncated") in prompt

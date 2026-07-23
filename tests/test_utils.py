@@ -13,6 +13,17 @@ from utils import (
 
 def test_detect_gpu_falls_back_to_metal_on_sandboxed_apple_silicon(monkeypatch):
     clear_gpu_cache()
+
+
+def test_frozen_windows_build_reports_cpu_even_if_gpu_tools_exist(monkeypatch):
+    clear_gpu_cache()
+    monkeypatch.setattr("utils.platform.system", lambda: "Windows")
+    monkeypatch.setattr("utils.sys.frozen", True, raising=False)
+    gpu_type, name = detect_gpu()
+
+    assert gpu_type == "cpu"
+    assert "Windows CPU" in name
+    clear_gpu_cache()
     monkeypatch.setattr("utils.shutil.which", lambda _name: None)
     monkeypatch.setattr("utils.platform.system", lambda: "Darwin")
     monkeypatch.setattr("utils.platform.machine", lambda: "arm64")

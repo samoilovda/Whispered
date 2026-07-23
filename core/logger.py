@@ -7,8 +7,9 @@ Log file: ~/.whispered/app.log (with rotation)
 import os
 import sys
 import logging
-import platform
 from logging.handlers import RotatingFileHandler
+
+from core.paths import logs_dir
 
 
 _logging_configured = False
@@ -16,15 +17,7 @@ _logging_configured = False
 
 def _get_log_dir() -> str:
     """Get the platform-appropriate log directory."""
-    system = platform.system()
-    if system == 'Windows':
-        base = os.environ.get('APPDATA', os.path.expanduser('~\\AppData\\Roaming'))
-        return os.path.join(base, 'Whispered', 'logs')
-    elif system == 'Darwin':
-        return os.path.expanduser('~/Library/Application Support/Whispered/logs')
-    else:
-        base = os.environ.get('XDG_DATA_HOME', os.path.expanduser('~/.local/share'))
-        return os.path.join(base, 'Whispered', 'logs')
+    return str(logs_dir())
 
 
 def setup_logging(level: int = logging.INFO) -> None:

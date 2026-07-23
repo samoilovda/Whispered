@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import os
 import platform
-import shutil
 import subprocess
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+
+from core.external_tools import resolve_tool
+from core.platform_support import live_system_audio_unavailable_message, supports_live_system_audio
 
 
 class PreflightStatus(str, Enum):
@@ -46,6 +48,29 @@ def physical_memory_gb() -> float:
             )
             return int(value.strip()) / (1024**3)
         except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+    if platform.system() == "Windows":
+        try:
+            import ctypes
+
+            class _MemoryStatus(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            status = _MemoryStatus()
+            status.dwLength = ctypes.sizeof(status)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+                return float(status.ullTotalPhys) / (1024**3)
+        except (AttributeError, OSError):
             pass
     try:
         pages = os.sysconf("SC_PHYS_PAGES")
@@ -110,15 +135,22 @@ class LivePreflight:
                     "target", PreflightStatus.FAIL, "Select a running meeting application"
                 ))
             helper = helper_path or default_helper_path()
-            if platform.system() != "Darwin":
-                checks.append(PreflightCheck("system_audio", PreflightStatus.FAIL, "System audio currently requires macOS"))
+            if not supports_live_system_audio():
+                checks.append(PreflightCheck(
+                    "system_audio", PreflightStatus.FAIL, live_system_audio_unavailable_message()
+                ))
             elif helper.is_file() and os.access(helper, os.X_OK):
                 checks.append(PreflightCheck("system_audio", PreflightStatus.PASS, "ScreenCaptureKit helper is ready; permission is verified on Start"))
             else:
                 checks.append(PreflightCheck("system_audio", PreflightStatus.FAIL, f"Build capture helper: {helper.parent.parent.parent / 'README.md'}"))
         from utils import get_models_dir
-        model_dir = Path(get_models_dir())
-        candidates = tuple(model_dir.glob(f"*{model_name}*")) if model_name else ()
+        try:
+            model_dir = Path(get_models_dir())
+            candidates = tuple(model_dir.glob(f"*{model_name}*")) if model_name else ()
+        except OSError:
+            # Preflight is read-only. A restricted profile must report a
+            # warning rather than fail while merely checking model presence.
+            candidates = ()
         checks.append(PreflightCheck(
             "model",
             PreflightStatus.PASS if candidates else PreflightStatus.WARNING,
@@ -126,8 +158,8 @@ class LivePreflight:
         ))
         checks.append(PreflightCheck(
             "ffmpeg",
-            PreflightStatus.PASS if shutil.which("ffmpeg") else PreflightStatus.WARNING,
-            "FFmpeg available" if shutil.which("ffmpeg") else "FFmpeg is optional for Live but required by later media workflows",
+            PreflightStatus.PASS if resolve_tool("ffmpeg") else PreflightStatus.WARNING,
+            "FFmpeg available" if resolve_tool("ffmpeg") else "FFmpeg is optional for Live but required by later media workflows",
         ))
         return tuple(checks)
 

@@ -38,9 +38,11 @@ sys.modules.setdefault("core.ai_worker", _ai_stub)
 from article_generator import (
     ArticleGenerator,
     ArticleFormat,
+    Article,
     TopicAnalysis,
     _split_into_chunks,
     _merge_topic_analyses,
+    export_article_html,
 )
 
 
@@ -82,6 +84,36 @@ class TestSplitIntoChunks:
         chunks = _split_into_chunks(text, 12000)
         for chunk in chunks[:-1]:
             assert chunk.rstrip().endswith(('.', '?', '!'))
+
+
+class TestHtmlExport:
+    def test_single_digit_paragraph_does_not_raise(self, tmp_path):
+        article = Article(
+            title="Test",
+            format=ArticleFormat.SUMMARY,
+            content="1",
+            topics=[],
+        )
+        output = tmp_path / "article.html"
+
+        export_article_html(article, str(output))
+
+        assert "<p>1</p>" in output.read_text(encoding="utf-8")
+
+    def test_html_export_escapes_model_generated_markup(self, tmp_path):
+        article = Article(
+            title="<unsafe>",
+            format=ArticleFormat.SUMMARY,
+            content="# Heading\n\n<script>alert('x')</script>",
+        )
+        output = tmp_path / "article.html"
+
+        export_article_html(article, str(output))
+
+        content = output.read_text(encoding="utf-8")
+        assert "<script>" not in content
+        assert "&lt;script&gt;" in content
+        assert "<title>&lt;unsafe&gt;</title>" in content
 
 
 class TestMergeTopicAnalyses:

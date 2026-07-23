@@ -57,7 +57,7 @@ from core.i18n import tr
 from transcriber import _build_initial_prompt
 from timeline_export import write_edl
 from video_edit import mark_pauses
-from video_cut import assemble_draft, VideoCutError
+from video_cut import assemble_draft
 from core.live.preflight import default_helper_path
 from core.live.runtime import LiveRuntime
 
@@ -113,6 +113,35 @@ class GPUDetectionWorker(QThread):
         if not self._cancelled.is_set():
             self.detected.emit(gpu_type, gpu_name)
 
+
+class DraftAssemblyWorker(QThread):
+    """Run the potentially long FFmpeg draft assembly away from the UI thread."""
+
+    progress = pyqtSignal(str)
+    assembled = pyqtSignal(str)
+    error = pyqtSignal(str)
+
+    def __init__(self, source_path: str, segments, output_path: str, parent=None) -> None:
+        super().__init__(parent)
+        self._source_path = source_path
+        self._segments = list(segments)
+        self._output_path = output_path
+
+    def run(self) -> None:
+        try:
+            assemble_draft(
+                self._source_path,
+                self._segments,
+                self._output_path,
+                on_progress=self.progress.emit,
+            )
+        except Exception as exc:
+            logger.exception("assemble_draft failed: %s", exc)
+            self.error.emit(str(exc))
+        else:
+            self.assembled.emit(self._output_path)
+
+
 class MainWindow(QMainWindow):
     """Main application window with header-bar settings layout."""
 
@@ -123,6 +152,7 @@ class MainWindow(QMainWindow):
         self._cleaned_text: str | None = None
         self._ai_worker: AIProcessingWorker | None = None
         self._gpu_worker: GPUDetectionWorker | None = None
+        self._draft_worker: DraftAssemblyWorker | None = None
         self._source_filepath: str | None = None
         self._use_gpu = True
         self._gpu_type, self._gpu_name = self.transcriber.gpu_type, self.transcriber.gpu_name
@@ -600,6 +630,8 @@ class MainWindow(QMainWindow):
     def _on_gpu_detected(self, gpu_type: str, gpu_name: str) -> None:
         self._gpu_type, self._gpu_name = gpu_type, gpu_name
         self.transcriber.gpu_type, self.transcriber.gpu_name = gpu_type, gpu_name
+        if gpu_type == "cpu":
+            self._use_gpu = False
         self._update_device_badge()
 
     def _on_gpu_worker_finished(self, worker: GPUDetectionWorker) -> None:
@@ -999,11 +1031,11 @@ class MainWindow(QMainWindow):
         """Auto-save whatever the chain produced to data_dir()/output/<stem>/
         and report how many files came out of it — the plan's "Готово: N
         артефактов" toast."""
-        from core.paths import data_dir
+        from core.paths import output_dir
         from article_generator import export_all_articles
 
         stem = Path(self._source_filepath).stem if self._source_filepath else "recording"
-        out_dir = data_dir() / "output" / stem
+        out_dir = output_dir() / stem
 
         saved: list[Path] = []
         if "youtube" in self._chain_ran:
@@ -1403,6 +1435,8 @@ class MainWindow(QMainWindow):
 
     def _assemble_draft(self):
         """Cut and concatenate kept segments into a draft MP4 via ffmpeg."""
+        if self._draft_worker and self._draft_worker.isRunning():
+            return
         src = getattr(self, "_source_filepath", None)
         if not src:
             return
@@ -1418,14 +1452,22 @@ class MainWindow(QMainWindow):
         if not out_path:
             return
         show_toast(self, tr("toast_assembling"), kind="info")
-        try:
-            def _progress(msg: str):
-                self.status_label.setText(msg)
-            assemble_draft(src, segs, out_path, on_progress=_progress)
-            show_toast(self, tr("toast_assembled", name=os.path.basename(out_path)), kind="success")
-        except (VideoCutError, Exception) as exc:
-            show_toast(self, tr("toast_assemble_error", detail=str(exc)[:80]), kind="error")
-            logger.exception("assemble_draft failed: %s", exc)
+        self.operation_bar.set_operation(tr("toast_assembling"))
+        self._draft_worker = DraftAssemblyWorker(src, segs, out_path, self)
+        self._draft_worker.progress.connect(self.status_label.setText)
+        self._draft_worker.assembled.connect(self._on_draft_assembled)
+        self._draft_worker.error.connect(self._on_draft_assembly_error)
+        self._draft_worker.start()
+
+    def _on_draft_assembled(self, output_path: str) -> None:
+        self._draft_worker = None
+        self.operation_bar.clear()
+        show_toast(self, tr("toast_assembled", name=os.path.basename(output_path)), kind="success")
+
+    def _on_draft_assembly_error(self, error: str) -> None:
+        self._draft_worker = None
+        self.operation_bar.clear()
+        show_toast(self, tr("toast_assemble_error", detail=error[:80]), kind="error")
 
     # ===== Book Pipeline Methods =====
 

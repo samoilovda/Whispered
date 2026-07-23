@@ -82,6 +82,10 @@ class TestProviderFromConfig:
         assert ps.api_key == "sk-x"
         assert ps.model == "gpt-4o-mini"
 
+    def test_openai_uses_default_model_when_config_value_is_blank(self):
+        ps = provider_from_config(_FakeConfig(yt_provider="openai", yt_openai_model=""))
+        assert ps.model == "gpt-4o-mini"
+
     def test_anthropic_maps_fields(self):
         cfg = _FakeConfig(
             yt_provider="anthropic",

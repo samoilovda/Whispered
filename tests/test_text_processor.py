@@ -83,6 +83,15 @@ class TestQuickClean:
         result = cleaner._quick_clean("  um hello  ")
         assert result == result.strip()
 
+    def test_preserves_ordinary_words_that_can_also_be_fillers(self):
+        cleaner = TextCleaner(lm_client=FakeLMClient())
+        assert cleaner._quick_clean("I would like to go") == "I would like to go"
+        assert cleaner._quick_clean("She played so well") == "She played so well"
+
+    def test_removes_contextual_filler_at_sentence_start(self):
+        cleaner = TextCleaner(lm_client=FakeLMClient())
+        assert cleaner._quick_clean("Well, this is useful") == "this is useful"
+
 
 class TestCleanFallsBackWithoutAI:
     def test_clean_uses_quick_clean_when_lm_unavailable(self):

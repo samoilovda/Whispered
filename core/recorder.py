@@ -14,6 +14,8 @@ Usage (within a QThread or main thread):
 from __future__ import annotations
 
 import queue
+import math
+import struct
 import threading
 import wave
 from datetime import datetime
@@ -44,6 +46,21 @@ def _rms(block) -> float:
     """Root-mean-square of a numpy int16 block, normalised to [0, 1]."""
     arr = block.astype("float32") / 32768.0
     return float(np.sqrt(np.mean(arr ** 2)))
+
+
+def _rms_pcm16(data: bytes) -> float:
+    """Compute normalised RMS for little-endian PCM16 without NumPy."""
+    sample_bytes = data[:len(data) - (len(data) % 2)]
+    if not sample_bytes:
+        return 0.0
+    samples = struct.iter_unpack("<h", sample_bytes)
+    total = 0.0
+    count = 0
+    for (sample,) in samples:
+        normalized = sample / 32768.0
+        total += normalized * normalized
+        count += 1
+    return math.sqrt(total / count) if count else 0.0
 
 
 def list_input_devices() -> list[dict]:
@@ -142,8 +159,8 @@ class Recorder(QObject):
             if self._wav is not None:
                 try:
                     self._wav.close()
-                except Exception as exc:
-                    logger.debug("WAV close during stream-open failure: %s", exc)
+                except Exception as close_exc:
+                    logger.debug("WAV close during stream-open failure: %s", close_exc)
                 self._wav = None
             self.error_occurred.emit(f"Cannot open audio device: {exc}")
             return
@@ -208,6 +225,8 @@ class Recorder(QObject):
                 self._q.put(chunk)
                 if _NUMPY_AVAILABLE:
                     self.level_changed.emit(_rms(indata))
+                else:
+                    self.level_changed.emit(_rms_pcm16(chunk))
                 if self._frame_sink is not None:
                     try:
                         self._frame_sink(chunk, frames, time_info)

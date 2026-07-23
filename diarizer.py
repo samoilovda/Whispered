@@ -226,8 +226,9 @@ class SimpleDiarizer:
     """
     Simple heuristic-based diarization fallback.
 
-    Uses silence detection and basic audio features to estimate speaker changes.
-    Less accurate than pyannote but requires no external services.
+    Placeholder for a future VAD-based fallback. It is not wired into the
+    application and must not be presented as functional diarization until it
+    produces actual speaker segments.
     """
 
     def __init__(self):
@@ -243,10 +244,9 @@ class SimpleDiarizer:
         on_progress: Optional[Callable[[int, str], None]] = None
     ) -> DiarizationResult:
         """
-        Simple diarization based on silence/pause detection.
+        Placeholder API only; returns no inferred speaker segments.
 
-        This is a basic fallback that alternates speakers at long pauses.
-        Not as accurate as pyannote but works without dependencies.
+        TODO: implement a VAD-based fallback before exposing this class in UI.
         """
         if on_progress:
             on_progress(50, "Using simple diarization...")

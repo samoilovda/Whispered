@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 
 from video_input import ensure_ffmpeg
+from core.external_tools import resolve_tool
 from core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -87,7 +88,7 @@ def _assemble_accurate(source_path, segments, output_path, progress, crf, preset
             progress(f"Cutting segment {i + 1}/{total}…")
             ts_path = os.path.join(tmpdir, f"seg_{i:04d}.ts")
             cmd = [
-                "ffmpeg", "-y",
+                resolve_tool("ffmpeg") or "ffmpeg", "-y",
                 "-ss", f"{seg.start:.3f}",
                 "-to", f"{seg.end:.3f}",
                 "-i", abs_source,
@@ -106,7 +107,7 @@ def _assemble_accurate(source_path, segments, output_path, progress, crf, preset
             for p in ts_files:
                 f.write(f"file '{p}'\n")
         cmd = [
-            "ffmpeg", "-y",
+            resolve_tool("ffmpeg") or "ffmpeg", "-y",
             "-f", "concat", "-safe", "0",
             "-i", list_path,
             "-c", "copy",
@@ -139,7 +140,7 @@ def _run_concat_copy(source_path: str, segments, output_path: str, progress):
     with tempfile.TemporaryDirectory() as tmpdir:
         list_path = _write_concat_list(source_path, segments, tmpdir)
         cmd = [
-            "ffmpeg", "-y",
+            resolve_tool("ffmpeg") or "ffmpeg", "-y",
             "-f", "concat", "-safe", "0",
             "-i", list_path,
             "-c", "copy",

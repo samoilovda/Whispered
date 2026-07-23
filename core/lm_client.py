@@ -48,7 +48,9 @@ class LMStudioClient:
     def check_connection(self, timeout: float = 5) -> bool:
         """Check if LM Studio server is running and accessible."""
         try:
-            req = urllib.request.Request(f"{self.base_url}/models")
+            req = urllib.request.Request(
+                f"{self.base_url}/models", headers=self._auth_headers()
+            )
             with urllib.request.urlopen(req, timeout=timeout) as response:
                 return response.status == 200
         except Exception:
@@ -57,7 +59,9 @@ class LMStudioClient:
     def get_loaded_model(self, timeout: float = 5) -> Optional[str]:
         """Get the currently loaded model name."""
         try:
-            req = urllib.request.Request(f"{self.base_url}/models")
+            req = urllib.request.Request(
+                f"{self.base_url}/models", headers=self._auth_headers()
+            )
             with urllib.request.urlopen(req, timeout=timeout) as response:
                 data = json.loads(response.read().decode('utf-8'))
                 models = data.get('data', [])

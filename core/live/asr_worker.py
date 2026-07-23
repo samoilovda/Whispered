@@ -359,7 +359,7 @@ class PersistentWhisperWorker(QThread):
         self._process.terminate()
         self._process.join(timeout=1.5)
         if self._process.is_alive():
-            logger.warning("Live whisper worker still alive after SIGTERM; sending SIGKILL")
+            logger.warning("Live whisper worker still alive after termination; forcing stop")
             self._process.kill()
             self._process.join(timeout=0.5)
 

@@ -33,6 +33,7 @@ env/
 build/
 dist/
 *.spec
+!packaging/windows/Whispered.windows.spec
 
 # ========================================
 # ML Models & Weights (downloaded dynamically)

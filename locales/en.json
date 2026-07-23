@@ -420,6 +420,8 @@
   "toast_assembling": "Assembling draft…",
   "toast_assembled": "Draft saved: {name}",
   "toast_assemble_error": "Assembly failed: {detail}",
+  "chat_system_prompt": "You are a helpful assistant. Answer questions ONLY based on the transcription provided below. If the answer is not in the transcription, say so clearly.\n\nTRANSCRIPTION:\n{transcript}",
+  "chat_transcript_truncated": "[Transcript truncated due to context limit]",
 
   "book_header": "📖 Book Pipeline",
   "book_lm_checking": "LM Studio: checking…",

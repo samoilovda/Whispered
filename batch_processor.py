@@ -136,7 +136,7 @@ class BatchWorker(QThread):
             finished_event.set()
 
         # Start transcription
-        self._transcriber.transcribe(
+        worker = self._transcriber.transcribe(
             filepath=item.filepath,
             model_name=self.model_name,
             language=self.language,
@@ -149,6 +149,15 @@ class BatchWorker(QThread):
             on_finished=on_finished,
             on_error=on_error
         )
+
+        # Model download/setup can fail before TranscriptionWorker exists.
+        # In that case no callback is guaranteed, so waiting on the event
+        # would deadlock this batch thread forever.
+        if worker is None:
+            item.status = BatchStatus.ERROR
+            item.error = "Model download failed"
+            self.item_error.emit(index, item.error)
+            return
 
         # Wait for completion
         finished_event.wait()

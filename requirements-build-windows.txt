@@ -1,0 +1,2 @@
+-r requirements-windows.lock
+pyinstaller==6.21.0

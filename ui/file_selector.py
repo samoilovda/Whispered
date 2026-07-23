@@ -4,7 +4,6 @@ Drag-and-drop file upload with format validation
 """
 
 import os
-import shutil
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QFileDialog, QHBoxLayout
 )
@@ -15,6 +14,7 @@ from utils import is_supported_format, SUPPORTED_FORMATS, format_duration
 from ui.icons import IconLabel, get_icon, IconColors
 from ui.theme import set_role
 from core.i18n import tr
+from core.external_tools import resolve_tool
 
 
 class ElidedLabel(QLabel):
@@ -245,7 +245,7 @@ class FileSelector(QWidget):
         self._launch_duration_probe(filepath)
 
     def _launch_duration_probe(self, filepath: str) -> None:
-        executable = shutil.which("ffprobe")
+        executable = resolve_tool("ffprobe")
         if not executable:
             self.file_duration_label.setText("")
             return

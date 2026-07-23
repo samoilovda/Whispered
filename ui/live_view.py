@@ -22,6 +22,7 @@ from ui.live_preflight_panel import LivePreflightPanel
 from ui.live_setup_panel import LiveSetupPanel
 from ui.live_transcript_view import LiveTranscriptView
 from utils import format_duration
+from core.platform_support import supports_live_system_audio
 
 
 class LiveView(QWidget):
@@ -85,8 +86,10 @@ class LiveView(QWidget):
         self.mic_meter = self._meter()
         session.addWidget(self.mic_meter)
         self.system_state = QLabel(tr("live_source_idle").format(source=tr("live_zoom")))
+        self.system_state.setVisible(supports_live_system_audio())
         session.addWidget(self.system_state)
         self.system_meter = self._meter()
+        self.system_meter.setVisible(supports_live_system_audio())
         session.addWidget(self.system_meter)
         session.addStretch()
         self.pause_btn = QPushButton(tr("live_pause"))

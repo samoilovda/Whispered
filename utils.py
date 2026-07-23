@@ -4,6 +4,7 @@ Whispered UI - Utility Functions
 
 import os
 import platform
+import sys
 import subprocess
 import shutil
 import threading
@@ -125,6 +126,15 @@ def detect_gpu(
         if cached is not None:
             return cached
 
+    # The first Windows installer deliberately ships the CPU wheel. Hardware
+    # discovery alone must not make the UI promise a CUDA backend that is not
+    # part of the packaged pywhispercpp build.
+    if platform.system() == "Windows" and getattr(sys, "frozen", False):
+        detected = ("cpu", "CPU (Windows CPU build)")
+        with _GPU_CACHE_LOCK:
+            _GPU_CACHE = detected
+        return detected
+
     # Apple Silicon has a built-in Metal backend and needs no subprocess.
     if platform.system() == 'Darwin' and platform.machine().lower() in {'arm64', 'aarch64'}:
         detected = ('metal', "Apple Metal (Apple Silicon)")
@@ -165,12 +175,14 @@ def detect_gpu(
 
 def get_audio_duration(filepath: str) -> Optional[float]:
     """Get the duration of an audio/video file using ffprobe."""
-    if not shutil.which('ffprobe'):
+    from core.external_tools import resolve_tool
+    ffprobe = resolve_tool("ffprobe")
+    if not ffprobe:
         return None
 
     try:
         result = subprocess.run([
-            'ffprobe', '-v', 'error',
+            ffprobe, '-v', 'error',
             '-show_entries', 'format=duration',
             '-of', 'default=noprint_wrappers=1:nokey=1',
             filepath
@@ -189,20 +201,8 @@ def get_models_dir() -> str:
     Get the models directory path.
     Uses cross-platform user data directories to keep models outside the app bundle.
     """
-    system = platform.system()
-
-    if system == 'Windows':
-        app_data = os.environ.get('APPDATA', os.path.expanduser('~\\AppData\\Roaming'))
-        base_dir = os.path.join(app_data, 'Whispered')
-    elif system == 'Darwin':
-        base_dir = os.path.expanduser('~/Library/Application Support/Whispered')
-    else:  # Linux and others
-        base_dir = os.environ.get('XDG_DATA_HOME', os.path.expanduser('~/.local/share'))
-        base_dir = os.path.join(base_dir, 'Whispered')
-
-    models_dir = os.path.join(base_dir, 'models')
-    os.makedirs(models_dir, exist_ok=True)
-    return models_dir
+    from core.paths import models_dir
+    return str(models_dir())
 
 
 # Available Whisper models

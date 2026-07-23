@@ -10,12 +10,12 @@ from dataclasses import dataclass, field, asdict
 from typing import Optional
 
 from core.logger import get_logger
-from core.paths import data_dir
+from core.paths import config_dir, config_path
 
 logger = get_logger(__name__)
 
-CONFIG_DIR = data_dir()
-CONFIG_FILE = CONFIG_DIR / "config.json"
+CONFIG_DIR = config_dir()
+CONFIG_FILE = config_path()
 
 
 @dataclass
@@ -173,7 +173,7 @@ if __name__ == "__main__":
         # Mask any secret-shaped field (token/key in the name), not just
         # hf_token — the yt_openai_api_key / yt_anthropic_api_key fields
         # would otherwise print in plain text.
-        if value and ('token' in key.lower() or 'key' in key.lower()):
+        if isinstance(value, str) and value and ('token' in key.lower() or 'key' in key.lower()):
             value = value[:8] + "..." if len(value) > 8 else "***"
         print(f"  {key}: {value}")
 

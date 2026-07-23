@@ -3,10 +3,12 @@ Whispered - Text Processing Module
 AI-powered text cleaning and coherence processing using LM Studio
 """
 
+import re
 from dataclasses import dataclass, field
 from typing import Optional, Callable
 
 from core.lm_client import LMStudioClient, DEFAULT_LM_STUDIO_URL
+from core.llm_text import split_into_chunks
 from core.logger import get_logger
 from core.prompts import load_prompt
 
@@ -66,6 +68,13 @@ FILLER_PATTERNS = [
     "right ", "okay so ", "and so ",
 ]
 
+# Unambiguous fillers may be removed wherever they occur.  Conversational
+# words such as "like" and "well" remain valid prose, so only remove them in
+# a discourse-marker position (start of a sentence or following a comma).
+_SAFE_FILLERS = ("uh", "um", "uhm", "er", "ah", "you know", "I mean", "kind of",
+                 "sort of", "basically", "actually", "literally", "okay so", "and so")
+_CONTEXTUAL_FILLERS = ("like", "so", "well", "right")
+
 CLEANING_SYSTEM_PROMPT = load_prompt(
     "cleaning",
     fallback=(
@@ -102,10 +111,15 @@ class TextCleaner:
         """Quick regex-based cleaning for when LM Studio is unavailable."""
         result = text
 
-        # Remove common fillers (case-insensitive)
-        for filler in FILLER_PATTERNS:
-            result = result.replace(filler.lower(), " ")
-            result = result.replace(filler.capitalize(), " ")
+        for filler in _SAFE_FILLERS:
+            result = re.sub(rf"\b{re.escape(filler)}\b", " ", result, flags=re.IGNORECASE)
+        for filler in _CONTEXTUAL_FILLERS:
+            result = re.sub(
+                rf"(^|[.!?]\s*|,\s*)({re.escape(filler)})\b(?:\s*,\s*|\s+)",
+                r"\1",
+                result,
+                flags=re.IGNORECASE,
+            )
 
         # Clean up multiple spaces
         while "  " in result:
@@ -214,25 +228,12 @@ class TextCleaner:
 
     def _split_into_chunks(self, text: str) -> list[str]:
         """Split text into overlapping chunks for processing."""
-        chunks = []
-        start = 0
-
-        while start < len(text):
-            end = start + TEXT_CHUNK_SIZE
-
-            # Try to break at sentence boundary
-            if end < len(text):
-                # Look for sentence end near the chunk boundary
-                for sep in ['. ', '.\n', '? ', '! ']:
-                    pos = text.rfind(sep, start + TEXT_CHUNK_SIZE - 500, end)
-                    if pos > start:
-                        end = pos + len(sep)
-                        break
-
-            chunks.append(text[start:end].strip())
-            start = end - TEXT_CHUNK_OVERLAP
-
-        return chunks
+        if not text:
+            return []
+        return split_into_chunks(
+            text, TEXT_CHUNK_SIZE, TEXT_CHUNK_OVERLAP,
+            separators=(". ", ".\n", "? ", "! "),
+        )
 
 
 # ============================================================================

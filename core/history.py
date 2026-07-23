@@ -14,11 +14,11 @@ from pathlib import Path
 from typing import Any, Generator, Optional
 
 from core.logger import get_logger
-from core.paths import data_dir
+from core.paths import history_path
 
 logger = get_logger(__name__)
 
-_DB_PATH = data_dir() / "history.db"
+_DB_PATH = history_path()
 
 _CREATE_SQL = """
 CREATE TABLE IF NOT EXISTS transcripts (
@@ -110,8 +110,9 @@ def _fts_query(text: str) -> str:
 
     Appends '*' for prefix matching; escapes double-quotes.
     """
-    # FTS5 phrase queries use double-quotes; escape any stray ones.
-    clean = text.replace('"', '""').strip()
+    # Quote every token as a literal prefix term. Strip FTS5 syntax characters
+    # from user input before adding our own quotes and trailing wildcard.
+    clean = text.replace('"', '').replace('*', '').replace('^', '').strip()
     if not clean:
         return '""'
     # Each whitespace-separated token is prefix-matched
@@ -159,6 +160,10 @@ class HistoryStore:
 
     def _init_db(self):
         with self._connect() as conn:
+            # journal_mode is persistent DB state, so set it once during
+            # initialization rather than issuing a write-like PRAGMA for every
+            # short-lived connection.
+            conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(_CREATE_SQL)
         self._migrate_artifacts_column()
         self._init_fts()
@@ -191,7 +196,6 @@ class HistoryStore:
     def _connect(self) -> Generator[sqlite3.Connection, None, None]:
         conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
         conn.row_factory = sqlite3.Row   # named-column access
-        conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=5000")
         try:
             yield conn

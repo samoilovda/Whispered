@@ -225,12 +225,18 @@ def export_pdf(result: TranscriptionResult, filepath: str) -> None:
     """
     try:
         from PyQt6.QtGui import QTextDocument
+        from PyQt6.QtCore import QThread
         from PyQt6.QtPrintSupport import QPrinter
+        from PyQt6.QtWidgets import QApplication
     except ImportError:
         raise RuntimeError(
             "PyQt6.QtPrintSupport is required for PDF export. "
             "Ensure the full PyQt6 package is installed."
         )
+
+    app = QApplication.instance()
+    if app is None or QThread.currentThread() != app.thread():
+        raise RuntimeError("PDF export must be called from the main Qt thread")
 
     # Build HTML and render via QTextDocument
     import io

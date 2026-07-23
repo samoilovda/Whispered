@@ -4,7 +4,7 @@
 import pytest
 from types import SimpleNamespace
 
-from core.history import HistoryStore
+from core.history import HistoryStore, _fts_query
 
 
 def _make_result(segments=None, language="en", duration=60.0):
@@ -116,6 +116,10 @@ class TestHistorySearch:
         store.add(result, "/tmp/ru_audio.wav")
         records = store.search("Привет")
         assert len(records) == 1
+
+    def test_fts_query_removes_operators_from_user_input(self):
+        query = _fts_query('hello* ^world "OR"')
+        assert query == '"hello"* "world"* "OR"*'
 
 
 class TestSpeakerNames:

@@ -121,3 +121,22 @@ QT_QPA_PLATFORM=offscreen .venv/bin/python tools/render_ui_gallery.py --check
   state. Workers must cancel or finish cleanly without a hung process.
 - [ ] On macOS 26.5.1 / M4 Pro / 24 GB complete the 15-minute Zoom walkthrough
   above before changing Live from opt-in to enabled by default.
+
+---
+
+## Windows preview gate
+
+Windows is not a released platform until every item in
+[docs/WINDOWS_SUPPORT_PLAN.ru.md](docs/WINDOWS_SUPPORT_PLAN.ru.md) section 12
+has been completed on Windows 11 x64. The current Windows CI job packages an
+unsigned test artifact; it does not replace a clean-VM installer check, a real
+transcription/cancel run, microphone verification, or code-signing validation.
+
+```powershell
+.\setup-windows.ps1
+.\packaging\windows\build-windows.ps1
+```
+
+- [ ] Run `Whispered.exe --smoke-test` from the frozen package.
+- [ ] Run the full manual Windows preview gate from the Windows support plan.
+- [ ] Verify the installer in a clean VM before publishing any Windows build.

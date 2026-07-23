@@ -13,26 +13,20 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
 def _setup_frozen_runtime():
-    """Wire up the standalone (PyInstaller) build's external pieces.
-
-    The .app deliberately does NOT bundle pywhispercpp/libwhisper (see
-    build.py) — they live next to the whisper models in
-    ~/Library/Application Support/Whispered/lib, so the native Metal
-    build can be swapped/updated without rebuilding the app. Also, apps
-    launched from Finder inherit a minimal PATH that lacks Homebrew, so
-    ffmpeg (needed for audio extraction) would not be found without help.
-    No-op when running from source: the venv already has everything.
-    """
+    """Configure external runtime pieces used by frozen platform builds."""
     if not getattr(sys, "frozen", False):
         return
-    lib_dir = os.path.expanduser("~/Library/Application Support/Whispered/lib")
-    if os.path.isdir(lib_dir):
-        sys.path.insert(0, lib_dir)
-    path = os.environ.get("PATH", "")
-    for extra in ("/opt/homebrew/bin", "/usr/local/bin"):
-        if extra not in path.split(os.pathsep):
-            path = path + os.pathsep + extra
-    os.environ["PATH"] = path
+    if sys.platform == "darwin":
+        # macOS deliberately keeps whisper.cpp outside the app bundle so a
+        # Metal build can be upgraded independently of Whispered.app.
+        lib_dir = os.path.expanduser("~/Library/Application Support/Whispered/lib")
+        if os.path.isdir(lib_dir):
+            sys.path.insert(0, lib_dir)
+        path = os.environ.get("PATH", "")
+        for extra in ("/opt/homebrew/bin", "/usr/local/bin"):
+            if extra not in path.split(os.pathsep):
+                path = path + os.pathsep + extra
+        os.environ["PATH"] = path
 
 
 _setup_frozen_runtime()
@@ -61,10 +55,10 @@ if _spec is not None:
     _logging.getLogger(__name__).info("pywhispercpp resolves from: %s", _spec.origin)
 else:
     _logging.getLogger(__name__).warning(
-        "pywhispercpp NOT found — transcription will be unavailable. "
-        "Standalone builds expect it in ~/Library/Application Support/Whispered/lib"
+        "pywhispercpp NOT found — transcription will be unavailable."
     )
 
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QFont, QIcon
 from ui.main_window import MainWindow
@@ -114,7 +108,14 @@ def main():
 
     # Create and show main window
     window = MainWindow()
-    window.show()
+    smoke_test = "--smoke-test" in sys.argv
+    if smoke_test:
+        # Used by frozen Windows/macOS/Linux package checks. Constructing the
+        # window exercises resources, Qt plugins and worker wiring; quitting
+        # immediately keeps CI headless and never opens a visible window.
+        QTimer.singleShot(0, app.quit)
+    else:
+        window.show()
 
     sys.exit(app.exec())
 

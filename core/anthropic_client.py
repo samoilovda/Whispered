@@ -21,7 +21,7 @@ DEFAULT_TIMEOUT = 300
 
 
 class AnthropicClient:
-    """Client for the Anthropic Messages API (non-streaming)."""
+    """Client for the Anthropic Messages API."""
 
     def __init__(self, api_key: str = "", model: str = "") -> None:
         self._api_key = api_key
@@ -36,11 +36,12 @@ class AnthropicClient:
         on_token: Optional[Callable[[str], None]] = None,
         is_cancelled: Optional[Callable[[], bool]] = None,
     ) -> Optional[str]:
-        """Send a non-streaming request; return the full response text.
+        """Send a request and return the full response text.
 
         Same interface as LMStudioClient.chat_completion_stream so the two
-        clients are interchangeable. on_token is accepted for interface
-        parity but never called (Anthropic requests here are not streamed).
+        clients are interchangeable. The Anthropic request is deliberately
+        non-streaming for now, so deliver the completed text to ``on_token``
+        once; this still lets the UI replace its pending state with a result.
         Returns None on error/cancellation.
         """
         if is_cancelled and is_cancelled():
@@ -79,9 +80,14 @@ class AnthropicClient:
                         "Anthropic response truncated by max_tokens=%d", max_tokens
                     )
                 blocks = result.get("content", [])
-                return "".join(
+                text = "".join(
                     b.get("text", "") for b in blocks if b.get("type") == "text"
                 )
+                if is_cancelled and is_cancelled():
+                    return None
+                if on_token and text:
+                    on_token(text)
+                return text
         except urllib.error.URLError as exc:
             logger.debug("Anthropic connection error: %s", exc)
             return None

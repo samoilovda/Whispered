@@ -9,6 +9,7 @@ from typing import Optional, Callable
 from enum import Enum
 
 from core.lm_client import LMStudioClient
+from core.llm_text import split_into_chunks
 from core.prompts import load_prompt
 
 
@@ -98,23 +99,10 @@ class GenerationResult:
 
 def _split_into_chunks(text: str, chunk_size: int, overlap: int = 300) -> list[str]:
     """Split text into overlapping chunks, breaking at sentence boundaries where possible."""
-    if len(text) <= chunk_size:
-        return [text]
-
-    chunks = []
-    start = 0
-    while start < len(text):
-        end = start + chunk_size
-        if end < len(text):
-            for sep in ['. ', '.\n', '? ', '! ']:
-                pos = text.rfind(sep, max(start, start + chunk_size - 500), end)
-                if pos > start:
-                    end = pos + len(sep)
-                    break
-        chunks.append(text[start:end].strip())
-        start = end - overlap
-
-    return chunks
+    return split_into_chunks(
+        text, chunk_size, overlap,
+        separators=(". ", ".\n", "? ", "! "),
+    )
 
 
 def _merge_topic_analyses(analyses: list[TopicAnalysis]) -> TopicAnalysis:
@@ -501,9 +489,9 @@ class ArticleGenerator:
         for i, fmt in enumerate(formats):
             base_progress = 30 + int(60 * i / total_formats)
 
-            def format_progress(pct, msg):
+            def format_progress(pct, msg, _base=base_progress):
                 if on_progress:
-                    actual = base_progress + int(pct * 0.6 / total_formats)
+                    actual = _base + int(pct * 0.6 / total_formats)
                     on_progress(actual, msg)
 
             article = self.generate_article(text, fmt, topics, format_progress)
@@ -616,9 +604,13 @@ def export_article_md(article: Article, filepath: str) -> None:
 def export_article_html(article: Article, filepath: str) -> None:
     """Export article as basic HTML file."""
     # Simple markdown to HTML conversion
+    import html
     import re
 
-    html_content = article.content
+    # Treat generated Markdown as text first: only the minimal HTML tags below
+    # are authored by this exporter, so model output cannot inject a script or
+    # an iframe into the saved file.
+    html_content = html.escape(article.content)
 
     # Headers
     html_content = re.sub(r'^### (.+)$', r'<h3>\1</h3>', html_content, flags=re.MULTILINE)
@@ -639,7 +631,7 @@ def export_article_html(article: Article, filepath: str) -> None:
                 # List item
                 items = [item.strip()[1:].strip() for item in p.split('\n') if item.strip()]
                 p = '<ul>\n' + '\n'.join(f'<li>{item}</li>' for item in items) + '\n</ul>'
-            elif p[0].isdigit() and p[1] == '.':
+            elif len(p) > 1 and p[0].isdigit() and p[1] == '.':
                 # Numbered list
                 items = [item.strip().split('.', 1)[1].strip() for item in p.split('\n') if item.strip()]
                 p = '<ol>\n' + '\n'.join(f'<li>{item}</li>' for item in items) + '\n</ol>'
@@ -654,7 +646,7 @@ def export_article_html(article: Article, filepath: str) -> None:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{article.title}</title>
+    <title>{html.escape(article.title)}</title>
     <style>
         body {{ font-family: system-ui, -apple-system, sans-serif; max-width: 800px; margin: 0 auto; padding: 2rem; line-height: 1.6; }}
         h1, h2, h3 {{ color: #1a1a1a; }}

@@ -8,7 +8,6 @@ import re
 import threading
 import tempfile
 import subprocess
-import shutil
 from dataclasses import dataclass, field
 from typing import Callable, Optional, List, Dict
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
@@ -25,18 +24,21 @@ def _convert_to_wav(input_path: str) -> Optional[str]:
     Convert audio/video file to WAV format using FFmpeg.
     Returns path to temporary WAV file, or None if FFmpeg not available.
     """
-    if not shutil.which('ffmpeg'):
+    from core.external_tools import resolve_tool
+    ffmpeg = resolve_tool("ffmpeg")
+    if not ffmpeg:
         return None
 
-    # Create temporary file
-    temp_dir = tempfile.gettempdir()
+    # Reserve a unique temporary filename.  A deterministic name here lets
+    # concurrent transcriptions of equally named files overwrite each other.
     base_name = os.path.splitext(os.path.basename(input_path))[0]
-    output_path = os.path.join(temp_dir, f"{base_name}_whisper_temp.wav")
+    with tempfile.NamedTemporaryFile(suffix=".wav", prefix=f"{base_name}_", delete=False) as tmp:
+        output_path = tmp.name
 
     try:
         # Convert to 16kHz mono WAV (optimal for Whisper)
         result = subprocess.run([
-            'ffmpeg', '-y', '-i', input_path,
+            ffmpeg, '-y', '-i', input_path,
             '-ar', '16000',  # 16kHz sample rate
             '-ac', '1',       # Mono
             '-c:a', 'pcm_s16le',  # 16-bit PCM
@@ -46,6 +48,14 @@ def _convert_to_wav(input_path: str) -> Optional[str]:
         if result.returncode == 0 and os.path.exists(output_path):
             return output_path
     except (subprocess.TimeoutExpired, Exception):
+        pass
+
+    # FFmpeg did not produce a usable file. Do not leave an empty reservation
+    # in the system temporary directory.
+    try:
+        if os.path.exists(output_path):
+            os.unlink(output_path)
+    except OSError:
         pass
 
     return None
@@ -129,8 +139,7 @@ def _group_words_into_segments(words: list) -> list:
             return
         raw = ''.join(w.text for w in phrase)
         # collapse multiple spaces that whisper sometimes emits
-        import re as _re
-        text = _re.sub(r' {2,}', ' ', raw).strip()
+        text = re.sub(r' {2,}', ' ', raw).strip()
         segments.append(Segment(
             start=phrase[0].start,
             end=phrase[-1].end,
@@ -171,10 +180,13 @@ def _coalesce_batch_segments(segments: list[Segment]) -> list[Segment]:
     def flush() -> None:
         if not group:
             return
+        text = " ".join(item.text.strip() for item in group if item.text.strip())
+        if not text:
+            return
         result.append(Segment(
             start=group[0].start,
             end=group[-1].end,
-            text=" ".join(item.text.strip() for item in group if item.text.strip()),
+            text=text,
             speaker=group[0].speaker,
             words=[word for item in group for word in item.words],
         ))
@@ -254,13 +266,8 @@ def _run_transcription_process(
             if temp_wav_path:
                 audio_path = temp_wav_path
             else:
-                import platform
-                if platform.system() == "Darwin":
-                    hint = "brew install ffmpeg"
-                elif os.path.exists("/etc/fedora-release") or shutil.which("dnf"):
-                    hint = "sudo dnf install ffmpeg"
-                else:
-                    hint = "sudo apt install ffmpeg"
+                from core.external_tools import ffmpeg_install_hint
+                hint = ffmpeg_install_hint()
                 q.put(('error',
                     f"Cannot process {file_ext} files: FFmpeg is not installed.\n\n"
                     f"Install it with:\n  {hint}\n\n"
@@ -507,7 +514,7 @@ class TranscriptionWorker(QThread):
                     self._process.terminate()
                     self._process.join(timeout=5)
                     if self._process.is_alive():
-                        logger.warning("Transcription process did not exit after SIGTERM; sending SIGKILL")
+                        logger.warning("Transcription process did not exit after termination; forcing stop")
                         self._process.kill()
                         self._process.join(timeout=3)
                     self.error.emit("Cancelled")
@@ -554,7 +561,7 @@ class TranscriptionWorker(QThread):
                 self._process.terminate()
                 self._process.join(timeout=5)
                 if self._process.is_alive():
-                    logger.warning("Transcription process still alive after SIGTERM in finally; sending SIGKILL")
+                    logger.warning("Transcription process still alive after termination; forcing stop")
                     self._process.kill()
                     self._process.join(timeout=3)
 
@@ -588,7 +595,7 @@ class Transcriber:
         on_progress: Optional[Callable[[int, str], None]] = None,
         on_finished: Optional[Callable[[TranscriptionResult], None]] = None,
         on_error: Optional[Callable[[str], None]] = None
-    ) -> TranscriptionWorker:
+    ) -> Optional[TranscriptionWorker]:
         """
         Start a transcription job.
 
@@ -623,7 +630,7 @@ class Transcriber:
             if not ensure_whisper_model(model_name):
                 if on_error:
                     on_error("Whisper model download was cancelled or failed.")
-                return None  # Type hint says returns worker, returning None is acceptable on fail
+                return None
 
             # Check Diarization models if enabled
             if enable_diarization:

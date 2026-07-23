@@ -19,6 +19,7 @@ from config import get_config
 from core.i18n import tr
 from core.live.preflight import default_helper_path
 from core.live.target_discovery import DiscoveredTarget, discover_targets
+from core.platform_support import live_system_audio_unavailable_message, supports_live_system_audio
 from ui.components import FormSection
 from ui.option_labels import whisper_language_options, whisper_model_options
 
@@ -53,7 +54,11 @@ class LiveSetupPanel(FormSection):
         self.mic_check = QCheckBox(tr("live_source_mic"))
         self.mic_check.setChecked(True)
         self.system_check = QCheckBox(tr("live_source_system"))
-        self.system_check.setChecked(True)
+        system_audio_supported = supports_live_system_audio()
+        self.system_check.setChecked(system_audio_supported)
+        self.system_check.setEnabled(system_audio_supported)
+        if not system_audio_supported:
+            self.system_check.setToolTip(live_system_audio_unavailable_message())
         sources.addWidget(self.mic_check)
         sources.addWidget(self.system_check)
         sources.addStretch()
@@ -98,7 +103,10 @@ class LiveSetupPanel(FormSection):
         ):
             control.setMinimumHeight(30)
 
-        self.target_status = QLabel(tr("live_targets_not_checked"))
+        self.target_status = QLabel(
+            tr("live_targets_not_checked") if system_audio_supported
+            else live_system_audio_unavailable_message()
+        )
         self.target_status.setProperty("role", "muted")
         self.layout.addWidget(self.target_status)
 
@@ -113,7 +121,7 @@ class LiveSetupPanel(FormSection):
             signal = getattr(control, "toggled", None) or control.currentIndexChanged
             signal.connect(self._changed)
         self.system_check.toggled.connect(self._sync_target_visibility)
-        self._sync_target_visibility(True)
+        self._sync_target_visibility(system_audio_supported)
 
     @staticmethod
     def _select(combo: QComboBox, value) -> None:
@@ -129,6 +137,9 @@ class LiveSetupPanel(FormSection):
         self.target_status.setVisible(enabled)
 
     def refresh_targets(self) -> None:
+        if not supports_live_system_audio():
+            self.target_status.setText(live_system_audio_unavailable_message())
+            return
         if self._target_worker and self._target_worker.isRunning():
             return
         self.refresh_btn.setEnabled(False)

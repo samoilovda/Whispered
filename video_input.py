@@ -1,11 +1,10 @@
 """Whispered - Video Input helpers: ffmpeg/ffprobe checks and media probing."""
 
 import json
-import platform
-import shutil
 import subprocess
 
 from core.logger import get_logger
+from core.external_tools import ffmpeg_install_hint, resolve_tool
 
 logger = get_logger(__name__)
 
@@ -15,16 +14,12 @@ class FFmpegNotFoundError(RuntimeError):
 
 
 def _install_hint() -> str:
-    if platform.system() == "Darwin":
-        return "brew install ffmpeg"
-    if shutil.which("dnf"):
-        return "sudo dnf install ffmpeg"
-    return "sudo apt install ffmpeg"
+    return ffmpeg_install_hint()
 
 
 def ensure_ffmpeg() -> None:
     """Raise FFmpegNotFoundError with a platform-appropriate install hint if ffmpeg is missing."""
-    if not shutil.which("ffmpeg"):
+    if not resolve_tool("ffmpeg"):
         raise FFmpegNotFoundError(
             f"FFmpeg is not installed.\n\nInstall it with:\n  {_install_hint()}\n\n"
             "Then restart the application."
@@ -33,7 +28,7 @@ def ensure_ffmpeg() -> None:
 
 def ensure_ffprobe() -> None:
     """Raise FFmpegNotFoundError if ffprobe is missing (it ships with ffmpeg)."""
-    if not shutil.which("ffprobe"):
+    if not resolve_tool("ffprobe"):
         raise FFmpegNotFoundError(
             f"ffprobe is not installed (it is part of FFmpeg).\n\nInstall it with:\n  {_install_hint()}\n\n"
             "Then restart the application."
@@ -52,9 +47,12 @@ def probe_video(path: str) -> tuple[float, float]:
     ensure_ffprobe()
 
     try:
+        ffprobe = resolve_tool("ffprobe")
+        if not ffprobe:
+            raise FFmpegNotFoundError("ffprobe is not installed")
         result = subprocess.run(
             [
-                "ffprobe",
+                ffprobe,
                 "-v", "quiet",
                 "-print_format", "json",
                 "-show_streams",

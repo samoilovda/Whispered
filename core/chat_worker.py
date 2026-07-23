@@ -10,26 +10,20 @@ from __future__ import annotations
 from PyQt6.QtCore import pyqtSignal
 
 from core.base_worker import BaseWorker
+from core.i18n import tr
 from core.logger import get_logger
 
 logger = get_logger(__name__)
 
 _CONTEXT_CHARS = 48_000   # default: ~ 12 k tokens
 
-_SYSTEM_TEMPLATE = (
-    "You are a helpful assistant. Answer questions ONLY based on the "
-    "transcription provided below. If the answer is not in the transcription, "
-    "say so clearly.\n\nTRANSCRIPTION:\n{transcript}"
-)
-
-
 def _build_system_prompt(transcript: str, max_chars: int = _CONTEXT_CHARS) -> str:
     if len(transcript) > max_chars:
         transcript = transcript[:max_chars]
-        suffix = "\n\n[Transcript truncated due to context limit]"
+        suffix = "\n\n" + tr("chat_transcript_truncated")
     else:
         suffix = ""
-    return _SYSTEM_TEMPLATE.format(transcript=transcript) + suffix
+    return tr("chat_system_prompt", transcript=transcript) + suffix
 
 
 class ChatWorker(BaseWorker):
