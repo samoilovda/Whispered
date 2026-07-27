@@ -99,3 +99,14 @@ def resource_path(relative: str | Path) -> Path:
     else:
         base = Path(__file__).resolve().parents[1]
     return base / relative
+
+
+def macos_bundle_path() -> Path | None:
+    """Return the enclosing ``.app`` bundle for a frozen macOS build."""
+    if not (getattr(sys, "frozen", False) and sys.platform == "darwin"):
+        return None
+    executable = Path(sys.executable).resolve()
+    # A PyInstaller macOS app launches from ``Contents/MacOS/<binary>``.
+    if executable.parent.name == "MacOS" and executable.parent.parent.name == "Contents":
+        return executable.parent.parent.parent
+    return None

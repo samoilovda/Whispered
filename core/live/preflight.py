@@ -10,6 +10,7 @@ from enum import Enum
 from pathlib import Path
 
 from core.external_tools import resolve_tool
+from core.paths import macos_bundle_path
 from core.platform_support import live_system_audio_unavailable_message, supports_live_system_audio
 
 
@@ -90,6 +91,9 @@ def resource_profile(memory_gb: float | None = None) -> ResourceProfile:
 
 
 def default_helper_path(project_root: Path | None = None) -> Path:
+    bundle = macos_bundle_path()
+    if bundle is not None:
+        return bundle / "Contents" / "Helpers" / "whispered-capture-helper"
     root = project_root or Path(__file__).resolve().parents[2]
     return root / "native" / "system_capture_helper" / ".build" / "release" / "whispered-capture-helper"
 

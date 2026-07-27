@@ -95,7 +95,13 @@ class Recorder(QObject):
     level_changed = pyqtSignal(float)
     error_occurred = pyqtSignal(str)
 
-    def __init__(self, parent=None, *, frame_sink: Optional[Callable] = None):
+    def __init__(
+        self,
+        parent=None,
+        *,
+        frame_sink: Optional[Callable] = None,
+        write_wav: bool = True,
+    ):
         super().__init__(parent)
         self._stream = None
         self._wav: Optional[wave.Wave_write] = None
@@ -110,6 +116,10 @@ class Recorder(QObject):
         # from PortAudio's callback thread and is deliberately absent for the
         # legacy recorder path.
         self._frame_sink = frame_sink
+        # Live transcription needs microphone PCM but must not silently turn
+        # every meeting into a recording.  Keep the legacy default intact and
+        # allow its adapter to opt out of all file/queue writer work.
+        self._write_wav = bool(write_wav)
 
     # ------------------------------------------------------------------ public
 
@@ -123,21 +133,22 @@ class Recorder(QObject):
             )
             return
 
-        _DATA_DIR.mkdir(parents=True, exist_ok=True)
-        # Microseconds avoid overwriting a just-finished recording when the
-        # user starts another one within the same second.
-        ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f")
-        self._output_path = str(_DATA_DIR / f"REC_{ts}.wav")
         self._elapsed_frames = 0
-
-        try:
-            self._wav = wave.open(self._output_path, "wb")
-            self._wav.setnchannels(_CHANNELS)
-            self._wav.setsampwidth(2)    # int16 → 2 bytes
-            self._wav.setframerate(_SAMPLE_RATE)
-        except OSError as exc:
-            self.error_occurred.emit(f"Cannot create recording file: {exc}")
-            return
+        self._output_path = None
+        if self._write_wav:
+            _DATA_DIR.mkdir(parents=True, exist_ok=True)
+            # Microseconds avoid overwriting a just-finished recording when
+            # the user starts another one within the same second.
+            ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f")
+            self._output_path = str(_DATA_DIR / f"REC_{ts}.wav")
+            try:
+                self._wav = wave.open(self._output_path, "wb")
+                self._wav.setnchannels(_CHANNELS)
+                self._wav.setsampwidth(2)    # int16 → 2 bytes
+                self._wav.setframerate(_SAMPLE_RATE)
+            except OSError as exc:
+                self.error_occurred.emit(f"Cannot create recording file: {exc}")
+                return
 
         self._recording.set()
         self._paused.clear()
@@ -178,10 +189,14 @@ class Recorder(QObject):
             self.error_occurred.emit(f"Cannot open audio device: {exc}")
             return
 
-        # Writer thread — started only after the stream is confirmed open
-        self._writer_thread = threading.Thread(target=self._writer, daemon=True)
-        self._writer_thread.start()
-        logger.info("Recording started: %s", self._output_path)
+        # Writer thread is deliberately absent for transcript-only Live
+        # sessions: their PCM remains only in bounded in-memory buffers.
+        if self._write_wav:
+            self._writer_thread = threading.Thread(target=self._writer, daemon=True)
+            self._writer_thread.start()
+            logger.info("Recording started: %s", self._output_path)
+        else:
+            logger.info("Microphone capture started without WAV persistence")
 
     def pause(self) -> None:
         """Pause recording (frames are discarded while paused)."""
@@ -207,8 +222,9 @@ class Recorder(QObject):
                 logger.debug("Audio stream close error: %s", exc)
             self._stream = None
 
-        # Signal writer thread to finish
-        self._q.put(None)
+        # Signal writer thread to finish when this is a persistent recording.
+        if self._writer_thread is not None:
+            self._q.put(None)
         if self._writer_thread is not None:
             self._writer_thread.join(timeout=5)
             self._writer_thread = None
@@ -239,7 +255,10 @@ class Recorder(QObject):
         if not self._paused.is_set():
             try:
                 chunk = bytes(indata)
-                self._q.put(chunk)
+                if self._write_wav:
+                    self._q.put(chunk)
+                else:
+                    self._elapsed_frames += frames
                 if _NUMPY_AVAILABLE:
                     self.level_changed.emit(_rms(indata))
                 else:

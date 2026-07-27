@@ -37,6 +37,18 @@ class TestHistoryStoreBasics:
         assert abs(records[0].duration - 60.0) < 1e-6
         assert records[0].model == "large-v3"
 
+    def test_add_transcript_only_live_record(self, store):
+        rid = store.add(
+            _make_result(),
+            "",
+            source_name="Live 2026-07-27 14:30",
+            source_kind="live",
+        )
+        record = store.get_record(rid)
+        assert record["source_path"] == ""
+        assert record["source_name"] == "Live 2026-07-27 14:30"
+        assert record["source_kind"] == "live"
+
     def test_get_payload(self, store):
         result = _make_result()
         rid = store.add(result, "/tmp/audio.wav")

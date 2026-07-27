@@ -21,7 +21,8 @@ class MicSource(QObject):
     not install a frame sink, so existing Record/Pause/Resume/Stop callers
     continue to use ``Recorder`` exactly as before. When enabled, the
     recorder still owns WAV writing and level calculation; this class only
-    adds timestamped frames to a bounded ring for live consumers.
+    adds timestamped frames to a bounded ring for live consumers. Live uses
+    the recorder's capture-only mode by default, so no WAV is created.
     """
 
     level_changed = pyqtSignal(float)
@@ -36,6 +37,7 @@ class MicSource(QObject):
         device: Optional[int] = None,
         capacity_frames: int = 100,
         capacity_bytes: int | None = None,
+        persist_audio: bool = False,
         recorder_factory: Callable = Recorder,
     ) -> None:
         super().__init__(parent)
@@ -55,9 +57,14 @@ class MicSource(QObject):
         self._sequence = 0
         self._accept_frames = False
         self._resume_discontinuity = False
+        self.persist_audio = bool(persist_audio)
 
         frame_sink = self._capture_frame if self.enabled else None
-        self._recorder = recorder_factory(parent, frame_sink=frame_sink)
+        self._recorder = recorder_factory(
+            parent,
+            frame_sink=frame_sink,
+            write_wav=self.persist_audio,
+        )
         self._recorder.level_changed.connect(self._forward_level)
         self._recorder.error_occurred.connect(self.error_occurred.emit)
 
@@ -102,7 +109,7 @@ class MicSource(QObject):
         self._recorder.resume()
 
     def stop(self) -> Optional[str]:
-        """Stop WAV capture, close the frame stream, and return its path."""
+        """Stop capture, close the frame stream, and return an optional WAV path."""
         self._accept_frames = False
         path = self._recorder.stop()
         self._ring.close()

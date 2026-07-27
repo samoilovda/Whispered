@@ -232,11 +232,12 @@ class HistoryStore:
     # ------------------------------------------------------------------ public API
 
     def add(self, result: Any, source_path: str, model: str = "",
-            speaker_names: dict | None = None, source_kind: str = "file") -> int:
+            speaker_names: dict | None = None, source_kind: str = "file",
+            source_name: str | None = None) -> int:
         """Persist a TranscriptionResult; returns the new row id."""
         payload = _result_to_payload(result, model, speaker_names)
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        source_name = Path(source_path).name
+        source_name = source_name or Path(source_path).name or "Live transcript"
         with self._connect() as conn:
             cur = conn.execute(
                 """INSERT INTO transcripts

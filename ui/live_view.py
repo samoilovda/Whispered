@@ -45,6 +45,9 @@ class LiveView(QWidget):
         header = PageHeader(tr("live_title"), tr("page_live_subtitle"))
         self.state_badge = StatusBadge(tr("live_health_idle"))
         header.add_action(self.state_badge)
+        self.privacy_badge = StatusBadge(tr("live_audio_not_saved"))
+        self.privacy_badge.set_status(tr("live_audio_not_saved"), "success")
+        header.add_action(self.privacy_badge)
         root.addWidget(header)
 
         scroll = QScrollArea()

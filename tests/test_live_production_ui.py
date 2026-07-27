@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from core.live.contracts import SegmentState, SegmentUpdate
 from core.live.preflight import ResourceProfile
+from core.live import preflight
 from core.live.presentation import LiveTranscriptModel, safe_metrics_snapshot
 from core.live.runtime import LiveRuntime, LiveRuntimeMetrics, SessionState, SourceState
 from core.live.target_discovery import discover_targets
@@ -106,3 +107,9 @@ def test_target_discovery_empty_error_and_cancel(tmp_path, monkeypatch):
         assert "denied" in str(exc)
     else:
         raise AssertionError("Discovery errors must stay distinguishable from an empty list")
+
+
+def test_frozen_macos_uses_helper_embedded_in_app_bundle(tmp_path, monkeypatch):
+    bundle = tmp_path / "Whispered.app"
+    monkeypatch.setattr(preflight, "macos_bundle_path", lambda: bundle)
+    assert preflight.default_helper_path() == bundle / "Contents" / "Helpers" / "whispered-capture-helper"

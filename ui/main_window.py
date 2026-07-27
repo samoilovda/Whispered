@@ -59,6 +59,7 @@ from timeline_export import write_edl
 from video_edit import mark_pauses
 from video_cut import assemble_draft
 from core.live.preflight import default_helper_path
+from core.live.contracts import SegmentState
 from core.live.runtime import LiveRuntime
 
 logger = get_logger(__name__)
@@ -168,6 +169,10 @@ class MainWindow(QMainWindow):
         self._chain_had_error = False
         self._chain_auto_article = False
         self._last_record_id: int | None = None
+        self._live_history_record_id: int | None = None
+        self._live_final_segments: dict[str, object] = {}
+        self._live_source_name = ""
+        self._live_model_name = ""
         self._setup_ui()
         self._connect_signals()
         self.setAcceptDrops(True)
@@ -401,7 +406,7 @@ class MainWindow(QMainWindow):
         self.live_view.start_requested.connect(self._start_live)
         self.live_view.pause_requested.connect(self._pause_live)
         self.live_view.stop_requested.connect(self._stop_live)
-        self.live_runtime.segment_update.connect(self.live_view.accept_update)
+        self.live_runtime.segment_update.connect(self._on_live_segment_update)
         self.live_runtime.source_state_changed.connect(self.live_view.set_source_state)
         self.live_runtime.level_changed.connect(self.live_view.set_level)
         self.live_runtime.error_occurred.connect(self._on_live_error)
@@ -516,6 +521,10 @@ class MainWindow(QMainWindow):
             self.live_view.invalidate_preflight()
             return
         self.live_view.reset_session()
+        self._live_history_record_id = None
+        self._live_final_segments = {}
+        self._live_source_name = time.strftime("Live %Y-%m-%d %H:%M")
+        self._live_model_name = model
         started = self.live_runtime.start(
             use_mic=use_mic,
             use_system=use_system,
@@ -545,13 +554,85 @@ class MainWindow(QMainWindow):
         self.live_view.set_source_state(source, "failed")
         logger.error("Live %s failure: %s", source, message)
 
+    def _on_live_segment_update(self, update) -> None:
+        """Render an update and checkpoint only immutable live text."""
+        self.live_view.accept_update(update)
+        if update.state is not SegmentState.FINAL:
+            return
+        self._live_final_segments[update.segment_id] = update.segment
+        self._checkpoint_live_history()
+
+    def _live_checkpoint_result(self) -> TranscriptionResult:
+        segments = sorted(
+            self._live_final_segments.values(),
+            key=lambda segment: (float(segment.start), float(segment.end)),
+        )
+        duration = max((float(segment.end) for segment in segments), default=0.0)
+        return TranscriptionResult(
+            segments=segments,
+            language=self.live_view.selected_language(),
+            duration=duration,
+            speaker_names={"mic": tr("live_source_mic"), "system": tr("live_source_system")},
+        )
+
+    def _checkpoint_live_history(self) -> None:
+        """Persist finalized text during a meeting without writing audio."""
+        if not getattr(get_config(), "history_enabled", True):
+            return
+        result = self._live_checkpoint_result()
+        if not result.segments:
+            return
+        try:
+            from core.history import get_history_store
+
+            store = get_history_store()
+            if self._live_history_record_id is None:
+                self._live_history_record_id = store.add(
+                    result,
+                    source_path="",
+                    source_name=self._live_source_name,
+                    model=self._live_model_name,
+                    speaker_names=result.speaker_names,
+                    source_kind="live",
+                )
+            else:
+                store.update_result(
+                    self._live_history_record_id,
+                    result,
+                    speaker_names=result.speaker_names,
+                )
+            self._last_record_id = self._live_history_record_id
+            self.library_view.refresh()
+        except Exception as exc:
+            logger.warning("Failed to checkpoint live transcript: %s", exc)
+
     def _on_live_finished(self, result: TranscriptionResult, source_path: str):
         self.live_view._timer.stop()
-        stamp = time.strftime("%Y-%m-%d_%H-%M-%S")
-        self._source_filepath = source_path or f"live-{stamp}.wav"
+        self._source_filepath = source_path or None
         self._source_kind = "live"
         self._transcription_start = self.live_runtime._started_at
-        self._on_finished(result, open_record=False)
+        if self._live_history_record_id is not None:
+            try:
+                from core.history import get_history_store
+                get_history_store().update_result(
+                    self._live_history_record_id,
+                    result,
+                    speaker_names=getattr(result, "speaker_names", {}) or {},
+                )
+                self._last_record_id = self._live_history_record_id
+                self.library_view.refresh()
+            except Exception as exc:
+                logger.warning("Failed to finalize live transcript history: %s", exc)
+            self._on_finished(result, open_record=False, save_history=False)
+        else:
+            self._save_to_history(
+                result,
+                source_path="",
+                source_name=self._live_source_name,
+                model=self._live_model_name,
+                speaker_names=getattr(result, "speaker_names", {}) or {},
+            )
+            self._on_finished(result, open_record=False, save_history=False)
 
     def _open_completed_live(self):
         if self._current_result is not None:
@@ -987,7 +1068,12 @@ class MainWindow(QMainWindow):
             local = max(0, min(100, int((percentage - 10) / 80 * 100)))
             self.progress_timeline.set_stage(2, local)
 
-    def _on_finished(self, result: TranscriptionResult, open_record: bool = True):
+    def _on_finished(
+        self,
+        result: TranscriptionResult,
+        open_record: bool = True,
+        save_history: bool = True,
+    ):
         """Handle transcription completion."""
         self._current_result = result
         self.transcript_view.set_result(result)
@@ -1004,12 +1090,13 @@ class MainWindow(QMainWindow):
         show_toast(self, tr("toast_complete", words=word_count), kind="success")
 
         # Auto-save to history
-        self._save_to_history(
-            result,
-            source_path=self._source_filepath or "",
-            model=self.model_combo.currentData() or "",
-            speaker_names=getattr(self.transcript_view, "_speaker_names", {}),
-        )
+        if save_history:
+            self._save_to_history(
+                result,
+                source_path=self._source_filepath or "",
+                model=self.model_combo.currentData() or "",
+                speaker_names=getattr(self.transcript_view, "_speaker_names", {}),
+            )
 
         # Feed transcript into chat and insights panels
         self.chat_panel.set_transcript(result.full_text)
@@ -1017,15 +1104,20 @@ class MainWindow(QMainWindow):
         self.youtube_panel.set_segments(result.segments, transcript_language=result.language)
         if self._source_filepath:
             self.youtube_panel.set_source_name(Path(self._source_filepath).stem)
+        elif self._source_kind == "live":
+            self.youtube_panel.set_source_name(self._live_source_name)
 
         # Populate the Cut tab's segment list and video actions
-        self.cut_view.video_panel.set_has_transcript(True)
+        self.cut_view.video_panel.set_has_transcript(bool(self._source_filepath))
         self.cut_view.set_result(result)
         self.main_tabs.setCurrentIndex(0)
 
         # A fresh transcription result is a record too — open the Record
         # view so the user immediately sees what they just produced.
-        title = Path(self._source_filepath).stem if self._source_filepath else tr("app_title")
+        title = (
+            Path(self._source_filepath).stem if self._source_filepath
+            else self._live_source_name if self._source_kind == "live" else tr("app_title")
+        )
         self.record_view.set_title(title)
         self.record_view.set_has_result(True)
         if open_record:
@@ -1118,7 +1210,8 @@ class MainWindow(QMainWindow):
             show_toast(self, tr("toast_chain_error"), kind="error")
 
     def _save_to_history(self, result: TranscriptionResult, source_path: str,
-                         model: str, speaker_names: dict):
+                         model: str, speaker_names: dict,
+                         source_name: str | None = None):
         """Persist a result to history (if enabled). Remembers the new
         row id in self._last_record_id so a preset chain (Phase C.3) that
         runs afterward can attach its artifacts to the right record."""
@@ -1134,6 +1227,7 @@ class MainWindow(QMainWindow):
                 model=model,
                 speaker_names=speaker_names or {},
                 source_kind=self._source_kind,
+                source_name=source_name,
             )
             self.library_view.refresh()
         except Exception as e:

@@ -127,9 +127,14 @@ The experimental Live section can be enabled manually in Settings. It includes:
 - microphone and system-audio sources;
 - asynchronous preflight checks;
 - an incremental transcript, pause/resume, and diagnostics;
-- saving a completed session to the Library;
+- saving finalized text segments to the Library during a session;
 - application discovery and system-audio capture through a separate
   ScreenCaptureKit helper.
+
+Live does not write WAV, M4A, or temporary PCM files: audio exists only in
+bounded in-memory buffers needed for current recognition. The Library keeps
+the transcript and exports, but no player or media-dependent operations are
+available for such a session.
 
 System-audio capture requires macOS 13+, a built Swift helper, and Screen
 Recording permission. Live is disabled by default and has not yet passed the

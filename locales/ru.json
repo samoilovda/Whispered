@@ -237,6 +237,7 @@
   "cleaned_improvement": "✨ Удалено слов-паразитов: {fillers} • короче на {reduction}%",
 
   "live_title": "Транскрипция в реальном времени",
+  "live_audio_not_saved": "Аудио не сохраняется",
   "live_source_mic": "Микрофон",
   "live_source_system": "Звук встречи",
   "live_source_both": "Микрофон + звук встречи",

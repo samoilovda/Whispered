@@ -14,9 +14,10 @@ class _FakeRecorder(QObject):
     level_changed = pyqtSignal(float)
     error_occurred = pyqtSignal(str)
 
-    def __init__(self, parent=None, *, frame_sink=None):
+    def __init__(self, parent=None, *, frame_sink=None, write_wav=True):
         super().__init__(parent)
         self.frame_sink = frame_sink
+        self.write_wav = write_wav
         self.started_with = None
         self.calls: list[str] = []
         self._recording = False
@@ -36,7 +37,7 @@ class _FakeRecorder(QObject):
     def stop(self):
         self.calls.append("stop")
         self._recording = False
-        return self._path
+        return self._path if self.write_wav else None
 
     def is_recording(self):
         return self._recording
@@ -54,8 +55,8 @@ class _FakeRecorder(QObject):
 class _Factory:
     instances: list[_FakeRecorder]
 
-    def __call__(self, parent=None, *, frame_sink=None):
-        recorder = _FakeRecorder(parent, frame_sink=frame_sink)
+    def __call__(self, parent=None, *, frame_sink=None, write_wav=True):
+        recorder = _FakeRecorder(parent, frame_sink=frame_sink, write_wav=write_wav)
         self.instances.append(recorder)
         return recorder
 
@@ -69,7 +70,7 @@ def test_disabled_feature_does_not_install_frame_sink_or_start():
     assert factory.instances[0].calls == []
 
 
-def test_enabled_adapter_preserves_recorder_controls_and_exposes_frames():
+def test_enabled_adapter_does_not_persist_audio_and_exposes_frames():
     factory = _Factory([])
     source = MicSource(
         enabled=True,
@@ -79,6 +80,7 @@ def test_enabled_adapter_preserves_recorder_controls_and_exposes_frames():
         recorder_factory=factory,
     )
     recorder = factory.instances[0]
+    assert recorder.write_wav is False
     levels: list[float] = []
     source.level_changed.connect(levels.append)
 
@@ -95,7 +97,7 @@ def test_enabled_adapter_preserves_recorder_controls_and_exposes_frames():
 
     source.pause()
     source.resume()
-    assert source.stop() == "/tmp/fake-recording.wav"
+    assert source.stop() is None
     assert recorder.calls == ["start", "pause", "resume", "stop"]
     assert source.is_recording() is False
     assert source.get_frame(timeout=0) is None
@@ -108,7 +110,7 @@ def test_adapter_cancel_discards_pending_frames():
     source.start()
     recorder.emit_frame()
 
-    assert source.cancel() == "/tmp/fake-recording.wav"
+    assert source.cancel() is None
     assert source.get_frame(timeout=0) is None
     assert source.stats().cancelled is True
 
@@ -143,3 +145,16 @@ def test_legacy_recorder_callback_keeps_wav_queue_and_optional_sink():
     live._audio_callback(block, 2, info, None)
     assert captured == [(bytes(block), 2, info)]
     assert live._q.get_nowait() == bytes(block)
+
+
+def test_capture_only_recorder_never_queues_pcm_for_a_wav_file():
+    numpy = pytest.importorskip("numpy")
+    from core.recorder import Recorder
+
+    recorder = Recorder(write_wav=False)
+    block = numpy.array([[100], [-100]], dtype=numpy.int16)
+    recorder._audio_callback(block, 2, None, None)
+
+    assert recorder._output_path is None
+    assert recorder._q.empty()
+    assert recorder.elapsed_seconds == pytest.approx(2 / 16_000)

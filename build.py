@@ -19,6 +19,7 @@ extension was built for — the .so is tagged cpython-311).
 """
 
 import argparse
+import plistlib
 import shutil
 import subprocess
 import sys
@@ -27,6 +28,9 @@ from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parent
 LIB_DEPLOY_DIR = Path.home() / "Library/Application Support/Whispered/lib"
+HELPER_PROJECT = PROJECT / "native" / "system_capture_helper"
+HELPER_NAME = "whispered-capture-helper"
+_BUNDLE_IDENTIFIER = "io.github.whispered"
 
 # Whisper stack pieces to deploy from site-packages. The compiled
 # extension references its dylibs via @loader_path/pywhispercpp/.dylibs/,
@@ -51,6 +55,7 @@ _WHISPER_GLOBS = (
 
 
 def build_app() -> None:
+    helper = build_capture_helper()
     for name in ("build", "dist"):
         target = PROJECT / name
         if target.exists():
@@ -65,6 +70,7 @@ def build_app() -> None:
         "--noconfirm", "--clean",
         "--name=Whispered",
         "--windowed",
+        f"--osx-bundle-identifier={_BUNDLE_IDENTIFIER}",
         # Bundle icon (Finder/Dock) + the PNG main.py sets on the windows
         f"--icon={PROJECT / 'assets' / 'icon.icns'}",
         # Runtime data files resolved relative to the code tree
@@ -90,6 +96,9 @@ def build_app() -> None:
     if not app.is_dir():
         raise SystemExit("❌ dist/Whispered.app was not produced")
 
+    configure_macos_privacy(app)
+    install_capture_helper(app, helper)
+
     # Belt and braces: the excludes above should keep the whisper stack
     # out, but a stray hook could still pull the dylibs in — and then the
     # bundled (possibly stale) copy would shadow the external one. (Match
@@ -103,6 +112,54 @@ def build_app() -> None:
     if leaked:
         raise SystemExit(f"❌ whisper artifacts leaked into the bundle: {leaked[:5]}")
     print(f"✅ built {app} (whisper stack verified absent)")
+
+
+def build_capture_helper() -> Path:
+    """Compile the native ScreenCaptureKit executable used by Live."""
+    if not HELPER_PROJECT.is_dir():
+        raise SystemExit(f"❌ capture helper project is missing: {HELPER_PROJECT}")
+    try:
+        subprocess.run(["swift", "build", "-c", "release"], cwd=HELPER_PROJECT, check=True)
+    except FileNotFoundError as exc:
+        raise SystemExit("❌ Swift is required to build Live system-audio capture") from exc
+    helper = HELPER_PROJECT / ".build" / "release" / HELPER_NAME
+    if not helper.is_file():
+        raise SystemExit(f"❌ capture helper was not produced: {helper}")
+    return helper
+
+
+def install_capture_helper(app: Path, helper: Path) -> None:
+    """Embed and ad-hoc sign the helper before sealing the outer app bundle."""
+    destination = app / "Contents" / "Helpers" / HELPER_NAME
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(helper, destination)
+    destination.chmod(destination.stat().st_mode | 0o111)
+    # PyInstaller has already signed the outer bundle. Adding code changes its
+    # seal, so sign the nested executable first and the app last. Release
+    # distribution can replace '-' with a Developer ID in a later signing step.
+    subprocess.run(["codesign", "--force", "--sign", "-", str(destination)], check=True)
+    subprocess.run(["codesign", "--force", "--sign", "-", str(app)], check=True)
+
+
+def configure_macos_privacy(app: Path) -> None:
+    """Add purpose strings required before macOS grants live capture access."""
+    info_path = app / "Contents" / "Info.plist"
+    with info_path.open("rb") as handle:
+        info = plistlib.load(handle)
+    info.update({
+        "CFBundleIdentifier": _BUNDLE_IDENTIFIER,
+        "NSMicrophoneUsageDescription": (
+            "Whispered uses your microphone to transcribe a live meeting locally."
+        ),
+        "NSScreenCaptureUsageDescription": (
+            "Whispered captures selected meeting audio to transcribe it locally."
+        ),
+        "NSAudioCaptureUsageDescription": (
+            "Whispered captures selected meeting audio to transcribe it locally."
+        ),
+    })
+    with info_path.open("wb") as handle:
+        plistlib.dump(info, handle)
 
 
 def deploy_whisper_libs() -> None:

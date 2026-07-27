@@ -64,3 +64,13 @@ def test_linux_uses_xdg_data(monkeypatch, tmp_path):
 def test_resource_path_uses_source_root_when_not_frozen(monkeypatch):
     monkeypatch.delattr(paths.sys, "frozen", raising=False)
     assert paths.resource_path("locales").name == "locales"
+
+
+def test_macos_bundle_path_resolves_embedded_helper_root(monkeypatch, tmp_path):
+    executable = tmp_path / "Whispered.app" / "Contents" / "MacOS" / "Whispered"
+    executable.parent.mkdir(parents=True)
+    executable.touch()
+    monkeypatch.setattr(paths.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(paths.sys, "platform", "darwin")
+    monkeypatch.setattr(paths.sys, "executable", str(executable))
+    assert paths.macos_bundle_path() == tmp_path / "Whispered.app"

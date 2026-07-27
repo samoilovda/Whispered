@@ -237,6 +237,7 @@
   "cleaned_improvement": "✨ Removed {fillers} fillers • {reduction}% shorter",
 
   "live_title": "Live transcription",
+  "live_audio_not_saved": "Audio is not saved",
   "live_source_mic": "Microphone",
   "live_source_system": "Meeting audio",
   "live_source_both": "Microphone + meeting audio",
