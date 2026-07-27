@@ -154,6 +154,7 @@ class MainWindow(QMainWindow):
         self._gpu_worker: GPUDetectionWorker | None = None
         self._draft_worker: DraftAssemblyWorker | None = None
         self._source_filepath: str | None = None
+        self._source_kind = "file"
         self._use_gpu = True
         self._gpu_type, self._gpu_name = self.transcriber.gpu_type, self.transcriber.gpu_name
         # ETA tracking
@@ -197,6 +198,8 @@ class MainWindow(QMainWindow):
             self.ai_panel.cleanup()
         if hasattr(self, "file_selector"):
             self.file_selector.cleanup()
+        if hasattr(self, "recorder_widget"):
+            self.recorder_widget.cleanup()
         if self._gpu_worker and self._gpu_worker.isRunning():
             self._gpu_worker.cancel()
             self._gpu_worker.wait(1500)
@@ -482,8 +485,8 @@ class MainWindow(QMainWindow):
 
     def _open_record_view(self, record_id: int) -> None:
         """Load a history record and switch to the Record page."""
-        self._load_from_history(record_id)
-        self._stack.setCurrentIndex(self._record_index)
+        if self._load_from_history(record_id):
+            self._stack.setCurrentIndex(self._record_index)
 
     def _live_options(self):
         use_mic, use_system = self.live_view.selected_sources()
@@ -546,6 +549,7 @@ class MainWindow(QMainWindow):
         self.live_view._timer.stop()
         stamp = time.strftime("%Y-%m-%d_%H-%M-%S")
         self._source_filepath = source_path or f"live-{stamp}.wav"
+        self._source_kind = "live"
         self._transcription_start = self.live_runtime._started_at
         self._on_finished(result, open_record=False)
 
@@ -556,8 +560,10 @@ class MainWindow(QMainWindow):
     def _connect_signals(self):
         """Connect widget signals."""
         self.file_selector.file_selected.connect(self._on_file_selected)
+        self.file_selector.file_cleared.connect(self._on_file_cleared)
         self.transcript_view.copy_requested.connect(self._copy_to_clipboard)
         self.transcript_view.export_requested.connect(self._export_result)
+        self.transcript_view.result_changed.connect(self._on_transcript_changed)
 
         # AI Panel signals
         self.ai_panel.clean_requested.connect(self._start_text_cleaning)
@@ -766,16 +772,53 @@ class MainWindow(QMainWindow):
     def _on_recording_ready(self, filepath: str):
         """Load a freshly-recorded WAV into the file selector."""
         self.file_selector._set_file(filepath)
+        self._source_kind = "recorder"
 
     def _on_recording_error(self, msg: str):
         QMessageBox.warning(self, tr("error_transcription"), msg)
 
     def _on_file_selected(self, filepath: str):
         """Handle file selection."""
+        self._source_kind = "file"
         self._source_filepath = filepath
         self.transcribe_btn.setEnabled(True)
         self.status_label.setText(tr("status_ready_file", name=os.path.basename(filepath)))
         self.player.load(filepath)
+
+    def _on_file_cleared(self):
+        """Drop every media-specific reference when selection is cleared."""
+        self._source_filepath = None
+        self._source_kind = "file"
+        self.player.load("")
+        self.transcribe_btn.setEnabled(False)
+        # Transcript-only records can still be exported, but cannot be cut.
+        self.cut_view.video_panel.set_has_transcript(False)
+
+    def _on_transcript_changed(self, _change_kind: str) -> None:
+        """Propagate an in-place transcript edit to every dependent view."""
+        result = self.transcript_view.get_result()
+        if result is None:
+            return
+        self._current_result = result
+        self._cleaned_text = None
+        self.cleaned_view.clear()
+        self.article_view.clear()
+        self.chat_panel.set_transcript(result.full_text)
+        self.insights_panel.set_segments(result.segments, transcript_language=result.language)
+        self.youtube_panel.set_segments(result.segments, transcript_language=result.language)
+        self.cut_view.set_result(result)
+        if self._last_record_id is not None:
+            try:
+                from core.history import get_history_store
+                store = get_history_store()
+                store.update_result(
+                    self._last_record_id,
+                    result,
+                    getattr(result, "speaker_names", {}),
+                )
+                self.library_view.refresh()
+            except Exception as exc:
+                logger.warning("Failed to persist transcript edit: %s", exc)
 
     def _start_transcription(self):
         """Start the transcription process."""
@@ -887,6 +930,13 @@ class MainWindow(QMainWindow):
         perf_mode = self.perf_combo.currentData()
         n_threads = get_thread_count(perf_mode)
         enable_diarization = self.diarization_checkbox.isChecked()
+
+        # Downloader dialogs belong to the GUI thread.  BatchWorker only
+        # transcribes already prepared models.
+        if not Transcriber.prepare_models(model, enable_diarization):
+            self.batch_panel._on_batch_finished()
+            self.status_label.setText(tr("status_cancelled"))
+            return
 
         self.status_label.setText(tr("status_batch_starting"))
         self.operation_bar.set_operation(
@@ -1083,6 +1133,7 @@ class MainWindow(QMainWindow):
                 source_path=source_path,
                 model=model,
                 speaker_names=speaker_names or {},
+                source_kind=self._source_kind,
             )
             self.library_view.refresh()
         except Exception as e:
@@ -1101,16 +1152,23 @@ class MainWindow(QMainWindow):
             speaker_names=getattr(result, "speaker_names", {}) or {},
         )
 
-    def _load_from_history(self, record_id: int):
-        """Restore a TranscriptionResult from a history record."""
+    def _load_from_history(self, record_id: int) -> bool:
+        """Restore a history record and its media context atomically.
+
+        Returns ``False`` without changing the visible page for a missing or
+        malformed row.  This prevents a Library click from exposing the
+        previous record under a new title.
+        """
         try:
             from core.history import get_history_store
-            from transcriber import TranscriptionResult, Segment
+            from transcriber import TranscriptionResult, Segment, Word
             store = get_history_store()
-            payload = store.get(record_id)
-            if payload is None:
-                return
-            source_name = store.get_source_name(record_id) or ""
+            record = store.get_record(record_id)
+            if record is None:
+                return False
+            payload = record["payload"]
+            source_name = record["source_name"] or ""
+            source_path = record["source_path"] or ""
 
             segments = [
                 Segment(
@@ -1118,6 +1176,7 @@ class MainWindow(QMainWindow):
                     end=s["end"],
                     text=s["text"],
                     speaker=s.get("speaker"),
+                    words=[Word(**word) for word in s.get("words", [])],
                 )
                 for s in payload.get("segments", [])
             ]
@@ -1128,24 +1187,41 @@ class MainWindow(QMainWindow):
                 speaker_names=payload.get("speaker_names") or {},
             )
             self._current_result = result
+            self._last_record_id = record_id
+            self._source_kind = record.get("source_kind", "file")
             # set_result honours result.speaker_names, restoring renames.
             self.transcript_view.set_result(result)
+
+            # A history row may be transcript-only (Live) or point at media
+            # that has since been moved/deleted.  Never leave the old media
+            # selected in that case.
+            has_media = bool(source_path and Path(source_path).is_file())
+            if has_media:
+                self.file_selector._set_file(source_path)
+                # _set_file emits file_selected and updates the player.
+            else:
+                self.file_selector._clear_selection()
+                self.player.load("")
 
             self.ai_panel.set_has_transcription(True)
             self.book_panel.set_has_transcript(True)
             self.chat_panel.set_transcript(result.full_text)
             self.insights_panel.set_segments(result.segments, transcript_language=result.language)
             self.youtube_panel.set_segments(result.segments, transcript_language=result.language)
-            self.youtube_panel.set_source_name(Path(source_name).stem if source_name else "")
-            self.cut_view.video_panel.set_has_transcript(True)
+            self.youtube_panel.set_source_name(
+                Path(source_path or source_name).stem if (source_path or source_name) else ""
+            )
+            self.cut_view.video_panel.set_has_transcript(has_media)
             self.cut_view.set_result(result)
             word_count = len(result.full_text.split())
             self.status_label.setText(tr("toast_loaded_history", words=word_count))
             self.main_tabs.setCurrentIndex(0)
             self.record_view.set_title(Path(source_name).stem if source_name else tr("app_title"))
             self.record_view.set_has_result(True)
+            return True
         except Exception as e:
             logger.warning("Failed to load history record %d: %s", record_id, e)
+            return False
 
     def _on_error(self, error_message: str):
         """Handle transcription error."""
@@ -1214,6 +1290,7 @@ class MainWindow(QMainWindow):
             directory = QFileDialog.getExistingDirectory(self, "Select Export Directory")
             if directory:
                 count = 0
+                failures: list[str] = []
                 for format_key in format_keys:
                     ext = 'txt' if format_key in ('txt', 'txt_ts') else format_key
                     suffix = '_ts' if format_key == 'txt_ts' else ''
@@ -1221,9 +1298,21 @@ class MainWindow(QMainWindow):
                     try:
                         export_result(result, filepath, format_key)
                         count += 1
-                    except Exception:
-                        pass
-                show_toast(self, tr("toast_exported_many", count=count), kind="success")
+                    except Exception as exc:
+                        logger.warning("Failed to export %s: %s", format_key, exc)
+                        failures.append(format_key)
+                if count:
+                    show_toast(
+                        self,
+                        tr("toast_exported_many", count=count),
+                        kind="success" if not failures else "warning",
+                    )
+                if failures:
+                    QMessageBox.warning(
+                        self,
+                        tr("error_export"),
+                        "Failed formats: " + ", ".join(failures),
+                    )
 
     # ===== AI Processing Methods =====
 

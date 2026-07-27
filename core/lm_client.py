@@ -7,6 +7,8 @@ Extracted from text_processor.py for reuse across modules.
 import json
 import urllib.request
 import urllib.error
+import functools
+import threading
 from typing import Optional, Callable
 
 from core.logger import get_logger
@@ -21,6 +23,32 @@ DEFAULT_LM_STUDIO_URL = "http://localhost:1234/v1"
 DEFAULT_MAX_TOKENS = 4096
 DEFAULT_TEMPERATURE = 0.7
 DEFAULT_TIMEOUT = 300  # 5 minutes for long texts
+
+# LM Studio can deadlock or become unresponsive when several long requests
+# prefill concurrently.  The application deliberately has one process-wide
+# lane for local completions; cloud providers are not affected.
+_COMPLETION_SLOT = threading.RLock()
+
+
+def _serialized_completion(method):
+    """Run a local completion in the single shared LM Studio lane.
+
+    Waiting is cancellable, so closing a panel does not leave its worker
+    queued behind a long unrelated generation.
+    """
+    @functools.wraps(method)
+    def wrapped(self, *args, **kwargs):
+        cancelled = kwargs.get("is_cancelled") or getattr(self, "is_cancelled", None)
+        while not _COMPLETION_SLOT.acquire(timeout=0.1):
+            if cancelled and cancelled():
+                return None
+        try:
+            if cancelled and cancelled():
+                return None
+            return method(self, *args, **kwargs)
+        finally:
+            _COMPLETION_SLOT.release()
+    return wrapped
 
 
 # ============================================================================
@@ -72,6 +100,7 @@ class LMStudioClient:
             pass
         return None
 
+    @_serialized_completion
     def complete(
         self,
         messages: list[dict],
@@ -133,6 +162,7 @@ class LMStudioClient:
             logger.warning("LM Studio API error: %s", exc)
             return None
 
+    @_serialized_completion
     def chat_completion(
         self,
         prompt: str,
@@ -160,6 +190,7 @@ class LMStudioClient:
             timeout=timeout,
         )
 
+    @_serialized_completion
     def chat_completion_stream(
         self,
         messages: list[dict],

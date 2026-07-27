@@ -146,6 +146,7 @@ class BatchPanel(QWidget):
         # File list
         self.file_list = QListWidget()
         self.file_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.file_list.model().rowsMoved.connect(self._sync_visual_order)
         layout.addWidget(self.file_list, stretch=1)
 
         self.empty_state = EmptyStateWidget(
@@ -227,6 +228,16 @@ class BatchPanel(QWidget):
         self.clear_btn.setEnabled(count > 0 and not self.processor.is_processing)
         self.file_list.setVisible(count > 0)
         self.empty_state.setVisible(count == 0)
+
+    def _sync_visual_order(self, *_args) -> None:
+        """Keep BatchProcessor's execution order equal to drag-drop order."""
+        paths: list[str] = []
+        for row in range(self.file_list.count()):
+            widget = self.file_list.itemWidget(self.file_list.item(row))
+            if isinstance(widget, BatchItemWidget):
+                paths.append(widget.item.filepath)
+        if self.processor.reorder_by_paths(paths):
+            self._refresh_list()
         self.cancel_btn.setVisible(self.processor.is_processing)
 
     def _remove_item(self, index: int):

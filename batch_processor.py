@@ -147,7 +147,10 @@ class BatchWorker(QThread):
             use_gpu=self.use_gpu,
             on_progress=on_progress,
             on_finished=on_finished,
-            on_error=on_error
+            on_error=on_error,
+            # Model preparation is performed by MainWindow before this
+            # QThread starts; it may display Qt dialogs and is unsafe here.
+            models_ready=True,
         )
 
         # Model download/setup can fail before TranscriptionWorker exists.
@@ -270,6 +273,16 @@ class BatchProcessor(QObject):
     def clear_completed(self):
         """Remove completed and errored items."""
         self._items = [item for item in self._items if not item.is_complete]
+
+    def reorder_by_paths(self, paths: list[str]) -> bool:
+        """Apply a user-visible queue order before processing starts."""
+        if self.is_processing or len(paths) != len(self._items):
+            return False
+        by_path = {item.filepath: item for item in self._items}
+        if len(by_path) != len(self._items) or set(paths) != set(by_path):
+            return False
+        self._items = [by_path[path] for path in paths]
+        return True
 
     def start(
         self,

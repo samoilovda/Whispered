@@ -58,6 +58,8 @@ class FileSelector(QWidget):
 
     # Signal emitted when a valid file is selected
     file_selected = pyqtSignal(str)  # filepath
+    # Signal emitted when the selected file is explicitly cleared.
+    file_cleared = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -227,6 +229,7 @@ class FileSelector(QWidget):
         self.icon_label.set_color(IconColors.DEFAULT)
         self.text_label.setText(tr("file_drop_title"))
         set_role(self.text_label, "muted")
+        self.file_cleared.emit()
 
     def get_file(self) -> str | None:
         """Get the currently selected file path."""

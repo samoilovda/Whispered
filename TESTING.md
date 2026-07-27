@@ -114,6 +114,16 @@ python -m compileall -q . -x '.venv|.claude|build|dist'
 QT_QPA_PLATFORM=offscreen .venv/bin/python tools/render_ui_gallery.py --check
 ```
 
+### Real-Qt regression suite
+
+The ordinary unit-test suite deliberately uses PyQt stubs. Run this separate
+suite with the project virtualenv so lifecycle, queued signals and widget
+state are exercised by a real Qt runtime:
+
+```bash
+QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests_qt/ -q
+```
+
 - [ ] Review RU/EN × dark/light at 1100×700 and 1440×900.
 - [ ] Repeat the primary flows at the supported minimum 900×550 using only
   the keyboard; focus must remain visible and every primary action reachable.

@@ -122,6 +122,11 @@ class RecorderWidget(QWidget):
             self._device_combo.setCurrentIndex(index)
             self._device_combo.blockSignals(False)
 
+    def cleanup(self) -> None:
+        """Stop an active recording during application shutdown."""
+        if self._recorder is not None and self._recorder.is_recording():
+            self._stop_recording()
+
     def _refresh_devices(self) -> None:
         current = self._device
         self._device_combo.blockSignals(True)
@@ -210,7 +215,19 @@ class RecorderWidget(QWidget):
         self._level_bar.setValue(value)
 
     def _on_error(self, msg: str):
-        self._stop_recording()
+        # ``Recorder.start`` can fail before it ever enters the recording
+        # state.  Calling the normal stop path in that case used to emit its
+        # empty WAV reservation as ``file_ready``.
+        if self._recorder is not None and self._recorder.is_recording():
+            self._stop_recording()
+        else:
+            self._timer.stop()
+            self._record_btn.setText(tr("recorder_start"))
+            set_role(self._record_btn, "")
+            self._pause_btn.setChecked(False)
+            self._pause_btn.setVisible(False)
+            self._timer_label.setText("00:00")
+            self._level_bar.setValue(0)
         self._status_label.setText(msg)
         set_role(self._status_label, "danger-text")
         self.error.emit(msg)

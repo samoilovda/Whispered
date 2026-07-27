@@ -54,6 +54,8 @@ def export_srt(result: TranscriptionResult, filepath: str) -> None:
 
 def export_vtt(result: TranscriptionResult, filepath: str) -> None:
     """Export transcription as WebVTT subtitle file."""
+    import html
+
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write("WEBVTT\n\n")
 
@@ -61,7 +63,9 @@ def export_vtt(result: TranscriptionResult, filepath: str) -> None:
             start = format_timestamp_vtt(seg.start)
             end = format_timestamp_vtt(seg.end)
             speaker = _speaker_name(result, seg)
-            text = seg.text.strip()
+            # Cue text is markup in WebVTT; never let transcript content add
+            # tags or invalidate a cue.
+            text = html.escape(seg.text.strip())
             if speaker:
                 # WebVTT voice spans must not contain '<' or '>'.
                 safe_speaker = speaker.replace("<", "").replace(">", "").replace("\n", " ").strip()
@@ -239,6 +243,7 @@ def export_pdf(result: TranscriptionResult, filepath: str) -> None:
         raise RuntimeError("PDF export must be called from the main Qt thread")
 
     # Build HTML and render via QTextDocument
+    import html as html_lib
     import io
     buf = io.StringIO()
     buf.write("<html><head><meta charset='utf-8'></head><body>")
@@ -247,8 +252,8 @@ def export_pdf(result: TranscriptionResult, filepath: str) -> None:
         from utils import format_timestamp_vtt
         start = format_timestamp_vtt(seg.start)
         name = _speaker_name(result, seg)
-        text = seg.text.strip().replace("<", "&lt;").replace(">", "&gt;")
-        prefix = f"<b>{name}:</b> " if name else ""
+        text = html_lib.escape(seg.text.strip())
+        prefix = f"<b>{html_lib.escape(name)}:</b> " if name else ""
         buf.write(f"<p><small>[{start}]</small> {prefix}{text}</p>")
     buf.write("</body></html>")
 
@@ -292,5 +297,23 @@ def export_result(
     if format_key not in EXPORT_FORMATS:
         raise ValueError(f"Unknown format: {format_key}")
 
+    import os
+    import tempfile
+    from pathlib import Path
+
     _, export_func = EXPORT_FORMATS[format_key]
-    export_func(result, filepath)
+    target = Path(filepath)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(
+        prefix=f".{target.stem}.", suffix=target.suffix, dir=target.parent,
+    )
+    os.close(fd)
+    try:
+        export_func(result, temporary)
+        os.replace(temporary, target)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise

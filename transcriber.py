@@ -8,6 +8,7 @@ import re
 import threading
 import tempfile
 import subprocess
+import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional, List, Dict
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
@@ -441,6 +442,12 @@ def _run_transcription_process(
                 pass
         import gc
         gc.collect()
+        # A process exit code alone cannot tell the parent whether a terminal
+        # result was delivered.  This explicit sentinel closes that protocol.
+        try:
+            q.put(('terminal',))
+        except Exception:
+            pass
 
 class TranscriptionWorker(QThread):
     """Worker thread for running transcription in background."""
@@ -534,11 +541,14 @@ class TranscriptionWorker(QThread):
                 except queue.Empty:
                     continue
 
-            # Subprocess died without posting result or error
-            # Check if there's anything left in queue
-            while not q.empty():
+            # The multiprocessing feeder may publish the final message just
+            # after ``is_alive`` flips to false.  Wait briefly for the
+            # explicit terminal sentinel instead of using Queue.empty(),
+            # which is documented as unreliable across processes.
+            deadline = time.monotonic() + 1.0
+            while time.monotonic() < deadline:
                 try:
-                    msg = q.get_nowait()
+                    msg = q.get(timeout=max(0.01, deadline - time.monotonic()))
                     if msg[0] == 'progress':
                         self.progress.emit(msg[1], msg[2])
                     elif msg[0] == 'result':
@@ -547,14 +557,18 @@ class TranscriptionWorker(QThread):
                     elif msg[0] == 'error':
                         self.error.emit(msg[1])
                         return
+                    elif msg[0] == 'terminal':
+                        break
                 except queue.Empty:
                     break
 
             if not self._cancelled.is_set():
-                if self._process.exitcode != 0:
-                     self.error.emit(f"Transcription process crashed with exit code {self._process.exitcode}")
+                self.error.emit(
+                    "Transcription process exited without a result "
+                    f"(exit code {self._process.exitcode})."
+                )
             else:
-                 self.error.emit("Cancelled")
+                self.error.emit("Cancelled")
 
         finally:
             if self._process and self._process.is_alive():
@@ -594,7 +608,8 @@ class Transcriber:
         use_gpu: bool = True,
         on_progress: Optional[Callable[[int, str], None]] = None,
         on_finished: Optional[Callable[[TranscriptionResult], None]] = None,
-        on_error: Optional[Callable[[str], None]] = None
+        on_error: Optional[Callable[[str], None]] = None,
+        models_ready: bool = False,
     ) -> Optional[TranscriptionWorker]:
         """
         Start a transcription job.
@@ -621,27 +636,10 @@ class Transcriber:
             self.current_worker.cancel()
             self.current_worker.wait()
 
-        # Ensure models are downloaded before starting the background thread
-        try:
-            from ui.model_downloader import ensure_whisper_model, ensure_diarization_models
-            from config import get_config
-
-            # Check Whisper model
-            if not ensure_whisper_model(model_name):
-                if on_error:
-                    on_error("Whisper model download was cancelled or failed.")
-                return None
-
-            # Check Diarization models if enabled
-            if enable_diarization:
-                config = get_config()
-                if config.has_hf_token():
-                    if not ensure_diarization_models(config.hf_token):
-                        if on_error:
-                            on_error("Speaker diarization model download was cancelled or failed.")
-                        return None
-        except Exception as e:
-            logger.warning("Model downloader check failed: %s", e)
+        if not models_ready and not self.prepare_models(model_name, enable_diarization):
+            if on_error:
+                on_error("Model download was cancelled or failed.")
+            return None
 
         # Create new worker
         worker = TranscriptionWorker(
@@ -669,6 +667,27 @@ class Transcriber:
         worker.start()
 
         return worker
+
+    @staticmethod
+    def prepare_models(model_name: str, enable_diarization: bool = False) -> bool:
+        """Verify/download models from the GUI thread before worker startup.
+
+        ``ensure_*`` opens Qt dialogs, therefore it must never be called by
+        ``BatchWorker.run`` or another background thread.
+        """
+        try:
+            from ui.model_downloader import ensure_diarization_models, ensure_whisper_model
+            from config import get_config
+            if not ensure_whisper_model(model_name):
+                return False
+            if enable_diarization:
+                config = get_config()
+                if config.has_hf_token() and not ensure_diarization_models(config.hf_token):
+                    return False
+            return True
+        except Exception as exc:
+            logger.warning("Model downloader check failed: %s", exc)
+            return False
 
     def cancel(self):
         """Cancel the current transcription job."""

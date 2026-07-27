@@ -124,7 +124,9 @@ class Recorder(QObject):
             return
 
         _DATA_DIR.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        # Microseconds avoid overwriting a just-finished recording when the
+        # user starts another one within the same second.
+        ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f")
         self._output_path = str(_DATA_DIR / f"REC_{ts}.wav")
         self._elapsed_frames = 0
 
@@ -162,6 +164,17 @@ class Recorder(QObject):
                 except Exception as close_exc:
                     logger.debug("WAV close during stream-open failure: %s", close_exc)
                 self._wav = None
+            # A stream-open failure creates only a WAV header.  Do not hand
+            # that zero-frame path to the widget's error handler as a usable
+            # recording.
+            failed_path = self._output_path
+            self._output_path = None
+            if failed_path:
+                try:
+                    import os
+                    os.unlink(failed_path)
+                except OSError:
+                    pass
             self.error_occurred.emit(f"Cannot open audio device: {exc}")
             return
 
@@ -180,6 +193,10 @@ class Recorder(QObject):
 
     def stop(self) -> Optional[str]:
         """Stop recording and return the path to the WAV file."""
+        # Error paths may call stop() after stream initialisation failed.
+        # There is no complete file in that state.
+        if not self._recording.is_set() and self._stream is None and self._wav is None:
+            return None
         self._recording.clear()
 
         if self._stream is not None:

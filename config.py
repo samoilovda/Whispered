@@ -6,6 +6,7 @@ Store and load user settings
 import json
 import os
 import stat
+import tempfile
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
@@ -95,15 +96,26 @@ class Config:
         """Save configuration to file."""
         try:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-
-            with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-                json.dump(asdict(self), f, indent=2)
-
-            # Config may contain secrets (e.g. hf_token) — restrict to owner read/write.
+            # Create the temporary file privately before any secret-bearing
+            # bytes are written, then atomically replace the old config.
+            fd, temporary = tempfile.mkstemp(prefix=".config-", dir=CONFIG_DIR)
             try:
-                os.chmod(CONFIG_FILE, stat.S_IRUSR | stat.S_IWUSR)
-            except OSError as e:
-                logger.warning("Failed to restrict config file permissions: %s", e)
+                os.fchmod(fd, stat.S_IRUSR | stat.S_IWUSR)
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(asdict(self), f, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(temporary, CONFIG_FILE)
+            except Exception:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+                try:
+                    os.unlink(temporary)
+                except OSError:
+                    pass
+                raise
 
             return True
         except Exception as e:

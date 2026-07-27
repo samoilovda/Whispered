@@ -79,6 +79,7 @@ class TranscriptView(QWidget):
     copy_requested = pyqtSignal()
     export_requested = pyqtSignal()
     seek_requested = pyqtSignal(float)  # user clicked a segment → seek to its start time
+    result_changed = pyqtSignal(str)  # text / speakers / structure
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -356,7 +357,7 @@ class TranscriptView(QWidget):
         else:
             for seg in self._result.segments:
                 lines.append(seg.text.strip())
-        self.text_edit.setText('\n'.join(lines))
+        self.text_edit.setPlainText('\n'.join(lines))
         self._highlighted_block = -1
         self._build_segment_map()
 
@@ -414,7 +415,7 @@ class TranscriptView(QWidget):
         self.text_edit.setReadOnly(True)
 
         if save and self._result:
-            self._parse_edited_text()
+            changed = self._parse_edited_text()
             # Re-sync _speaker_names: keep existing display names where the
             # speaker id still exists; add identity entries for any new ids
             # the user may have typed in edit mode.
@@ -423,10 +424,12 @@ class TranscriptView(QWidget):
             self._speaker_names = {sid: existing.get(sid, sid) for sid in sorted(new_ids)}
             if self._result is not None:
                 self._result.speaker_names = dict(self._speaker_names)
+            if changed:
+                self.result_changed.emit("structure")
 
         self._update_display()
 
-    def _parse_edited_text(self):
+    def _parse_edited_text(self) -> bool:
         """Parse edited plaintext back into a fresh segment list.
 
         Rebuilding (rather than mutating in place) keeps the result consistent
@@ -455,11 +458,26 @@ class TranscriptView(QWidget):
             # else: stray text before any timestamp → ignored
 
         if not parsed:
-            return
+            return False
 
         orig = self._result.segments
         new_segments: list = []
         for i, (start, speaker, text_parts) in enumerate(parsed):
+            text = ' '.join(text_parts).strip()
+            original = orig[i] if i < len(orig) else None
+            # A pure text edit must not discard timing data collected by the
+            # transcriber.  Structural edits take the deterministic branch
+            # below and use explicit timestamps from the editor.
+            if (original is not None and original.start == start
+                    and original.speaker == speaker):
+                new_segments.append(Segment(
+                    start=original.start,
+                    end=original.end,
+                    text=text,
+                    speaker=original.speaker,
+                    words=list(original.words),
+                ))
+                continue
             # End time: next segment's start, else preserve original / duration.
             if i + 1 < len(parsed):
                 end = max(parsed[i + 1][0], start)
@@ -470,12 +488,13 @@ class TranscriptView(QWidget):
             new_segments.append(Segment(
                 start=start,
                 end=end,
-                text=' '.join(text_parts).strip(),
+                text=text,
                 speaker=speaker,
             ))
 
         # full_text is a property over segments, so export/AI/copy auto-update.
         self._result.segments = new_segments
+        return True
 
     # ------------------------------------------------------------------ speakers
 
@@ -489,6 +508,7 @@ class TranscriptView(QWidget):
             if self._result is not None:
                 self._result.speaker_names = dict(self._speaker_names)
             self._update_display()
+            self.result_changed.emit("speakers")
 
     # ------------------------------------------------------------------ find & replace
 
@@ -515,9 +535,22 @@ class TranscriptView(QWidget):
         replacement = self._replace_edit.text()
         if not query:
             return
-        cursor = self.text_edit.textCursor()
-        if cursor.hasSelection() and cursor.selectedText() == query:
-            cursor.insertText(replacement)
+        if self._edit_mode:
+            cursor = self.text_edit.textCursor()
+            if cursor.hasSelection() and cursor.selectedText() == query:
+                cursor.insertText(replacement)
+                if self._parse_edited_text():
+                    self.result_changed.emit("text")
+            self._find_next()
+            return
+        if not self._result:
+            return
+        for segment in self._result.segments:
+            if query in segment.text:
+                segment.text = segment.text.replace(query, replacement, 1)
+                self._update_display()
+                self.result_changed.emit("text")
+                break
         self._find_next()
 
     def _replace_all(self):
@@ -525,14 +558,25 @@ class TranscriptView(QWidget):
         replacement = self._replace_edit.text()
         if not query:
             return
-        doc = self.text_edit.document()
-        text = doc.toPlainText()
-        count = text.count(query)
+        if not self._result:
+            return
+        if self._edit_mode:
+            text = self.text_edit.toPlainText()
+            count = text.count(query)
+            if count:
+                self.text_edit.setPlainText(text.replace(query, replacement))
+                if self._parse_edited_text():
+                    self.result_changed.emit("text")
+            self._find_count.setText(tr("find_replaced", count=count))
+            return
+        count = sum(segment.text.count(query) for segment in self._result.segments)
         if count == 0:
             self._find_count.setText(tr("find_count_plural", count=0))
             return
-        new_text = text.replace(query, replacement)
-        self.text_edit.setPlainText(new_text)
+        for segment in self._result.segments:
+            segment.text = segment.text.replace(query, replacement)
+        self._update_display()
+        self.result_changed.emit("text")
         self._find_count.setText(tr("find_replaced", count=count))
 
     def _update_find_count(self, query: str):

@@ -40,7 +40,9 @@ _fmt_duration = format_duration
 
 def _fmt_date(iso: str) -> str:
     try:
-        dt = datetime.fromisoformat(iso.rstrip("Z"))
+        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        if dt.tzinfo is not None:
+            dt = dt.astimezone()
         return dt.strftime("%d %b %Y, %H:%M")
     except Exception:
         return iso
@@ -370,6 +372,9 @@ class LibraryView(QWidget):
 
 
 def _record_kind(record) -> str:
+    explicit = getattr(record, "source_kind", "")
+    if explicit in {"file", "recorder", "live"}:
+        return explicit
     path = str(getattr(record, "source_path", ""))
     name = str(getattr(record, "source_name", ""))
     lower_name = name.lower()

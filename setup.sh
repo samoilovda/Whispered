@@ -6,7 +6,11 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv"
-MODELS_DIR="$SCRIPT_DIR/models"
+if [ "$(uname -s)" = "Darwin" ]; then
+    MODELS_DIR="$HOME/Library/Application Support/Whispered/models"
+else
+    MODELS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/Whispered/models"
+fi
 
 # Colors for output
 RED='\033[0;31m'

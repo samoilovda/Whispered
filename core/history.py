@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS transcripts (
     created_at  TEXT    NOT NULL,
     source_path TEXT    NOT NULL,
     source_name TEXT    NOT NULL,
+    source_kind TEXT    NOT NULL DEFAULT 'file',
     duration    REAL    NOT NULL DEFAULT 0,
     language    TEXT    NOT NULL DEFAULT '',
     model       TEXT    NOT NULL DEFAULT '',
@@ -40,6 +41,9 @@ CREATE INDEX IF NOT EXISTS idx_transcripts_created ON transcripts(created_at DES
 # where no preset chain (Phase C.3) has run yet; the Library falls back
 # to showing just the guaranteed "transcript" chip in that case.
 _ADD_ARTIFACTS_COLUMN_SQL = "ALTER TABLE transcripts ADD COLUMN artifacts TEXT"
+_ADD_SOURCE_KIND_COLUMN_SQL = (
+    "ALTER TABLE transcripts ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'file'"
+)
 
 # FTS5 schema — created separately so failures (no FTS5 compile) are handled gracefully.
 _CREATE_FTS_SQL = """
@@ -81,6 +85,10 @@ def _result_to_payload(result: Any, model: str = "", speaker_names: dict | None 
             "end": seg.end,
             "text": seg.text,
             "speaker": seg.speaker,
+            "words": [
+                {"start": word.start, "end": word.end, "text": word.text}
+                for word in getattr(seg, "words", [])
+            ],
         }
         for seg in result.segments
     ]
@@ -127,7 +135,7 @@ class HistoryRecord:
     This is robust to future changes in SQL column order.
     """
 
-    __slots__ = ("id", "created_at", "source_path", "source_name",
+    __slots__ = ("id", "created_at", "source_path", "source_name", "source_kind",
                  "duration", "language", "model", "preview", "artifacts")
 
     def __init__(self, row: sqlite3.Row):
@@ -135,12 +143,17 @@ class HistoryRecord:
         self.created_at  = row["created_at"]
         self.source_path = row["source_path"]
         self.source_name = row["source_name"]
+        self.source_kind = row["source_kind"] if "source_kind" in row.keys() else "file"
         self.duration    = row["duration"]
         self.language    = row["language"]
         self.model       = row["model"]
         self.preview     = row["preview"]
         raw_artifacts = row["artifacts"]
-        self.artifacts: list[str] | None = json.loads(raw_artifacts) if raw_artifacts else None
+        try:
+            self.artifacts: list[str] | None = json.loads(raw_artifacts) if raw_artifacts else None
+        except (TypeError, json.JSONDecodeError):
+            logger.warning("Ignoring malformed history artifacts for record %s", self.id)
+            self.artifacts = None
 
 
 class HistoryStore:
@@ -166,6 +179,7 @@ class HistoryStore:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(_CREATE_SQL)
         self._migrate_artifacts_column()
+        self._migrate_source_kind_column()
         self._init_fts()
 
     def _migrate_artifacts_column(self):
@@ -176,6 +190,15 @@ class HistoryStore:
         try:
             with self._connect() as conn:
                 conn.execute(_ADD_ARTIFACTS_COLUMN_SQL)
+        except sqlite3.OperationalError as exc:
+            if "duplicate column" not in str(exc).lower():
+                raise
+
+    def _migrate_source_kind_column(self):
+        """Add explicit source kind for filtering without filename guesses."""
+        try:
+            with self._connect() as conn:
+                conn.execute(_ADD_SOURCE_KIND_COLUMN_SQL)
         except sqlite3.OperationalError as exc:
             if "duplicate column" not in str(exc).lower():
                 raise
@@ -209,7 +232,7 @@ class HistoryStore:
     # ------------------------------------------------------------------ public API
 
     def add(self, result: Any, source_path: str, model: str = "",
-            speaker_names: dict | None = None) -> int:
+            speaker_names: dict | None = None, source_kind: str = "file") -> int:
         """Persist a TranscriptionResult; returns the new row id."""
         payload = _result_to_payload(result, model, speaker_names)
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -217,9 +240,9 @@ class HistoryStore:
         with self._connect() as conn:
             cur = conn.execute(
                 """INSERT INTO transcripts
-                   (created_at, source_path, source_name, duration, language, model, json_payload)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (now, source_path, source_name, result.duration,
+                   (created_at, source_path, source_name, source_kind, duration, language, model, json_payload)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (now, source_path, source_name, source_kind, result.duration,
                  result.language, model, payload),
             )
             return cur.lastrowid
@@ -227,7 +250,7 @@ class HistoryStore:
     def list(self, limit: int = 200, offset: int = 0) -> list[HistoryRecord]:
         """Return lightweight metadata rows, newest first."""
         sql = """
-            SELECT id, created_at, source_path, source_name, duration, language, model,
+            SELECT id, created_at, source_path, source_name, source_kind, duration, language, model,
                    artifacts, substr(json_payload, 1, 300) AS preview
             FROM transcripts
             ORDER BY created_at DESC, id DESC
@@ -239,13 +262,36 @@ class HistoryStore:
 
     def get(self, record_id: int) -> Optional[dict]:
         """Return the full JSON payload dict for a given id, or None."""
+        record = self.get_record(record_id)
+        return record["payload"] if record is not None else None
+
+    def get_record(self, record_id: int) -> Optional[dict[str, Any]]:
+        """Return a complete history record, including its media metadata.
+
+        Loading a transcript without its stored ``source_path`` is unsafe: a
+        caller can otherwise retain the player and export context of the
+        previously opened recording.  Keep the payload and the metadata in a
+        single read so callers can switch that context atomically.
+        """
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT json_payload FROM transcripts WHERE id = ?", (record_id,)
+                """SELECT id, source_path, source_name, source_kind, duration, language, model,
+                          json_payload
+                   FROM transcripts WHERE id = ?""",
+                (record_id,),
             ).fetchone()
         if row is None:
             return None
-        return _payload_to_dict(row["json_payload"])
+        return {
+            "id": row["id"],
+            "source_path": row["source_path"],
+            "source_name": row["source_name"],
+            "source_kind": row["source_kind"],
+            "duration": row["duration"],
+            "language": row["language"],
+            "model": row["model"],
+            "payload": _payload_to_dict(row["json_payload"]),
+        }
 
     def get_source_name(self, record_id: int) -> Optional[str]:
         """Return the stored source_name (original filename) for a record, or None."""
@@ -265,6 +311,25 @@ class HistoryStore:
                 "UPDATE transcripts SET artifacts = ? WHERE id = ?",
                 (json.dumps(artifact_types, ensure_ascii=False), record_id),
             )
+
+    def update_result(self, record_id: int, result: Any,
+                      speaker_names: dict | None = None) -> bool:
+        """Replace a stored result without creating a duplicate history row."""
+        payload = _result_to_payload(result, speaker_names=speaker_names)
+        with self._connect() as conn:
+            cur = conn.execute(
+                """UPDATE transcripts
+                   SET duration = ?, language = ?, json_payload = ?, artifacts = ?
+                   WHERE id = ?""",
+                (
+                    result.duration,
+                    result.language,
+                    payload,
+                    json.dumps(["transcript"], ensure_ascii=False),
+                    record_id,
+                ),
+            )
+            return cur.rowcount > 0
 
     def delete(self, record_id: int) -> bool:
         """Delete a single record. Returns True if a row was removed."""
@@ -298,7 +363,7 @@ class HistoryStore:
         query = _fts_query(text)
         # snippet() highlights column 1 (json_payload); column 0 is source_name
         sql = """
-            SELECT t.id, t.created_at, t.source_path, t.source_name,
+            SELECT t.id, t.created_at, t.source_path, t.source_name, t.source_kind,
                    t.duration, t.language, t.model, t.artifacts,
                    snippet(transcripts_fts, 1, '**', '**', '…', 20) AS preview
             FROM transcripts_fts
@@ -318,7 +383,7 @@ class HistoryStore:
     def _search_like(self, text: str, limit: int) -> list[HistoryRecord]:
         pattern = f"%{text}%"
         sql = """
-            SELECT id, created_at, source_path, source_name, duration, language, model,
+            SELECT id, created_at, source_path, source_name, source_kind, duration, language, model,
                    artifacts, substr(json_payload, 1, 300) AS preview
             FROM transcripts
             WHERE json_payload LIKE ? OR source_name LIKE ?

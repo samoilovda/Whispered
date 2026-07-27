@@ -429,12 +429,11 @@ class ArticleGenerator:
         )
 
         if not response:
-            return Article(
-                title="Generation Failed",
-                format=format,
-                content="Unable to generate article. Please check LM Studio connection.",
-                topics=topics.main_topics
-            )
+            # A placeholder Article is indistinguishable from a successful
+            # artifact to preset chains and export/history code.  Surface a
+            # real worker error instead so no failed generation is recorded
+            # as completed work.
+            raise RuntimeError("Unable to generate article. Please check LM Studio connection.")
 
         # Extract title from content (first # heading)
         title = self._extract_title(response, topics)
