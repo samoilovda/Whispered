@@ -73,3 +73,4 @@ tests/fixtures/private/
 native/**/.build/
 .coverage
 input/
+private_plans/
