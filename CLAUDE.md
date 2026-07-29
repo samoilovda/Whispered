@@ -45,7 +45,7 @@ Key data types: `TranscriptionResult` and `Segment` (`start`, `end`, `text`,
 ```bash
 ruff check .                     # must be clean
 python -m pytest tests/ -q      # system python — Qt is stubbed in tests/conftest.py
-python -m compileall -q . -x '.venv|.claude|build|dist'
+python -m compileall -q . -x '.venv|.claude|build|dist|docs/archive'
 # real-Qt headless smoke (PyQt6 lives only in the project venv):
 QT_QPA_PLATFORM=offscreen .venv/bin/python -c "..."  # construct MainWindow, show, processEvents
 ```

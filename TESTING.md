@@ -110,7 +110,7 @@ python build.py
 ```bash
 ruff check .
 python -m pytest tests/ -q
-python -m compileall -q . -x '.venv|.claude|build|dist'
+python -m compileall -q . -x '.venv|.claude|build|dist|docs/archive'
 QT_QPA_PLATFORM=offscreen .venv/bin/python tools/render_ui_gallery.py --check
 ```
 

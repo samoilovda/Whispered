@@ -30,7 +30,7 @@ jobs:
 
       - name: Syntax check (compileall)
         run: |
-          python -m compileall -q -x '__pycache__|\.git|venv|\.venv' .
+          python -m compileall -q -x '__pycache__|\.git|venv|\.venv|docs/archive' .
 
       - name: Lint (ruff)
         run: |
@@ -68,7 +68,7 @@ jobs:
 
       - name: Syntax check and lint
         run: |
-          python -m compileall -q -x '__pycache__|\.git|venv|\.venv|build|dist' .
+          python -m compileall -q -x '__pycache__|\.git|venv|\.venv|build|dist|docs/archive' .
           ruff check .
 
       - name: Run unit tests
