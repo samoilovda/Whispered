@@ -1,0 +1,22 @@
+# Dependencies for the real-Qt smoke suite (tests_qt/) in CI.
+#
+# Deliberately NOT requirements-dev.lock: that pins pywhispercpp, which
+# publishes no manylinux wheel for the pinned version and would make every
+# CI run compile whisper.cpp from source. The engine is imported lazily
+# (transcriber.py resolves pywhispercpp inside the child process), so the
+# UI layer constructs fine without it — which is exactly what this suite
+# checks. sounddevice is lazy for the same reason and also omitted.
+#
+# Versions mirror requirements.lock; keep them in step when that is
+# regenerated.
+PyQt6==6.11.0
+PyQt6-Qt6==6.11.1
+PyQt6_sip==13.11.1
+pyqtdarktheme==2.1.0
+darkdetect==0.7.1
+numpy==2.4.6
+python-docx==1.2.0
+lxml==6.1.1
+typing_extensions==4.16.0
+requests==2.34.2
+pytest==9.1.1

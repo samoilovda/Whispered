@@ -19,7 +19,7 @@ import struct
 import threading
 import wave
 from datetime import datetime
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
@@ -103,7 +103,9 @@ class Recorder(QObject):
         write_wav: bool = True,
     ):
         super().__init__(parent)
-        self._stream = None
+        # sounddevice.InputStream — untyped here because sounddevice is
+        # imported lazily (see _open_stream) so the app can start without it.
+        self._stream: Optional[Any] = None
         self._wav: Optional[wave.Wave_write] = None
         self._output_path: Optional[str] = None
         self._lock = threading.Lock()

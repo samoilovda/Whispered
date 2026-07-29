@@ -69,7 +69,11 @@ def physical_memory_gb() -> float:
 
             status = _MemoryStatus()
             status.dwLength = ctypes.sizeof(status)
-            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            # windll exists only on Windows; this whole branch is guarded by
+            # the platform check above and by the except below.
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(  # type: ignore[attr-defined]
+                ctypes.byref(status)
+            ):
                 return float(status.ullTotalPhys) / (1024**3)
         except (AttributeError, OSError):
             pass

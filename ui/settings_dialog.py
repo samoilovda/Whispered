@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox, QSpinBox, QFormLayout,
     QDoubleSpinBox, QMessageBox, QPlainTextEdit
 )
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 
 from config import get_config, save_config
 from utils import get_models_dir
@@ -24,35 +24,11 @@ from ui.option_labels import (
     whisper_model_options,
 )
 from ui.theme import apply_theme, set_role
+from core.lm_status_worker import LMStatusWorker
 from core.logger import get_logger
 from core.i18n import tr
 
 logger = get_logger(__name__)
-
-
-class _ConnectionChecker(QThread):
-    """Non-blocking LM Studio connection check."""
-    result = pyqtSignal(bool, str)   # (connected, model_name_or_error)
-
-    def __init__(self, url: str, parent=None):
-        super().__init__(parent)
-        self._url = url
-
-    def run(self):
-        try:
-            import urllib.request
-            import json
-            req = urllib.request.Request(
-                f"{self._url.rstrip('/')}/models",
-                headers={"Content-Type": "application/json"},
-            )
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                data = json.loads(resp.read())
-            models = data.get("data", [])
-            name = models[0]["id"] if models else "connected"
-            self.result.emit(True, name)
-        except Exception as exc:
-            self.result.emit(False, str(exc))
 
 
 class SettingsDialog(QDialog):
@@ -63,7 +39,7 @@ class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._cfg = get_config()
-        self._checker: Optional[_ConnectionChecker] = None
+        self._checker: Optional[LMStatusWorker] = None
         self._pending_theme: Optional[str] = None
         self._lang_changed: bool = False
         self._setup_ui()
@@ -446,9 +422,10 @@ class SettingsDialog(QDialog):
     def reject(self):
         """Cancel: revert theme preview and stop any running connection check."""
         if self._checker is not None and self._checker.isRunning():
+            self._checker.cancel()
             try:
-                self._checker.result.disconnect(self._on_check_result)
-            except RuntimeError:
+                self._checker.status_ready.disconnect(self._on_check_result)
+            except (RuntimeError, TypeError):
                 pass
             self._checker.wait(1000)
             self._checker = None
@@ -478,13 +455,15 @@ class SettingsDialog(QDialog):
         self._check_result.setStyleSheet("font-size: 11px;")
         self._check_btn.setEnabled(False)
 
-        self._checker = _ConnectionChecker(url, self)
-        self._checker.result.connect(self._on_check_result)
+        self._checker = LMStatusWorker(url, parent=self)
+        self._checker.status_ready.connect(self._on_check_result)
         self._checker.start()
 
     def _on_check_result(self, connected: bool, detail: str):
         self._check_btn.setEnabled(True)
         if connected:
+            # detail is empty when the server answers with no model loaded.
+            detail = detail or tr("connection_ok_no_model")
             self._check_result.setText(tr("connection_ok", detail=detail))
             set_role(self._check_result, "success-text")
         else:

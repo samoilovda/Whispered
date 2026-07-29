@@ -11,7 +11,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Generator, Optional
+from typing import Any, Generator, List, Optional
 
 from core.logger import get_logger
 from core.paths import history_path
@@ -246,9 +246,14 @@ class HistoryStore:
                 (now, source_path, source_name, source_kind, result.duration,
                  result.language, model, payload),
             )
+            # lastrowid is Optional only before a successful INSERT; the
+            # execute() above either inserted a row or raised.
+            assert cur.lastrowid is not None
             return cur.lastrowid
 
-    def list(self, limit: int = 200, offset: int = 0) -> list[HistoryRecord]:
+    # NB: this method shadows the builtin inside the class body, so every
+    # annotation below must spell the type as List[...] from typing.
+    def list(self, limit: int = 200, offset: int = 0) -> List[HistoryRecord]:
         """Return lightweight metadata rows, newest first."""
         sql = """
             SELECT id, created_at, source_path, source_name, source_kind, duration, language, model,
@@ -302,7 +307,7 @@ class HistoryStore:
             ).fetchone()
         return row["source_name"] if row else None
 
-    def set_artifacts(self, record_id: int, artifact_types: list[str]) -> None:
+    def set_artifacts(self, record_id: int, artifact_types: List[str]) -> None:
         """Record which artifact types (e.g. ["transcript", "youtube",
         "article"]) exist for a record — written once a preset chain
         (Phase C.3) finishes generating them. The Library's chip line
@@ -352,7 +357,7 @@ class HistoryStore:
                     logger.debug("FTS5 rebuild after clear failed (non-critical): %s", exc)
             return cur.rowcount
 
-    def search(self, text: str, limit: int = 100) -> list[HistoryRecord]:
+    def search(self, text: str, limit: int = 100) -> List[HistoryRecord]:
         """Search across transcripts; uses FTS5 when available, else LIKE."""
         if not text.strip():
             return self.list(limit=limit)
@@ -360,7 +365,7 @@ class HistoryStore:
             return self._search_fts(text, limit)
         return self._search_like(text, limit)
 
-    def _search_fts(self, text: str, limit: int) -> list[HistoryRecord]:
+    def _search_fts(self, text: str, limit: int) -> List[HistoryRecord]:
         query = _fts_query(text)
         # snippet() highlights column 1 (json_payload); column 0 is source_name
         sql = """
@@ -381,7 +386,7 @@ class HistoryStore:
             logger.warning("FTS5 search failed, falling back to LIKE: %s", exc)
             return self._search_like(text, limit)
 
-    def _search_like(self, text: str, limit: int) -> list[HistoryRecord]:
+    def _search_like(self, text: str, limit: int) -> List[HistoryRecord]:
         pattern = f"%{text}%"
         sql = """
             SELECT id, created_at, source_path, source_name, source_kind, duration, language, model,

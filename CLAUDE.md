@@ -45,13 +45,18 @@ Key data types: `TranscriptionResult` and `Segment` (`start`, `end`, `text`,
 ```bash
 ruff check .                     # must be clean
 python -m pytest tests/ -q      # system python — Qt is stubbed in tests/conftest.py
-python -m compileall -q . -x '.venv|.claude|build|dist'
+python -m compileall -q . -x '.venv|.claude|build|dist|docs/archive'
+# mypy is a blocking gate for this set — it is clean and must stay clean.
+# ui/ is not typed yet and is only checked informationally in CI.
+python -m mypy --ignore-missing-imports core/ transcriber.py diarizer.py \
+    exporters.py utils.py config.py
 # real-Qt headless smoke (PyQt6 lives only in the project venv):
-QT_QPA_PLATFORM=offscreen .venv/bin/python -c "..."  # construct MainWindow, show, processEvents
+QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests_qt/ -q
 ```
 
 Unit tests run with **system python** against PyQt6 stubs; anything that
 needs real Qt runs with `.venv/bin/python` and `QT_QPA_PLATFORM=offscreen`.
+CI mirrors all of the above (`.github/workflows/ci.yml`).
 
 ## Standalone build gotchas
 

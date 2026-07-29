@@ -129,6 +129,8 @@ def detect_gpu(
     # The first Windows installer deliberately ships the CPU wheel. Hardware
     # discovery alone must not make the UI promise a CUDA backend that is not
     # part of the packaged pywhispercpp build.
+    detected: Tuple[str, str]
+
     if platform.system() == "Windows" and getattr(sys, "frozen", False):
         detected = ("cpu", "CPU (Windows CPU build)")
         with _GPU_CACHE_LOCK:
@@ -142,7 +144,7 @@ def detect_gpu(
             _GPU_CACHE = detected
         return detected
 
-    detected: Tuple[str, str] = ('cpu', "CPU (No GPU detected)")
+    detected = ('cpu', "CPU (No GPU detected)")
 
     # Check for NVIDIA CUDA
     if shutil.which('nvidia-smi'):
@@ -171,29 +173,6 @@ def detect_gpu(
         with _GPU_CACHE_LOCK:
             _GPU_CACHE = detected
     return detected
-
-
-def get_audio_duration(filepath: str) -> Optional[float]:
-    """Get the duration of an audio/video file using ffprobe."""
-    from core.external_tools import resolve_tool
-    ffprobe = resolve_tool("ffprobe")
-    if not ffprobe:
-        return None
-
-    try:
-        result = subprocess.run([
-            ffprobe, '-v', 'error',
-            '-show_entries', 'format=duration',
-            '-of', 'default=noprint_wrappers=1:nokey=1',
-            filepath
-        ], capture_output=True, text=True, timeout=10)
-
-        if result.returncode == 0 and result.stdout.strip():
-            return float(result.stdout.strip())
-    except (subprocess.TimeoutExpired, ValueError, Exception):
-        pass
-
-    return None
 
 
 def get_models_dir() -> str:

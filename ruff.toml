@@ -1,4 +1,7 @@
-extend-exclude = ["venv", ".venv", "models"]
+# docs/archive/ holds retired code kept for reference only (e.g. the
+# pre-GUI zoom_to_blog.py pipeline). It is not shipped, imported, or
+# maintained — linting it would gate live work on dead history.
+extend-exclude = ["venv", ".venv", "models", "docs/archive"]
 
 [lint]
 select = ["E", "F", "W"]

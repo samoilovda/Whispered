@@ -10,7 +10,7 @@ import tempfile
 import subprocess
 import time
 from dataclasses import dataclass, field
-from typing import Callable, Optional, List, Dict
+from typing import Any, Callable, Optional, List, Dict
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
 
 
@@ -301,8 +301,9 @@ def _run_transcription_process(
 
         q.put(('progress', 15, "Preparing transcription..."))
 
-        # Use thread count from settings
-        params = {
+        # Use thread count from settings. Heterogeneous by design — this is
+        # the pywhispercpp kwargs bag (ints, strs, bools, floats).
+        params: dict[str, Any] = {
             'n_threads': n_threads,
         }
 
@@ -682,7 +683,8 @@ class Transcriber:
                 return False
             if enable_diarization:
                 config = get_config()
-                if config.has_hf_token() and not ensure_diarization_models(config.hf_token):
+                hf_token = config.hf_token
+                if hf_token and config.has_hf_token() and not ensure_diarization_models(hf_token):
                     return False
             return True
         except Exception as exc:

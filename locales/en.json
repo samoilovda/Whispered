@@ -139,6 +139,7 @@
 
   "connection_checking": "Checking…",
   "connection_ok": "✓ {detail}",
+  "connection_ok_no_model": "Connected",
   "connection_fail": "✗ {detail}",
 
   "diarization_note": "Diarization requires a HuggingFace token and model download.\nRun setup_diarization.py to install pyannote models.",
