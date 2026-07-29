@@ -124,6 +124,11 @@ state are exercised by a real Qt runtime:
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests_qt/ -q
 ```
 
+CI runs the same suite in the `qt-smoke` job (ubuntu, offscreen) using
+`requirements-qt-ci.txt` — the pinned UI dependencies without the lazily
+imported engines (pywhispercpp, sounddevice), which have no Linux wheel and
+are not needed to construct the UI.
+
 - [ ] Review RU/EN × dark/light at 1100×700 and 1440×900.
 - [ ] Repeat the primary flows at the supported minimum 900×550 using only
   the keyboard; focus must remain visible and every primary action reachable.
