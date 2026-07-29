@@ -129,6 +129,8 @@ def detect_gpu(
     # The first Windows installer deliberately ships the CPU wheel. Hardware
     # discovery alone must not make the UI promise a CUDA backend that is not
     # part of the packaged pywhispercpp build.
+    detected: Tuple[str, str]
+
     if platform.system() == "Windows" and getattr(sys, "frozen", False):
         detected = ("cpu", "CPU (Windows CPU build)")
         with _GPU_CACHE_LOCK:
@@ -142,7 +144,7 @@ def detect_gpu(
             _GPU_CACHE = detected
         return detected
 
-    detected: Tuple[str, str] = ('cpu', "CPU (No GPU detected)")
+    detected = ('cpu', "CPU (No GPU detected)")
 
     # Check for NVIDIA CUDA
     if shutil.which('nvidia-smi'):

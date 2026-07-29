@@ -26,7 +26,7 @@ jobs:
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest==9.1.1 pytest-cov ruff==0.15.20 mypy==1.17.1
+          pip install pytest==9.1.1 pytest-cov ruff==0.15.20 mypy==1.17.1 types-requests
 
       - name: Syntax check (compileall)
         run: |
@@ -36,12 +36,17 @@ jobs:
         run: |
           ruff check .
 
-      - name: Type check (mypy, informational)
-        # Not a merge gate yet: the codebase isn't fully typed. Surfaced as a
-        # visible (but non-blocking) CI result so regressions are seen early.
-        continue-on-error: true
+      # Blocking: this set is clean and must stay clean.
+      - name: Type check (core, blocking)
         run: |
           mypy --ignore-missing-imports core/ transcriber.py diarizer.py exporters.py utils.py config.py
+
+      # Informational: ui/ is not typed yet. Surfaced so regressions are
+      # visible; promote to blocking once the count reaches zero.
+      - name: Type check (ui, informational)
+        continue-on-error: true
+        run: |
+          mypy --ignore-missing-imports ui/
 
       - name: Run unit tests with coverage
         run: python -m pytest tests/ -v --cov=. --cov-report=term-missing

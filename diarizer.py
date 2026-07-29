@@ -5,7 +5,7 @@ Identify and label different speakers using pyannote-audio
 
 import warnings
 from dataclasses import dataclass
-from typing import Optional, Callable, List
+from typing import Any, Optional, Callable, List
 
 # Suppress some warnings from pyannote
 warnings.filterwarnings("ignore", message=".*torchaudio.*")
@@ -67,7 +67,9 @@ class Diarizer:
             hf_token: Hugging Face token. If None, loads from config.
         """
         self._hf_token = hf_token or get_config().hf_token
-        self._pipeline = None
+        # pyannote.audio.Pipeline — untyped here because pyannote is an
+        # optional dependency imported lazily in _load_pipeline().
+        self._pipeline: Optional[Any] = None
         self._available: Optional[bool] = None
 
     def is_available(self) -> bool:
@@ -96,10 +98,10 @@ class Diarizer:
 
         return self._available
 
-    def _load_pipeline(self):
-        """Load the diarization pipeline (lazy loading)."""
+    def _load_pipeline(self) -> Any:
+        """Load the diarization pipeline (lazy loading); returns it."""
         if self._pipeline is not None:
-            return
+            return self._pipeline
 
         if not self.is_available():
             raise RuntimeError("Diarization not available. Check HF token and pyannote installation.")
@@ -109,17 +111,30 @@ class Diarizer:
             import torch
 
             # Load pipeline from Hugging Face
-            self._pipeline = Pipeline.from_pretrained(
+            pipeline = Pipeline.from_pretrained(
                 "pyannote/speaker-diarization-3.1",
                 use_auth_token=self._hf_token
             )
+            # from_pretrained returns None instead of raising when the token
+            # is rejected or the model terms have not been accepted. Catch it
+            # here rather than letting the caller hit "'NoneType' object is
+            # not callable" one frame later.
+            if pipeline is None:
+                raise RuntimeError(
+                    "Hugging Face returned no pipeline — the token may lack "
+                    "access, or the pyannote/speaker-diarization-3.1 model "
+                    "terms have not been accepted on huggingface.co."
+                )
 
             # Use MPS on Apple Silicon, CUDA on NVIDIA, else CPU
             if torch.backends.mps.is_available():
-                self._pipeline.to(torch.device("mps"))
+                pipeline.to(torch.device("mps"))
             elif torch.cuda.is_available():
-                self._pipeline.to(torch.device("cuda"))
+                pipeline.to(torch.device("cuda"))
             # else stays on CPU
+
+            self._pipeline = pipeline
+            return pipeline
 
         except Exception as e:
             error_msg = str(e)
@@ -155,7 +170,7 @@ class Diarizer:
         if on_progress:
             on_progress(10, "Loading diarization model...")
 
-        self._load_pipeline()
+        pipeline = self._load_pipeline()
 
         if on_progress:
             on_progress(30, "Analyzing speakers...")
@@ -170,7 +185,7 @@ class Diarizer:
 
         # Run diarization
         try:
-            diarization = self._pipeline(audio_path, **params)
+            diarization = pipeline(audio_path, **params)
         except Exception as e:
             raise RuntimeError(f"Diarization failed: {e}")
 
@@ -180,7 +195,7 @@ class Diarizer:
         # Convert to our format
         segments = []
         speakers_seen = set()
-        speaker_map = {}  # Map pyannote labels to friendly names
+        speaker_map: dict[str, str] = {}  # Map pyannote labels to friendly names
 
         for turn, _, speaker in diarization.itertracks(yield_label=True):
             # Create friendly speaker name

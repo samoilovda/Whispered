@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from core.live.contracts import SegmentState
+from typing import Optional
+
+from core.live.contracts import SegmentState, SegmentUpdate
 
 
 class LiveTranscriptModel:
     def __init__(self) -> None:
-        self._updates: dict[str, object] = {}
+        self._updates: dict[str, SegmentUpdate] = {}
 
-    def accept(self, update) -> bool:
+    def accept(self, update: SegmentUpdate) -> bool:
         previous = self._updates.get(update.segment_id)
         if previous and (
             previous.state is SegmentState.FINAL or update.revision <= previous.revision
@@ -18,7 +20,7 @@ class LiveTranscriptModel:
         self._updates[update.segment_id] = update
         return True
 
-    def get(self, segment_id: str):
+    def get(self, segment_id: str) -> Optional[SegmentUpdate]:
         return self._updates.get(segment_id)
 
     def relationships(self) -> dict[str, tuple[str, ...]]:

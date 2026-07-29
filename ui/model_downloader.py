@@ -4,8 +4,10 @@ Dynamic downloader for Whisper models and Pyannote models
 """
 
 import os
-import requests
 import time
+from typing import Optional
+
+import requests
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QProgressBar, QPushButton, QHBoxLayout, QMessageBox
 )
@@ -104,7 +106,8 @@ class DiarizationCacheWorker(QThread):
 class ModelDownloaderDialog(QDialog):
     """Dialog showing download progress for missing models."""
 
-    def __init__(self, model_name: str, is_diarization: bool = False, hf_token: str = None, parent=None):
+    def __init__(self, model_name: str, is_diarization: bool = False,
+                 hf_token: Optional[str] = None, parent=None):
         super().__init__(parent)
         self.model_name = model_name
         self.is_diarization = is_diarization
