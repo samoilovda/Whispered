@@ -147,8 +147,15 @@ class BookPipeline:
         self._client = LMStudioClient(base_url=cfg.book_lm_url)
         self._temperature = cfg.book_temperature
 
+    @property
+    def base_url(self) -> str:
+        """Endpoint this pipeline talks to, so callers can probe it
+        asynchronously (see ``core/lm_status_worker.py``) instead of
+        blocking on :meth:`is_available`."""
+        return self._client.base_url
+
     def is_available(self) -> bool:
-        """Check if LM Studio is reachable."""
+        """Check if LM Studio is reachable. Blocking — off the GUI thread only."""
         return self._client.check_connection()
 
     # ------------------------------------------------------------------

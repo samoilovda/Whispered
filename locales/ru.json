@@ -139,6 +139,7 @@
 
   "connection_checking": "Проверяем…",
   "connection_ok": "✓ {detail}",
+  "connection_ok_no_model": "Подключено",
   "connection_fail": "✗ {detail}",
 
   "diarization_note": "Диаризация требует токен HuggingFace и загрузки моделей.\nЗапустите setup_diarization.py для установки.",

@@ -119,6 +119,48 @@ class TestApiKeyAndModel:
             assert secret not in record.getMessage()
 
 
+class TestProbe:
+    """probe() replaces check_connection()+get_loaded_model() at the call
+    sites that need both, so it must answer in one request."""
+
+    def test_returns_loaded_model_in_a_single_request(self):
+        client = LMStudioClient("http://localhost:1234/v1")
+        with patch("urllib.request.urlopen") as mock_open, \
+             patch("urllib.request.Request"):
+            mock_open.return_value = _fake_response(
+                {"data": [{"id": "google/gemma-4-12b"}]}
+            )
+            connected, detail = client.probe()
+
+        assert (connected, detail) == (True, "google/gemma-4-12b")
+        assert mock_open.call_count == 1
+
+    def test_server_up_without_a_model_is_still_connected(self):
+        client = LMStudioClient("http://localhost:1234/v1")
+        with patch("urllib.request.urlopen") as mock_open, \
+             patch("urllib.request.Request"):
+            mock_open.return_value = _fake_response({"data": []})
+            assert client.probe() == (True, "")
+
+    def test_unreachable_reports_the_error(self):
+        client = LMStudioClient("http://localhost:1234/v1")
+        with patch("urllib.request.urlopen", side_effect=OSError("refused")):
+            connected, detail = client.probe()
+
+        assert connected is False
+        assert "refused" in detail
+
+    def test_sends_the_auth_header_when_a_key_is_set(self):
+        client = LMStudioClient("http://localhost:1234/v1", api_key="secret-key")
+        with patch("urllib.request.urlopen") as mock_open, \
+             patch("urllib.request.Request") as mock_req:
+            mock_open.return_value = _fake_response({"data": []})
+            client.probe()
+
+        headers = mock_req.call_args.kwargs["headers"]
+        assert headers["Authorization"] == "Bearer secret-key"
+
+
 class TestTruncationDetection:
     def test_finish_reason_length_logs_warning(self, caplog):
         client = LMStudioClient("http://localhost:1234/v1")

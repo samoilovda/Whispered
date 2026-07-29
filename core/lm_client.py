@@ -100,6 +100,30 @@ class LMStudioClient:
             pass
         return None
 
+    def probe(self, timeout: float = 5) -> tuple[bool, str]:
+        """Reachability and loaded-model name in a single round trip.
+
+        Returns ``(True, model_name)`` when the server answers, otherwise
+        ``(False, error_message)``.  Prefer this over calling
+        :meth:`check_connection` and :meth:`get_loaded_model` back to back —
+        those hit ``/models`` twice and can disagree if the server changes
+        state between the two calls.
+        """
+        try:
+            req = urllib.request.Request(
+                f"{self.base_url}/models", headers=self._auth_headers()
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                data = json.loads(response.read().decode('utf-8'))
+        except Exception as exc:
+            return False, str(exc)
+
+        models = data.get('data', [])
+        if models:
+            self._cached_model = models[0].get('id', 'Unknown')
+            return True, self._cached_model
+        return True, ""
+
     @_serialized_completion
     def complete(
         self,

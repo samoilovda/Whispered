@@ -117,9 +117,13 @@ def _install_pyqt6_stubs() -> None:
 
 
 def _install_core_stubs() -> None:
-    """Stub the Qt-facing core submodules that ``core/__init__.py`` imports
-    at package-init time, so any ``from core.X import Y`` succeeds cleanly
-    the first time it's triggered, no matter which test file does it first.
+    """Stub the Qt-facing core submodules that other core modules pull in, so
+    any ``from core.X import Y`` succeeds cleanly the first time it's
+    triggered, no matter which test file does it first.
+
+    (These used to be dragged in by ``core/__init__.py`` itself; that
+    re-export block is gone, but modules such as ``core.insights_worker``
+    and ``core.lm_status_worker`` still reach for them.)
     """
     if "core.lm_client" not in sys.modules:
         lm_stub = types.ModuleType("core.lm_client")

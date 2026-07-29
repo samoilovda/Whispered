@@ -12,32 +12,16 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QCheckBox, QProgressBar, QFrame, QFileDialog, QLineEdit, QMessageBox,
 )
-from PyQt6.QtCore import pyqtSignal, QTimer, QThread
+from PyQt6.QtCore import pyqtSignal, QTimer
 
 from book_pipeline import BookPipeline, BookResult
 from core.book_batch_worker import BookBatchWorker
 from core.i18n import tr
 from core.logger import get_logger
+from core.lm_status_worker import LMStatusWorker
 from ui.theme import set_role
 
 logger = get_logger(__name__)
-
-
-
-# ============================================================================
-# Helpers
-# ============================================================================
-
-class ConnectionChecker(QThread):
-    status_changed = pyqtSignal(bool)
-
-    def __init__(self, pipeline: BookPipeline) -> None:
-        super().__init__()
-        self._pipeline = pipeline
-
-    def run(self) -> None:
-        connected = self._pipeline.is_available()
-        self.status_changed.emit(connected)
 
 
 # ============================================================================
@@ -61,7 +45,7 @@ class BookPanel(QWidget):
         super().__init__(parent)
         self._pipeline = BookPipeline()
         self._batch_worker: BookBatchWorker | None = None
-        self._checker: ConnectionChecker | None = None  # guard against duplicate checks
+        self._checker: LMStatusWorker | None = None  # guard against duplicate checks
         self._has_transcript = False
         self._connected = False
         self._setup_ui()
@@ -267,12 +251,12 @@ class BookPanel(QWidget):
         """Trigger an async LM Studio connection check (non-blocking)."""
         if self._checker is not None and self._checker.isRunning():
             return  # a check is already in flight, skip
-        self._checker = ConnectionChecker(self._pipeline)
-        self._checker.status_changed.connect(self._on_connection_result)
+        self._checker = LMStatusWorker(self._pipeline.base_url, parent=self)
+        self._checker.status_ready.connect(self._on_connection_result)
         self._checker.finished.connect(lambda: setattr(self, '_checker', None))
         self._checker.start()
 
-    def _on_connection_result(self, connected: bool) -> None:
+    def _on_connection_result(self, connected: bool, _detail: str = "") -> None:
         self._connected = connected
         if connected:
             set_role(self.status_dot, "success-text")
