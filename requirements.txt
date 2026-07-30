@@ -27,6 +27,14 @@ python-docx>=1.0
 # pyannote.audio>=3.1
 # torch>=2.0
 
+# Optional: store hf_token / yt_openai_api_key / yt_anthropic_api_key in the
+# OS keyring (macOS Keychain, Windows Credential Manager, a Linux Secret
+# Service) instead of plaintext in config.json — see core/secrets_store.py.
+# Not installed by default: some Linux desktop environments have no working
+# Secret Service, and this must never block the app from running. Falls back
+# to the existing plaintext-file storage automatically when absent.
+# keyring>=25.0
+
 # Video mode system dependencies (not pip-installable — must be on PATH):
 #   ffmpeg + ffprobe   macOS: brew install ffmpeg
 #                      Fedora: sudo dnf install ffmpeg

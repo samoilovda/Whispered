@@ -11,12 +11,47 @@ from config import Config
 
 @pytest.fixture(autouse=True)
 def _isolated_config(tmp_path, monkeypatch):
-    """Redirect config storage to a temp directory for every test."""
+    """Redirect config storage to a temp directory for every test, and
+    force secrets_store to behave as if no OS keyring is available — so
+    the ordinary test suite never touches the developer's real Keychain/
+    Credential Manager (it is genuinely reachable from this process: see
+    TestConfigKeyringIntegration below, which opts back in deliberately
+    via an in-memory fake instead)."""
     monkeypatch.setattr(config_module, "CONFIG_DIR", tmp_path)
     monkeypatch.setattr(config_module, "CONFIG_FILE", tmp_path / "config.json")
     monkeypatch.setattr(config_module, "_config", None)
+    monkeypatch.setattr(config_module.secrets_store, "set_secret", lambda name, value: False)
+    monkeypatch.setattr(config_module.secrets_store, "get_secret", lambda name: None)
+    monkeypatch.setattr(config_module.secrets_store, "delete_secret", lambda name: None)
     yield
     monkeypatch.setattr(config_module, "_config", None)
+
+
+class _FakeKeyringBackend:
+    """In-memory stand-in for the OS keyring, used only by tests that
+    deliberately exercise the keyring-integration path."""
+
+    def __init__(self):
+        self.store: dict[str, str] = {}
+
+    def set_secret(self, name: str, value: str) -> bool:
+        self.store[name] = value
+        return True
+
+    def get_secret(self, name: str):
+        return self.store.get(name)
+
+    def delete_secret(self, name: str) -> None:
+        self.store.pop(name, None)
+
+
+@pytest.fixture
+def fake_keyring(monkeypatch):
+    backend = _FakeKeyringBackend()
+    monkeypatch.setattr(config_module.secrets_store, "set_secret", backend.set_secret)
+    monkeypatch.setattr(config_module.secrets_store, "get_secret", backend.get_secret)
+    monkeypatch.setattr(config_module.secrets_store, "delete_secret", backend.delete_secret)
+    return backend
 
 
 class TestConfigDefaults:
@@ -136,3 +171,76 @@ class TestGlobalHelpers:
         cfg.theme = "light"
         reset = reset_config()
         assert reset.theme == "dark"
+
+
+class TestConfigKeyringIntegration:
+    """Config.save()/load() against a fake in-memory keyring backend —
+    never the real OS one (see the fake_keyring fixture above)."""
+
+    def test_secret_stored_via_keyring_is_not_written_to_json_plaintext(self, fake_keyring):
+        cfg = Config(hf_token="hf_" + "x" * 40)
+        cfg.save()
+
+        on_disk = json.loads(config_module.CONFIG_FILE.read_text())
+        assert on_disk["hf_token"] == config_module.secrets_store.KEYRING_SENTINEL
+        assert fake_keyring.store["hf_token"] == "hf_" + "x" * 40
+
+    def test_secret_resolves_from_keyring_on_load(self, fake_keyring):
+        cfg = Config(yt_anthropic_api_key="ak-test")
+        cfg.save()
+
+        loaded = Config.load()
+
+        assert loaded.yt_anthropic_api_key == "ak-test"
+
+    def test_load_survives_a_keyring_that_lost_the_entry(self, fake_keyring):
+        """The sentinel is on disk but the keyring lookup comes back
+        empty (e.g. keyring package uninstalled since the last save) —
+        must not crash, and the field reads as not-configured."""
+        cfg = Config(yt_openai_api_key="sk-test")
+        cfg.save()
+        fake_keyring.store.clear()
+
+        loaded = Config.load()
+
+        assert loaded.yt_openai_api_key == ""
+
+    def test_clearing_a_field_deletes_its_keyring_entry(self, fake_keyring):
+        cfg = Config(hf_token="hf_" + "x" * 40)
+        cfg.save()
+        assert "hf_token" in fake_keyring.store
+
+        cfg.hf_token = None
+        cfg.save()
+
+        assert "hf_token" not in fake_keyring.store
+        on_disk = json.loads(config_module.CONFIG_FILE.read_text())
+        assert on_disk["hf_token"] is None
+
+    def test_pre_existing_plaintext_secret_still_loads_once_keyring_becomes_available(
+        self, fake_keyring
+    ):
+        """An install that saved its token before this feature existed
+        has the real value sitting in config.json, not the sentinel.
+        The first load after upgrading must not lose it — migration into
+        the keyring only happens passively, on the next save()."""
+        config_module.CONFIG_FILE.write_text(
+            json.dumps({"hf_token": "hf_" + "y" * 40}), encoding="utf-8"
+        )
+
+        loaded = Config.load()
+
+        assert loaded.hf_token == "hf_" + "y" * 40
+        assert fake_keyring.store == {}   # nothing migrated yet
+
+        loaded.save()
+
+        on_disk = json.loads(config_module.CONFIG_FILE.read_text())
+        assert on_disk["hf_token"] == config_module.secrets_store.KEYRING_SENTINEL
+        assert fake_keyring.store["hf_token"] == "hf_" + "y" * 40
+
+    def test_non_secret_fields_unaffected_by_keyring(self, fake_keyring):
+        cfg = Config(theme="light", hf_token="hf_" + "x" * 40)
+        cfg.save()
+        loaded = Config.load()
+        assert loaded.theme == "light"

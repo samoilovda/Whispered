@@ -10,6 +10,7 @@ import tempfile
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
+from core import secrets_store
 from core.logger import get_logger
 from core.paths import config_dir, config_path
 
@@ -17,6 +18,12 @@ logger = get_logger(__name__)
 
 CONFIG_DIR = config_dir()
 CONFIG_FILE = config_path()
+
+# Fields kept out of config.json when an OS keyring is available (see
+# core/secrets_store.py). Config.hf_token/yt_openai_api_key/
+# yt_anthropic_api_key hold the real value in memory either way — this
+# only changes where save()/load() persist it.
+_SECRET_FIELDS = ("hf_token", "yt_openai_api_key", "yt_anthropic_api_key")
 
 
 @dataclass
@@ -93,16 +100,34 @@ class Config:
     yt_anthropic_model: str = "claude-sonnet-5"          # editable default
 
     def save(self) -> bool:
-        """Save configuration to file."""
+        """Save configuration to file.
+
+        Secret fields are stored in the OS keyring when one is available
+        (see core/secrets_store.py) — config.json gets a sentinel in
+        their place instead of the plaintext value. Falls back to storing
+        the plaintext value directly, exactly as before, whenever keyring
+        isn't available.
+        """
         try:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            data = asdict(self)
+            for name in _SECRET_FIELDS:
+                value = data.get(name)
+                if value:
+                    if secrets_store.set_secret(name, value):
+                        data[name] = secrets_store.KEYRING_SENTINEL
+                else:
+                    # Clear any stale keyring entry from before the field
+                    # was emptied, so it doesn't linger indefinitely.
+                    secrets_store.delete_secret(name)
+
             # Create the temporary file privately before any secret-bearing
             # bytes are written, then atomically replace the old config.
             fd, temporary = tempfile.mkstemp(prefix=".config-", dir=CONFIG_DIR)
             try:
                 os.fchmod(fd, stat.S_IRUSR | stat.S_IWUSR)
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    json.dump(asdict(self), f, indent=2)
+                    json.dump(data, f, indent=2)
                     f.flush()
                     os.fsync(f.fileno())
                 os.replace(temporary, CONFIG_FILE)
@@ -124,7 +149,8 @@ class Config:
 
     @classmethod
     def load(cls) -> 'Config':
-        """Load configuration from file."""
+        """Load configuration from file, resolving any secret field that
+        was moved into the OS keyring back to its real value."""
         if not CONFIG_FILE.exists():
             return cls()
 
@@ -135,6 +161,10 @@ class Config:
             # Only use known fields
             known_fields = {f.name for f in cls.__dataclass_fields__.values()}
             filtered_data = {k: v for k, v in data.items() if k in known_fields}
+
+            for name in _SECRET_FIELDS:
+                if filtered_data.get(name) == secrets_store.KEYRING_SENTINEL:
+                    filtered_data[name] = secrets_store.get_secret(name) or ""
 
             return cls(**filtered_data)
         except Exception as e:
