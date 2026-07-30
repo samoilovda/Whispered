@@ -204,6 +204,11 @@ class LiveRuntime(QObject):
             for state in self._states.values()
         )
 
+    def shutdown(self) -> None:
+        """Part of the Shutdownable protocol (ui/shutdownable.py)."""
+        if self.is_running():
+            self.cancel()
+
     def metrics(self) -> LiveRuntimeMetrics:
         pipeline = self._pipeline
         return LiveRuntimeMetrics(

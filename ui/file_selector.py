@@ -235,8 +235,9 @@ class FileSelector(QWidget):
         """Get the currently selected file path."""
         return self.selected_file
 
-    def cleanup(self) -> None:
-        """Stop an in-flight ffprobe without delaying window shutdown."""
+    def shutdown(self) -> None:
+        """Stop an in-flight ffprobe without delaying window shutdown.
+        Part of the Shutdownable protocol (ui/shutdownable.py)."""
         self._cancel_duration_probe()
 
     def _start_duration_probe(self, filepath: str) -> None:

@@ -696,3 +696,8 @@ class Transcriber:
         if self.current_worker and self.current_worker.isRunning():
             self.current_worker.cancel()
             self.current_worker.wait()
+
+    def shutdown(self) -> None:
+        """Part of the Shutdownable protocol (ui/shutdownable.py). cancel()
+        already no-ops when nothing is running."""
+        self.cancel()

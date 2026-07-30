@@ -205,6 +205,12 @@ class YouTubePanel(QWidget):
         """Base filename (no extension) used when saving generated files."""
         self._source_name = name or ""
 
+    def shutdown(self) -> None:
+        """Part of the Shutdownable protocol (ui/shutdownable.py). clear()
+        already cancels in-flight workers with a bounded timeout, which is
+        exactly what window close needs too."""
+        self.clear()
+
     def clear(self) -> None:
         self._segments = []
         self._source_name = ""

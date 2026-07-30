@@ -368,6 +368,14 @@ class BookPanel(QWidget):
             self._batch_worker.cancel()
             self.batch_status_label.setText(tr("book_cancelling"))
 
+    def shutdown(self) -> None:
+        """Part of the Shutdownable protocol (ui/shutdownable.py). Used to
+        require MainWindow.closeEvent to reach into ``_batch_worker``
+        directly; that guard now lives with the rest of this panel's
+        state."""
+        if self._batch_worker:
+            self._cancel_batch()
+
     def _on_batch_file_started(self, index: int, total: int, filename: str) -> None:
         self.batch_status_label.setText(f"[{index + 1}/{total}] {filename}")
 

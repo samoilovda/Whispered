@@ -3,6 +3,8 @@ Whispered - Main Window
 Main application window with compact header-bar layout and AI processing
 """
 
+from __future__ import annotations
+
 import os
 import threading
 import time
@@ -40,6 +42,7 @@ from ui.live_preflight_panel import LivePreflightWorker
 from ui.progress_timeline import ProgressTimeline
 from ui.animated_button import AnimatedButton
 from ui.components import FormSection, OperationBar, PageHeader
+from ui.shutdownable import Shutdownable
 from transcriber import Transcriber, TranscriptionResult
 from exporters import export_result, EXPORT_FORMATS
 from utils import (
@@ -143,17 +146,62 @@ class DraftAssemblyWorker(QThread):
             self.assembled.emit(self._output_path)
 
 
+class _WorkerShutdown:
+    """Adapts an ``Optional[QThread]`` attribute to the Shutdownable
+    protocol (ui/shutdownable.py).
+
+    ``_ai_worker``, ``_gpu_worker`` and ``_live_preflight_worker`` are not
+    persistent objects like the panels — they are created per-operation,
+    set back to ``None`` when idle, and sometimes replaced while running.
+    A registration built once at construction time therefore looks the
+    attribute up by name at shutdown time rather than holding the worker
+    itself, so it always sees whatever is current when the window closes.
+    """
+
+    def __init__(
+        self,
+        owner: MainWindow,
+        attr: str,
+        wait_ms: int | None = None,
+        interrupt: bool = False,
+    ) -> None:
+        self._owner = owner
+        self._attr = attr
+        self._wait_ms = wait_ms
+        self._interrupt = interrupt
+
+    def shutdown(self) -> None:
+        worker = getattr(self._owner, self._attr)
+        if worker is None or not worker.isRunning():
+            return
+        if self._interrupt:
+            worker.requestInterruption()
+        else:
+            worker.cancel()
+        if self._wait_ms is None:
+            worker.wait()
+        else:
+            worker.wait(self._wait_ms)
+
+
 class MainWindow(QMainWindow):
     """Main application window with header-bar settings layout."""
 
     def __init__(self):
         super().__init__()
+        # Every object with background work to stop on window close
+        # registers itself here instead of closeEvent reaching into each
+        # one individually (see ui/shutdownable.py).
+        self._shutdownables: list[Shutdownable] = []
         self.transcriber = Transcriber()
+        self._shutdownables.append(self.transcriber)
         self._current_result: TranscriptionResult | None = None
         self._cleaned_text: str | None = None
         self._ai_worker: AIProcessingWorker | None = None
         self._gpu_worker: GPUDetectionWorker | None = None
         self._draft_worker: DraftAssemblyWorker | None = None
+        self._shutdownables.append(_WorkerShutdown(self, "_ai_worker"))
+        self._shutdownables.append(_WorkerShutdown(self, "_gpu_worker", wait_ms=1500))
         self._source_filepath: str | None = None
         self._source_kind = "file"
         self._use_gpu = True
@@ -188,51 +236,17 @@ class MainWindow(QMainWindow):
             self._start_gpu_detection()
 
     def closeEvent(self, event):
-        """Handle window close - cleanup resources."""
-        # Stop any running transcription
-        if self.transcriber.is_busy():
-            self.transcriber.cancel()
+        """Handle window close - cleanup resources.
 
-        # Stop AI worker if running
-        if self._ai_worker and self._ai_worker.isRunning():
-            self._ai_worker.cancel()
-            self._ai_worker.wait()
-
-        # Cleanup AI panel timers
-        if hasattr(self, 'ai_panel'):
-            self.ai_panel.cleanup()
-        if hasattr(self, "file_selector"):
-            self.file_selector.cleanup()
-        if hasattr(self, "recorder_widget"):
-            self.recorder_widget.cleanup()
-        if self._gpu_worker and self._gpu_worker.isRunning():
-            self._gpu_worker.cancel()
-            self._gpu_worker.wait(1500)
-
-        # Stop any running YouTube / Insights / Chat workers
-        if hasattr(self, 'youtube_panel'):
-            self.youtube_panel.clear()
-        if hasattr(self, 'insights_panel'):
-            self.insights_panel.clear()
-        if hasattr(self, 'chat_panel'):
-            self.chat_panel.shutdown()
-
-        # Cleanup batch processing
-        if hasattr(self, 'batch_panel') and self.batch_panel.processor.is_processing:
-            self.batch_panel.cancel_processing()
-
-        # Cleanup book panel batch worker
-        if hasattr(self, 'book_panel') and self.book_panel._batch_worker:
-            self.book_panel._cancel_batch()
-
-        if hasattr(self, "live_runtime") and self.live_runtime.is_running():
-            self.live_runtime.cancel()
-        if hasattr(self, "live_view"):
-            self.live_view.setup.shutdown()
-        if self._live_preflight_worker and self._live_preflight_worker.isRunning():
-            self._live_preflight_worker.requestInterruption()
-            self._live_preflight_worker.wait(2500)
-
+        Every panel/worker with background work registers itself in
+        ``self._shutdownables`` as it's constructed (see __init__ and
+        _setup_ui); this used to be a hand-maintained ladder of
+        ``hasattr`` guards here, including direct access to another
+        panel's private state (``book_panel._batch_worker``). See
+        ui/shutdownable.py.
+        """
+        for shutdownable in self._shutdownables:
+            shutdownable.shutdown()
         event.accept()
 
 
@@ -313,10 +327,12 @@ class MainWindow(QMainWindow):
         self.recorder_widget = RecorderWidget()
         self.recorder_widget.file_ready.connect(self._on_recording_ready)
         self.recorder_widget.error.connect(self._on_recording_error)
+        self._shutdownables.append(self.recorder_widget)
 
         main_layout.addWidget(header)
 
         self.file_selector = FileSelector()
+        self._shutdownables.append(self.file_selector)
         self.file_selector.set_compact(self.height() < 650)
         new_transcription = FormSection(
             tr("library_new_title"), tr("library_new_description")
@@ -329,11 +345,13 @@ class MainWindow(QMainWindow):
         # but its disabled actions no longer clutter an empty Library page.
         self.ai_panel = AIProcessingPanel()
         self.ai_panel.setVisible(False)
+        self._shutdownables.append(self.ai_panel)
 
         # Batch Processing Panel lives on its own sidebar section (Queue);
         # still created here so signal wiring stays with the rest of setup.
         self.batch_panel = BatchPanel()
         self.batch_panel.start_requested.connect(self._start_batch_processing)
+        self._shutdownables.append(self.batch_panel)
 
         # Book Pipeline Panel — created here (not mode-gated) so its
         # connection-check timers start with the rest of setup; it's shown
@@ -341,6 +359,7 @@ class MainWindow(QMainWindow):
         self.book_panel = BookPanel()
         self.book_panel.run_single_requested.connect(self._on_book_run)
         self.book_panel.cancel_requested.connect(self._cancel_operation)
+        self._shutdownables.append(self.book_panel)
 
         # Recent records occupy the primary remaining space.
         self.library_view = LibraryView()
@@ -402,6 +421,11 @@ class MainWindow(QMainWindow):
         self.live_view = LiveView()
         self.live_runtime = LiveRuntime(self)
         self._live_preflight_worker = None
+        self._shutdownables.append(self.live_view)
+        self._shutdownables.append(self.live_runtime)
+        self._shutdownables.append(
+            _WorkerShutdown(self, "_live_preflight_worker", wait_ms=2500, interrupt=True)
+        )
         self.live_view.preflight_requested.connect(self._run_live_preflight)
         self.live_view.start_requested.connect(self._start_live)
         self.live_view.pause_requested.connect(self._pause_live)
@@ -442,9 +466,11 @@ class MainWindow(QMainWindow):
 
         self.chat_panel = ChatPanel()
         self.tools_tabs.addTab(self.chat_panel, tr("tab_chat"))
+        self._shutdownables.append(self.chat_panel)
 
         self.insights_panel = InsightsPanel()
         self.tools_tabs.addTab(self.insights_panel, tr("tab_insights"))
+        self._shutdownables.append(self.insights_panel)
 
         self.cut_view = CutView()
         self.cut_view.video_panel.export_edl_requested.connect(self._export_edl)
@@ -455,6 +481,7 @@ class MainWindow(QMainWindow):
         self.youtube_panel = YouTubePanel()
         self.youtube_panel.generation_finished.connect(self._on_chain_youtube_done)
         self.tools_tabs.addTab(self.youtube_panel, tr("tab_youtube"))
+        self._shutdownables.append(self.youtube_panel)
 
         self.tools_tabs.addTab(self.book_panel, tr("tab_book"))
 

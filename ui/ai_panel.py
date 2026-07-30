@@ -166,8 +166,9 @@ class AIProcessingPanel(QWidget):
         if os.environ.get("WHISPERED_UI_GALLERY") != "1":
             self._start_connection_check()
 
-    def cleanup(self):
-        """Stop timers and cleanup resources."""
+    def shutdown(self) -> None:
+        """Stop timers and cleanup resources. Part of the Shutdownable
+        protocol (ui/shutdownable.py) — called once from closeEvent."""
         if self.check_timer:
             self.check_timer.stop()
         self._closing = True

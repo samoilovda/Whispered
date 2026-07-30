@@ -283,6 +283,12 @@ class BatchPanel(QWidget):
         """Cancel the current batch processing."""
         self.processor.cancel()
 
+    def shutdown(self) -> None:
+        """Part of the Shutdownable protocol (ui/shutdownable.py) — called
+        once from closeEvent."""
+        if self.processor.is_processing:
+            self.cancel_processing()
+
     def _on_item_started(self, index: int):
         """Handle item started."""
         self._update_item_widget(index)

@@ -122,8 +122,9 @@ class RecorderWidget(QWidget):
             self._device_combo.setCurrentIndex(index)
             self._device_combo.blockSignals(False)
 
-    def cleanup(self) -> None:
-        """Stop an active recording during application shutdown."""
+    def shutdown(self) -> None:
+        """Stop an active recording during application shutdown.
+        Part of the Shutdownable protocol (ui/shutdownable.py)."""
         if self._recorder is not None and self._recorder.is_recording():
             self._stop_recording()
 

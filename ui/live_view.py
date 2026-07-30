@@ -144,6 +144,10 @@ class LiveView(QWidget):
     def selected_target(self):
         return self.setup.selected_target()
 
+    def shutdown(self) -> None:
+        """Part of the Shutdownable protocol (ui/shutdownable.py)."""
+        self.setup.shutdown()
+
     def invalidate_preflight(self) -> None:
         self._preflight_valid = False
         self.start_btn.setEnabled(False)
