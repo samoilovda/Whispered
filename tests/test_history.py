@@ -1,10 +1,12 @@
 """Tests for core/history.py — no Qt or network required."""
 
 # Qt and core.lm_client/core.ai_worker stand-ins come from tests/conftest.py.
+import sqlite3
+
 import pytest
 from types import SimpleNamespace
 
-from core.history import HistoryStore, _fts_query
+from core.history import _MIGRATIONS, HistoryStore, _fts_query
 
 
 def _make_result(segments=None, language="en", duration=60.0):
@@ -171,3 +173,120 @@ class TestMultipleRecords:
         ids1 = {x.id for x in page1}
         ids2 = {x.id for x in page2}
         assert ids1.isdisjoint(ids2)
+
+
+class TestSchemaMigrations:
+    """core.history._migrate replaced two ad-hoc "attempt the ALTER TABLE,
+    swallow duplicate-column errors" methods with a PRAGMA user_version-
+    tracked sequence. These pin down both the fresh-database path and the
+    upgrade path for a database written by that older code."""
+
+    def _user_version(self, db_path) -> int:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            return conn.execute("PRAGMA user_version").fetchone()[0]
+        finally:
+            conn.close()
+
+    def test_fresh_database_ends_at_the_latest_version(self, tmp_path):
+        db_path = tmp_path / "fresh.db"
+        HistoryStore(db_path=db_path)
+        assert self._user_version(db_path) == len(_MIGRATIONS)
+
+    def test_fresh_database_has_every_migrated_column(self, tmp_path):
+        db_path = tmp_path / "fresh.db"
+        store = HistoryStore(db_path=db_path)
+        rid = store.add(_make_result(), "/tmp/audio.wav", source_kind="live")
+        record = store.get_record(rid)
+        assert record["source_kind"] == "live"
+        store.set_artifacts(rid, ["transcript", "youtube"])
+        assert store.list()[0].artifacts == ["transcript", "youtube"]
+
+    def test_reopening_an_already_migrated_database_is_a_no_op(self, tmp_path):
+        """Simulates an app restart: the second open must not error and
+        must not touch data written by the first."""
+        db_path = tmp_path / "restart.db"
+        store = HistoryStore(db_path=db_path)
+        rid = store.add(_make_result(), "/tmp/audio.wav")
+
+        store_again = HistoryStore(db_path=db_path)
+        assert self._user_version(db_path) == len(_MIGRATIONS)
+        assert store_again.get(rid) is not None
+
+    def test_pre_user_version_database_migrates_without_error(self, tmp_path):
+        """A database written by the pre-refactor code already has the
+        artifacts/source_kind columns from a direct ALTER TABLE, but
+        user_version was never touched (stays 0). _migrate must treat the
+        resulting "duplicate column" as already-applied rather than
+        crashing on startup, and must still record the version so later
+        launches take the fast path."""
+        db_path = tmp_path / "legacy.db"
+        conn = sqlite3.connect(str(db_path))
+        try:
+            conn.executescript("""
+                CREATE TABLE transcripts (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at  TEXT    NOT NULL,
+                    source_path TEXT    NOT NULL,
+                    source_name TEXT    NOT NULL,
+                    source_kind TEXT    NOT NULL DEFAULT 'file',
+                    duration    REAL    NOT NULL DEFAULT 0,
+                    language    TEXT    NOT NULL DEFAULT '',
+                    model       TEXT    NOT NULL DEFAULT '',
+                    json_payload TEXT   NOT NULL,
+                    artifacts   TEXT
+                );
+            """)
+            conn.execute(
+                "INSERT INTO transcripts (created_at, source_path, source_name, "
+                "duration, language, model, json_payload) "
+                "VALUES ('2026-01-01T00:00:00', '/tmp/old.wav', 'old.wav', "
+                "1.0, 'en', 'base', '{}')"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        assert self._user_version(db_path) == 0
+
+        store = HistoryStore(db_path=db_path)
+
+        assert self._user_version(db_path) == len(_MIGRATIONS)
+        records = store.list()
+        assert len(records) == 1
+        assert records[0].source_name == "old.wav"
+        # The bridged database must still accept writes to the columns
+        # that migration was supposed to add.
+        rid = store.add(_make_result(), "/tmp/new.wav", source_kind="live")
+        store.set_artifacts(rid, ["transcript"])
+        assert store.get_record(rid)["source_kind"] == "live"
+
+    def test_partially_migrated_database_only_runs_whats_new(self, tmp_path):
+        """A database that already ran migration 1 (user_version=1) must
+        not re-run it — only migrations 2..N are applied."""
+        db_path = tmp_path / "partial.db"
+        conn = sqlite3.connect(str(db_path))
+        try:
+            conn.executescript("""
+                CREATE TABLE transcripts (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at  TEXT    NOT NULL,
+                    source_path TEXT    NOT NULL,
+                    source_name TEXT    NOT NULL,
+                    duration    REAL    NOT NULL DEFAULT 0,
+                    language    TEXT    NOT NULL DEFAULT '',
+                    model       TEXT    NOT NULL DEFAULT '',
+                    json_payload TEXT   NOT NULL
+                );
+                CREATE INDEX idx_transcripts_created ON transcripts(created_at DESC);
+            """)
+            conn.execute("PRAGMA user_version = 1")
+            conn.commit()
+        finally:
+            conn.close()
+
+        store = HistoryStore(db_path=db_path)
+
+        assert self._user_version(db_path) == len(_MIGRATIONS)
+        rid = store.add(_make_result(), "/tmp/audio.wav", source_kind="live")
+        store.set_artifacts(rid, ["transcript"])
+        assert store.get_record(rid)["source_kind"] == "live"

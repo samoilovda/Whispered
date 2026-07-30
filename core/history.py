@@ -11,7 +11,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Generator, List, Optional
+from typing import Any, Callable, Generator, List, Optional
 
 from core.logger import get_logger
 from core.paths import history_path
@@ -20,29 +20,51 @@ logger = get_logger(__name__)
 
 _DB_PATH = history_path()
 
-_CREATE_SQL = """
-CREATE TABLE IF NOT EXISTS transcripts (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at  TEXT    NOT NULL,
-    source_path TEXT    NOT NULL,
-    source_name TEXT    NOT NULL,
-    source_kind TEXT    NOT NULL DEFAULT 'file',
-    duration    REAL    NOT NULL DEFAULT 0,
-    language    TEXT    NOT NULL DEFAULT '',
-    model       TEXT    NOT NULL DEFAULT '',
-    json_payload TEXT   NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_transcripts_created ON transcripts(created_at DESC);
-"""
 
-# Added after the initial release — records which generated artifacts
-# (transcript/youtube/article) exist for a row, as a JSON array of type
-# strings. NULL for rows created before this migration or for records
-# where no preset chain (Phase C.3) has run yet; the Library falls back
-# to showing just the guaranteed "transcript" chip in that case.
-_ADD_ARTIFACTS_COLUMN_SQL = "ALTER TABLE transcripts ADD COLUMN artifacts TEXT"
-_ADD_SOURCE_KIND_COLUMN_SQL = (
-    "ALTER TABLE transcripts ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'file'"
+def _v1_initial_schema(conn: sqlite3.Connection) -> None:
+    """The table as first shipped. Kept exactly as-is — including the
+    absence of ``artifacts``/``source_kind`` — so ``user_version`` reflects
+    a database's real migration history rather than its current shape."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS transcripts (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at  TEXT    NOT NULL,
+            source_path TEXT    NOT NULL,
+            source_name TEXT    NOT NULL,
+            duration    REAL    NOT NULL DEFAULT 0,
+            language    TEXT    NOT NULL DEFAULT '',
+            model       TEXT    NOT NULL DEFAULT '',
+            json_payload TEXT   NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_transcripts_created ON transcripts(created_at DESC);
+    """)
+
+
+def _v2_add_artifacts_column(conn: sqlite3.Connection) -> None:
+    """Records which generated artifacts (transcript/youtube/article) exist
+    for a row, as a JSON array of type strings. NULL for rows written
+    before this migration or for records where no preset chain (Phase C.3)
+    has run yet; the Library falls back to showing just the guaranteed
+    "transcript" chip in that case."""
+    conn.execute("ALTER TABLE transcripts ADD COLUMN artifacts TEXT")
+
+
+def _v3_add_source_kind_column(conn: sqlite3.Connection) -> None:
+    """Explicit source kind (e.g. "file" vs "live"), so callers can filter
+    without guessing from the filename."""
+    conn.execute(
+        "ALTER TABLE transcripts ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'file'"
+    )
+
+
+# Applied in order, tracked via SQLite's built-in `PRAGMA user_version`
+# (see HistoryStore._migrate). Append new migrations here — never edit or
+# reorder an existing one, since a database's user_version records exactly
+# how many of these it has already run.
+_MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
+    _v1_initial_schema,
+    _v2_add_artifacts_column,
+    _v3_add_source_kind_column,
 )
 
 # FTS5 schema — created separately so failures (no FTS5 compile) are handled gracefully.
@@ -177,31 +199,44 @@ class HistoryStore:
             # initialization rather than issuing a write-like PRAGMA for every
             # short-lived connection.
             conn.execute("PRAGMA journal_mode=WAL")
-            conn.executescript(_CREATE_SQL)
-        self._migrate_artifacts_column()
-        self._migrate_source_kind_column()
+        self._migrate()
         self._init_fts()
 
-    def _migrate_artifacts_column(self):
-        """Add the artifacts column if this DB predates it. SQLite has no
-        'ADD COLUMN IF NOT EXISTS', so the standard way to make this
-        idempotent is to attempt it and swallow the "duplicate column"
-        error on repeat runs."""
-        try:
-            with self._connect() as conn:
-                conn.execute(_ADD_ARTIFACTS_COLUMN_SQL)
-        except sqlite3.OperationalError as exc:
-            if "duplicate column" not in str(exc).lower():
-                raise
+    def _migrate(self) -> None:
+        """Bring the database schema up to date.
 
-    def _migrate_source_kind_column(self):
-        """Add explicit source kind for filtering without filename guesses."""
-        try:
-            with self._connect() as conn:
-                conn.execute(_ADD_SOURCE_KIND_COLUMN_SQL)
-        except sqlite3.OperationalError as exc:
-            if "duplicate column" not in str(exc).lower():
-                raise
+        Tracked via SQLite's own ``PRAGMA user_version`` rather than the
+        former "attempt every ALTER TABLE, swallow duplicate-column errors"
+        approach: that made a database's schema history implicit and meant
+        each new column needed its own hand-written idempotency check. A
+        fresh database starts at user_version 0 and runs every migration in
+        ``_MIGRATIONS``; an existing one only runs what's new, then records
+        how far it got so the next launch skips straight to the check.
+
+        A database written by that older code may already carry the
+        ``artifacts``/``source_kind`` columns from a direct ALTER TABLE, but
+        with ``user_version`` still at 0 — it never touched the pragma. The
+        duplicate-column/table catch below is exactly for that one-time
+        bridge; once it has run, this database's user_version matches
+        ``len(_MIGRATIONS)`` and every future launch takes the fast path.
+        """
+        with self._connect() as conn:
+            current_version = conn.execute("PRAGMA user_version").fetchone()[0]
+            for version, migrate in enumerate(_MIGRATIONS, start=1):
+                if version <= current_version:
+                    continue
+                try:
+                    migrate(conn)
+                except sqlite3.OperationalError as exc:
+                    message = str(exc).lower()
+                    if "duplicate column" not in message and "already exists" not in message:
+                        raise
+                    logger.debug(
+                        "History migration %d already applied on disk: %s", version, exc
+                    )
+                # PRAGMA does not accept bound parameters; `version` is our
+                # own loop counter, never external input.
+                conn.execute(f"PRAGMA user_version = {version}")
 
     def _init_fts(self):
         """Attempt to create the FTS5 index; set _fts_available accordingly."""
