@@ -218,7 +218,31 @@ class MainWindow(QMainWindow):
     def _setup_ui(self):
         """Set up the main window UI: a narrow sidebar rail on the left,
         switching between top-level sections (Library / Queue / Recorder)
-        shown in a QStackedWidget on the right."""
+        shown in a QStackedWidget on the right.
+
+        Split into one builder method per section below. Order matters —
+        later sections reference widgets (recorder_widget, batch_panel,
+        book_panel, operation_bar) created while building the Library
+        section, exactly as the original single method did — so these
+        must run in the sequence they're called here."""
+        self._build_window_chrome()
+        self._build_library_section()   # index 0; also creates several
+                                         # widgets later sections depend on
+        self._build_queue_section()      # index 1
+        self._build_recorder_section()   # index 2
+        self._build_live_section()       # self._live_index
+        self._build_record_section()     # self._record_index
+
+        self._section_index = {
+            "library": 0,
+            "queue": 1,
+            "recorder": 2,
+            "live": self._live_index,
+        }
+
+    def _build_window_chrome(self) -> None:
+        """Window title/size and the sidebar + QStackedWidget skeleton
+        that every section below adds a page to."""
         self.setWindowTitle("Whispered")
         self.setMinimumSize(900, 550)
         self.resize(1100, 700)
@@ -241,14 +265,18 @@ class MainWindow(QMainWindow):
         outer_layout.addWidget(self.sidebar)
 
         workspace = QWidget()
-        workspace_layout = QVBoxLayout(workspace)
-        workspace_layout.setContentsMargins(0, 0, 0, 0)
-        workspace_layout.setSpacing(0)
+        self._workspace_layout = QVBoxLayout(workspace)
+        self._workspace_layout.setContentsMargins(0, 0, 0, 0)
+        self._workspace_layout.setSpacing(0)
         self._stack = QStackedWidget()
-        workspace_layout.addWidget(self._stack, stretch=1)
+        self._workspace_layout.addWidget(self._stack, stretch=1)
         outer_layout.addWidget(workspace, stretch=1)
 
-        # ===== Library section (the main transcription workspace) =====
+    def _build_library_section(self) -> None:
+        """The main transcription workspace (index 0). Also creates
+        recorder_widget, batch_panel, book_panel and the shared
+        operation/progress bar — all consumed by later sections."""
+        workspace_layout = self._workspace_layout
         library_page = QWidget()
         main_layout = QVBoxLayout(library_page)
         main_layout.setContentsMargins(20, 16, 20, 20)
@@ -359,7 +387,8 @@ class MainWindow(QMainWindow):
 
         self._stack.addWidget(library_page)  # index 0
 
-        # ===== Queue section (batch folder processing) =====
+    def _build_queue_section(self) -> None:
+        """Batch folder processing (index 1)."""
         queue_page = QWidget()
         queue_layout = QVBoxLayout(queue_page)
         queue_layout.setContentsMargins(20, 16, 20, 20)
@@ -370,7 +399,8 @@ class MainWindow(QMainWindow):
         queue_layout.addWidget(self.batch_panel)
         self._stack.addWidget(queue_page)  # index 1
 
-        # ===== Recorder section =====
+    def _build_recorder_section(self) -> None:
+        """Recorder page (index 2)."""
         recorder_page = QWidget()
         recorder_outer = QVBoxLayout(recorder_page)
         recorder_outer.setContentsMargins(20, 16, 20, 20)
@@ -382,7 +412,9 @@ class MainWindow(QMainWindow):
         recorder_outer.addStretch()
         self._stack.addWidget(recorder_page)  # index 2
 
-        # ===== Live section (opt-in until standalone/release gates) =====
+    def _build_live_section(self) -> None:
+        """Live transcription (opt-in until standalone/release gates).
+        Sets self._live_index, used by _setup_ui's _section_index."""
         self.live_view = LiveView()
         self.live_runtime = LiveRuntime(self)
         self._live_preflight_worker = None
@@ -405,8 +437,9 @@ class MainWindow(QMainWindow):
         self.live_view._timer.timeout.connect(self._update_live_metrics)
         self._live_index = self._stack.addWidget(self.live_view)
 
-        # ===== Record section (not a sidebar destination — opened by
-        # clicking a Library entry or finishing a fresh transcription) =====
+    def _build_record_section(self) -> None:
+        """Not a sidebar destination — opened by clicking a Library entry
+        or finishing a fresh transcription. Sets self._record_index."""
         self.record_view = RecordView()
         self.record_view.back_requested.connect(self._show_library)
         self.record_view.export_requested.connect(self._export_result)
@@ -452,13 +485,6 @@ class MainWindow(QMainWindow):
 
         self.record_view.set_content_widgets(self.player, self.main_tabs, self.tools_tabs)
         self._record_index = self._stack.addWidget(self.record_view)  # index 3
-
-        self._section_index = {
-            "library": 0,
-            "queue": 1,
-            "recorder": 2,
-            "live": self._live_index,
-        }
 
     def _on_section_changed(self, key: str) -> None:
         """Switch the visible page when a sidebar button is clicked."""
