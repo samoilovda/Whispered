@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import os
 import time
-import re
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -65,35 +64,13 @@ from video_cut import assemble_draft
 from core.live.preflight import default_helper_path
 from core.live.contracts import SegmentState
 from core.live.runtime import LiveRuntime
+from ui.transcription_progress import (
+    format_eta,
+    localized_progress,
+    timeline_stage_for_progress,
+)
 
 logger = get_logger(__name__)
-
-
-def _localized_progress(message: str) -> str:
-    """Translate known worker progress messages emitted across processes."""
-    exact = {
-        "Converting audio format...": "progress_converting",
-        "Loading model (downloading if needed)...": "progress_loading_model",
-        "Preparing transcription...": "progress_preparing",
-        "Detecting language...": "progress_detecting_language",
-        "Transcribing audio...": "progress_transcribing",
-        "Processing results...": "progress_processing_results",
-        "Identifying speakers...": "progress_identifying_speakers",
-        "Diarization not available, skipping...": "progress_diarization_skipped",
-        "Complete!": "progress_complete",
-        "Cancelling...": "progress_cancelling",
-    }
-    if message in exact:
-        return tr(exact[message])
-    match = re.fullmatch(r"Transcribing\.\.\. (\d+)s / (\d+)s", message)
-    if match:
-        return tr("progress_transcribing_time", current=match[1], total=match[2])
-    match = re.fullmatch(r"Found (\d+) speakers", message)
-    if match:
-        return tr("progress_speakers_found", count=match[1])
-    if message.startswith("Diarization error:"):
-        return tr("progress_diarization_error", error=message.split(":", 1)[1].strip())
-    return message
 
 
 # ============================================================================
@@ -1052,36 +1029,15 @@ class MainWindow(QMainWindow):
     def _on_progress(self, percentage: int, message: str):
         """Handle progress updates with ETA calculation."""
         self.progress_bar.setValue(percentage)
-        self._update_timeline(percentage, message)
-        message = _localized_progress(message)
+        stage, local_fill = timeline_stage_for_progress(percentage, message)
+        self.progress_timeline.set_stage(stage, local_fill)
+        message = localized_progress(message)
         if percentage > 5 and self._transcription_start > 0:
             elapsed = time.monotonic() - self._transcription_start
-            eta_sec = (elapsed / percentage) * (100 - percentage)
-            eta_min, eta_s = divmod(int(eta_sec), 60)
-            if eta_min:
-                eta_str = tr("status_eta_minutes", minutes=eta_min, seconds=eta_s)
-            else:
-                eta_str = tr("status_eta_seconds", seconds=eta_s)
+            eta_str = format_eta(elapsed, percentage)
             self.status_label.setText(f"{message}  ·  {eta_str}")
         else:
             self.status_label.setText(message)
-
-    def _update_timeline(self, percentage: int, message: str):
-        """Map a transcription progress update to a timeline stage + local fill.
-
-        Stage indices: 1=Extract, 2=Transcribe, 3=Diarize. The transcriber's
-        global percentages are rescaled to a 0-100 fill within the active stage.
-        """
-        m = message.lower()
-        if "convert" in m or "extract" in m:
-            self.progress_timeline.set_stage(1, min(100, percentage * 10))  # ~5% global
-        elif "speaker" in m or "diariz" in m:
-            local = max(0, min(100, int((percentage - 85) / 10 * 100)))
-            self.progress_timeline.set_stage(3, local)
-        else:
-            # Loading / preparing / transcribing / processing results: 10-90% global
-            local = max(0, min(100, int((percentage - 10) / 80 * 100)))
-            self.progress_timeline.set_stage(2, local)
 
     def _on_finished(
         self,
