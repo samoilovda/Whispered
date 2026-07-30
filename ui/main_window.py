@@ -40,6 +40,7 @@ from ui.live_preflight_panel import LivePreflightWorker
 from ui.progress_timeline import ProgressTimeline
 from ui.animated_button import AnimatedButton
 from ui.components import FormSection, OperationBar, PageHeader
+from ui.live_checkpoint_tracker import LiveCheckpointTracker
 from ui.preset_chain_controller import PresetChainController
 from ui.shutdownable import Shutdownable
 from transcriber import Transcriber, TranscriptionResult
@@ -184,10 +185,7 @@ class MainWindow(QMainWindow):
         self._preset_chain = PresetChainController(self)
         self._preset_chain.finished.connect(self._finish_preset_chain)
         self._last_record_id: int | None = None
-        self._live_history_record_id: int | None = None
-        self._live_final_segments: dict[str, object] = {}
-        self._live_source_name = ""
-        self._live_model_name = ""
+        self._live_checkpoint = LiveCheckpointTracker()
         self._setup_ui()
         self._connect_signals()
         self.setAcceptDrops(True)
@@ -515,10 +513,10 @@ class MainWindow(QMainWindow):
             self.live_view.invalidate_preflight()
             return
         self.live_view.reset_session()
-        self._live_history_record_id = None
-        self._live_final_segments = {}
-        self._live_source_name = time.strftime("Live %Y-%m-%d %H:%M")
-        self._live_model_name = model
+        self._live_checkpoint.start(
+            source_name=time.strftime("Live %Y-%m-%d %H:%M"),
+            model_name=model,
+        )
         started = self.live_runtime.start(
             use_mic=use_mic,
             use_system=use_system,
@@ -553,50 +551,22 @@ class MainWindow(QMainWindow):
         self.live_view.accept_update(update)
         if update.state is not SegmentState.FINAL:
             return
-        self._live_final_segments[update.segment_id] = update.segment
+        self._live_checkpoint.accept_final(update.segment_id, update.segment)
         self._checkpoint_live_history()
-
-    def _live_checkpoint_result(self) -> TranscriptionResult:
-        segments = sorted(
-            self._live_final_segments.values(),
-            key=lambda segment: (float(segment.start), float(segment.end)),
-        )
-        duration = max((float(segment.end) for segment in segments), default=0.0)
-        return TranscriptionResult(
-            segments=segments,
-            language=self.live_view.selected_language(),
-            duration=duration,
-            speaker_names={"mic": tr("live_source_mic"), "system": tr("live_source_system")},
-        )
 
     def _checkpoint_live_history(self) -> None:
         """Persist finalized text during a meeting without writing audio."""
         if not getattr(get_config(), "history_enabled", True):
             return
-        result = self._live_checkpoint_result()
-        if not result.segments:
-            return
         try:
             from core.history import get_history_store
 
-            store = get_history_store()
-            if self._live_history_record_id is None:
-                self._live_history_record_id = store.add(
-                    result,
-                    source_path="",
-                    source_name=self._live_source_name,
-                    model=self._live_model_name,
-                    speaker_names=result.speaker_names,
-                    source_kind="live",
-                )
-            else:
-                store.update_result(
-                    self._live_history_record_id,
-                    result,
-                    speaker_names=result.speaker_names,
-                )
-            self._last_record_id = self._live_history_record_id
-            self.library_view.refresh()
+            wrote = self._live_checkpoint.checkpoint(
+                get_history_store(), self.live_view.selected_language()
+            )
+            if wrote:
+                self._last_record_id = self._live_checkpoint.history_record_id
+                self.library_view.refresh()
         except Exception as exc:
             logger.warning("Failed to checkpoint live transcript: %s", exc)
 
@@ -605,15 +575,15 @@ class MainWindow(QMainWindow):
         self._source_filepath = source_path or None
         self._source_kind = "live"
         self._transcription_start = self.live_runtime._started_at
-        if self._live_history_record_id is not None:
+        if self._live_checkpoint.history_record_id is not None:
             try:
                 from core.history import get_history_store
                 get_history_store().update_result(
-                    self._live_history_record_id,
+                    self._live_checkpoint.history_record_id,
                     result,
                     speaker_names=getattr(result, "speaker_names", {}) or {},
                 )
-                self._last_record_id = self._live_history_record_id
+                self._last_record_id = self._live_checkpoint.history_record_id
                 self.library_view.refresh()
             except Exception as exc:
                 logger.warning("Failed to finalize live transcript history: %s", exc)
@@ -622,8 +592,8 @@ class MainWindow(QMainWindow):
             self._save_to_history(
                 result,
                 source_path="",
-                source_name=self._live_source_name,
-                model=self._live_model_name,
+                source_name=self._live_checkpoint.source_name,
+                model=self._live_checkpoint.model_name,
                 speaker_names=getattr(result, "speaker_names", {}) or {},
             )
             self._on_finished(result, open_record=False, save_history=False)
@@ -1076,7 +1046,7 @@ class MainWindow(QMainWindow):
         if self._source_filepath:
             self.youtube_panel.set_source_name(Path(self._source_filepath).stem)
         elif self._source_kind == "live":
-            self.youtube_panel.set_source_name(self._live_source_name)
+            self.youtube_panel.set_source_name(self._live_checkpoint.source_name)
 
         # Populate the Cut tab's segment list and video actions
         self.cut_view.video_panel.set_has_transcript(bool(self._source_filepath))
@@ -1087,7 +1057,7 @@ class MainWindow(QMainWindow):
         # view so the user immediately sees what they just produced.
         title = (
             Path(self._source_filepath).stem if self._source_filepath
-            else self._live_source_name if self._source_kind == "live" else tr("app_title")
+            else self._live_checkpoint.source_name if self._source_kind == "live" else tr("app_title")
         )
         self.record_view.set_title(title)
         self.record_view.set_has_result(True)
