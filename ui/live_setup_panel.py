@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 )
 
 from config import get_config
+from core.base_worker import BaseWorker
 from core.i18n import tr
 from core.live.preflight import default_helper_path
 from core.live.target_discovery import DiscoveredTarget, discover_targets
@@ -24,7 +25,7 @@ from ui.components import FormSection
 from ui.option_labels import whisper_language_options, whisper_model_options
 
 
-class TargetDiscoveryWorker(QThread):
+class TargetDiscoveryWorker(BaseWorker):
     completed = pyqtSignal(object)
     failed = pyqtSignal(str)
 
@@ -32,13 +33,13 @@ class TargetDiscoveryWorker(QThread):
         super().__init__(parent)
         self._helper_path = helper_path
 
-    def run(self) -> None:
-        try:
-            self.completed.emit(discover_targets(
-                self._helper_path, cancelled=self.isInterruptionRequested
-            ))
-        except Exception as exc:
-            self.failed.emit(str(exc))
+    def _execute(self) -> None:
+        self.completed.emit(discover_targets(
+            self._helper_path, cancelled=self.is_cancelled
+        ))
+
+    def _on_error(self, msg: str) -> None:
+        self.failed.emit(msg)
 
 
 class LiveSetupPanel(FormSection):
@@ -182,5 +183,5 @@ class LiveSetupPanel(FormSection):
 
     def shutdown(self) -> None:
         if self._target_worker and self._target_worker.isRunning():
-            self._target_worker.requestInterruption()
+            self._target_worker.cancel()
             self._target_worker.wait(1500)

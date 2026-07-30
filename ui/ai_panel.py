@@ -4,17 +4,17 @@ Controls for AI-powered text processing and article generation
 """
 
 import os
-import threading
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QComboBox, QProgressBar, QFrame
 )
-from PyQt6.QtCore import pyqtSignal, QThread, QTimer
+from PyQt6.QtCore import pyqtSignal, QTimer
 
 from text_processor import TextProcessor
 from article_generator import ArticleGenerator, ArticleFormat, ARTICLE_FORMAT_INFO
 from lm_studio_manager import LMStudioManager
+from core.base_worker import BaseWorker
 from core.i18n import tr
 from core.logger import get_logger
 from ui.theme import set_role
@@ -23,7 +23,7 @@ from ui.theme import set_role
 logger = get_logger(__name__)
 
 
-class LMStudioTaskWorker(QThread):
+class LMStudioTaskWorker(BaseWorker):
     """Run one LM Studio status/CLI operation outside the GUI thread."""
 
     result_ready = pyqtSignal(str, object)
@@ -42,25 +42,23 @@ class LMStudioTaskWorker(QThread):
         self._processor = processor
         self._manager = manager
         self._payload = payload
-        self._cancelled = threading.Event()
 
-    def cancel(self) -> None:
-        self._cancelled.set()
+    def _execute(self) -> None:
+        result = self._run_action()
+        if not self.is_cancelled():
+            self.result_ready.emit(self.action, result)
 
-    def run(self) -> None:
-        try:
-            result = self._execute()
-            if not self._cancelled.is_set():
-                self.result_ready.emit(self.action, result)
-        except Exception as exc:
-            if not self._cancelled.is_set():
-                self.failed.emit(self.action, str(exc))
+    def _on_error(self, msg: str) -> None:
+        # Matches the pre-BaseWorker behaviour: a failure racing a cancel()
+        # is swallowed rather than reported, same as a racing success.
+        if not self.is_cancelled():
+            self.failed.emit(self.action, msg)
 
-    def _execute(self):
+    def _run_action(self):
         if self.action == "status":
             client = self._processor.lm_client
             connected = client.check_connection(timeout=1.5)
-            if self._cancelled.is_set():
+            if self.is_cancelled():
                 return None
             model_name = client.get_loaded_model(timeout=1.5) if connected else None
             return {

@@ -7,15 +7,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 
 from book_pipeline import BookPipeline
+from core.base_worker import BaseWorker
 from core.logger import get_logger
 
 logger = get_logger(__name__)
 
 
-class BookBatchWorker(QThread):
+class BookBatchWorker(BaseWorker):
     """
     Process a list of .md files through the book pipeline in a background thread.
 
@@ -46,18 +47,22 @@ class BookBatchWorker(QThread):
         self.do_unwrap = do_unwrap
         self.do_custom = do_custom
         self.custom_prompt_path = custom_prompt_path
-        self._cancelled = False
 
-    def cancel(self) -> None:
-        self._cancelled = True
+    def _on_error(self, msg: str) -> None:
+        # Every per-file failure is already caught and reported below via
+        # file_error; reaching here means something escaped that (e.g.
+        # BookPipeline() construction itself), so the batch never got to
+        # emit batch_finished at all. Log it rather than let the thread
+        # end silently — there is no single-file index to attach it to.
+        logger.error("BookBatchWorker: unexpected failure, batch aborted: %s", msg)
 
-    def run(self) -> None:
+    def _execute(self) -> None:
         pipeline = BookPipeline()
         total = len(self.file_paths)
         completed = 0
 
         for i, path_str in enumerate(self.file_paths):
-            if self._cancelled:
+            if self.is_cancelled():
                 break
 
             path = Path(path_str)
@@ -70,7 +75,7 @@ class BookBatchWorker(QThread):
                 continue
 
             def on_progress(pct: int, msg: str, _i=i) -> None:
-                if not self._cancelled:
+                if not self.is_cancelled():
                     self.file_progress.emit(_i, pct, msg)
 
             try:
@@ -81,7 +86,7 @@ class BookBatchWorker(QThread):
                     do_custom=self.do_custom,
                     custom_prompt_path=self.custom_prompt_path,
                     on_progress=on_progress,
-                    is_cancelled=lambda: self._cancelled,
+                    is_cancelled=self.is_cancelled,
                 )
                 self.file_finished.emit(i, result)
                 if result.success:

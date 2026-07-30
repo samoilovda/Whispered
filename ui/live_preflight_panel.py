@@ -4,15 +4,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
+from core.base_worker import BaseWorker
 from core.i18n import tr
 from core.live.preflight import LivePreflight, PreflightCheck, PreflightStatus
 from ui.components import FormSection, StatusBadge
 
 
-class LivePreflightWorker(QThread):
+class LivePreflightWorker(BaseWorker):
     completed = pyqtSignal(object)
 
     def __init__(self, *, use_mic: bool, use_system: bool, model_name: str,
@@ -22,8 +23,12 @@ class LivePreflightWorker(QThread):
                              model_name=model_name, target_available=target_available,
                              helper_path=helper_path)
 
-    def run(self) -> None:
+    def _execute(self) -> None:
         self.completed.emit(LivePreflight().run(**self._options))
+
+    # No error signal exists for this worker — a failing check has nowhere
+    # to report to. BaseWorker.run() already logs the exception; leaving
+    # _on_error() at its no-op default is deliberate, not an oversight.
 
 
 class LivePreflightPanel(FormSection):

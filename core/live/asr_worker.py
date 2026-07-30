@@ -9,8 +9,9 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 
+from core.base_worker import BaseWorker
 from core.live.contracts import SpeechTurn
 from core.logger import get_logger
 
@@ -177,7 +178,7 @@ def _serve_live_commands(commands, results, engine: _LiveDecodeEngine, abort_eve
             results.put(("decode_error", request_id, str(exc)))
 
 
-class PersistentWhisperWorker(QThread):
+class PersistentWhisperWorker(BaseWorker):
     """Qt-facing parent worker around one cancellable whisper process."""
 
     ready = pyqtSignal(float)
@@ -211,7 +212,6 @@ class PersistentWhisperWorker(QThread):
         self._commands = self._ctx.Queue(maxsize=queue_size)
         self._results = self._ctx.Queue()
         self._abort_event = self._ctx.Event()
-        self._cancelled = threading.Event()
         self._shutdown_requested = threading.Event()
         self._process: Any = None
         self._next_request_id = 1
@@ -225,7 +225,7 @@ class PersistentWhisperWorker(QThread):
 
     def submit(self, turn: SpeechTurn, pcm: bytes, *, final: bool = True) -> int | None:
         """Queue one VAD turn without waiting; return request id or ``None``."""
-        if self._cancelled.is_set() or self._shutdown_requested.is_set():
+        if self.is_cancelled() or self._shutdown_requested.is_set():
             return None
         if not isinstance(turn, SpeechTurn):
             raise TypeError("turn must be a SpeechTurn")
@@ -244,12 +244,12 @@ class PersistentWhisperWorker(QThread):
 
     def cancel(self) -> None:
         """Request abort; the child callback and hard-stop fallback share one flag."""
-        self._cancelled.set()
+        super().cancel()
         self._abort_event.set()
 
     def shutdown(self) -> None:
         """Ask the child to drain queued turns and exit normally."""
-        if self._cancelled.is_set():
+        if self.is_cancelled():
             return
         self._shutdown_requested.set()
         try:
@@ -264,13 +264,16 @@ class PersistentWhisperWorker(QThread):
                 submitted=self._submitted,
                 completed=self._completed,
                 failed=self._failed,
-                cancelled=self._cancelled.is_set(),
+                cancelled=self.is_cancelled(),
                 model_load_seconds=self._model_load_seconds,
                 final_latency_p95=_percentile(self._latencies, 0.95),
             )
 
-    def run(self) -> None:
-        if self._cancelled.is_set():
+    def _on_error(self, msg: str) -> None:
+        self.error.emit(msg)
+
+    def _execute(self) -> None:
+        if self.is_cancelled():
             return
         self._process = self._ctx.Process(
             target=_run_live_whisper_process,
@@ -287,7 +290,7 @@ class PersistentWhisperWorker(QThread):
         child_stopped = False
         try:
             while self._process.is_alive() or not child_stopped:
-                if self._cancelled.is_set():
+                if self.is_cancelled():
                     self._stop_child()
                     return
                 try:
@@ -300,7 +303,7 @@ class PersistentWhisperWorker(QThread):
                     child_stopped = True
                     continue
                 self._handle_message(message)
-            if not self._cancelled.is_set() and self._process.exitcode not in (0, None):
+            if not self.is_cancelled() and self._process.exitcode not in (0, None):
                 self.error.emit(
                     f"Live whisper worker crashed with exit code {self._process.exitcode}"
                 )

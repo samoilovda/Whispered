@@ -5,16 +5,16 @@ Wrapper for pywhispercpp to handle transcription tasks
 
 import os
 import re
-import threading
 import tempfile
 import subprocess
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, List, Dict
-from PyQt6.QtCore import QObject, pyqtSignal, QThread
+from PyQt6.QtCore import QObject, pyqtSignal
 
 
 from utils import get_cached_gpu
+from core.base_worker import BaseWorker
 from core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -450,7 +450,7 @@ def _run_transcription_process(
         except Exception:
             pass
 
-class TranscriptionWorker(QThread):
+class TranscriptionWorker(BaseWorker):
     """Worker thread for running transcription in background."""
 
     # Signals
@@ -483,14 +483,12 @@ class TranscriptionWorker(QThread):
         self.initial_prompt = initial_prompt
         self.word_timestamps = word_timestamps
         self.use_gpu = use_gpu
-        self._cancelled = threading.Event()
         self._process = None
 
-    def cancel(self):
-        """Request cancellation of the transcription."""
-        self._cancelled.set()
+    def _on_error(self, msg: str) -> None:
+        self.error.emit(msg)
 
-    def run(self):
+    def _execute(self):
         """Run the transcription in a separate thread, spawning a child process."""
         import multiprocessing as mp
         ctx = mp.get_context('spawn')  # Use spawn so CUDA/Qt don't conflict
@@ -516,7 +514,7 @@ class TranscriptionWorker(QThread):
 
         try:
             while self._process.is_alive():
-                if self._cancelled.is_set():
+                if self.is_cancelled():
                     self.progress.emit(0, "Cancelling...")
                     q.close()
                     self._process.terminate()
@@ -563,7 +561,7 @@ class TranscriptionWorker(QThread):
                 except queue.Empty:
                     break
 
-            if not self._cancelled.is_set():
+            if not self.is_cancelled():
                 self.error.emit(
                     "Transcription process exited without a result "
                     f"(exit code {self._process.exitcode})."

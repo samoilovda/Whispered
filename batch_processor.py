@@ -7,9 +7,13 @@ import os
 from dataclasses import dataclass
 from typing import Optional, List
 from enum import Enum
-from PyQt6.QtCore import QObject, pyqtSignal, QThread
+from PyQt6.QtCore import QObject, pyqtSignal
 
+from core.base_worker import BaseWorker
+from core.logger import get_logger
 from transcriber import Transcriber, TranscriptionResult
+
+logger = get_logger(__name__)
 
 
 # ============================================================================
@@ -48,7 +52,7 @@ class BatchItem:
 # BATCH WORKER
 # ============================================================================
 
-class BatchWorker(QThread):
+class BatchWorker(BaseWorker):
     """Worker thread for processing batch items."""
 
     # Signals
@@ -79,18 +83,24 @@ class BatchWorker(QThread):
         self.enable_diarization = enable_diarization
         self.num_speakers = num_speakers
         self.use_gpu = use_gpu
-        self._cancelled = False
         self._transcriber = Transcriber()
         self._current_index = -1
 
     def cancel(self):
         """Cancel the batch processing."""
-        self._cancelled = True
+        super().cancel()
         self._transcriber.cancel()
 
-    def run(self):
+    def _on_error(self, msg: str) -> None:
+        # No batch-level error signal exists (only per-item item_error);
+        # this only fires for a bug escaping the loop below, which
+        # previously crashed the thread silently with batch_finished never
+        # emitted. Logging it is strictly better than that.
+        logger.error("BatchWorker: unexpected failure, batch aborted: %s", msg)
+
+    def _execute(self):
         """Process all items in sequence."""
-        while not self._cancelled:
+        while not self.is_cancelled():
             next_index = -1
             for i, item in enumerate(self.items):
                 if item.status == BatchStatus.PENDING:
@@ -104,7 +114,7 @@ class BatchWorker(QThread):
             self._current_index = next_index
             self._process_item(next_index, item)
 
-        if self._cancelled:
+        if self.is_cancelled():
             for item in self.items:
                 if item.status == BatchStatus.PENDING:
                     item.status = BatchStatus.CANCELLED
@@ -165,7 +175,7 @@ class BatchWorker(QThread):
         # Wait for completion
         finished_event.wait()
 
-        if self._cancelled:
+        if self.is_cancelled():
             item.status = BatchStatus.CANCELLED
             return
 

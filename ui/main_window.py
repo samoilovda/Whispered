@@ -6,7 +6,6 @@ Main application window with compact header-bar layout and AI processing
 from __future__ import annotations
 
 import os
-import threading
 import time
 import re
 from pathlib import Path
@@ -16,7 +15,7 @@ from PyQt6.QtWidgets import (
     QApplication, QTabWidget,
     QTextEdit, QLineEdit, QPlainTextEdit, QStackedWidget,
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut, QDragEnterEvent, QDropEvent
 
 from ui.toast import show_toast
@@ -55,6 +54,7 @@ from utils import (
 )
 from config import get_config, save_config
 from core.ai_worker import AIProcessingWorker
+from core.base_worker import BaseWorker
 from core.logger import get_logger
 from core.i18n import tr
 from transcriber import _build_initial_prompt
@@ -100,25 +100,25 @@ def _localized_progress(message: str) -> str:
 # ============================================================================
 
 
-class GPUDetectionWorker(QThread):
+class GPUDetectionWorker(BaseWorker):
     """Detect hardware without delaying construction of the main window."""
 
     detected = pyqtSignal(str, str)
 
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self._cancelled = threading.Event()
+    def _on_error(self, msg: str) -> None:
+        # No error signal exists — hardware detection failing just means
+        # the device badge keeps whatever it already showed. BaseWorker's
+        # run() has already logged the exception; previously an exception
+        # here crashed the thread with no log entry at all.
+        pass
 
-    def cancel(self) -> None:
-        self._cancelled.set()
-
-    def run(self) -> None:
+    def _execute(self) -> None:
         gpu_type, gpu_name = detect_gpu(cancel_event=self._cancelled)
-        if not self._cancelled.is_set():
+        if not self.is_cancelled():
             self.detected.emit(gpu_type, gpu_name)
 
 
-class DraftAssemblyWorker(QThread):
+class DraftAssemblyWorker(BaseWorker):
     """Run the potentially long FFmpeg draft assembly away from the UI thread."""
 
     progress = pyqtSignal(str)
@@ -131,19 +131,17 @@ class DraftAssemblyWorker(QThread):
         self._segments = list(segments)
         self._output_path = output_path
 
-    def run(self) -> None:
-        try:
-            assemble_draft(
-                self._source_path,
-                self._segments,
-                self._output_path,
-                on_progress=self.progress.emit,
-            )
-        except Exception as exc:
-            logger.exception("assemble_draft failed: %s", exc)
-            self.error.emit(str(exc))
-        else:
-            self.assembled.emit(self._output_path)
+    def _on_error(self, msg: str) -> None:
+        self.error.emit(msg)
+
+    def _execute(self) -> None:
+        assemble_draft(
+            self._source_path,
+            self._segments,
+            self._output_path,
+            on_progress=self.progress.emit,
+        )
+        self.assembled.emit(self._output_path)
 
 
 class _WorkerShutdown:
@@ -163,21 +161,16 @@ class _WorkerShutdown:
         owner: MainWindow,
         attr: str,
         wait_ms: int | None = None,
-        interrupt: bool = False,
     ) -> None:
         self._owner = owner
         self._attr = attr
         self._wait_ms = wait_ms
-        self._interrupt = interrupt
 
     def shutdown(self) -> None:
         worker = getattr(self._owner, self._attr)
         if worker is None or not worker.isRunning():
             return
-        if self._interrupt:
-            worker.requestInterruption()
-        else:
-            worker.cancel()
+        worker.cancel()
         if self._wait_ms is None:
             worker.wait()
         else:
@@ -424,7 +417,7 @@ class MainWindow(QMainWindow):
         self._shutdownables.append(self.live_view)
         self._shutdownables.append(self.live_runtime)
         self._shutdownables.append(
-            _WorkerShutdown(self, "_live_preflight_worker", wait_ms=2500, interrupt=True)
+            _WorkerShutdown(self, "_live_preflight_worker", wait_ms=2500)
         )
         self.live_view.preflight_requested.connect(self._run_live_preflight)
         self.live_view.start_requested.connect(self._start_live)

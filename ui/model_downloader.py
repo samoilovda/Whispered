@@ -11,96 +11,96 @@ import requests
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QProgressBar, QPushButton, QHBoxLayout, QMessageBox
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 
 from utils import get_models_dir
+from core.base_worker import BaseWorker
 from core.i18n import tr
 
 
-class DownloadWorker(QThread):
+class DownloadWorker(BaseWorker):
     """Worker thread for downloading files with progress tracking."""
 
     progress = pyqtSignal(int, int)  # (bytes_read, total_bytes)
     finished = pyqtSignal(bool, str) # (success, error_or_path)
 
-    def __init__(self, url: str, target_path: str):
-        super().__init__()
+    def __init__(self, url: str, target_path: str, parent=None):
+        super().__init__(parent)
         self.url = url
         self.target_path = target_path
-        self._is_cancelled = False
 
-    def cancel(self):
-        self._is_cancelled = True
+    def _execute(self) -> None:
+        # Create a temporary file path
+        temp_path = self.target_path + ".download"
 
-    def run(self):
+        # Start download
         try:
-            # Create a temporary file path
-            temp_path = self.target_path + ".download"
-
-            # Start download
             response = requests.get(self.url, stream=True, timeout=10)
             response.raise_for_status()
-
-            total_size = int(response.headers.get('content-length', 0))
-            bytes_read = 0
-
-            with open(temp_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if self._is_cancelled:
-                        f.close()
-                        if os.path.exists(temp_path):
-                            os.remove(temp_path)
-                        self.finished.emit(False, "Cancelled")
-                        return
-
-                    if chunk:
-                        f.write(chunk)
-                        bytes_read += len(chunk)
-                        self.progress.emit(bytes_read, total_size)
-
-            # Rename temp file to target path
-            if os.path.exists(self.target_path):
-                os.remove(self.target_path)
-            os.rename(temp_path, self.target_path)
-
-            self.finished.emit(True, self.target_path)
-
         except requests.exceptions.HTTPError as e:
             # Check if 404
             if e.response.status_code == 404:
                 self.finished.emit(False, tr("download_error_not_found"))
             else:
                 self.finished.emit(False, tr("download_error_http", error=str(e)))
-        except Exception as e:
-            self.finished.emit(False, tr("download_error_generic", error=str(e)))
+            return
+
+        total_size = int(response.headers.get('content-length', 0))
+        bytes_read = 0
+
+        with open(temp_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if self.is_cancelled():
+                    f.close()
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                    self.finished.emit(False, "Cancelled")
+                    return
+
+                if chunk:
+                    f.write(chunk)
+                    bytes_read += len(chunk)
+                    self.progress.emit(bytes_read, total_size)
+
+        # Rename temp file to target path
+        if os.path.exists(self.target_path):
+            os.remove(self.target_path)
+        os.rename(temp_path, self.target_path)
+
+        self.finished.emit(True, self.target_path)
+
+    def _on_error(self, msg: str) -> None:
+        self.finished.emit(False, tr("download_error_generic", error=msg))
 
 
-class DiarizationCacheWorker(QThread):
+class DiarizationCacheWorker(BaseWorker):
     """Worker thread for initializing pyannote to force model caching."""
 
     finished = pyqtSignal(bool, str)
 
-    def __init__(self, hf_token: str):
-        super().__init__()
+    def __init__(self, hf_token: str, parent=None):
+        super().__init__(parent)
         self.hf_token = hf_token
 
-    def run(self):
+    def _execute(self) -> None:
         try:
             # Importing here to prevent main thread blocking and missing dependencies at startup
             import torch  # noqa: F401
             from pyannote.audio import Pipeline
-
-            # Loading the pipeline will trigger huggingface_hub to download all required models
-            # to the local ~/.cache/huggingface/hub directory if they don't exist
-            Pipeline.from_pretrained(
-                "pyannote/speaker-diarization-3.1",
-                use_auth_token=self.hf_token
-            )
-            self.finished.emit(True, "Success")
         except ImportError:
             self.finished.emit(False, tr("download_error_diarization_missing"))
-        except Exception as e:
-            self.finished.emit(False, tr("download_error_diarization", error=str(e)))
+            return
+
+        # Loading the pipeline will trigger huggingface_hub to download all required models
+        # to the local ~/.cache/huggingface/hub directory if they don't exist
+        Pipeline.from_pretrained(
+            "pyannote/speaker-diarization-3.1",
+            use_auth_token=self.hf_token
+        )
+        self.finished.emit(True, "Success")
+
+    def _on_error(self, msg: str) -> None:
+        self.finished.emit(False, tr("download_error_diarization", error=msg))
 
 
 class ModelDownloaderDialog(QDialog):
