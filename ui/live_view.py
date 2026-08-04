@@ -55,7 +55,12 @@ class LiveView(QWidget):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         body = QWidget()
         content = QVBoxLayout(body)
-        content.setContentsMargins(0, 0, 0, 0)
+        # Right margin so row content (Start/Pause/Stop, the last widget in
+        # each QHBoxLayout) doesn't sit flush against the scrollbar track —
+        # widgetResizable already excludes the scrollbar's own width from
+        # body's width, but with zero margin here the last button's edge
+        # still touches it directly, reading as clipped.
+        content.setContentsMargins(0, 0, 10, 0)
         content.setSpacing(12)
         scroll.setWidget(body)
         root.addWidget(scroll, 1)
