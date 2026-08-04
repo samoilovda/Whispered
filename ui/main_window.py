@@ -815,15 +815,25 @@ class MainWindow(QMainWindow):
         else:
             ov.hide()
 
+    # Below this window width there isn't room for the expanded sidebar
+    # even at the app's own minimum size (900px, see _build_window_chrome),
+    # so this only ever fires as a defensive floor, not in normal use —
+    # it must NOT overwrite the user's actual sidebar_collapsed choice.
+    _SIDEBAR_FORCE_COLLAPSE_WIDTH = 780
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, "file_selector"):
             self.file_selector.set_compact(event.size().height() < 650)
         if hasattr(self, "sidebar"):
-            compact = event.size().width() < 1180 or bool(
-                getattr(get_config(), "sidebar_collapsed", False)
-            )
-            self.sidebar.set_collapsed(compact, emit=False)
+            if event.size().width() < self._SIDEBAR_FORCE_COLLAPSE_WIDTH:
+                self.sidebar.set_collapsed(True, emit=False)
+            else:
+                # Not narrow enough to force — always defer to the user's
+                # saved preference, so a resize can never silently undo an
+                # explicit expand/collapse click (see collapsed_changed).
+                collapsed = bool(getattr(get_config(), "sidebar_collapsed", False))
+                self.sidebar.set_collapsed(collapsed, emit=False)
         if hasattr(self, "_drop_overlay") and self._drop_overlay.isVisible():
             self._drop_overlay.setGeometry(self.centralWidget().geometry())
 
