@@ -238,6 +238,10 @@ class BatchPanel(QWidget):
         self.clear_btn.setEnabled(count > 0 and not self.processor.is_processing)
         self.file_list.setVisible(count > 0)
         self.empty_state.setVisible(count == 0)
+        # The empty state already has its own "Add files" CTA — showing
+        # the header's copy of the same action too, right above it, reads
+        # as a redundant duplicate rather than a shortcut.
+        self.add_btn.setVisible(count > 0)
 
     def _sync_visual_order(self, *_args) -> None:
         """Keep BatchProcessor's execution order equal to drag-drop order."""
