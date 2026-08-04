@@ -6,6 +6,16 @@ class EmptyStateWidget(QWidget):
     """A centered empty state with an icon, a message, and an optional
     smaller hint line underneath (e.g. Library-without-records: a title
     plus a one-line nudge toward the action that would fill it)."""
+
+    _ICON_SIZE_FULL = 48
+    _ICON_SIZE_COMPACT = 28
+    # Below this height the full stack (icon + spacing + title + hint +
+    # spacing + button) no longer fits whatever's left after everything
+    # else on the page (e.g. Library's drop zone) and starts overlapping —
+    # QVBoxLayout doesn't clip gracefully when its children's combined
+    # minimum size exceeds the space it's given, it lets them overlap.
+    _COMPACT_HEIGHT = 220
+
     def __init__(
         self,
         icon_name: str,
@@ -15,6 +25,7 @@ class EmptyStateWidget(QWidget):
         parent=None,
     ):
         super().__init__(parent)
+        self._compact = False
 
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -22,13 +33,14 @@ class EmptyStateWidget(QWidget):
 
         # Center container
         container = QWidget()
-        container_layout = QVBoxLayout(container)
+        self._container_layout = container_layout = QVBoxLayout(container)
         container_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Icon
-        self.icon_label = IconLabel(icon_name, IconColors.MUTED, 48)
+        self.icon_label = IconLabel(icon_name, IconColors.MUTED, self._ICON_SIZE_FULL)
         container_layout.addWidget(self.icon_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
+        self._icon_spacer_index = container_layout.count()
         container_layout.addSpacing(16)
 
         # Message
@@ -38,6 +50,7 @@ class EmptyStateWidget(QWidget):
         self.message_label.setWordWrap(True)
         container_layout.addWidget(self.message_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
+        self.hint_label = None
         if hint:
             container_layout.addSpacing(4)
             self.hint_label = QLabel(hint)
@@ -55,3 +68,21 @@ class EmptyStateWidget(QWidget):
         )
 
         layout.addWidget(container, alignment=Qt.AlignmentFlag.AlignCenter)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._set_compact(self.height() < self._COMPACT_HEIGHT)
+
+    def _set_compact(self, compact: bool) -> None:
+        if compact == self._compact:
+            return
+        self._compact = compact
+        self.icon_label.set_size(
+            self._ICON_SIZE_COMPACT if compact else self._ICON_SIZE_FULL
+        )
+        spacer = self._container_layout.itemAt(self._icon_spacer_index)
+        if spacer is not None:
+            spacer.spacerItem().changeSize(0, 4 if compact else 16)
+        if self.hint_label is not None:
+            self.hint_label.setVisible(not compact)
+        self._container_layout.activate()
