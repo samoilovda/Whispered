@@ -408,8 +408,12 @@ class MainWindow(QMainWindow):
         recorder_outer.addWidget(
             PageHeader(tr("page_recorder_title"), tr("page_recorder_subtitle"))
         )
+        # The recorder controls are short and were previously top-aligned,
+        # leaving most of the page an empty void below them. Center them
+        # in the remaining space instead — same widget, no new content.
+        recorder_outer.addStretch(1)
         recorder_outer.addWidget(self.recorder_widget)
-        recorder_outer.addStretch()
+        recorder_outer.addStretch(2)
         self._stack.addWidget(recorder_page)  # index 2
 
     def _build_live_section(self) -> None:
