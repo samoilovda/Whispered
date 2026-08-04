@@ -116,6 +116,9 @@ class BatchPanel(QWidget):
         self.processor = BatchProcessor()
         self._setup_ui()
         self._connect_signals()
+        # _refresh_list() is what sets file_list/empty_state visibility;
+        # without an initial call both are visible at once on cold start.
+        self._refresh_list()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
