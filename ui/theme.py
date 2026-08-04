@@ -742,15 +742,26 @@ def build_stylesheet(t: Theme) -> str:
         color: {t.error};
     }}
     QPushButton[role="quick-chip"] {{
-        background-color: {rgba(t.accent, 0.12)};
-        border: 1px solid {t.accent};
+        background-color: transparent;
+        border: 1px solid {t.border_input};
         border-radius: 12px;
         padding: 3px 8px;
-        color: {t.accent};
+        color: {t.text_secondary};
         font-size: {t.font_xs};
     }}
     QPushButton[role="quick-chip"]:hover {{
-        background-color: {rgba(t.accent, 0.22)};
+        border-color: {t.accent};
+        color: {t.accent};
+    }}
+    QPushButton[role="quick-chip"]:checked {{
+        background-color: {t.accent};
+        border-color: {t.accent};
+        color: #ffffff;
+        font-weight: 600;
+    }}
+    QPushButton[role="quick-chip"]:checked:hover {{
+        background-color: {t.accent_hover};
+        border-color: {t.accent_hover};
     }}
     QWidget[role="drop-zone"] {{
         border: 2px dashed {t.border_input};
