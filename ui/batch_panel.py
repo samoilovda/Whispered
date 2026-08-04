@@ -227,7 +227,14 @@ class BatchPanel(QWidget):
         self.count_label.setText(
             tr("batch_summary", pending=pending, complete=complete, error=errors)
         )
-        self.start_btn.setEnabled(count > 0 and not self.processor.is_processing)
+        start_enabled = count > 0 and not self.processor.is_processing
+        self.start_btn.setEnabled(start_enabled)
+        if start_enabled:
+            self.start_btn.setToolTip("")
+        elif self.processor.is_processing:
+            self.start_btn.setToolTip(tr("tooltip_batch_start_disabled_busy"))
+        else:
+            self.start_btn.setToolTip(tr("tooltip_batch_start_disabled_empty"))
         self.clear_btn.setEnabled(count > 0 and not self.processor.is_processing)
         self.file_list.setVisible(count > 0)
         self.empty_state.setVisible(count == 0)

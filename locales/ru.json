@@ -24,6 +24,7 @@
   "preset_article": "Транскрипция + Статья",
   "preset_full": "Полный пакет",
   "tooltip_process": "Запустить выбранный пресет  (Ctrl+Enter)",
+  "tooltip_process_disabled": "Сначала выберите файл",
   "tooltip_transcribe_options": "Параметры транскрипции",
 
   "label_model": "Модель:",
@@ -154,6 +155,8 @@
   "batch_empty_title": "Очередь пуста",
   "batch_empty_hint": "Добавьте аудио- или видеофайлы для последовательной обработки.",
   "batch_start_all": "Запустить очередь",
+  "tooltip_batch_start_disabled_empty": "Добавьте файлы в очередь",
+  "tooltip_batch_start_disabled_busy": "Обработка уже идёт",
   "batch_clear": "Очистить очередь",
   "batch_file_filter": "Медиафайлы (*.mp3 *.mp4 *.m4a *.wav *.ogg *.flac *.mkv *.avi *.mov *.webm);;Все файлы (*)",
 
@@ -215,6 +218,7 @@
   "record_tools": "Инструменты",
   "record_clean_action": "Очистить текст",
   "record_articles_action": "Создать статьи",
+  "tooltip_record_actions_disabled": "Сначала дождитесь транскрипции",
   "transcript_placeholder": "Здесь появится транскрипт…",
   "transcript_stats": "Сегментов: {segments}  •  слов: {words}  •  {minutes} мин",
   "article_empty": "Статья ещё не создана",
@@ -243,6 +247,7 @@
   "live_source_system": "Звук встречи",
   "live_source_both": "Микрофон + звук встречи",
   "live_preflight": "Проверить готовность",
+  "tooltip_live_start_disabled": "Сначала выполните проверку готовности",
   "live_preflight_hint": "Перед запуском выполните проверку. macOS запросит разрешения при первом использовании.",
   "live_start": "Старт",
   "live_pause": "Пауза",

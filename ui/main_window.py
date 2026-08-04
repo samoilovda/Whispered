@@ -865,7 +865,7 @@ class MainWindow(QMainWindow):
         """Handle file selection."""
         self._source_kind = "file"
         self._source_filepath = filepath
-        self.transcribe_btn.setEnabled(True)
+        self.launch_bar.set_process_enabled(True)
         self.status_label.setText(tr("status_ready_file", name=os.path.basename(filepath)))
         self.player.load(filepath)
 
@@ -874,7 +874,7 @@ class MainWindow(QMainWindow):
         self._source_filepath = None
         self._source_kind = "file"
         self.player.load("")
-        self.transcribe_btn.setEnabled(False)
+        self.launch_bar.set_process_enabled(False)
         # Transcript-only records can still be exported, but cannot be cut.
         self.cut_view.video_panel.set_has_transcript(False)
 
@@ -1292,7 +1292,7 @@ class MainWindow(QMainWindow):
         Process must stay disabled so the user can't start a second
         transcription mid-chain."""
         chain_active = self._preset_chain.is_active()
-        self.transcribe_btn.setEnabled(
+        self.launch_bar.set_process_enabled(
             not chain_active and self.file_selector.get_file() is not None
         )
         self.transcribe_btn.setVisible(True)

@@ -77,6 +77,7 @@ class LiveView(QWidget):
         self.start_btn = QPushButton(tr("live_start"))
         self.start_btn.setProperty("variant", "primary")
         self.start_btn.setEnabled(False)
+        self.start_btn.setToolTip(tr("tooltip_live_start_disabled"))
         self.start_btn.clicked.connect(self.start_requested.emit)
         actions.addWidget(self.start_btn)
         content.addLayout(actions)
@@ -153,9 +154,13 @@ class LiveView(QWidget):
         """Part of the Shutdownable protocol (ui/shutdownable.py)."""
         self.setup.shutdown()
 
+    def _set_start_enabled(self, enabled: bool) -> None:
+        self.start_btn.setEnabled(enabled)
+        self.start_btn.setToolTip("" if enabled else tr("tooltip_live_start_disabled"))
+
     def invalidate_preflight(self) -> None:
         self._preflight_valid = False
-        self.start_btn.setEnabled(False)
+        self._set_start_enabled(False)
         if self._state in {"idle", "ready"}:
             self._state = "idle"
             self.state_badge.set_status(tr("live_health_idle"), "neutral")
@@ -163,7 +168,7 @@ class LiveView(QWidget):
     def set_preflighting(self) -> None:
         self._state = "preflighting"
         self.preflight_btn.setEnabled(False)
-        self.start_btn.setEnabled(False)
+        self._set_start_enabled(False)
         self.state_badge.set_status(tr("live_preflighting"), "info")
 
     def show_preflight(self, checks) -> None:
@@ -171,7 +176,7 @@ class LiveView(QWidget):
         self.preflight_panel.show_checks(checks)
         self._preflight_valid = LivePreflight.can_start(checks)
         self._state = "ready" if self._preflight_valid else "idle"
-        self.start_btn.setEnabled(self._preflight_valid)
+        self._set_start_enabled(self._preflight_valid)
         self.state_badge.set_status(
             tr("live_ready") if self._preflight_valid else tr("live_not_ready"),
             "success" if self._preflight_valid else "error",
@@ -182,7 +187,7 @@ class LiveView(QWidget):
         active = state in {"starting", "running", "paused", "finalizing"}
         self.setup.set_locked(active)
         self.preflight_btn.setEnabled(not active)
-        self.start_btn.setEnabled(state in {"ready", "failed"} and self._preflight_valid)
+        self._set_start_enabled(state in {"ready", "failed"} and self._preflight_valid)
         self.pause_btn.setEnabled(state in {"running", "paused"})
         self.stop_btn.setEnabled(state in {"starting", "running", "paused"})
         self.open_btn.setVisible(state == "completed")

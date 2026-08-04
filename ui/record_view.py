@@ -100,11 +100,13 @@ class RecordView(QWidget):
 
         self.clean_btn = AnimatedButton(tr("record_clean_action"))
         self.clean_btn.setEnabled(False)
+        self.clean_btn.setToolTip(tr("tooltip_record_actions_disabled"))
         self.clean_btn.clicked.connect(self.clean_requested.emit)
         header.addWidget(self.clean_btn)
 
         self.articles_btn = AnimatedButton(tr("record_articles_action"))
         self.articles_btn.setEnabled(False)
+        self.articles_btn.setToolTip(tr("tooltip_record_actions_disabled"))
         self.articles_btn.clicked.connect(self.articles_requested.emit)
         header.addWidget(self.articles_btn)
 
@@ -210,6 +212,9 @@ class RecordView(QWidget):
     def set_has_result(self, has_result: bool) -> None:
         self.clean_btn.setEnabled(has_result)
         self.articles_btn.setEnabled(has_result)
+        disabled_tip = "" if has_result else tr("tooltip_record_actions_disabled")
+        self.clean_btn.setToolTip(disabled_tip)
+        self.articles_btn.setToolTip(disabled_tip)
 
     def get_export_formats(self) -> list[str]:
         """Currently-checked formats, falling back to ['txt'] if none."""

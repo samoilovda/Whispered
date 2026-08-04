@@ -60,7 +60,7 @@ class LaunchBar(QWidget):
         self.process_btn.setIcon(get_icon('play', IconColors.WHITE, 14))
         self.process_btn.setEnabled(False)
         self.process_btn.setProperty("variant", "primary")
-        self.process_btn.setToolTip(tr("tooltip_process"))
+        self.process_btn.setToolTip(tr("tooltip_process_disabled"))
         self.process_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.process_btn.clicked.connect(self.process_requested.emit)
         layout.addWidget(self.process_btn)
@@ -130,3 +130,6 @@ class LaunchBar(QWidget):
 
     def set_process_enabled(self, enabled: bool) -> None:
         self.process_btn.setEnabled(enabled)
+        self.process_btn.setToolTip(
+            tr("tooltip_process") if enabled else tr("tooltip_process_disabled")
+        )

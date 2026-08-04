@@ -24,6 +24,7 @@
   "preset_article": "Transcribe + Article",
   "preset_full": "Full package",
   "tooltip_process": "Run the selected preset  (Ctrl+Enter)",
+  "tooltip_process_disabled": "Select a file first",
   "tooltip_transcribe_options": "Transcription options",
 
   "label_model": "Model:",
@@ -154,6 +155,8 @@
   "batch_empty_title": "The queue is empty",
   "batch_empty_hint": "Add audio or video files to process them in sequence.",
   "batch_start_all": "Start queue",
+  "tooltip_batch_start_disabled_empty": "Add files to the queue first",
+  "tooltip_batch_start_disabled_busy": "Already processing",
   "batch_clear": "Clear queue",
   "batch_file_filter": "Media files (*.mp3 *.mp4 *.m4a *.wav *.ogg *.flac *.mkv *.avi *.mov *.webm);;All files (*)",
 
@@ -215,6 +218,7 @@
   "record_tools": "Tools",
   "record_clean_action": "Clean text",
   "record_articles_action": "Generate articles",
+  "tooltip_record_actions_disabled": "Wait for the transcript first",
   "transcript_placeholder": "Transcription will appear here…",
   "transcript_stats": "{segments} segments  •  {words} words  •  {minutes} min",
   "article_empty": "No article yet",
@@ -243,6 +247,7 @@
   "live_source_system": "Meeting audio",
   "live_source_both": "Microphone + meeting audio",
   "live_preflight": "Check setup",
+  "tooltip_live_start_disabled": "Run the setup check first",
   "live_preflight_hint": "Run preflight before starting. Permissions are requested by macOS on first use.",
   "live_start": "Start",
   "live_pause": "Pause",
