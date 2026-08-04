@@ -46,6 +46,13 @@ class SettingsDialog(QDialog):
         self._load_values()
         self._connect_dirty_signals()
         self._apply_button.setEnabled(False)
+        # Qt otherwise hands initial keyboard focus to _categories (the
+        # first focusable widget in tab order) — its QSS focus ring then
+        # stays lit for as long as the dialog is open, reading as a
+        # permanently "stuck" selection outline rather than a transient
+        # keyboard-focus indicator. OK is the conventional initial-focus
+        # target for a dialog anyway.
+        self._ok_button.setFocus()
 
     # ------------------------------------------------------------------ setup
 
@@ -91,7 +98,8 @@ class SettingsDialog(QDialog):
         btn_box.setContentsMargins(0, 0, 0, 0)
         btn_box.accepted.connect(self._on_ok)
         btn_box.rejected.connect(self.reject)
-        btn_box.button(QDialogButtonBox.StandardButton.Ok).setText(tr("settings_ok"))
+        self._ok_button = btn_box.button(QDialogButtonBox.StandardButton.Ok)
+        self._ok_button.setText(tr("settings_ok"))
         btn_box.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("settings_cancel"))
         self._apply_button = btn_box.button(QDialogButtonBox.StandardButton.Apply)
         self._apply_button.setText(tr("settings_apply"))
