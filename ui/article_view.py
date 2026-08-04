@@ -34,6 +34,7 @@ class ArticleTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._article: Article | None = None
+        self._actions_compact = False
         self._setup_ui()
 
     def _setup_ui(self):
@@ -67,21 +68,34 @@ class ArticleTab(QWidget):
         actions.setSpacing(8)
 
         self.copy_btn = QPushButton(f"📋 {tr('btn_copy')}")
+        self.copy_btn.setToolTip(tr('btn_copy'))
         self.copy_btn.clicked.connect(self._on_copy)
         self.copy_btn.setEnabled(False)
         actions.addWidget(self.copy_btn)
 
         self.export_md_btn = QPushButton(f"💾 {tr('btn_export')} .md")
+        self.export_md_btn.setToolTip(f"{tr('btn_export')} .md")
         self.export_md_btn.clicked.connect(lambda: self._on_export('md'))
         self.export_md_btn.setEnabled(False)
         actions.addWidget(self.export_md_btn)
 
         self.export_html_btn = QPushButton(f"🌐 {tr('btn_export')} .html")
+        self.export_html_btn.setToolTip(f"{tr('btn_export')} .html")
         self.export_html_btn.clicked.connect(lambda: self._on_export('html'))
         self.export_html_btn.setEnabled(False)
         actions.addWidget(self.export_html_btn)
 
         actions.addStretch()
+
+        # (label, emoji-only label) pairs — narrow tools panes (see
+        # RecordView's splitter) clip the trailing ".md"/".html" text
+        # mid-word; below _ACTIONS_COMPACT_WIDTH we drop to just the emoji
+        # with the full label moved to the tooltip already set above.
+        self._action_btns = {
+            self.copy_btn: (self.copy_btn.text(), "📋"),
+            self.export_md_btn: (self.export_md_btn.text(), "💾"),
+            self.export_html_btn: (self.export_html_btn.text(), "🌐"),
+        }
 
         # Quality score
         self.score_label = QLabel("")
@@ -121,7 +135,25 @@ class ArticleTab(QWidget):
         self.export_md_btn.setEnabled(False)
         self.export_html_btn.setEnabled(False)
 
+    # Below this width the three action buttons no longer fit their full
+    # labels and get clipped mid-word ("Экспорт .h") by the tools pane edge.
+    _ACTIONS_COMPACT_WIDTH = 420
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_actions_compact()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._update_actions_compact()
+
+    def _update_actions_compact(self) -> None:
+        compact = self.width() < self._ACTIONS_COMPACT_WIDTH
+        if compact == self._actions_compact:
+            return
+        self._actions_compact = compact
+        for btn, (full, emoji) in self._action_btns.items():
+            btn.setText(emoji if compact else full)
 
     def _on_copy(self):
         """Copy article content to clipboard."""

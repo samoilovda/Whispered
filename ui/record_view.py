@@ -77,6 +77,7 @@ class RecordView(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._initial_split_done = False
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -174,13 +175,28 @@ class RecordView(QWidget):
         tools_tabs.setMinimumWidth(320)
 
         # Give the left (player + transcript) side a 2:1 share. Stretch
-        # factors alone only govern how *extra* space is handed out on
-        # resize — the initial split comes from size hints, so set it.
+        # factors alone only govern how *extra* space is handed out on a
+        # resize once sizes are already sane — they don't fix a bad
+        # starting point, so the actual initial split is applied lazily
+        # in showEvent(), against the splitter's real width.
         self._content_splitter.setStretchFactor(0, 2)
         self._content_splitter.setStretchFactor(1, 1)
-        preferred_tools = max(320, int(getattr(get_config(), "record_tools_width", 360)))
-        self._content_splitter.setSizes([900, preferred_tools])
         self._content_splitter.splitterMoved.connect(self._save_splitter)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        # set_content_widgets() runs during MainWindow.__init__, before the
+        # window has a real size — setSizes() there against a width of 0
+        # pinned the tools pane to its 320px minimum forever (stretch
+        # factors only redistribute space *added* to an already-valid
+        # split, they don't repair one that started bogus). Do it here
+        # instead, once, against the splitter's actual on-screen width.
+        if not self._initial_split_done and self._content_splitter.width() > 0:
+            self._initial_split_done = True
+            total = self._content_splitter.width()
+            preferred_tools = max(320, int(getattr(get_config(), "record_tools_width", 360)))
+            preferred_tools = min(preferred_tools, max(320, total - 400))
+            self._content_splitter.setSizes([total - preferred_tools, preferred_tools])
 
     def _save_splitter(self, _position: int, _index: int) -> None:
         sizes = self._content_splitter.sizes()

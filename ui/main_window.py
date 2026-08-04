@@ -815,11 +815,14 @@ class MainWindow(QMainWindow):
         else:
             ov.hide()
 
-    # Below this window width there isn't room for the expanded sidebar
-    # even at the app's own minimum size (900px, see _build_window_chrome),
-    # so this only ever fires as a defensive floor, not in normal use —
-    # it must NOT overwrite the user's actual sidebar_collapsed choice.
-    _SIDEBAR_FORCE_COLLAPSE_WIDTH = 780
+    # Below this width, RecordView's splitter can't fit both its panes at
+    # their minimum widths (400 + 320 + 1px handle = 721) once the expanded
+    # sidebar (200) and this page's own margins (40) are subtracted — the
+    # two widgets would overlap instead of just looking cramped. 961 is the
+    # exact floor; kept with a little slack. Below it we force-collapse
+    # without touching the user's saved sidebar_collapsed choice, same as
+    # any width above it always defers to that choice (see resizeEvent).
+    _SIDEBAR_FORCE_COLLAPSE_WIDTH = 980
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

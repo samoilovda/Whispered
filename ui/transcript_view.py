@@ -99,6 +99,7 @@ class TranscriptView(QWidget):
         # segment positions for player sync: (start_sec, end_sec, block_pos)
         self._segment_positions: list[tuple[float, float, int]] = []
         self._highlighted_block: int = -1
+        self._header_compact = False
         self._setup_ui()
 
     # ------------------------------------------------------------------ UI setup
@@ -122,6 +123,7 @@ class TranscriptView(QWidget):
         # Timestamps toggle
         self.timestamps_btn = QPushButton(tr("btn_timestamps"))
         self.timestamps_btn.setIcon(get_icon('clock', IconColors.DEFAULT, 14))
+        self.timestamps_btn.setToolTip(tr("btn_timestamps"))
         self.timestamps_btn.setCheckable(True)
         self.timestamps_btn.setChecked(self._show_timestamps)
         self.timestamps_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -131,6 +133,7 @@ class TranscriptView(QWidget):
         # Speakers toggle (green accent when checked)
         self.speakers_btn = QPushButton(tr("btn_speakers"))
         self.speakers_btn.setIcon(get_icon('user', IconColors.DEFAULT, 14))
+        self.speakers_btn.setToolTip(tr("btn_speakers"))
         self.speakers_btn.setCheckable(True)
         self.speakers_btn.setChecked(self._show_speakers)
         self.speakers_btn.setProperty("role", "checkable-success")
@@ -169,6 +172,14 @@ class TranscriptView(QWidget):
         self.export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.export_btn.clicked.connect(self.export_requested.emit)
         header_layout.addWidget(self.export_btn)
+
+        # Icon-bearing buttons whose text can drop under _set_header_compact;
+        # edit_btn/rename_btn have no icon of their own (ui/icons.py has none
+        # to reuse) so they keep their short labels in both modes.
+        self._icon_only_capable = (
+            self.timestamps_btn, self.speakers_btn, self.copy_btn, self.export_btn,
+        )
+        self._button_labels = {btn: btn.text() for btn in self._icon_only_capable}
 
         layout.addWidget(header)
 
@@ -297,8 +308,24 @@ class TranscriptView(QWidget):
         super().showEvent(event)
         if self._result and not self._edit_mode:
             self._update_display()
+        self._update_header_compact()
 
+    # Below this width the header row (title + up to 5 buttons) no longer
+    # fits and gets clipped by the splitter edge in RecordView — same
+    # threshold class as FileSelector.set_compact()'s height check.
+    _HEADER_COMPACT_WIDTH = 650
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_header_compact()
+
+    def _update_header_compact(self) -> None:
+        compact = self.width() < self._HEADER_COMPACT_WIDTH
+        if compact == self._header_compact:
+            return
+        self._header_compact = compact
+        for btn in self._icon_only_capable:
+            btn.setText("" if compact else self._button_labels[btn])
 
     def apply_display_settings(self):
         """Re-read show timestamps / speaker labels from config and refresh."""
