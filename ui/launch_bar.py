@@ -7,8 +7,9 @@ language/performance/diarization controls.
 
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QComboBox, QPushButton
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QComboBox, QPushButton, QSizePolicy
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QFontMetrics
 
 from config import get_config, save_config
 from core.i18n import tr
@@ -32,6 +33,7 @@ class LaunchBar(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._summary_full_text = ""
         self.options = TranscribeOptionsPopover(self)
         self.options.changed.connect(self._update_summary)
         self._setup_ui()
@@ -75,9 +77,15 @@ class LaunchBar(QWidget):
         self.summary_label = QLabel("")
         self.summary_label.setProperty("role", "dim")
         self.summary_label.setStyleSheet("font-size: 11px;")
-        layout.addWidget(self.summary_label)
-
-        layout.addStretch()
+        # Ignored so the layout doesn't size this from its (long, unelided)
+        # text — it gets whatever width is left instead, and that width is
+        # what resizeEvent() below elides the text against. Without this
+        # the label just requested its full sizeHint and got clipped by
+        # the window edge mid-word once the line was too long to fit.
+        self.summary_label.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
+        layout.addWidget(self.summary_label, stretch=1)
 
     def _load_config(self) -> None:
         saved = get_config().launch_preset
@@ -102,7 +110,20 @@ class LaunchBar(QWidget):
             self.options.show_below(self.options_btn)
 
     def _update_summary(self) -> None:
-        self.summary_label.setText(self.options.summary_text())
+        self._summary_full_text = self.options.summary_text()
+        self.summary_label.setToolTip(self._summary_full_text)
+        self._elide_summary()
+
+    def _elide_summary(self) -> None:
+        metrics = QFontMetrics(self.summary_label.font())
+        elided = metrics.elidedText(
+            self._summary_full_text, Qt.TextElideMode.ElideRight, self.summary_label.width()
+        )
+        self.summary_label.setText(elided)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._elide_summary()
 
     def current_preset(self) -> str:
         return self.preset_combo.currentData() or "transcribe_only"
