@@ -142,14 +142,20 @@ LIGHT = Theme(
     bg_pressed="#c8c8c8",
     bg_disabled="#eeeeee",
     border="#e2e2e2",
-    border_input="#cccccc",
-    border_hover="#999999",
+    # #cccccc/#999999 measured at ~1.4:1 / ~2.5:1 against bg_base — below
+    # WCAG 1.4.11's 3:1 floor for UI-component borders (the drop zone on
+    # Library was nearly invisible). Darkened to clear 3:1+.
+    border_input="#828282",
+    border_hover="#5f5f5f",
     accent="#6366f1",
     accent_hover="#818cf8",
     accent_pressed="#4f46e5",
     text_primary="#1a1a1a",
     text_secondary="#555555",
-    text_muted="#777777",
+    # #777777 measured at ~3.9:1 against bg_base — below WCAG 1.4.3's
+    # 4.5:1 floor for normal text (this role is used for label text, not
+    # just decoration). #666666 clears it at ~5:1.
+    text_muted="#666666",
     text_disabled="#aaaaaa",
     success="#16a34a",
     warning="#d97706",
