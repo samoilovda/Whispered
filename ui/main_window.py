@@ -491,9 +491,17 @@ class MainWindow(QMainWindow):
         self._record_index = self._stack.addWidget(self.record_view)  # index 3
 
     def _on_section_changed(self, key: str) -> None:
-        """Switch the visible page when a sidebar button is clicked."""
+        """Switch the visible page when a sidebar button is clicked.
+
+        Also keeps the sidebar's own highlighted button in sync — needed
+        for programmatic navigation (keyboard shortcuts, _show_library())
+        where nothing already clicked the button itself. Previously every
+        caller had to remember to call sidebar.set_active() separately;
+        centralizing it here means a future call site can't forget to.
+        """
         idx = self._section_index.get(key)
         if idx is not None:
+            self.sidebar.set_active(key)
             self._stack.setCurrentIndex(idx)
             if key == "live" and os.environ.get("WHISPERED_UI_GALLERY") != "1":
                 self.live_view.setup.refresh_targets()
@@ -506,8 +514,7 @@ class MainWindow(QMainWindow):
     def _show_library(self) -> None:
         """Navigate back to the Library page (from the Record view) and
         refresh the list in case anything changed while a record was open."""
-        self.sidebar.set_active("library")
-        self._stack.setCurrentIndex(self._section_index["library"])
+        self._on_section_changed("library")
         self.library_view.refresh()
 
     def _open_record_view(self, record_id: int) -> None:
@@ -675,14 +682,11 @@ class MainWindow(QMainWindow):
         _sc("Ctrl+Shift+C", self._copy_to_clipboard)
         _sc("Ctrl+R",       self.recorder_widget._toggle_recording)
         # Section navigation matches the sidebar's top-to-bottom order.
-        # set_active() keeps the sidebar's highlighted button in sync,
-        # same as _show_library() does when switching pages programmatically.
-        def _goto_section(key: str) -> None:
-            self.sidebar.set_active(key)
-            self._on_section_changed(key)
-        _sc("Ctrl+1",       lambda: _goto_section("library"))
-        _sc("Ctrl+2",       lambda: _goto_section("queue"))
-        _sc("Ctrl+3",       lambda: _goto_section("recorder"))
+        # _on_section_changed() also keeps the sidebar's highlighted button
+        # in sync, so no extra set_active() call is needed here.
+        _sc("Ctrl+1",       lambda: self._on_section_changed("library"))
+        _sc("Ctrl+2",       lambda: self._on_section_changed("queue"))
+        _sc("Ctrl+3",       lambda: self._on_section_changed("recorder"))
         # Space: play/pause only when focus is not inside a text input
         _sc("Space",        self._space_play_pause)
 
