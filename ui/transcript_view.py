@@ -115,9 +115,9 @@ class TranscriptView(QWidget):
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(6)
 
-        title = QLabel(tr("transcription_label"))
-        title.setStyleSheet("font-weight: bold; font-size: 14px;")
-        header_layout.addWidget(title)
+        # No title label here — the enclosing QTabWidget's own tab label
+        # ("Транскрипт") already names this view directly above it;
+        # repeating it here just duplicated the same word twice.
         header_layout.addStretch()
 
         # Timestamps toggle
