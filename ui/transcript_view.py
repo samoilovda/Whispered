@@ -122,7 +122,7 @@ class TranscriptView(QWidget):
 
         # Timestamps toggle
         self.timestamps_btn = QPushButton(tr("btn_timestamps"))
-        self.timestamps_btn.setIcon(get_icon('clock', IconColors.DEFAULT, 14))
+        self.timestamps_btn.setIcon(get_icon('clock', IconColors.default(), 14))
         self.timestamps_btn.setToolTip(tr("btn_timestamps"))
         self.timestamps_btn.setCheckable(True)
         self.timestamps_btn.setChecked(self._show_timestamps)
@@ -132,7 +132,7 @@ class TranscriptView(QWidget):
 
         # Speakers toggle (green accent when checked)
         self.speakers_btn = QPushButton(tr("btn_speakers"))
-        self.speakers_btn.setIcon(get_icon('user', IconColors.DEFAULT, 14))
+        self.speakers_btn.setIcon(get_icon('user', IconColors.default(), 14))
         self.speakers_btn.setToolTip(tr("btn_speakers"))
         self.speakers_btn.setCheckable(True)
         self.speakers_btn.setChecked(self._show_speakers)
@@ -158,7 +158,7 @@ class TranscriptView(QWidget):
 
         # Copy
         self.copy_btn = QPushButton(tr("btn_copy"))
-        self.copy_btn.setIcon(get_icon('clipboard', IconColors.DEFAULT, 14))
+        self.copy_btn.setIcon(get_icon('clipboard', IconColors.default(), 14))
         self.copy_btn.setToolTip(tr("tooltip_copy"))
         self.copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.copy_btn.clicked.connect(self.copy_requested.emit)

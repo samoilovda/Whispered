@@ -111,7 +111,7 @@ class RecordView(QWidget):
         header.addWidget(self.articles_btn)
 
         self.export_btn = AnimatedButton(tr("record_export_menu"))
-        self.export_btn.setIcon(get_icon('save', IconColors.DEFAULT, 14))
+        self.export_btn.setIcon(get_icon('save', IconColors.default(), 14))
         self._build_export_menu()
         header.addWidget(self.export_btn)
 

@@ -68,7 +68,7 @@ class LaunchBar(QWidget):
         layout.addSpacing(8)
 
         self.options_btn = QPushButton()
-        self.options_btn.setIcon(get_icon('settings', IconColors.DEFAULT, 14))
+        self.options_btn.setIcon(get_icon('settings', IconColors.default(), 14))
         self.options_btn.setToolTip(tr("tooltip_transcribe_options"))
         self.options_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.options_btn.clicked.connect(self._toggle_options)

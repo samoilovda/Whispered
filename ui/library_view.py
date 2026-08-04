@@ -167,14 +167,14 @@ class LibraryView(QWidget):
         toolbar.addWidget(self._search_edit, stretch=1)
 
         self._refresh_btn = QPushButton()
-        self._refresh_btn.setIcon(get_icon('refresh', IconColors.DEFAULT, 14))
+        self._refresh_btn.setIcon(get_icon('refresh', IconColors.default(), 14))
         self._refresh_btn.setFixedWidth(28)
         self._refresh_btn.setToolTip(tr("library_refresh_tooltip"))
         self._refresh_btn.clicked.connect(self.refresh)
         toolbar.addWidget(self._refresh_btn)
 
         self._more_btn = QPushButton()
-        self._more_btn.setIcon(get_icon('more_horizontal', IconColors.DEFAULT, 14))
+        self._more_btn.setIcon(get_icon('more_horizontal', IconColors.default(), 14))
         self._more_btn.setAccessibleName(tr("library_more_actions"))
         self._more_btn.setToolTip(tr("library_more_actions"))
         menu = QMenu(self._more_btn)

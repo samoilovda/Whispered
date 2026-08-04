@@ -32,35 +32,67 @@ class IconColors:
     """Standard icon colors, used as default fill for SVG icons (ui/icons.py)
     and passed explicitly wherever an icon needs a specific tint.
 
-    Not theme-dependent: these values are the same in light and dark theme
-    (matches Theme.accent/success/warning, which are also identical between
-    DARK and LIGHT) except DEFAULT/MUTED, which intentionally stay fixed
-    dark-gray shades — small icons at these sizes read fine on both
-    backgrounds without needing to track theme switches.
+    Most of these are theme-independent by design (matches
+    Theme.accent/success/warning, which are also identical between DARK
+    and LIGHT — small saturated accent colors read fine on either
+    background). DEFAULT/MUTED are the exception: they're plain grays
+    meant to blend with the page's own text, so they resolve from the
+    active Theme's text_secondary/text_muted (methods, not constants,
+    since a plain class attribute is fixed at import time and can't
+    track a later theme switch). DARK's text_secondary/text_muted are
+    byte-identical to the old hardcoded values, so dark theme is
+    unaffected; LIGHT's are the WCAG-contrast-checked shades already
+    used for label text elsewhere.
     """
-    DEFAULT = '#888888'
     PRIMARY = '#6366f1'   # Indigo (== Theme.accent)
     SUCCESS = '#22c55e'   # Green (== Theme.success, dark theme)
     WARNING = '#f59e0b'   # Amber (== Theme.warning, dark theme)
     ERROR = '#f87171'     # Red — deliberately lighter than Theme.error for icon visibility
     WHITE = '#ffffff'
-    MUTED = '#666666'
+
+    @staticmethod
+    def default() -> str:
+        return get_theme().text_secondary
+
+    @staticmethod
+    def muted() -> str:
+        return get_theme().text_muted
 
 
 # Colors for the stepped ProgressTimeline widget (a custom QPainter widget,
-# not styled via QSS/roles). Currently fixed dark-theme shades regardless of
-# the active app theme — a pre-existing limitation of that widget, not
-# addressed here; kept as literal-value parity with the previous inline code.
-TIMELINE_COLORS = {
-    "bg": "#2a2a2a",
+# not styled via QSS/roles). bg/fg/fg_active/separator are the page-relative
+# tones (the neutral "pending" chevron, meant to blend with the page like
+# any other muted UI chrome) and vary by theme via get_timeline_colors().
+# bg_active/bg_done/bg_error/progress_active are saturated status-badge
+# colors that stay legible against either page background on their own, so
+# they're shared between both variants rather than duplicated.
+_TIMELINE_STATUS_COLORS = {
     "bg_active": "#3730a3",
     "bg_done": "#166534",
     "bg_error": "#7f1d1d",
+    "progress_active": "#6366f1",
+}
+
+_DARK_TIMELINE_COLORS = {
+    **_TIMELINE_STATUS_COLORS,
+    "bg": "#2a2a2a",
     "fg": "#888888",
     "fg_active": "#e0e0e0",
-    "progress_active": "#6366f1",
     "separator": "#1a1a1a",
 }
+
+_LIGHT_TIMELINE_COLORS = {
+    **_TIMELINE_STATUS_COLORS,
+    "bg": "#e8e8e8",
+    "fg": "#555555",
+    "fg_active": "#ffffff",
+    "separator": "#ffffff",
+}
+
+
+def get_timeline_colors() -> dict[str, str]:
+    """ProgressTimeline's palette for the active theme (see get_theme())."""
+    return _LIGHT_TIMELINE_COLORS if get_theme().name == "light" else _DARK_TIMELINE_COLORS
 
 
 @dataclass

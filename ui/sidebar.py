@@ -104,7 +104,7 @@ class Sidebar(QWidget):
         button = QToolButton()
         button.setProperty("role", "nav-button")
         button.setCheckable(checkable)
-        button.setIcon(get_icon(icon_name, IconColors.DEFAULT, _ICON_SIZE))
+        button.setIcon(get_icon(icon_name, IconColors.default(), _ICON_SIZE))
         button.setIconSize(QSize(_ICON_SIZE, _ICON_SIZE))
         button.setText(label)
         button.setToolTip(label)

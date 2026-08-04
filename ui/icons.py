@@ -209,11 +209,13 @@ def _render_pixmap(svg_data: str, color: str, size: int) -> QPixmap:
     return pixmap
 
 
-def get_icon(name: str, color: str = IconColors.DEFAULT, size: int = 24) -> QIcon:
+def get_icon(name: str, color: str | None = None, size: int = 24) -> QIcon:
     """
     Generate a QIcon from SVG with support for dynamic states (Hover, Checked, Disabled)
     aligned with the active application theme.
     """
+    if color is None:
+        color = IconColors.default()
     svg_data = ICONS.get(name, '')
     if not svg_data:
         return QIcon()
@@ -248,18 +250,21 @@ def get_icon(name: str, color: str = IconColors.DEFAULT, size: int = 24) -> QIco
     return icon
 
 
-def get_pixmap(name: str, color: str = IconColors.DEFAULT, size: int = 24) -> QPixmap:
+def get_pixmap(name: str, color: str | None = None, size: int = 24) -> QPixmap:
     """
     Generate a QPixmap from SVG with specified color and size.
 
     Args:
         name: Icon name from ICONS dictionary
-        color: Hex color string (e.g., '#ffffff')
+        color: Hex color string (e.g., '#ffffff'); defaults to the active
+            theme's icon default color (see IconColors.default())
         size: Icon size in pixels
 
     Returns:
         QPixmap object ready to use
     """
+    if color is None:
+        color = IconColors.default()
     svg_data = ICONS.get(name, '')
     if not svg_data:
         return QPixmap()
@@ -284,7 +289,7 @@ def get_pixmap(name: str, color: str = IconColors.DEFAULT, size: int = 24) -> QP
     return pixmap
 
 
-def get_icon_file(name: str, color: str = IconColors.DEFAULT, size: int = 24) -> str:
+def get_icon_file(name: str, color: str | None = None, size: int = 24) -> str:
     """Render an icon to a cached PNG on disk and return its path.
 
     QSS ``image:``/``border-image:`` (used for e.g. QCheckBox::indicator)
@@ -294,6 +299,8 @@ def get_icon_file(name: str, color: str = IconColors.DEFAULT, size: int = 24) ->
     QSS rules that need one. Cached per (name, color, size) for the
     process lifetime; written once under the system temp dir.
     """
+    if color is None:
+        color = IconColors.default()
     key = (name, color, size)
     cached = _ICON_FILE_CACHE.get(key)
     if cached and Path(cached).exists():
@@ -315,10 +322,10 @@ class IconLabel(QLabel):
     Supports dynamic color and size changes.
     """
 
-    def __init__(self, icon_name: str, color: str = IconColors.DEFAULT, size: int = 24, parent=None):
+    def __init__(self, icon_name: str, color: str | None = None, size: int = 24, parent=None):
         super().__init__(parent)
         self._icon_name = icon_name
-        self._color = color
+        self._color = color if color is not None else IconColors.default()
         self._size = size
         self._update_icon()
 

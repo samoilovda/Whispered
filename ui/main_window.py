@@ -365,7 +365,7 @@ class MainWindow(QMainWindow):
         self.progress_bar = self.operation_bar.progress
         self.cancel_btn = self.operation_bar.cancel_button
         self.cancel_btn.setText(tr("btn_cancel"))
-        self.cancel_btn.setIcon(get_icon('close', IconColors.MUTED, 14))
+        self.cancel_btn.setIcon(get_icon('close', IconColors.muted(), 14))
         self.operation_bar.cancel_requested.connect(self._cancel_operation)
         self.progress_timeline = ProgressTimeline()
         self.progress_timeline.stages = [

@@ -87,7 +87,7 @@ class FileSelector(QWidget):
         drop_layout.setSpacing(16)
 
         # Vector icon label
-        self.icon_label = IconLabel('music', IconColors.DEFAULT, 48)
+        self.icon_label = IconLabel('music', IconColors.default(), 48)
         drop_layout.addWidget(self.icon_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # Text label
@@ -134,7 +134,7 @@ class FileSelector(QWidget):
         file_info_layout.addWidget(self.file_duration_label)
 
         self.clear_btn = QPushButton()
-        self.clear_btn.setIcon(get_icon('close', IconColors.DEFAULT, 14))
+        self.clear_btn.setIcon(get_icon('close', IconColors.default(), 14))
         self.clear_btn.setFixedSize(24, 24)
         self.clear_btn.setProperty("role", "icon-button-danger")
         self.clear_btn.setToolTip(tr("file_clear"))
@@ -226,7 +226,7 @@ class FileSelector(QWidget):
         self.drop_zone.setVisible(True)
         self._cancel_duration_probe()
         self.icon_label.set_icon('music')
-        self.icon_label.set_color(IconColors.DEFAULT)
+        self.icon_label.set_color(IconColors.default())
         self.text_label.setText(tr("file_drop_title"))
         set_role(self.text_label, "muted")
         self.file_cleared.emit()

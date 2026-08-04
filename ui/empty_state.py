@@ -37,7 +37,7 @@ class EmptyStateWidget(QWidget):
         container_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Icon
-        self.icon_label = IconLabel(icon_name, IconColors.MUTED, self._ICON_SIZE_FULL)
+        self.icon_label = IconLabel(icon_name, IconColors.muted(), self._ICON_SIZE_FULL)
         container_layout.addWidget(self.icon_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self._icon_spacer_index = container_layout.count()
