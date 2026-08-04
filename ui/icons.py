@@ -3,12 +3,17 @@ Whispered UI - SVG Vector Icons
 Centralized icon provider using inline SVG definitions for resolution-independent graphics.
 """
 
+import tempfile
+from pathlib import Path
+
 from PyQt6.QtGui import QIcon, QPixmap, QPainter
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtCore import QByteArray, Qt
 from PyQt6.QtWidgets import QLabel
 
 from ui.theme import IconColors  # noqa: F401  (re-exported for existing `from ui.icons import IconColors` call sites)
+
+_ICON_FILE_CACHE: dict[tuple[str, str, int], str] = {}
 
 
 # SVG icon definitions using Feather-inspired designs
@@ -264,6 +269,31 @@ def get_pixmap(name: str, color: str = IconColors.DEFAULT, size: int = 24) -> QP
     painter.end()
 
     return pixmap
+
+
+def get_icon_file(name: str, color: str = IconColors.DEFAULT, size: int = 24) -> str:
+    """Render an icon to a cached PNG on disk and return its path.
+
+    QSS ``image:``/``border-image:`` (used for e.g. QCheckBox::indicator)
+    can only reference a real file or Qt resource, not an in-memory
+    QPixmap — this project generates icons from inline SVG at runtime
+    with no compiled .qrc, so this is the bridge for the handful of
+    QSS rules that need one. Cached per (name, color, size) for the
+    process lifetime; written once under the system temp dir.
+    """
+    key = (name, color, size)
+    cached = _ICON_FILE_CACHE.get(key)
+    if cached and Path(cached).exists():
+        return cached
+    cache_dir = Path(tempfile.gettempdir()) / "whispered-icons"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    safe_color = color.lstrip('#')
+    path = cache_dir / f"{name}-{safe_color}-{size}.png"
+    if not path.exists():
+        get_pixmap(name, color, size).save(str(path), "PNG")
+    resolved = path.as_posix()
+    _ICON_FILE_CACHE[key] = resolved
+    return resolved
 
 
 class IconLabel(QLabel):

@@ -200,6 +200,12 @@ def rgba(hex_color: str, alpha: float) -> str:
 
 
 def build_stylesheet(t: Theme) -> str:
+    # Deferred import: ui.icons imports IconColors from this module at load
+    # time, so importing it back at module scope here would be circular —
+    # safe by the time build_stylesheet() actually runs (theme applied
+    # after the app's widgets/icons are already importable).
+    from ui.icons import get_icon_file
+    check_icon = get_icon_file("check", "#ffffff", 10)
     return f"""
     /* ── Base ── */
     QWidget {{
@@ -413,6 +419,7 @@ def build_stylesheet(t: Theme) -> str:
     QCheckBox::indicator:checked {{
         background-color: {t.accent};
         border-color: {t.accent};
+        image: url({check_icon});
     }}
     QCheckBox::indicator:hover {{
         border-color: {t.accent};
