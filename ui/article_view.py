@@ -14,6 +14,8 @@ from article_generator import (
     export_article_md, export_article_html, export_all_articles
 )
 from core.i18n import tr
+from ui.icons import get_icon
+from ui.theme import IconColors
 
 
 _FORMAT_LABEL_KEYS = {
@@ -67,19 +69,22 @@ class ArticleTab(QWidget):
         actions = QHBoxLayout()
         actions.setSpacing(8)
 
-        self.copy_btn = QPushButton(f"📋 {tr('btn_copy')}")
+        self.copy_btn = QPushButton(tr('btn_copy'))
+        self.copy_btn.setIcon(get_icon('clipboard', IconColors.default(), 14))
         self.copy_btn.setToolTip(tr('btn_copy'))
         self.copy_btn.clicked.connect(self._on_copy)
         self.copy_btn.setEnabled(False)
         actions.addWidget(self.copy_btn)
 
-        self.export_md_btn = QPushButton(f"💾 {tr('btn_export')} .md")
+        self.export_md_btn = QPushButton(f"{tr('btn_export')} .md")
+        self.export_md_btn.setIcon(get_icon('save', IconColors.default(), 14))
         self.export_md_btn.setToolTip(f"{tr('btn_export')} .md")
         self.export_md_btn.clicked.connect(lambda: self._on_export('md'))
         self.export_md_btn.setEnabled(False)
         actions.addWidget(self.export_md_btn)
 
-        self.export_html_btn = QPushButton(f"🌐 {tr('btn_export')} .html")
+        self.export_html_btn = QPushButton(f"{tr('btn_export')} .html")
+        self.export_html_btn.setIcon(get_icon('save', IconColors.default(), 14))
         self.export_html_btn.setToolTip(f"{tr('btn_export')} .html")
         self.export_html_btn.clicked.connect(lambda: self._on_export('html'))
         self.export_html_btn.setEnabled(False)
@@ -87,14 +92,14 @@ class ArticleTab(QWidget):
 
         actions.addStretch()
 
-        # (label, emoji-only label) pairs — narrow tools panes (see
-        # RecordView's splitter) clip the trailing ".md"/".html" text
-        # mid-word; below _ACTIONS_COMPACT_WIDTH we drop to just the emoji
-        # with the full label moved to the tooltip already set above.
+        # Full label per button — narrow tools panes (see RecordView's
+        # splitter) clip the trailing ".md"/".html" text mid-word; below
+        # _ACTIONS_COMPACT_WIDTH we drop the text and keep just the icon
+        # set above, with the full label moved to the tooltip already set.
         self._action_btns = {
-            self.copy_btn: (self.copy_btn.text(), "📋"),
-            self.export_md_btn: (self.export_md_btn.text(), "💾"),
-            self.export_html_btn: (self.export_html_btn.text(), "🌐"),
+            self.copy_btn: self.copy_btn.text(),
+            self.export_md_btn: self.export_md_btn.text(),
+            self.export_html_btn: self.export_html_btn.text(),
         }
 
         # Quality score
@@ -152,8 +157,8 @@ class ArticleTab(QWidget):
         if compact == self._actions_compact:
             return
         self._actions_compact = compact
-        for btn, (full, emoji) in self._action_btns.items():
-            btn.setText(emoji if compact else full)
+        for btn, full in self._action_btns.items():
+            btn.setText("" if compact else full)
 
     def _on_copy(self):
         """Copy article content to clipboard."""
