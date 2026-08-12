@@ -119,8 +119,17 @@ class RecordView(QWidget):
         self, player: QWidget, main_tabs: QWidget, tools_tabs: QWidget | None = None
     ) -> None:
         """Set document widgets; tools live in the persistent inspector."""
-        self._left_layout.addWidget(player)
         self._left_layout.addWidget(main_tabs, stretch=1)
+
+        from ui.components import apply_soft_shadow
+        player.setProperty("role", "card")
+        apply_soft_shadow(player)
+
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(40, 0, 40, 16)
+        layout.addWidget(player)
+        self._left_layout.addWidget(container)
 
     def set_title(self, name: str) -> None:
         self.title_label.setText(name)

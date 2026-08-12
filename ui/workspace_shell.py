@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -41,11 +42,11 @@ class WorkspaceShell(QWidget):
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
+
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.setHandleWidth(1)
 
         self.library_pane = QWidget()
-        self.library_pane.setProperty("role", "card")
         library_layout = QVBoxLayout(self.library_pane)
         library_layout.setContentsMargins(12, 12, 12, 12)
         library_layout.setSpacing(8)
@@ -53,9 +54,8 @@ class WorkspaceShell(QWidget):
         self.library_title = QLabel(tr("workspace_records"))
         self.library_title.setProperty("role", "section-title")
         header.addWidget(self.library_title, stretch=1)
-        self.new_button = QPushButton()
-        self.new_button.setIcon(get_icon("file", IconColors.default(), 16))
-        self.new_button.setToolTip(tr("workspace_new"))
+        self.new_button = QPushButton(tr("workspace_new"))
+        self.new_button.setProperty("variant", "primary")
         self.new_button.setAccessibleName(tr("workspace_new"))
         self.new_button.clicked.connect(self._on_header_action)
         header.addWidget(self.new_button)
@@ -99,6 +99,10 @@ class WorkspaceShell(QWidget):
         self._compact_library = compact_library
         self.library.setVisible(not compact_library)
         self.library_title.setVisible(not compact_library)
+        self.new_button.setText("" if compact_library else tr("workspace_new"))
+        self.new_button.setIcon(
+            get_icon("file", IconColors.default(), 16) if compact_library else QIcon()
+        )
         self.new_button.setToolTip(
             tr("workspace_open_library") if compact_library else tr("workspace_new")
         )

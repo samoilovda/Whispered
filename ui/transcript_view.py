@@ -220,7 +220,7 @@ class TranscriptView(QWidget):
 
         self._find_count = QLabel("")
         self._find_count.setProperty("role", "muted")
-        self._find_count.setStyleSheet("font-size: 11px;")
+        self._find_count.setProperty("size", "small")
         find_layout.addWidget(self._find_count)
 
         close_find_btn = QPushButton("×")
@@ -239,13 +239,13 @@ class TranscriptView(QWidget):
 
         self.stats_label = QLabel()
         self.stats_label.setProperty("role", "muted")
-        self.stats_label.setStyleSheet("font-size: 11px;")
+        self.stats_label.setProperty("size", "small")
         stats_layout.addWidget(self.stats_label)
         stats_layout.addStretch()
 
         self._edit_hint = QLabel(tr("edit_hint"))
         self._edit_hint.setProperty("role", "warning-text")
-        self._edit_hint.setStyleSheet("font-size: 11px;")
+        self._edit_hint.setProperty("size", "small")
         self._edit_hint.setVisible(False)
         stats_layout.addWidget(self._edit_hint)
 
@@ -398,17 +398,29 @@ class TranscriptView(QWidget):
         theme = get_theme()
         html_lines = []
         for seg in self._result.segments:
-            parts = []
-            if self._show_timestamps:
-                ts = format_timestamp_vtt(seg.start)
-                parts.append(f'<span style="color:{theme.text_muted};">[{ts}]</span>')
-            if seg.speaker:
-                name = html.escape(self._get_display_name(seg.speaker))
-                color = self._get_speaker_color(seg.speaker)
-                parts.append(f'<span style="color:{color};font-weight:bold;">[{name}]</span>')
+            ts = format_timestamp_vtt(seg.start)
+            name = html.escape(self._get_display_name(seg.speaker)) if seg.speaker else ""
+            color = self._get_speaker_color(seg.speaker) if seg.speaker else theme.text_secondary
             text = html.escape(seg.text.strip())
-            parts.append(f'<span style="color:{theme.text_primary};">{text}</span>')
-            html_lines.append(' '.join(parts))
+
+            header = ""
+            if self._show_timestamps or seg.speaker:
+                name_span = f'<span style="color:{color};font-weight:500;font-size:{theme.font_sm};">{name}</span>' if name else ""
+                ts_span = f'<span style="color:{theme.text_muted};font-size:{theme.font_xs};">[{ts}]</span>' if self._show_timestamps else ""
+                space = "&nbsp;&nbsp;" if name and self._show_timestamps else ""
+                header = f'{name_span}{space}{ts_span}<br>'
+
+            # QTextEdit has limited CSS support, so we use a table for the bubble background
+            bubble = f"""
+            <table width="100%" cellpadding="10" cellspacing="0" style="margin-bottom: 8px;">
+            <tr><td style="background-color: {theme.bg_base}; border: 1px solid {theme.border_input};">
+                {header}
+                <span style="color:{theme.text_primary}; font-size: {theme.font_md};">{text}</span>
+            </td></tr>
+            </table>
+            """
+            html_lines.append(bubble)
+
         self.text_edit.setHtml('<br>'.join(html_lines))
         self._highlighted_block = -1
         self._build_segment_map()

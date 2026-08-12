@@ -159,9 +159,9 @@ DARK = Theme(
     warning="#f59e0b",
     error="#ef4444",
     info="#38bdf8",
-    radius_sm="4px",
-    radius_md="8px",
-    radius_lg="12px",
+    radius_sm="6px",
+    radius_md="10px",
+    radius_lg="16px",
     font_xs="11px",
     font_sm="12px",
     font_md="13px",
@@ -170,38 +170,29 @@ DARK = Theme(
 
 LIGHT = Theme(
     name="light",
-    bg_base="#f0f0f0",
-    bg_deep="#ffffff",
-    bg_surface="#e8e8e8",
-    bg_elevated="#dcdcdc",
-    bg_pressed="#c8c8c8",
-    bg_disabled="#eeeeee",
-    border="#e2e2e2",
-    # #cccccc/#999999 measured at ~1.4:1 / ~2.5:1 against bg_base — below
-    # WCAG 1.4.11's 3:1 floor for UI-component borders (the drop zone on
-    # Library was nearly invisible). Darkened to clear 3:1+.
-    border_input="#828282",
-    border_hover="#5f5f5f",
-    accent="#6366f1",
-    accent_hover="#818cf8",
-    accent_pressed="#4f46e5",
-    text_primary="#1a1a1a",
-    text_secondary="#555555",
-    # #777777 measured at ~3.9:1 against bg_base — below WCAG 1.4.3's
-    # 4.5:1 floor for normal text (this role is used for label text, not
-    # just decoration). #666666 clears it at ~5:1.
-    text_muted="#666666",
-    # #aaaaaa on bg_disabled #eeeeee measured at ~2:1 — the disabled Apply
-    # button read as nearly blank, not just "muted". #8a8a8a clears ~3:1,
-    # legible while still visibly non-interactive.
-    text_disabled="#8a8a8a",
-    success="#16a34a",
-    warning="#d97706",
-    error="#dc2626",
-    info="#0284c7",
-    radius_sm="4px",
-    radius_md="8px",
-    radius_lg="12px",
+    bg_base="#f8f9fa",
+    bg_deep="#f1f3f4",
+    bg_surface="#ffffff",
+    bg_elevated="#ffffff",
+    bg_pressed="#f1f3f4",
+    bg_disabled="#f8f9fa",
+    border="#e8eaed",
+    border_input="#8b9096",
+    border_hover="#6f757b",
+    accent="#6c4cf1",
+    accent_hover="#7454f2",
+    accent_pressed="#5930c9",
+    text_primary="#202124",
+    text_secondary="#5f6368",
+    text_muted="#646a70",
+    text_disabled="#767b80",
+    success="#1e8e3e",
+    warning="#f9ab00",
+    error="#d93025",
+    info="#1a73e8",
+    radius_sm="6px",
+    radius_md="12px",
+    radius_lg="16px",
     font_xs="11px",
     font_sm="12px",
     font_md="13px",
@@ -253,13 +244,22 @@ def build_stylesheet(t: Theme) -> str:
     return f"""
     /* ── Base ── */
     QWidget {{
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", "Inter", "Roboto", "Helvetica Neue", sans-serif;
         background-color: {t.bg_base};
         color: {t.text_primary};
         font-size: {t.font_md};
+        font-weight: 400;
         selection-background-color: {t.accent};
         selection-color: #ffffff;
     }}
-    QMainWindow, QDialog {{
+    /* Transparent QMainWindow so sidebar and content extend to window top */
+    QMainWindow {{
+        background-color: transparent;
+    }}
+    QDialog, QMenu, QToolTip {{
+        background-color: {t.bg_base};
+    }}
+    QWidget[role="content-area"] {{
         background-color: {t.bg_base};
     }}
     QLabel {{
@@ -409,7 +409,7 @@ def build_stylesheet(t: Theme) -> str:
         border: 1px solid {t.border};
         border-radius: 8px;
         padding: 12px;
-        font-size: 13px;
+        font-size: {t.font_sm};
     }}
     QPlainTextEdit {{
         background-color: {t.bg_base};
@@ -551,7 +551,7 @@ def build_stylesheet(t: Theme) -> str:
 
     /* ── Splitter ── */
     QSplitter::handle {{
-        background: {t.border};
+        background-color: transparent;
     }}
     QSplitter::handle:horizontal {{ width: 1px; }}
     QSplitter::handle:vertical {{ height: 1px; }}
@@ -606,31 +606,34 @@ def build_stylesheet(t: Theme) -> str:
     }}
     QLabel[role="heading"] {{
         color: {t.text_secondary};
-        font-weight: bold;
+        font-weight: 500;
         font-size: {t.font_md};
         background: transparent;
         border: none;
     }}
     QLabel[role="title"] {{
         color: {t.text_primary};
-        font-weight: bold;
+        font-weight: 600;
         font-size: {t.font_lg};
         background: transparent;
         border: none;
     }}
     QLabel[role="page-title"] {{
         color: {t.text_primary};
-        font-weight: 700;
-        font-size: 20px;
+        font-weight: 600;
+        font-size: 18px;
         background: transparent;
         border: none;
     }}
     QLabel[role="section-title"] {{
         color: {t.text_primary};
-        font-weight: 600;
+        font-weight: 500;
         font-size: {t.font_lg};
         background: transparent;
         border: none;
+    }}
+    QLabel[size="small"] {{
+        font-size: {t.font_xs};
     }}
     QLabel[role="danger-text"] {{
         color: {t.error};
@@ -688,8 +691,8 @@ def build_stylesheet(t: Theme) -> str:
         border-radius: {t.radius_lg};
     }}
     QWidget[role="operation-bar"] {{
-        background-color: {t.bg_surface};
-        border-top: 1px solid {t.border};
+        background-color: transparent;
+        border-top: none;
     }}
     QWidget[role="inline-banner"] {{
         background-color: {rgba(t.info, 0.10)};
@@ -785,27 +788,41 @@ def build_stylesheet(t: Theme) -> str:
         padding: 8px 12px;
         color: {t.error};
     }}
+    QPushButton[role="icon-button"] {{
+        background-color: transparent;
+        border: none;
+        border-radius: {t.radius_sm};
+        padding: 4px;
+        color: {t.text_secondary};
+    }}
+    QPushButton[role="icon-button"]:hover {{
+        background-color: {t.bg_pressed};
+        color: {t.text_primary};
+    }}
+    QPushButton[role="icon-button"]:pressed {{
+        background-color: {t.border};
+    }}
     QPushButton[role="quick-chip"] {{
         background-color: transparent;
-        border: 1px solid {t.border_input};
-        border-radius: 12px;
-        padding: 3px 8px;
+        border: none;
+        border-radius: 16px;
+        padding: 6px 12px;
         color: {t.text_secondary};
-        font-size: {t.font_xs};
+        font-size: {t.font_md};
+        font-weight: 500;
     }}
     QPushButton[role="quick-chip"]:hover {{
-        border-color: {t.accent};
-        color: {t.accent};
+        background-color: {t.bg_pressed};
+        color: {t.text_primary};
     }}
     QPushButton[role="quick-chip"]:checked {{
-        background-color: {t.accent};
-        border-color: {t.accent};
-        color: #ffffff;
-        font-weight: 600;
+        background-color: {rgba(t.accent, 0.15)};
+        color: {t.accent};
+        font-weight: bold;
     }}
     QPushButton[role="quick-chip"]:checked:hover {{
-        background-color: {t.accent_hover};
-        border-color: {t.accent_hover};
+        background-color: {rgba(t.accent, 0.24)};
+        color: {t.accent_pressed};
     }}
     QWidget[role="drop-zone"] {{
         border: 2px dashed {t.border_input};
@@ -927,6 +944,7 @@ def build_stylesheet(t: Theme) -> str:
     QMessageBox QLabel {{
         color: {t.text_primary};
     }}
+
     """
 
 

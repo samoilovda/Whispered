@@ -32,6 +32,7 @@ from core.i18n import tr
 from utils import format_duration
 from ui.empty_state import EmptyStateWidget
 from ui.icons import get_icon, IconColors
+from ui.components import apply_soft_shadow
 
 logger = get_logger(__name__)
 
@@ -82,7 +83,8 @@ class RecordItemWidget(QWidget):
         parent=None,
     ):
         super().__init__(parent)
-        self.setProperty("role", "library-item-card")
+        self.setProperty("role", "card")
+        apply_soft_shadow(self)
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(6, 6, 6, 6)

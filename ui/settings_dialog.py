@@ -69,6 +69,7 @@ class SettingsDialog(QDialog):
         content = QHBoxLayout()
         content.setSpacing(16)
         self._categories = QListWidget()
+        self._categories.setProperty("role", "sidebar")
         self._categories.setFixedWidth(190)
         self._categories.setAccessibleName(tr("settings_title"))
         self._pages = QStackedWidget()
@@ -78,15 +79,13 @@ class SettingsDialog(QDialog):
         # full-height card) keeps the "boxed" area hugging its content
         # instead of stretching into ~400px of bordered empty space.
         pages = (
-            ("settings_category_general", self._build_general_tab(), False),
-            ("settings_category_transcription", self._build_transcription_tab(), True),
-            ("settings_category_recording_live", self._build_recording_live_tab(), True),
-            ("settings_category_diarization", self._build_diarization_tab(), True),
-            ("settings_category_ai", self._build_ai_tab(), True),
+            ("settings_category_general", self._build_general_tab()),
+            ("settings_category_transcription", self._build_transcription_tab()),
+            ("settings_category_recording_live", self._build_recording_live_tab()),
+            ("settings_category_diarization", self._build_diarization_tab()),
+            ("settings_category_ai", self._build_ai_tab()),
         )
-        for label_key, page, card_role in pages:
-            if card_role:
-                page.setProperty("role", "form-section")
+        for label_key, page in pages:
             self._categories.addItem(tr(label_key))
             self._pages.addWidget(page)
         self._categories.currentRowChanged.connect(self._pages.setCurrentIndex)
@@ -180,7 +179,7 @@ class SettingsDialog(QDialog):
         models_row = QHBoxLayout()
         self._models_dir_label = QLabel()
         self._models_dir_label.setProperty("role", "muted")
-        self._models_dir_label.setStyleSheet("font-size: 11px;")
+        self._models_dir_label.setProperty("size", "small")
         self._models_dir_label.setText(get_models_dir())
         models_row.addWidget(self._models_dir_label, stretch=1)
 
@@ -257,7 +256,7 @@ class SettingsDialog(QDialog):
 
         note = QLabel(tr("diarization_note"))
         note.setProperty("role", "muted")
-        note.setStyleSheet("font-size: 11px;")
+        note.setProperty("size", "small")
         note.setWordWrap(True)
         layout.addRow(note)
 
@@ -280,7 +279,7 @@ class SettingsDialog(QDialog):
         self._check_btn.clicked.connect(self._check_connection)
         check_row.addWidget(self._check_btn)
         self._check_result = QLabel("")
-        self._check_result.setStyleSheet("font-size: 11px;")
+        self._check_result.setProperty("size", "small")
         check_row.addWidget(self._check_result, stretch=1)
         check_container = QWidget()
         check_container.setLayout(check_row)
@@ -462,7 +461,7 @@ class SettingsDialog(QDialog):
         url = self._lm_url_edit.text().strip() or "http://localhost:1234/v1"
         self._check_result.setText(tr("connection_checking"))
         set_role(self._check_result, "muted")
-        self._check_result.setStyleSheet("font-size: 11px;")
+        self._check_result.setProperty("size", "small")
         self._check_btn.setEnabled(False)
 
         self._checker = LMStatusWorker(url, parent=self)
@@ -479,7 +478,7 @@ class SettingsDialog(QDialog):
         else:
             self._check_result.setText(tr("connection_fail", detail=detail[:60]))
             set_role(self._check_result, "danger-text")
-        self._check_result.setStyleSheet("font-size: 11px;")
+        self._check_result.setProperty("size", "small")
 
     def _populate_mic_devices(self):
         """Fill the mic device combo with available input devices."""

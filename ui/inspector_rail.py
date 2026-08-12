@@ -128,6 +128,7 @@ class InspectorRail(QWidget):
         if page is not None:
             self.stack.setCurrentWidget(page)
         self.title_label.setText(tr(f"inspector_{section}"))
+
         cfg = get_config()
         cfg.inspector_section = section
         save_config()

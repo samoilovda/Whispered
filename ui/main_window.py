@@ -245,11 +245,84 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(900, 550)
         self.resize(1100, 700)
 
+        self._init_menu_bar()
+
         central = QWidget()
         self.setCentralWidget(central)
         self._workspace_layout = QVBoxLayout(central)
         self._workspace_layout.setContentsMargins(0, 0, 0, 0)
         self._workspace_layout.setSpacing(0)
+
+    def _init_menu_bar(self) -> None:
+        """Initialize the global menu bar (native on macOS)."""
+        from PyQt6.QtGui import QAction
+        menubar = self.menuBar()
+        menubar.setNativeMenuBar(True)
+
+        # --- File Menu ---
+        file_menu = menubar.addMenu(tr("menu_file"))
+
+        new_record_action = QAction(tr("menu_new_record"), self)
+        new_record_action.triggered.connect(self._show_new_draft)
+        file_menu.addAction(new_record_action)
+
+        settings_action = QAction(tr("menu_settings"), self)
+        settings_action.triggered.connect(self._open_settings)
+        file_menu.addAction(settings_action)
+
+        # --- Edit Menu ---
+        edit_menu = menubar.addMenu(tr("menu_edit"))
+
+        undo_action = QAction(tr("menu_undo"), self)
+        undo_action.triggered.connect(self._trigger_undo)
+        edit_menu.addAction(undo_action)
+
+        find_action = QAction(tr("menu_find"), self)
+        find_action.triggered.connect(self._trigger_find)
+        edit_menu.addAction(find_action)
+
+        # --- Video / Actions Menu ---
+        video_menu = menubar.addMenu(tr("menu_video"))
+
+        export_action = QAction(tr("cut_export"), self)
+        export_action.triggered.connect(self._trigger_export_edl)
+        video_menu.addAction(export_action)
+
+        mark_action = QAction(tr("cut_mark"), self)
+        mark_action.triggered.connect(self._trigger_mark_pauses)
+        video_menu.addAction(mark_action)
+
+        assemble_action = QAction(tr("cut_assemble"), self)
+        assemble_action.triggered.connect(self._trigger_assemble_mp4)
+        video_menu.addAction(assemble_action)
+
+    def _trigger_undo(self) -> None:
+        """Trigger undo on the currently focused widget if supported."""
+        from PyQt6.QtWidgets import QApplication
+        focus_widget = QApplication.focusWidget()
+        if hasattr(focus_widget, "undo") and callable(focus_widget.undo):
+            focus_widget.undo()
+
+    def _trigger_find(self) -> None:
+        """Open transcript search when a record is the active workspace."""
+        if (
+            hasattr(self, "transcript_view")
+            and hasattr(self, "_stack")
+            and self._stack.currentIndex() == self._record_index
+        ):
+            self.transcript_view._open_find()
+
+    def _trigger_export_edl(self) -> None:
+        if hasattr(self, "cut_view"):
+            self.cut_view.video_panel._export_btn.click()
+
+    def _trigger_mark_pauses(self) -> None:
+        if hasattr(self, "cut_view"):
+            self.cut_view.video_panel._mark_btn.click()
+
+    def _trigger_assemble_mp4(self) -> None:
+        if hasattr(self, "cut_view"):
+            self.cut_view.video_panel._assemble_btn.click()
 
     def _build_library_section(self) -> None:
         """Create the shared source widgets and persistent Library."""
@@ -367,7 +440,7 @@ class MainWindow(QMainWindow):
         self.record_view.set_content_widgets(self.player, self.main_tabs)
 
         self.inspector = InspectorRail()
-        self.inspector.settings_requested.connect(self._open_settings)
+
         materials = QWidget()
         materials_layout = QVBoxLayout(materials)
         materials_layout.setContentsMargins(0, 0, 0, 0)
@@ -431,6 +504,7 @@ class MainWindow(QMainWindow):
             self.library_view, self._stack, self.inspector
         )
         self.workspace_shell.new_requested.connect(self._show_new_draft)
+        self.inspector.settings_requested.connect(self._open_settings)
         self._workspace_layout.addWidget(self.workspace_shell, stretch=1)
 
         self.status_bar = StatusBar()
@@ -719,11 +793,11 @@ class MainWindow(QMainWindow):
         elif self._use_gpu and self._gpu_type in ('cuda', 'rocm'):
             self.device_btn.setText(f"🚀 {self._gpu_name}")
             self.device_btn.setEnabled(True)
-            role = "success-badge"
+            role = "muted-badge"
         elif self._use_gpu and self._gpu_type == 'metal':
             self.device_btn.setText(f"🍎 {self._gpu_name}")
             self.device_btn.setEnabled(True)
-            role = "accent-badge"
+            role = "muted-badge"
         else:
             # CPU mode or no GPU
             self.device_btn.setText("💻 CPU")
@@ -811,7 +885,7 @@ class MainWindow(QMainWindow):
         else:
             ov.hide()
 
-    def resizeEvent(self, event):
+    def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         if hasattr(self, "file_selector"):
             self.file_selector.set_compact(event.size().height() < 650)

@@ -42,7 +42,6 @@
   "command_queue": "Открыть очередь",
   "command_settings": "Открыть настройки",
   "command_record": "Запись: {name}",
-
   "btn_browse": "Выбрать файл",
   "btn_transcribe": "Транскрибировать",
   "btn_cancel": "Отмена",
@@ -59,7 +58,6 @@
   "btn_start_all": "▶ Запустить все",
   "btn_clear": "Очистить",
   "btn_process": "Обработать",
-
   "launch_preset_label": "Пресет:",
   "preset_transcribe_only": "Только транскрипция",
   "preset_youtube": "Транскрипция + YouTube-пакет",
@@ -68,7 +66,6 @@
   "tooltip_process": "Запустить выбранный пресет  (Ctrl+Enter)",
   "tooltip_process_disabled": "Сначала выберите файл",
   "tooltip_transcribe_options": "Параметры транскрипции",
-
   "label_model": "Модель:",
   "label_language": "Язык:",
   "label_mode": "Режим:",
@@ -77,17 +74,14 @@
   "label_volume": "Громк.:",
   "label_export_formats": "Форматы экспорта:",
   "label_status_ready": "Готово",
-
   "tab_transcript": "📝 Транскрипт",
   "tab_cleaned": "✨ Очищенный",
   "tab_articles": "📚 Статьи",
   "tab_history": "🕒 История",
-
   "tab_settings_general": "Общие",
   "tab_settings_transcription": "Транскрипция",
   "tab_settings_diarization": "Диаризация",
   "tab_settings_ai": "ИИ / LM Studio",
-
   "settings_theme": "Тема:",
   "settings_theme_dark": "Тёмная",
   "settings_theme_light": "Светлая",
@@ -112,14 +106,12 @@
   "settings_vocab_hint": "По одному термину на строку — имена, аббревиатуры, термины…",
   "settings_mic_device": "Микрофон:",
   "settings_mic_default": "По умолчанию",
-
   "toast_copied": "Скопировано в буфер",
   "toast_edl_exported": "EDL сохранён: {name}",
   "toast_exported_one": "Экспортировано: {name}",
   "toast_exported_many": "Экспортировано файлов: {count}",
   "toast_complete": "Транскрипция завершена — {words} слов",
   "toast_loaded_history": "Загружено из истории — {words} слов",
-
   "status_ready_file": "Готово: {name}",
   "status_complete": "Завершено — {words} слов за {seconds}с",
   "status_cancelled": "Транскрипция отменена",
@@ -142,12 +134,10 @@
   "error_book_pipeline_title": "Ошибка книжного конвейера",
   "tooltip_performance_mode": "Энергия против скорости\n\n🔋 Экономия: низкая нагрузка на CPU, бережёт батарею\n⚡ Баланс: умеренная нагрузка на CPU\n🚀 Производительность: максимальная скорость, высокая нагрузка на CPU",
   "tooltip_diarization": "Определять разных спикеров (требует настройки)",
-
   "drop_hint": "Перетащите аудио или видео файл",
   "drop_overlay": "Отпустите файл для транскрипции",
   "drop_ready": "Файл готов к транскрипции",
   "drop_formats_hint": "Поддерживаются: MP3, WAV, FLAC, MP4, MKV и другие",
-
   "find_placeholder": "Найти…",
   "replace_placeholder": "Заменить на…",
   "find_btn_next": "Далее",
@@ -157,7 +147,6 @@
   "find_count_plural": "{count} совпадений",
   "find_replaced": "Заменено: {count}",
   "edit_hint": "Режим правки: одна строка на сегмент • нажмите Сохранить",
-
   "history_search_placeholder": "Поиск по истории…",
   "history_clear_all": "Очистить всё",
   "history_status": "{count} запись",
@@ -174,20 +163,16 @@
   "library_empty_hint": "Перетащите аудио или видео файл, либо нажмите «Выбрать файл» выше.",
   "record_export_menu": "Экспорт ▾",
   "record_export_action": "Экспортировать выбранные форматы…",
-
   "error_transcription": "Ошибка транскрипции",
   "error_export": "Ошибка экспорта",
   "error_ai": "Ошибка обработки ИИ",
   "error_occurred": "Произошла ошибка:\n\n{detail}",
-
   "connection_checking": "Проверяем…",
   "connection_ok": "✓ {detail}",
   "connection_ok_no_model": "Подключено",
   "connection_fail": "✗ {detail}",
-
   "diarization_note": "Диаризация требует токен HuggingFace и загрузки моделей.\nЗапустите setup_diarization.py для установки.",
   "speakers_auto": "Авто-определение",
-
   "batch_queue": "📂 Очередь",
   "batch_add_files_title": "Добавить аудио/видео файлы",
   "batch_summary_title": "Файлы",
@@ -201,10 +186,8 @@
   "tooltip_batch_start_disabled_busy": "Обработка уже идёт",
   "batch_clear": "Очистить очередь",
   "batch_file_filter": "Медиафайлы (*.mp3 *.mp4 *.m4a *.wav *.ogg *.flac *.mkv *.avi *.mov *.webm);;Все файлы (*)",
-
   "rename_speakers_title": "Переименовать спикеров",
   "transcription_label": "Транскрипт",
-
   "tooltip_transcribe": "Транскрибировать  (Ctrl+T)",
   "tooltip_browse": "Открыть файл  (Ctrl+O)",
   "tooltip_copy": "Копировать транскрипт  (Ctrl+Shift+C)",
@@ -223,7 +206,6 @@
   "sidebar_live": "Эфир",
   "sidebar_collapse": "Свернуть боковую панель",
   "sidebar_expand": "Развернуть боковую панель",
-
   "page_library_title": "Библиотека",
   "page_library_subtitle": "Начните новую транскрипцию или продолжите работу с недавней записью.",
   "library_new_title": "Новая транскрипция",
@@ -282,7 +264,6 @@
   "cleaned_copy": "📋 Копировать очищенный текст",
   "cleaned_stats": "{words} слов • {paragraphs} абзацев",
   "cleaned_improvement": "✨ Удалено слов-паразитов: {fillers} • короче на {reduction}%",
-
   "live_title": "Транскрипция в реальном времени",
   "live_audio_not_saved": "Аудио не сохраняется",
   "live_source_mic": "Микрофон",
@@ -371,7 +352,6 @@
   "live_state_paused": "пауза",
   "live_state_failed": "ошибка",
   "live_state_stopped": "остановлен",
-
   "settings_category_general": "Общие",
   "settings_title": "Настройки",
   "settings_category_transcription": "Транскрипция",
@@ -384,9 +364,7 @@
   "settings_show_secret": "Показать",
   "settings_live_hint": "Раздел эфира появится или скроется сразу; перезапуск Whispered не требуется.",
   "settings_language_restart": "Перезапустите приложение, чтобы применить язык интерфейса.",
-
   "language_auto": "Авто-определение",
-
   "tab_insights": "💡 Инсайты",
   "tab_chat": "💬 Чат",
   "chat_placeholder": "Сначала транскрибируйте запись, затем задавайте вопросы.",
@@ -396,7 +374,6 @@
   "chat_stop": "Стоп",
   "chat_no_transcript": "Пожалуйста, сначала транскрибируйте запись.",
   "chat_clear_confirm": "Очистить историю чата?",
-
   "insights_placeholder": "Сначала транскрибируйте запись для генерации инсайтов.",
   "insights_generate": "Сгенерировать инсайты",
   "insights_generating": "Генерирую…",
@@ -407,14 +384,12 @@
   "insights_deadline": "Срок:",
   "insights_error": "Ошибка:",
   "insights_no_lm": "Укажите адрес LM Studio в настройках.",
-
   "timeline_select": "Выбор",
   "timeline_extract": "Извлечение",
   "timeline_transcribe": "Транскрипция",
   "timeline_diarize": "Спикеры",
   "timeline_clean": "Очистка",
   "timeline_generate": "Генерация",
-
   "tab_cut": "✂️ Таймлайн / Нарезка",
   "tab_youtube": "YouTube",
   "tab_book": "📖 Книга",
@@ -441,7 +416,6 @@
   "yt_tab_description": "Описание",
   "yt_tab_tags": "Теги",
   "yt_tab_questions": "Ключевые вопросы",
-
   "provider_lmstudio": "LM Studio (локально)",
   "provider_openai": "OpenAI-совместимый",
   "provider_anthropic": "Anthropic",
@@ -451,7 +425,6 @@
   "provider_api_key": "API-ключ",
   "provider_model": "Модель",
   "provider_show_key": "Показать",
-
   "video_panel_title": "Настройки видео",
   "video_fps_label": "Частота кадров:",
   "video_drop_frame_label": "Drop frame (29.97 / 59.94)",
@@ -461,19 +434,16 @@
   "video_pause_threshold_tooltip": "Сегменты короче этого порога будут помечены для удаления",
   "video_mark_pauses": "Отметить паузы и паразиты",
   "video_assemble_draft": "Собрать черновик MP4…",
-
   "cut_view_title": "Таймлайн / Нарезка",
   "cut_placeholder": "Транскрибируйте видеофайл в режиме «Видео», чтобы увидеть сегменты.",
   "cut_select_all": "Все",
   "cut_select_none": "Ничего",
   "cut_count": "Выбрано {kept} из {total}  ({duration})",
-
   "toast_assembling": "Собираю черновик…",
   "toast_assembled": "Черновик сохранён: {name}",
   "toast_assemble_error": "Ошибка сборки: {detail}",
   "chat_system_prompt": "Ты полезный помощник. Отвечай на вопросы ТОЛЬКО на основе приведённой ниже транскрипции. Если ответа в транскрипции нет, сообщи об этом прямо.\n\nТРАНСКРИПЦИЯ:\n{transcript}",
   "chat_transcript_truncated": "[Транскрипция сокращена из-за ограничения контекста]",
-
   "book_header": "📖 Книжный конвейер",
   "book_lm_checking": "LM Studio: проверка…",
   "book_lm_connected": "LM Studio: подключено",
@@ -497,7 +467,6 @@
   "book_no_prompt_message": "Укажите путь к файлу пользовательского промпта.",
   "book_browse_prompt_title": "Выбрать файл промпта",
   "book_browse_folder_title": "Выбрать папку с транскриптами",
-
   "file_duration_checking": "Определяю длительность…",
   "device_detecting": "Определяю оборудование…",
   "settings_book_model_placeholder": "оставьте пустым для автоопределения",
@@ -507,7 +476,6 @@
   "status_article_generated": "Создано: {title} ({words} слов)",
   "status_articles_generated": "Создано статей: {count}, время — {seconds} с",
   "status_ai_error": "Ошибка ИИ: {error}",
-
   "ai_panel_title": "🤖 Обработка с ИИ",
   "ai_lm_connected": "LM Studio: подключено",
   "ai_lm_offline": "LM Studio: не подключено",
@@ -527,7 +495,6 @@
   "ai_format_listicle": "Список",
   "ai_format_summary": "Саммари",
   "ai_format_social": "Соцсети",
-
   "download_model_title": "Загрузка модели",
   "download_pyannote_title": "Загрузка моделей Pyannote…",
   "download_model_name": "Загрузка модели: {model}",
@@ -543,7 +510,6 @@
   "download_error_generic": "Ошибка загрузки: {error}",
   "download_error_diarization_missing": "Не установлены pyannote.audio или torch.",
   "download_error_diarization": "Не удалось кэшировать модели Pyannote: {error}",
-
   "progress_converting": "Преобразование аудиоформата…",
   "progress_loading_model": "Загрузка модели (при необходимости — скачивание)…",
   "progress_preparing": "Подготовка транскрипции…",
@@ -557,7 +523,6 @@
   "progress_diarization_error": "Ошибка диаризации: {error}",
   "progress_complete": "Готово!",
   "progress_cancelling": "Отмена…",
-
   "whisper_model_tiny": "Tiny (~75 МБ) - самая быстрая, низкая точность",
   "whisper_model_base": "Base (~142 МБ) - подходит для большинства задач",
   "whisper_model_small": "Small (~466 МБ) - баланс скорости и точности",
@@ -591,5 +556,12 @@
   "performance_balanced": "⚡ Баланс",
   "performance_balanced_description": "Умеренная нагрузка на CPU",
   "performance_performance": "🚀 Производительность",
-  "performance_performance_description": "Максимальная скорость, высокая нагрузка на CPU"
+  "performance_performance_description": "Максимальная скорость, высокая нагрузка на CPU",
+  "menu_file": "Файл",
+  "menu_new_record": "Новая запись",
+  "menu_settings": "Настройки",
+  "menu_edit": "Правка",
+  "menu_undo": "Отменить",
+  "menu_find": "Найти",
+  "menu_video": "Видео"
 }

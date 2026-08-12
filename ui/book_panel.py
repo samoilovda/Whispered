@@ -77,10 +77,10 @@ class BookPanel(QWidget):
         status_row = QHBoxLayout()
         self.status_dot = QLabel("●")
         self.status_dot.setProperty("role", "danger-text")
-        self.status_dot.setStyleSheet("font-size: 10px;")
+        self.status_dot.setProperty("size", "small")
         self.status_label = QLabel(tr("book_lm_checking"))
         self.status_label.setProperty("role", "muted")
-        self.status_label.setStyleSheet("font-size: 11px;")
+        self.status_label.setProperty("size", "small")
         status_row.addWidget(self.status_dot)
         status_row.addWidget(self.status_label)
         status_row.addStretch()
@@ -91,7 +91,7 @@ class BookPanel(QWidget):
         # ----- Stage checkboxes -----
         stages_label = QLabel(tr("book_stages_label"))
         stages_label.setProperty("role", "muted")
-        stages_label.setStyleSheet("font-size: 11px;")
+        stages_label.setProperty("size", "small")
         layout.addWidget(stages_label)
 
         self.chk_transcribe = QCheckBox(tr("book_stage_transcribe"))
@@ -137,7 +137,7 @@ class BookPanel(QWidget):
 
         self.single_status = QLabel("")
         self.single_status.setProperty("role", "muted")
-        self.single_status.setStyleSheet("font-size: 10px;")
+        self.single_status.setProperty("size", "small")
         self.single_status.setVisible(False)
         layout.addWidget(self.single_status)
 
@@ -182,7 +182,7 @@ class BookPanel(QWidget):
         # File count label
         self.batch_count_label = QLabel(tr("book_files_none_selected"))
         self.batch_count_label.setProperty("role", "dim")
-        self.batch_count_label.setStyleSheet("font-size: 11px;")
+        self.batch_count_label.setProperty("size", "small")
         layout.addWidget(self.batch_count_label)
 
         # Batch progress
@@ -194,7 +194,7 @@ class BookPanel(QWidget):
 
         self.batch_status_label = QLabel("")
         self.batch_status_label.setProperty("role", "muted")
-        self.batch_status_label.setStyleSheet("font-size: 10px;")
+        self.batch_status_label.setProperty("size", "small")
         self.batch_status_label.setVisible(False)
         layout.addWidget(self.batch_status_label)
 
@@ -286,8 +286,8 @@ class BookPanel(QWidget):
             set_role(self.status_dot, "danger-text")
             self.status_label.setText(tr("book_lm_unavailable"))
             set_role(self.status_label, "muted")
-        self.status_dot.setStyleSheet("font-size: 10px;")
-        self.status_label.setStyleSheet("font-size: 11px;")
+        self.status_dot.setProperty("size", "small")
+        self.status_label.setProperty("size", "small")
         self._update_run_btn()
         self._update_batch_btn()
 

@@ -40,7 +40,7 @@ class VideoPanel(QWidget):
 
         # Section label
         section_label = QLabel(tr("video_panel_title"))
-        section_label.setStyleSheet("font-weight: bold; font-size: 13px; margin-bottom: 4px;")
+        section_label.setProperty("role", "heading")
         layout.addWidget(section_label)
 
         # Separator line
@@ -73,50 +73,48 @@ class VideoPanel(QWidget):
 
         layout.addSpacing(4)
 
-        # Export EDL button
-        self._export_btn = QPushButton(tr("video_export_edl"))
-        self._export_btn.setProperty("variant", "primary")
-        self._export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._export_btn.setEnabled(False)
-        self._export_btn.clicked.connect(self.export_edl_requested.emit)
-        layout.addWidget(self._export_btn)
+        # Action buttons row
+        actions_row = QHBoxLayout()
+        actions_row.setSpacing(4)
 
-        layout.addSpacing(8)
-
-        # Mark Pauses row: threshold spinbox + button
-        pause_row = QHBoxLayout()
-        pause_row.setSpacing(6)
-        pause_label = QLabel(tr("video_pause_label"))
-        pause_label.setProperty("role", "muted")
-        pause_row.addWidget(pause_label)
-
+        # Pause threshold spinbox
         self._pause_spin = QDoubleSpinBox()
         self._pause_spin.setRange(0.1, 5.0)
         self._pause_spin.setSingleStep(0.1)
         self._pause_spin.setValue(0.5)
         self._pause_spin.setSuffix(" s")
-        self._pause_spin.setFixedWidth(76)
+        self._pause_spin.setFixedWidth(64)
         self._pause_spin.setToolTip(tr("video_pause_threshold_tooltip"))
-        pause_row.addWidget(self._pause_spin)
-        layout.addLayout(pause_row)
+        actions_row.addWidget(self._pause_spin)
 
-        self._mark_btn = QPushButton(tr("video_mark_pauses"))
+        self._export_btn = QPushButton("EDL")
+        self._export_btn.setProperty("role", "quick-chip")
+        self._export_btn.setToolTip(tr("video_export_edl"))
+        self._export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._export_btn.setEnabled(False)
+        self._export_btn.clicked.connect(self.export_edl_requested.emit)
+        actions_row.addWidget(self._export_btn)
+
+        self._mark_btn = QPushButton("Mark")
+        self._mark_btn.setProperty("role", "quick-chip")
+        self._mark_btn.setToolTip(tr("video_mark_pauses"))
         self._mark_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._mark_btn.setEnabled(False)
         self._mark_btn.clicked.connect(
             lambda: self.mark_pauses_requested.emit(self._pause_spin.value())
         )
-        layout.addWidget(self._mark_btn)
+        actions_row.addWidget(self._mark_btn)
 
-        layout.addSpacing(8)
-
-        # Assemble Draft MP4 button
-        self._assemble_btn = QPushButton(tr("video_assemble_draft"))
+        self._assemble_btn = QPushButton("MP4")
+        self._assemble_btn.setProperty("role", "quick-chip")
+        self._assemble_btn.setToolTip(tr("video_assemble_draft"))
         self._assemble_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._assemble_btn.setEnabled(False)
         self._assemble_btn.clicked.connect(self.assemble_requested.emit)
-        layout.addWidget(self._assemble_btn)
+        actions_row.addWidget(self._assemble_btn)
+        actions_row.addStretch()
 
+        layout.addLayout(actions_row)
         layout.addStretch()
 
     # ------------------------------------------------------------------ public API

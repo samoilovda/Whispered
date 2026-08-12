@@ -42,7 +42,6 @@
   "command_queue": "Open queue",
   "command_settings": "Open settings",
   "command_record": "Record: {name}",
-
   "btn_browse": "Browse Files",
   "btn_transcribe": "Transcribe",
   "btn_cancel": "Cancel",
@@ -59,7 +58,6 @@
   "btn_start_all": "▶ Start All",
   "btn_clear": "Clear",
   "btn_process": "Process",
-
   "launch_preset_label": "Preset:",
   "preset_transcribe_only": "Transcribe only",
   "preset_youtube": "Transcribe + YouTube package",
@@ -68,7 +66,6 @@
   "tooltip_process": "Run the selected preset  (Ctrl+Enter)",
   "tooltip_process_disabled": "Select a file first",
   "tooltip_transcribe_options": "Transcription options",
-
   "label_model": "Model:",
   "label_language": "Language:",
   "label_mode": "Mode:",
@@ -77,17 +74,14 @@
   "label_volume": "Vol:",
   "label_export_formats": "Export formats:",
   "label_status_ready": "Ready",
-
   "tab_transcript": "📝 Transcript",
   "tab_cleaned": "✨ Cleaned",
   "tab_articles": "📚 Articles",
   "tab_history": "🕒 History",
-
   "tab_settings_general": "General",
   "tab_settings_transcription": "Transcription",
   "tab_settings_diarization": "Diarization",
   "tab_settings_ai": "AI / LM Studio",
-
   "settings_theme": "Theme:",
   "settings_theme_dark": "Dark",
   "settings_theme_light": "Light",
@@ -112,14 +106,12 @@
   "settings_vocab_hint": "One term per line — proper names, abbreviations, domain terms…",
   "settings_mic_device": "Microphone:",
   "settings_mic_default": "System default",
-
   "toast_copied": "Copied to clipboard",
   "toast_edl_exported": "EDL exported: {name}",
   "toast_exported_one": "Exported: {name}",
   "toast_exported_many": "Exported {count} files",
   "toast_complete": "Transcription complete — {words} words",
   "toast_loaded_history": "Loaded from history — {words} words",
-
   "status_ready_file": "Ready: {name}",
   "status_complete": "Complete — {words} words in {seconds}s",
   "status_cancelled": "Transcription cancelled",
@@ -142,12 +134,10 @@
   "error_book_pipeline_title": "Book Pipeline Error",
   "tooltip_performance_mode": "Energy vs Speed tradeoff\n\n🔋 Efficiency: Low CPU, saves battery\n⚡ Balanced: Moderate CPU usage\n🚀 Performance: Max speed, high CPU",
   "tooltip_diarization": "Identify different speakers (requires setup)",
-
   "drop_hint": "Drop audio or video file here",
   "drop_overlay": "Drop file to transcribe",
   "drop_ready": "File ready for transcription",
   "drop_formats_hint": "Supports: MP3, WAV, FLAC, MP4, MKV, and more",
-
   "find_placeholder": "Find…",
   "replace_placeholder": "Replace with…",
   "find_btn_next": "Next",
@@ -157,7 +147,6 @@
   "find_count_plural": "{count} matches",
   "find_replaced": "Replaced {count}",
   "edit_hint": "Edit mode: one line per segment • click Save to apply",
-
   "history_search_placeholder": "Search history…",
   "history_clear_all": "Clear All",
   "history_status": "{count} record",
@@ -174,20 +163,16 @@
   "library_empty_hint": "Drop an audio or video file, or click Browse Files above.",
   "record_export_menu": "Export ▾",
   "record_export_action": "Export selected formats…",
-
   "error_transcription": "Transcription Error",
   "error_export": "Export Error",
   "error_ai": "AI Processing Error",
   "error_occurred": "An error occurred:\n\n{detail}",
-
   "connection_checking": "Checking…",
   "connection_ok": "✓ {detail}",
   "connection_ok_no_model": "Connected",
   "connection_fail": "✗ {detail}",
-
   "diarization_note": "Diarization requires a HuggingFace token and model download.\nRun setup_diarization.py to install pyannote models.",
   "speakers_auto": "Auto-detect",
-
   "batch_queue": "📂 Batch Queue",
   "batch_add_files_title": "Add Audio/Video Files",
   "batch_summary_title": "Files",
@@ -201,10 +186,8 @@
   "tooltip_batch_start_disabled_busy": "Already processing",
   "batch_clear": "Clear queue",
   "batch_file_filter": "Media files (*.mp3 *.mp4 *.m4a *.wav *.ogg *.flac *.mkv *.avi *.mov *.webm);;All files (*)",
-
   "rename_speakers_title": "Rename Speakers",
   "transcription_label": "Transcription",
-
   "tooltip_transcribe": "Transcribe  (Ctrl+T)",
   "tooltip_browse": "Open file  (Ctrl+O)",
   "tooltip_copy": "Copy transcript  (Ctrl+Shift+C)",
@@ -223,7 +206,6 @@
   "sidebar_live": "Live",
   "sidebar_collapse": "Collapse sidebar",
   "sidebar_expand": "Expand sidebar",
-
   "page_library_title": "Library",
   "page_library_subtitle": "Start a transcription or continue working with a recent recording.",
   "library_new_title": "New transcription",
@@ -282,7 +264,6 @@
   "cleaned_copy": "📋 Copy Cleaned Text",
   "cleaned_stats": "{words} words • {paragraphs} paragraphs",
   "cleaned_improvement": "✨ Removed {fillers} fillers • {reduction}% shorter",
-
   "live_title": "Live transcription",
   "live_audio_not_saved": "Audio is not saved",
   "live_source_mic": "Microphone",
@@ -371,7 +352,6 @@
   "live_state_paused": "paused",
   "live_state_failed": "failed",
   "live_state_stopped": "stopped",
-
   "settings_category_general": "General",
   "settings_title": "Settings",
   "settings_category_transcription": "Transcription",
@@ -384,9 +364,7 @@
   "settings_show_secret": "Show",
   "settings_live_hint": "Live can be shown or hidden immediately; restarting Whispered is not required.",
   "settings_language_restart": "Restart the application to apply the interface language.",
-
   "language_auto": "Auto-detect",
-
   "tab_insights": "💡 Insights",
   "tab_chat": "💬 Chat",
   "chat_placeholder": "Transcribe a recording first, then ask questions here.",
@@ -396,7 +374,6 @@
   "chat_stop": "Stop",
   "chat_no_transcript": "Please transcribe a recording first.",
   "chat_clear_confirm": "Clear chat history?",
-
   "insights_placeholder": "Transcribe a recording first to generate insights.",
   "insights_generate": "Generate Insights",
   "insights_generating": "Generating…",
@@ -407,14 +384,12 @@
   "insights_deadline": "Deadline:",
   "insights_error": "Error:",
   "insights_no_lm": "Configure LM Studio URL in Settings first.",
-
   "timeline_select": "Select",
   "timeline_extract": "Extract",
   "timeline_transcribe": "Transcribe",
   "timeline_diarize": "Diarize",
   "timeline_clean": "Clean",
   "timeline_generate": "Generate",
-
   "tab_cut": "✂️ Timeline / Cut",
   "tab_youtube": "YouTube",
   "tab_book": "📖 Book",
@@ -441,7 +416,6 @@
   "yt_tab_description": "Description",
   "yt_tab_tags": "Tags",
   "yt_tab_questions": "Key Questions",
-
   "provider_lmstudio": "LM Studio (local)",
   "provider_openai": "OpenAI-compatible",
   "provider_anthropic": "Anthropic",
@@ -451,7 +425,6 @@
   "provider_api_key": "API Key",
   "provider_model": "Model",
   "provider_show_key": "Show",
-
   "video_panel_title": "Video Settings",
   "video_fps_label": "Frame rate:",
   "video_drop_frame_label": "Drop frame (29.97 / 59.94)",
@@ -461,19 +434,16 @@
   "video_pause_threshold_tooltip": "Segments shorter than this duration will be marked for removal",
   "video_mark_pauses": "Mark Pauses && Fillers",
   "video_assemble_draft": "Assemble Draft MP4…",
-
   "cut_view_title": "Timeline / Cut",
   "cut_placeholder": "Transcribe a video file in Video mode to see segments here.",
   "cut_select_all": "All",
   "cut_select_none": "None",
   "cut_count": "{kept} of {total} kept  ({duration})",
-
   "toast_assembling": "Assembling draft…",
   "toast_assembled": "Draft saved: {name}",
   "toast_assemble_error": "Assembly failed: {detail}",
   "chat_system_prompt": "You are a helpful assistant. Answer questions ONLY based on the transcription provided below. If the answer is not in the transcription, say so clearly.\n\nTRANSCRIPTION:\n{transcript}",
   "chat_transcript_truncated": "[Transcript truncated due to context limit]",
-
   "book_header": "📖 Book Pipeline",
   "book_lm_checking": "LM Studio: checking…",
   "book_lm_connected": "LM Studio: connected",
@@ -497,7 +467,6 @@
   "book_no_prompt_message": "Enter the path to the custom prompt file.",
   "book_browse_prompt_title": "Select Prompt File",
   "book_browse_folder_title": "Select Transcript Folder",
-
   "file_duration_checking": "Checking duration…",
   "device_detecting": "Detecting hardware…",
   "settings_book_model_placeholder": "leave empty to auto-detect",
@@ -507,7 +476,6 @@
   "status_article_generated": "Generated: {title} ({words} words)",
   "status_articles_generated": "Generated {count} articles in {seconds}s",
   "status_ai_error": "AI error: {error}",
-
   "ai_panel_title": "🤖 AI Processing",
   "ai_lm_connected": "LM Studio: connected",
   "ai_lm_offline": "LM Studio: offline",
@@ -527,7 +495,6 @@
   "ai_format_listicle": "Listicle",
   "ai_format_summary": "Summary",
   "ai_format_social": "Social media",
-
   "download_model_title": "Downloading model",
   "download_pyannote_title": "Downloading Pyannote models…",
   "download_model_name": "Downloading model: {model}",
@@ -543,7 +510,6 @@
   "download_error_generic": "Download failed: {error}",
   "download_error_diarization_missing": "pyannote.audio or torch is not installed.",
   "download_error_diarization": "Failed to cache Pyannote models: {error}",
-
   "progress_converting": "Converting audio format…",
   "progress_loading_model": "Loading model (downloading if needed)…",
   "progress_preparing": "Preparing transcription…",
@@ -557,7 +523,6 @@
   "progress_diarization_error": "Diarization error: {error}",
   "progress_complete": "Complete!",
   "progress_cancelling": "Cancelling…",
-
   "whisper_model_tiny": "Tiny (~75 MB) - Fastest, lowest accuracy",
   "whisper_model_base": "Base (~142 MB) - Good for most uses",
   "whisper_model_small": "Small (~466 MB) - Balanced speed/accuracy",
@@ -591,5 +556,12 @@
   "performance_balanced": "⚡ Balanced",
   "performance_balanced_description": "Moderate CPU usage",
   "performance_performance": "🚀 Performance",
-  "performance_performance_description": "Maximum speed, high CPU"
+  "performance_performance_description": "Maximum speed, high CPU",
+  "menu_file": "File",
+  "menu_new_record": "New Record",
+  "menu_settings": "Settings",
+  "menu_edit": "Edit",
+  "menu_undo": "Undo",
+  "menu_find": "Find",
+  "menu_video": "Video"
 }

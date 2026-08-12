@@ -74,19 +74,19 @@ class PlayerWidget(QWidget):
         controls.setSpacing(6)
 
         self._rewind_btn = QPushButton("⏮ 10s")
-        self._rewind_btn.setFixedWidth(52)
+        self._rewind_btn.setProperty("role", "icon-button")
         self._rewind_btn.setToolTip(tr("tooltip_rewind"))
         self._rewind_btn.clicked.connect(lambda: self._seek_relative(-10))
         controls.addWidget(self._rewind_btn)
 
         self._play_btn = QPushButton("▶")
-        self._play_btn.setFixedWidth(36)
+        self._play_btn.setProperty("role", "icon-button")
         self._play_btn.setToolTip(tr("tooltip_play"))
         self._play_btn.clicked.connect(self._toggle_play)
         controls.addWidget(self._play_btn)
 
         self._forward_btn = QPushButton("10s ⏭")
-        self._forward_btn.setFixedWidth(52)
+        self._forward_btn.setProperty("role", "icon-button")
         self._forward_btn.setToolTip(tr("tooltip_forward"))
         self._forward_btn.clicked.connect(lambda: self._seek_relative(10))
         controls.addWidget(self._forward_btn)
@@ -103,7 +103,7 @@ class PlayerWidget(QWidget):
         # Time label
         self._time_label = QLabel("0:00 / 0:00")
         self._time_label.setProperty("role", "muted")
-        self._time_label.setStyleSheet("font-size: 11px;")
+        self._time_label.setProperty("size", "small")
         self._time_label.setFixedWidth(90)
         self._time_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         controls.addWidget(self._time_label)
@@ -116,7 +116,7 @@ class PlayerWidget(QWidget):
 
         speed_label = QLabel(tr("label_speed"))
         speed_label.setProperty("role", "muted")
-        speed_label.setStyleSheet("font-size: 11px;")
+        speed_label.setProperty("size", "small")
         row2.addWidget(speed_label)
 
         self._speed_combo = QComboBox()
@@ -132,7 +132,7 @@ class PlayerWidget(QWidget):
 
         vol_label = QLabel(tr("label_volume"))
         vol_label.setProperty("role", "muted")
-        vol_label.setStyleSheet("font-size: 11px;")
+        vol_label.setProperty("size", "small")
         row2.addWidget(vol_label)
 
         self._vol_slider = QSlider(Qt.Orientation.Horizontal)

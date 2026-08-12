@@ -17,7 +17,9 @@ from PyQt6.QtWidgets import (
     QToolButton,
     QVBoxLayout,
     QWidget,
+    QGraphicsDropShadowEffect,
 )
+from PyQt6.QtGui import QColor
 
 from ui.theme import SPACE_1, SPACE_2, SPACE_3, SPACE_4, SPACE_6, set_role
 
@@ -281,3 +283,13 @@ class OperationBar(QFrame):
     def clear(self) -> None:
         self.status_label.clear()
         self.setVisible(False)
+
+
+def apply_soft_shadow(widget: QWidget) -> None:
+    """Applies a soft, modern drop shadow to a widget (Gemini style)."""
+    shadow = QGraphicsDropShadowEffect(widget)
+    shadow.setBlurRadius(24)
+    shadow.setXOffset(0)
+    shadow.setYOffset(8)
+    shadow.setColor(QColor(0, 0, 0, 15))
+    widget.setGraphicsEffect(shadow)

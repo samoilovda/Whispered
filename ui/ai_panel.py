@@ -99,12 +99,12 @@ class StatusIndicator(QWidget):
 
         self.dot = QLabel("●")
         self.dot.setProperty("role", "danger-text")  # disconnected by default
-        self.dot.setStyleSheet("font-size: 10px;")
+        self.dot.setProperty("size", "small")
         layout.addWidget(self.dot)
 
         self.label = QLabel("LM Studio")
         self.label.setProperty("role", "muted")
-        self.label.setStyleSheet("font-size: 11px;")
+        self.label.setProperty("size", "small")
         layout.addWidget(self.label)
 
         layout.addStretch()
@@ -127,8 +127,8 @@ class StatusIndicator(QWidget):
             set_role(self.dot, "danger-text")
             self.label.setText(tr("ai_lm_offline"))
             set_role(self.label, "muted")
-        self.dot.setStyleSheet("font-size: 10px;")
-        self.label.setStyleSheet("font-size: 11px;")
+        self.dot.setProperty("size", "small")
+        self.label.setProperty("size", "small")
 
     @property
     def is_connected(self) -> bool:
@@ -204,7 +204,7 @@ class AIProcessingPanel(QWidget):
 
         model_label = QLabel(tr("label_model"))
         model_label.setProperty("role", "muted")
-        model_label.setStyleSheet("font-size: 11px;")
+        model_label.setProperty("size", "small")
         model_layout.addWidget(model_label)
 
         self.model_combo = QComboBox()
@@ -239,7 +239,7 @@ class AIProcessingPanel(QWidget):
         # Progress label
         self.progress_label = QLabel("")
         self.progress_label.setProperty("role", "muted")
-        self.progress_label.setStyleSheet("font-size: 10px;")
+        self.progress_label.setProperty("size", "small")
         self.progress_label.setVisible(False)
         layout.addWidget(self.progress_label)
 
@@ -323,7 +323,7 @@ class AIProcessingPanel(QWidget):
         # Load the selected model
         self.status_indicator.label.setText(tr("ai_loading_model"))
         set_role(self.status_indicator.label, "warning-text")
-        self.status_indicator.label.setStyleSheet("font-size: 11px;")
+        self.status_indicator.label.setProperty("size", "small")
 
         self._load_model(model_path)
 
@@ -391,7 +391,7 @@ class AIProcessingPanel(QWidget):
             else:
                 self.status_indicator.label.setText(tr("ai_model_load_failed"))
                 set_role(self.status_indicator.label, "danger-text")
-                self.status_indicator.label.setStyleSheet("font-size: 11px;")
+                self.status_indicator.label.setProperty("size", "small")
         elif action == "start":
             if result:
                 self._pending_task = ("status", None)

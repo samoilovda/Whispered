@@ -91,7 +91,7 @@ class StatusBar(QFrame):
     def set_llm_status(self, connected: bool, detail: str = "") -> None:
         model = detail if connected and detail else "LM Studio"
         self.llm_badge.set_status(
-            tr("status_llm_model", model=model), "success" if connected else "error"
+            tr("status_llm_model", model=model), "neutral" if connected else "error"
         )
         self.llm_badge.setToolTip(
             "" if connected else tr("status_llm_unavailable")
