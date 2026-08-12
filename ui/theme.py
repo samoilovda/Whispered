@@ -151,7 +151,10 @@ DARK = Theme(
     text_primary="#e0e0e0",
     text_secondary="#888888",
     text_muted="#666666",
-    text_disabled="#606060",
+    # #606060 on bg_disabled #252525 measured at ~2.4:1 — the disabled
+    # Apply button read as nearly blank, not just "muted". #707070 clears
+    # ~3:1, legible while still visibly non-interactive.
+    text_disabled="#707070",
     success="#22c55e",
     warning="#f59e0b",
     error="#ef4444",
@@ -188,7 +191,10 @@ LIGHT = Theme(
     # 4.5:1 floor for normal text (this role is used for label text, not
     # just decoration). #666666 clears it at ~5:1.
     text_muted="#666666",
-    text_disabled="#aaaaaa",
+    # #aaaaaa on bg_disabled #eeeeee measured at ~2:1 — the disabled Apply
+    # button read as nearly blank, not just "muted". #8a8a8a clears ~3:1,
+    # legible while still visibly non-interactive.
+    text_disabled="#8a8a8a",
     success="#16a34a",
     warning="#d97706",
     error="#dc2626",

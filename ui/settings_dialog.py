@@ -72,15 +72,21 @@ class SettingsDialog(QDialog):
         self._categories.setFixedWidth(190)
         self._categories.setAccessibleName(tr("settings_title"))
         self._pages = QStackedWidget()
+        # General has far fewer controls than its siblings; the stack
+        # sizes every page to the tallest one, so wrapping its form in its
+        # own compact card (instead of letting the page itself be the
+        # full-height card) keeps the "boxed" area hugging its content
+        # instead of stretching into ~400px of bordered empty space.
         pages = (
-            ("settings_category_general", self._build_general_tab()),
-            ("settings_category_transcription", self._build_transcription_tab()),
-            ("settings_category_recording_live", self._build_recording_live_tab()),
-            ("settings_category_diarization", self._build_diarization_tab()),
-            ("settings_category_ai", self._build_ai_tab()),
+            ("settings_category_general", self._build_general_tab(), False),
+            ("settings_category_transcription", self._build_transcription_tab(), True),
+            ("settings_category_recording_live", self._build_recording_live_tab(), True),
+            ("settings_category_diarization", self._build_diarization_tab(), True),
+            ("settings_category_ai", self._build_ai_tab(), True),
         )
-        for label_key, page in pages:
-            page.setProperty("role", "form-section")
+        for label_key, page, card_role in pages:
+            if card_role:
+                page.setProperty("role", "form-section")
             self._categories.addItem(tr(label_key))
             self._pages.addWidget(page)
         self._categories.currentRowChanged.connect(self._pages.setCurrentIndex)
@@ -110,7 +116,13 @@ class SettingsDialog(QDialog):
 
     def _build_general_tab(self) -> QWidget:
         tab = QWidget()
-        layout = QFormLayout(tab)
+        tab_layout = QVBoxLayout(tab)
+        tab_layout.setContentsMargins(0, 0, 0, 0)
+        tab_layout.setSpacing(0)
+
+        card = QWidget()
+        card.setProperty("role", "form-section")
+        layout = QFormLayout(card)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
@@ -144,6 +156,8 @@ class SettingsDialog(QDialog):
         self._lang_ui_combo.addItem("Русский", "ru")
         layout.addRow(tr("settings_ui_language"), self._lang_ui_combo)
 
+        tab_layout.addWidget(card)
+        tab_layout.addStretch()
         return tab
 
     def _build_transcription_tab(self) -> QWidget:
