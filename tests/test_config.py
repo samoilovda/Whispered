@@ -121,6 +121,39 @@ class TestConfigRoundTrip:
         assert loaded.yt_openai_base_url == "https://api.openai.com/v1"
         assert loaded.live_transcription_enabled is False
 
+    @pytest.mark.parametrize(
+        ("preset", "steps"),
+        [
+            ("transcribe_only", ["transcript"]),
+            ("youtube", ["transcript", "youtube"]),
+            ("article", ["transcript", "article"]),
+            ("full", ["transcript", "youtube", "article", "insights"]),
+        ],
+    )
+    def test_legacy_launch_preset_migrates_to_chain_steps(self, preset, steps):
+        config_module.CONFIG_FILE.write_text(
+            json.dumps({"launch_preset": preset}), encoding="utf-8"
+        )
+
+        loaded = Config.load()
+
+        assert loaded.chain_steps == steps
+
+    def test_explicit_chain_steps_are_not_overwritten_by_legacy_preset(self):
+        config_module.CONFIG_FILE.write_text(
+            json.dumps(
+                {
+                    "launch_preset": "full",
+                    "chain_steps": ["transcript", "book"],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        loaded = Config.load()
+
+        assert loaded.chain_steps == ["transcript", "book"]
+
     def test_load_missing_file_returns_defaults(self):
         loaded = Config.load()
         assert loaded.theme == "dark"

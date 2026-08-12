@@ -40,8 +40,12 @@ class TranscribeOptionsPopover(QFrame):
 
     changed = pyqtSignal()
 
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent, Qt.WindowType.Popup)
+    def __init__(self, parent: QWidget | None = None, *, embedded: bool = False) -> None:
+        if embedded:
+            super().__init__(parent)
+        else:
+            super().__init__(parent, Qt.WindowType.Popup)
+        self._embedded = embedded
         self.setProperty("role", "card")
         self._setup_ui()
         self._load_config()

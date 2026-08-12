@@ -6,7 +6,7 @@ Widget for managing batch file queue
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QListWidget, QListWidgetItem, QProgressBar,
-    QFileDialog, QAbstractItemView
+    QFileDialog, QAbstractItemView, QComboBox
 )
 from PyQt6.QtCore import pyqtSignal
 
@@ -14,6 +14,7 @@ from batch_processor import BatchProcessor, BatchItem, BatchStatus
 from ui.theme import set_role
 from ui.empty_state import EmptyStateWidget
 from core.i18n import tr
+from core.book_batch_worker import BookBatchWorker
 
 
 STATUS_ICONS = {
@@ -110,10 +111,12 @@ class BatchPanel(QWidget):
 
     # Signals
     start_requested = pyqtSignal()
+    queue_changed = pyqtSignal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.processor = BatchProcessor()
+        self._book_worker: BookBatchWorker | None = None
         self._setup_ui()
         self._connect_signals()
         # _refresh_list() is what sets file_list/empty_state visibility;
@@ -135,6 +138,11 @@ class BatchPanel(QWidget):
         self.count_label = QLabel(tr("batch_summary", pending=0, complete=0, error=0))
         self.count_label.setProperty("role", "dim")
         header_layout.addWidget(self.count_label)
+
+        self.job_kind_combo = QComboBox()
+        self.job_kind_combo.addItem(tr("queue_kind_transcribe"), "transcribe")
+        self.job_kind_combo.addItem(tr("queue_kind_book"), "book")
+        header_layout.addWidget(self.job_kind_combo)
 
         header_layout.addStretch()
 
@@ -194,11 +202,12 @@ class BatchPanel(QWidget):
 
     def _add_files(self):
         """Open file dialog to add files."""
+        is_book = self.job_kind_combo.currentData() == "book"
         filepaths, _ = QFileDialog.getOpenFileNames(
             self,
             tr("batch_add_files_title"),
             "",
-            tr("batch_file_filter")
+            tr("queue_book_file_filter") if is_book else tr("batch_file_filter")
         )
 
         for path in filepaths:
@@ -242,6 +251,13 @@ class BatchPanel(QWidget):
         # the header's copy of the same action too, right above it, reads
         # as a redundant duplicate rather than a shortcut.
         self.add_btn.setVisible(count > 0)
+        self.job_kind_combo.setEnabled(count == 0 and not self._is_processing())
+        self.queue_changed.emit(count)
+
+    def _is_processing(self) -> bool:
+        return self.processor.is_processing or bool(
+            self._book_worker and self._book_worker.isRunning()
+        )
 
     def _sync_visual_order(self, *_args) -> None:
         """Keep BatchProcessor's execution order equal to drag-drop order."""
@@ -270,7 +286,52 @@ class BatchPanel(QWidget):
         self.clear_btn.setEnabled(False)
         self.add_btn.setEnabled(False)
         self.cancel_btn.setVisible(True)
-        self.start_requested.emit()
+        if self.job_kind_combo.currentData() == "book":
+            self._start_book_batch()
+        else:
+            self.start_requested.emit()
+
+    def _start_book_batch(self) -> None:
+        items = self.processor.items
+        if not items:
+            self._on_batch_finished()
+            return
+        worker = BookBatchWorker([item.filepath for item in items], parent=self)
+        worker.file_started.connect(self._on_book_started)
+        worker.file_progress.connect(self._on_book_progress)
+        worker.file_finished.connect(self._on_book_finished)
+        worker.file_error.connect(self._on_book_error)
+        worker.batch_finished.connect(self._on_book_batch_finished)
+        self._book_worker = worker
+        worker.start()
+
+    def _on_book_started(self, index: int, _total: int, _filename: str) -> None:
+        item = self.processor.items[index]
+        item.status = BatchStatus.PROCESSING
+        self._update_item_widget(index)
+
+    def _on_book_progress(self, index: int, percentage: int, message: str) -> None:
+        item = self.processor.items[index]
+        item.progress = percentage
+        item.message = message
+        self._update_item_widget(index)
+
+    def _on_book_finished(self, index: int, result) -> None:
+        item = self.processor.items[index]
+        item.status = BatchStatus.COMPLETE
+        item.progress = 100
+        item.result = result
+        self._update_item_widget(index)
+
+    def _on_book_error(self, index: int, error: str) -> None:
+        item = self.processor.items[index]
+        item.status = BatchStatus.ERROR
+        item.error = error
+        self._update_item_widget(index)
+
+    def _on_book_batch_finished(self, _completed: int, _total: int) -> None:
+        self._book_worker = None
+        self._on_batch_finished()
 
     def start_processing(
         self,
@@ -295,13 +356,18 @@ class BatchPanel(QWidget):
 
     def cancel_processing(self):
         """Cancel the current batch processing."""
-        self.processor.cancel()
+        if self._book_worker and self._book_worker.isRunning():
+            self._book_worker.cancel()
+        else:
+            self.processor.cancel()
 
     def shutdown(self) -> None:
         """Part of the Shutdownable protocol (ui/shutdownable.py) — called
         once from closeEvent."""
-        if self.processor.is_processing:
+        if self._is_processing():
             self.cancel_processing()
+        if self._book_worker and self._book_worker.isRunning():
+            self._book_worker.wait(3000)
 
     def _on_item_started(self, index: int):
         """Handle item started."""
@@ -325,6 +391,7 @@ class BatchPanel(QWidget):
         self.clear_btn.setEnabled(self.processor.count > 0)
         self.add_btn.setEnabled(True)
         self.cancel_btn.setVisible(False)
+        self._book_worker = None
         self._refresh_list()
 
     def _update_item_widget(self, index: int):

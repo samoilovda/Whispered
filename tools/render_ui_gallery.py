@@ -23,7 +23,7 @@ from ui.theme import apply_theme
 
 
 SIZES = ((900, 550), (1100, 700), (1440, 900))
-SECTIONS = ("library", "queue", "recorder", "live")
+SECTIONS = ("library", "recorder", "live", "queue")
 
 
 def _parse_args() -> argparse.Namespace:
@@ -85,10 +85,18 @@ def render(output: Path, check: bool = False) -> list[Path]:
                                 f"File browse action is clipped at {width}x{height}"
                             )
                 window._stack.setCurrentIndex(window._record_index)
+                window.status_bar.show_queue(False)
                 app.processEvents()
                 path = output / f"{language}-{theme}-{width}x{height}-record.png"
                 window.grab().save(str(path))
                 rendered.append(path)
+
+                window.command_palette.open_palette()
+                app.processEvents()
+                path = output / f"{language}-{theme}-{width}x{height}-palette.png"
+                window.command_palette.grab().save(str(path))
+                rendered.append(path)
+                window.command_palette.reject()
 
             settings = SettingsDialog(window)
             settings.resize(840, 680)

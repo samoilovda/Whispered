@@ -42,7 +42,7 @@ class LiveView(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 16, 20, 20)
         root.setSpacing(12)
-        header = PageHeader(tr("live_title"), tr("page_live_subtitle"))
+        header = PageHeader(tr("draft_live_center_title"), tr("page_live_subtitle"))
         self.state_badge = StatusBadge(tr("live_health_idle"))
         header.add_action(self.state_badge)
         self.privacy_badge = StatusBadge(tr("live_audio_not_saved"))
@@ -65,11 +65,23 @@ class LiveView(QWidget):
         scroll.setWidget(body)
         root.addWidget(scroll, 1)
 
+        # Setup, preflight and diagnostics are inspector content for a Live
+        # draft.  Keep them owned by LiveView so its public API and runtime
+        # wiring stay unchanged, but let WorkspaceShell mount this panel on
+        # the right instead of treating Live as a top-level page.
+        self.options_panel = QWidget()
+        options_layout = QVBoxLayout(self.options_panel)
+        options_layout.setContentsMargins(0, 0, 0, 0)
+        options_layout.setSpacing(12)
+
         self.setup = LiveSetupPanel()
         self.setup.setup_changed.connect(self.invalidate_preflight)
-        content.addWidget(self.setup)
+        options_layout.addWidget(self.setup)
 
+        actions_widget = QWidget()
         actions = QHBoxLayout()
+        actions.setContentsMargins(0, 0, 0, 0)
+        actions_widget.setLayout(actions)
         self.preflight_btn = QPushButton(tr("live_preflight"))
         self.preflight_btn.clicked.connect(self.preflight_requested.emit)
         actions.addWidget(self.preflight_btn)
@@ -80,10 +92,10 @@ class LiveView(QWidget):
         self.start_btn.setToolTip(tr("tooltip_live_start_disabled"))
         self.start_btn.clicked.connect(self.start_requested.emit)
         actions.addWidget(self.start_btn)
-        content.addLayout(actions)
+        options_layout.addWidget(actions_widget)
 
         self.preflight_panel = LivePreflightPanel()
-        content.addWidget(self.preflight_panel)
+        options_layout.addWidget(self.preflight_panel)
         self.banner = InlineBanner()
         content.addWidget(self.banner)
 
@@ -121,7 +133,8 @@ class LiveView(QWidget):
         self.transcript.setMinimumHeight(180)
         content.addWidget(self.transcript, 1)
         self.diagnostics = LiveDiagnosticsPanel()
-        content.addWidget(self.diagnostics)
+        options_layout.addWidget(self.diagnostics)
+        options_layout.addStretch()
         self._timer = QTimer(self)
         self._timer.setInterval(500)
 

@@ -4,7 +4,7 @@ Display and export generated articles with tabbed interface
 """
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QTextEdit, QPushButton, QLabel, QFileDialog, QApplication, QMessageBox
+    QWidget, QVBoxLayout, QHBoxLayout, QToolBox, QTextEdit, QPushButton, QLabel, QFileDialog, QApplication, QMessageBox
 )
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QFont
@@ -218,7 +218,7 @@ class ArticleView(QWidget):
         layout.setSpacing(0)
 
         # Tab widget for different formats
-        self.tabs = QTabWidget()
+        self.tabs = QToolBox()
 
         # Create tabs for each format
         self.format_tabs: dict[ArticleFormat, ArticleTab] = {}
@@ -229,7 +229,7 @@ class ArticleView(QWidget):
             tab.copy_requested.connect(lambda: self.copy_done.emit())
             tab.export_requested.connect(lambda: self.export_done.emit("exported"))
 
-            self.tabs.addTab(tab, f"{info['icon']} {tr(_FORMAT_LABEL_KEYS[fmt])}")
+            self.tabs.addItem(tab, f"{info['icon']} {tr(_FORMAT_LABEL_KEYS[fmt])}")
             self.format_tabs[fmt] = tab
 
         layout.addWidget(self.tabs)

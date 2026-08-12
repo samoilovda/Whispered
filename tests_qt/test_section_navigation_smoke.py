@@ -75,7 +75,8 @@ def test_navigating_to_live_section_does_not_touch_target_discovery(process_even
     process_events()
 
     assert window._stack.currentIndex() == window._section_index["live"]
-    assert window._stack.currentWidget() is window.live_view
+    assert window._stack.currentWidget() is window.draft_record
+    assert window.draft_record.current_source() == "live"
 
     window.close()
     process_events()

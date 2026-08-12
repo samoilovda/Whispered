@@ -144,6 +144,7 @@ class LibraryView(QWidget):
         self._store = None   # lazy: avoid import at startup if history_enabled=False
         self._records: list = []
         self._active_filter = "all"
+        self._open_record_id: int | None = None
         self._setup_ui()
 
     # ------------------------------------------------------------------ UI
@@ -297,6 +298,8 @@ class LibraryView(QWidget):
 
             self._list.addItem(item)
             self._list.setItemWidget(item, widget)
+            if rec.id == self._open_record_id:
+                self._list.setCurrentItem(item)
 
         total = len(visible_records)
         key = "history_status_plural" if total != 1 else "history_status"
@@ -316,6 +319,16 @@ class LibraryView(QWidget):
 
     def _run_search(self):
         self._load(self._search_edit.text().strip())
+
+    def set_open_record(self, record_id: int | None) -> None:
+        """Keep the document visible as a selection in the persistent list."""
+        self._open_record_id = record_id
+        for row in range(self._list.count()):
+            item = self._list.item(row)
+            if item.data(Qt.ItemDataRole.UserRole) == record_id:
+                self._list.setCurrentItem(item)
+                return
+        self._list.setCurrentItem(None)
 
     def _set_filter(self, filter_key: str) -> None:
         self._active_filter = filter_key

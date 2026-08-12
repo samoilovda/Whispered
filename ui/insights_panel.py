@@ -101,6 +101,7 @@ class InsightsPanel(QWidget):
     """Insights tab — chapters, action items, key moments."""
 
     seek_requested = pyqtSignal(int)
+    generation_finished = pyqtSignal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -108,6 +109,8 @@ class InsightsPanel(QWidget):
         self._transcript_language: str | None = None
         self._workers: dict[str, object] = {}
         self._pending = 0
+        self._insight_queue: list[str] = []
+        self._any_error = False
         self._setup_ui()
 
     # ── UI ──────────────────────────────────────────────────────────
@@ -222,6 +225,7 @@ class InsightsPanel(QWidget):
             w.deleteLater()
         self._workers.clear()
         self._pending = 0
+        self._insight_queue.clear()
         self._placeholder.setText(tr("insights_placeholder"))
         self._placeholder.show()
 
@@ -233,6 +237,7 @@ class InsightsPanel(QWidget):
         if not cfg.lm_studio_url:
             self._placeholder.setText(tr("insights_no_lm"))
             self._placeholder.show()
+            self.generation_finished.emit(False)
             return
 
         # A prior run's workers are done by the time the button is
@@ -249,16 +254,30 @@ class InsightsPanel(QWidget):
         self._gen_btn.setText(tr("insights_generating"))
         self._placeholder.hide()
         self._pending = 3
+        self._any_error = False
 
-        lang = language_name_for_code(self._transcript_language)
+        self._insight_queue = ["chapters", "action_items", "key_moments"]
+        self._start_next_worker()
 
+    def _start_next_worker(self) -> None:
+        if not self._insight_queue:
+            return
+        from config import get_config
         from core.insights_worker import InsightsWorker
-        for insight_type in ("chapters", "action_items", "key_moments"):
-            w = InsightsWorker(insight_type, self._segments, cfg.lm_studio_url, language=lang, parent=self)
-            w.finished.connect(self._on_finished)
-            w.error_occurred.connect(self._on_error)
-            self._workers[insight_type] = w
-            w.start()
+
+        insight_type = self._insight_queue.pop(0)
+        lang = language_name_for_code(self._transcript_language)
+        worker = InsightsWorker(
+            insight_type,
+            self._segments,
+            get_config().lm_studio_url,
+            language=lang,
+            parent=self,
+        )
+        worker.finished.connect(self._on_finished)
+        worker.error_occurred.connect(self._on_error)
+        self._workers[insight_type] = worker
+        worker.start()
 
     def _decrement_pending(self):
         self._pending -= 1
@@ -266,6 +285,9 @@ class InsightsPanel(QWidget):
             self._pending = 0
             self._gen_btn.setEnabled(True)
             self._gen_btn.setText(tr("insights_generate"))
+            self.generation_finished.emit(not self._any_error)
+        else:
+            self._start_next_worker()
 
     def _on_finished(self, insight_type: str, data):
         layout_map = {
@@ -292,6 +314,7 @@ class InsightsPanel(QWidget):
         self._decrement_pending()
 
     def _on_error(self, insight_type: str, msg: str):
+        self._any_error = True
         layout_map = {
             "chapters": self._ch_layout,
             "action_items": self._ai_layout,

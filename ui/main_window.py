@@ -9,19 +9,24 @@ import os
 import time
 from pathlib import Path
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QMainWindow, QWidget, QVBoxLayout,
     QLabel, QFileDialog, QMessageBox,
-    QApplication, QTabWidget,
+    QApplication, QTabWidget, QComboBox,
     QTextEdit, QLineEdit, QPlainTextEdit, QStackedWidget,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut, QDragEnterEvent, QDropEvent
 
 from ui.toast import show_toast
-from ui.sidebar import Sidebar
 from ui.library_view import LibraryView
-from ui.record_view import RecordView, ToolWorkspace
-from ui.launch_bar import LaunchBar
+from ui.record_view import RecordView
+from ui.inspector_rail import InspectorRail
+from ui.workspace_shell import WorkspaceShell
+from ui.draft_record import DraftRecord
+from ui.status_bar import StatusBar
+from ui.step_checklist import StepChecklist
+from ui.transcribe_options import TranscribeOptionsPopover
+from ui.command_palette import CommandPalette
 from ui.file_selector import FileSelector
 from ui.transcript_view import TranscriptView
 from ui.ai_panel import AIProcessingPanel
@@ -29,7 +34,6 @@ from ui.article_view import ArticleView, CleanedTextView
 from ui.batch_panel import BatchPanel
 from ui.book_panel import BookPanel
 from ui.cut_view import CutView
-from ui.icons import get_icon, IconColors
 from ui.player_widget import PlayerWidget
 from ui.recorder_widget import RecorderWidget
 from ui.chat_panel import ChatPanel
@@ -39,7 +43,6 @@ from ui.live_view import LiveView
 from ui.live_preflight_panel import LivePreflightWorker
 from ui.progress_timeline import ProgressTimeline
 from ui.animated_button import AnimatedButton
-from ui.components import FormSection, OperationBar, PageHeader
 from ui.live_checkpoint_tracker import LiveCheckpointTracker
 from ui.preset_chain_controller import PresetChainController
 from ui.shutdownable import Shutdownable
@@ -53,7 +56,7 @@ from utils import (
     get_thread_count,
     is_supported_format,
 )
-from config import get_config, save_config
+from config import get_config
 from core.ai_worker import AIProcessingWorker
 from core.base_worker import BaseWorker
 from core.logger import get_logger
@@ -119,6 +122,7 @@ class DraftAssemblyWorker(BaseWorker):
             self._segments,
             self._output_path,
             on_progress=self.progress.emit,
+            should_cancel=self.is_cancelled,
         )
         self.assembled.emit(self._output_path)
 
@@ -174,6 +178,10 @@ class MainWindow(QMainWindow):
         self._draft_worker: DraftAssemblyWorker | None = None
         self._shutdownables.append(_WorkerShutdown(self, "_ai_worker"))
         self._shutdownables.append(_WorkerShutdown(self, "_gpu_worker", wait_ms=1500))
+        # Cancellation stops ffmpeg via SIGTERM (falling back to SIGKILL
+        # after 5s) — bound generously above that worst case so close()
+        # doesn't give up on the wait before the subprocess actually dies.
+        self._shutdownables.append(_WorkerShutdown(self, "_draft_worker", wait_ms=12000))
         self._source_filepath: str | None = None
         self._source_kind = "file"
         self._use_gpu = True
@@ -184,9 +192,16 @@ class MainWindow(QMainWindow):
         # and ui/preset_chain_controller.py).
         self._preset_chain = PresetChainController(self)
         self._preset_chain.finished.connect(self._finish_preset_chain)
+        self._chain_extra_steps: list[str] = []
+        self._chain_extra_ran: set[str] = set()
+        self._chain_extra_had_error = False
+        self._chain_extra_active = ""
         self._last_record_id: int | None = None
         self._live_checkpoint = LiveCheckpointTracker()
         self._setup_ui()
+        self.command_palette = CommandPalette(self)
+        self.command_palette.record_requested.connect(self._open_record_view)
+        self.command_palette.action_requested.connect(self._run_palette_action)
         self._connect_signals()
         self.setAcceptDrops(True)
         # Apply saved mic device
@@ -216,103 +231,35 @@ class MainWindow(QMainWindow):
 
 
     def _setup_ui(self):
-        """Set up the main window UI: a narrow sidebar rail on the left,
-        switching between top-level sections (Library / Queue / Recorder)
-        shown in a QStackedWidget on the right.
-
-        Split into one builder method per section below. Order matters —
-        later sections reference widgets (recorder_widget, batch_panel,
-        book_panel, operation_bar) created while building the Library
-        section, exactly as the original single method did — so these
-        must run in the sequence they're called here."""
+        """Build the persistent Library | Document | Inspector workspace."""
         self._build_window_chrome()
-        self._build_library_section()   # index 0; also creates several
-                                         # widgets later sections depend on
-        self._build_queue_section()      # index 1
-        self._build_recorder_section()   # index 2
-        self._build_live_section()       # self._live_index
-        self._build_record_section()     # self._record_index
-
-        self._section_index = {
-            "library": 0,
-            "queue": 1,
-            "recorder": 2,
-            "live": self._live_index,
-        }
+        self._build_library_section()
+        self._build_queue_section()
+        self._build_recorder_section()
+        self._build_live_section()
+        self._build_record_section()
 
     def _build_window_chrome(self) -> None:
-        """Window title/size and the sidebar + QStackedWidget skeleton
-        that every section below adds a page to."""
+        """Create the window and the vertical host for shell + status."""
         self.setWindowTitle("Whispered")
         self.setMinimumSize(900, 550)
         self.resize(1100, 700)
 
-        # Central widget: sidebar + stacked sections
         central = QWidget()
         self.setCentralWidget(central)
-        outer_layout = QHBoxLayout(central)
-        outer_layout.setContentsMargins(0, 0, 0, 0)
-        outer_layout.setSpacing(0)
-
-        cfg = get_config()
-        self.sidebar = Sidebar(
-            live_enabled=cfg.live_transcription_enabled,
-            collapsed=getattr(cfg, "sidebar_collapsed", False),
-        )
-        self.sidebar.section_changed.connect(self._on_section_changed)
-        self.sidebar.settings_requested.connect(self._open_settings)
-        self.sidebar.collapsed_changed.connect(self._on_sidebar_collapsed)
-        outer_layout.addWidget(self.sidebar)
-
-        workspace = QWidget()
-        self._workspace_layout = QVBoxLayout(workspace)
+        self._workspace_layout = QVBoxLayout(central)
         self._workspace_layout.setContentsMargins(0, 0, 0, 0)
         self._workspace_layout.setSpacing(0)
-        self._stack = QStackedWidget()
-        self._workspace_layout.addWidget(self._stack, stretch=1)
-        outer_layout.addWidget(workspace, stretch=1)
 
     def _build_library_section(self) -> None:
-        """The main transcription workspace (index 0). Also creates
-        recorder_widget, batch_panel, book_panel and the shared
-        operation/progress bar — all consumed by later sections."""
-        workspace_layout = self._workspace_layout
-        library_page = QWidget()
-        main_layout = QVBoxLayout(library_page)
-        main_layout.setContentsMargins(20, 16, 20, 20)
-        main_layout.setSpacing(16)
-
-        # ===== Header Bar with Settings =====
-        header = QWidget()
-        header_layout = QVBoxLayout(header)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(12)
-
-        # Clickable device toggle button
-        self.device_btn = AnimatedButton()
-        self.device_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.device_btn.setToolTip(tr("tooltip_device"))
-        self.device_btn.setMinimumWidth(130)  # Prevent truncation
-        self.device_btn.clicked.connect(self._toggle_device)
-        self._update_device_badge()
-        library_header = PageHeader(
-            tr("page_library_title"), tr("page_library_subtitle")
-        )
-        library_header.add_action(self.device_btn)
-        header_layout.addWidget(library_header)
-
-        # Row 2: Launch bar — preset combo, Process button, options gear.
-        # The old row of always-visible Model/Language/Translate/
-        # Performance/Diarization combos now lives in the gear's popover
-        # (ui/transcribe_options.py); MainWindow keeps referring to those
-        # widgets under their historical attribute names via aliasing
-        # below, so the rest of the transcription flow is unchanged.
-        self.launch_bar = LaunchBar()
-        self.model_combo = self.launch_bar.options.model_combo
-        self.language_combo = self.launch_bar.options.language_combo
-        self.translate_checkbox = self.launch_bar.options.translate_checkbox
-        self.perf_combo = self.launch_bar.options.perf_combo
-        self.diarization_checkbox = self.launch_bar.options.diarization_checkbox
+        """Create the shared source widgets and persistent Library."""
+        self.transcribe_options = TranscribeOptionsPopover(embedded=True)
+        self.model_combo = self.transcribe_options.model_combo
+        self.language_combo = self.transcribe_options.language_combo
+        self.translate_checkbox = self.transcribe_options.translate_checkbox
+        self.perf_combo = self.transcribe_options.perf_combo
+        self.diarization_checkbox = self.transcribe_options.diarization_checkbox
+        self.step_checklist = StepChecklist()
 
         # Recorder widget lives on its own sidebar section now; still
         # created here so _connect_signals/_apply_config_defaults and the
@@ -322,17 +269,9 @@ class MainWindow(QMainWindow):
         self.recorder_widget.error.connect(self._on_recording_error)
         self._shutdownables.append(self.recorder_widget)
 
-        main_layout.addWidget(header)
-
         self.file_selector = FileSelector()
         self._shutdownables.append(self.file_selector)
         self.file_selector.set_compact(self.height() < 650)
-        new_transcription = FormSection(
-            tr("library_new_title"), tr("library_new_description")
-        )
-        new_transcription.add_widget(self.launch_bar)
-        new_transcription.add_widget(self.file_selector)
-        main_layout.addWidget(new_transcription)
 
         # AIProcessingPanel remains the existing worker-facing controller,
         # but its disabled actions no longer clutter an empty Library page.
@@ -354,71 +293,17 @@ class MainWindow(QMainWindow):
         self.book_panel.cancel_requested.connect(self._cancel_operation)
         self._shutdownables.append(self.book_panel)
 
-        # Recent records occupy the primary remaining space.
         self.library_view = LibraryView()
         self.library_view.open_record.connect(self._open_record_view)
-        main_layout.addWidget(self.library_view, stretch=1)
-
-        # ===== Shared bottom operation bar (hidden while idle) =====
-        self.operation_bar = OperationBar()
-        self.status_label = self.operation_bar.status_label
-        self.progress_bar = self.operation_bar.progress
-        self.cancel_btn = self.operation_bar.cancel_button
-        self.cancel_btn.setText(tr("btn_cancel"))
-        self.cancel_btn.setIcon(get_icon('close', IconColors.muted(), 14))
-        self.operation_bar.cancel_requested.connect(self._cancel_operation)
-        self.progress_timeline = ProgressTimeline()
-        self.progress_timeline.stages = [
-            tr("timeline_select"), tr("timeline_extract"), tr("timeline_transcribe"),
-            tr("timeline_diarize"), tr("timeline_clean"), tr("timeline_generate"),
-        ]
-        self.progress_timeline.setVisible(False)
-        self.progress_bar.setVisible(False)
-        self.cancel_btn.setVisible(False)
-        self.operation_bar.add_detail_widget(self.progress_timeline)
-        workspace_layout.addWidget(self.operation_bar)
-
-        # The Process button now lives in the launch bar at the top of the
-        # page; alias it under its historical name so the many existing
-        # setEnabled()/setVisible() call sites during the transcription
-        # lifecycle keep working unchanged.
-        self.transcribe_btn = self.launch_bar.process_btn
-        self.launch_bar.process_requested.connect(self._start_transcription)
-
-        self._stack.addWidget(library_page)  # index 0
 
     def _build_queue_section(self) -> None:
-        """Batch folder processing (index 1)."""
-        queue_page = QWidget()
-        queue_layout = QVBoxLayout(queue_page)
-        queue_layout.setContentsMargins(20, 16, 20, 20)
-        queue_layout.setSpacing(16)
-        queue_layout.addWidget(
-            PageHeader(tr("page_queue_title"), tr("page_queue_subtitle"))
-        )
-        queue_layout.addWidget(self.batch_panel)
-        self._stack.addWidget(queue_page)  # index 1
+        """Queue is mounted in the persistent status surface later."""
 
     def _build_recorder_section(self) -> None:
-        """Recorder page (index 2)."""
-        recorder_page = QWidget()
-        recorder_outer = QVBoxLayout(recorder_page)
-        recorder_outer.setContentsMargins(20, 16, 20, 20)
-        recorder_outer.setSpacing(16)
-        recorder_outer.addWidget(
-            PageHeader(tr("page_recorder_title"), tr("page_recorder_subtitle"))
-        )
-        # The recorder controls are short and were previously top-aligned,
-        # leaving most of the page an empty void below them. Center them
-        # in the remaining space instead — same widget, no new content.
-        recorder_outer.addStretch(1)
-        recorder_outer.addWidget(self.recorder_widget)
-        recorder_outer.addStretch(2)
-        self._stack.addWidget(recorder_page)  # index 2
+        """Recorder is mounted as a DraftRecord source later."""
 
     def _build_live_section(self) -> None:
-        """Live transcription (opt-in until standalone/release gates).
-        Sets self._live_index, used by _setup_ui's _section_index."""
+        """Create Live once; DraftRecord owns its visible placement."""
         self.live_view = LiveView()
         self.live_runtime = LiveRuntime(self)
         self._live_preflight_worker = None
@@ -439,11 +324,9 @@ class MainWindow(QMainWindow):
         self.live_runtime.session_state_changed.connect(self.live_view.set_session_state)
         self.live_view.open_record_requested.connect(self._open_completed_live)
         self.live_view._timer.timeout.connect(self._update_live_metrics)
-        self._live_index = self._stack.addWidget(self.live_view)
 
     def _build_record_section(self) -> None:
-        """Not a sidebar destination — opened by clicking a Library entry
-        or finishing a fresh transcription. Sets self._record_index."""
+        """Build document content, inspector pages, draft and shell."""
         self.record_view = RecordView()
         self.record_view.back_requested.connect(self._show_library)
         self.record_view.export_requested.connect(self._export_result)
@@ -453,9 +336,8 @@ class MainWindow(QMainWindow):
         # Audio player (hidden when multimedia backend unavailable)
         self.player = PlayerWidget()
 
-        # Tabbed result views (Split into Main Content and Tools)
+        # Document tabs remain in the center; generated tools move to the inspector.
         self.main_tabs = QTabWidget()
-        self.tools_tabs = ToolWorkspace()
 
         self.transcript_view = TranscriptView()
         self.main_tabs.addTab(self.transcript_view, tr("tab_transcript"))
@@ -464,62 +346,155 @@ class MainWindow(QMainWindow):
         self.main_tabs.addTab(self.cleaned_view, tr("tab_cleaned"))
 
         self.article_view = ArticleView()
-        self.tools_tabs.addTab(self.article_view, tr("tab_articles"))
 
         self.chat_panel = ChatPanel()
-        self.tools_tabs.addTab(self.chat_panel, tr("tab_chat"))
         self._shutdownables.append(self.chat_panel)
 
         self.insights_panel = InsightsPanel()
-        self.tools_tabs.addTab(self.insights_panel, tr("tab_insights"))
+        self.insights_panel.generation_finished.connect(
+            self._on_chain_insights_done
+        )
         self._shutdownables.append(self.insights_panel)
 
         self.cut_view = CutView()
         self.cut_view.video_panel.export_edl_requested.connect(self._export_edl)
         self.cut_view.video_panel.mark_pauses_requested.connect(self._mark_pauses)
         self.cut_view.video_panel.assemble_requested.connect(self._assemble_draft)
-        self.tools_tabs.addTab(self.cut_view, tr("tab_cut"))
 
         self.youtube_panel = YouTubePanel()
         self.youtube_panel.generation_finished.connect(self._on_chain_youtube_done)
-        self.tools_tabs.addTab(self.youtube_panel, tr("tab_youtube"))
         self._shutdownables.append(self.youtube_panel)
+        self.record_view.set_content_widgets(self.player, self.main_tabs)
 
-        self.tools_tabs.addTab(self.book_panel, tr("tab_book"))
+        self.inspector = InspectorRail()
+        self.inspector.settings_requested.connect(self._open_settings)
+        materials = QWidget()
+        materials_layout = QVBoxLayout(materials)
+        materials_layout.setContentsMargins(0, 0, 0, 0)
+        self.material_selector = QComboBox()
+        self.material_selector.addItems(
+            [tr("tab_articles"), tr("tab_youtube"), tr("tab_book")]
+        )
+        materials_layout.addWidget(self.material_selector)
+        self.material_stack = QStackedWidget()
+        for panel in (self.article_view, self.youtube_panel, self.book_panel):
+            self.material_stack.addWidget(panel)
+        self.material_selector.currentIndexChanged.connect(
+            self.material_stack.setCurrentIndex
+        )
+        materials_layout.addWidget(self.material_stack, stretch=1)
+        settings_page = QWidget()
+        settings_layout = QVBoxLayout(settings_page)
+        settings_layout.setContentsMargins(0, 0, 0, 0)
+        settings_layout.addWidget(self.transcribe_options)
+        settings_layout.addWidget(self.step_checklist, stretch=1)
+        self.inspector.set_page("materials", materials)
+        self.inspector.set_page("insights", self.insights_panel)
+        self.inspector.set_page("cut", self.cut_view)
+        self.inspector.set_page("chat", self.chat_panel)
+        self.settings_stack = QStackedWidget()
+        self.settings_stack.addWidget(settings_page)
+        self.settings_stack.addWidget(self.live_view.options_panel)
+        self.inspector.set_page("settings", self.settings_stack)
+        self.tools_tabs = self.inspector
 
-        self.record_view.set_content_widgets(self.player, self.main_tabs, self.tools_tabs)
-        self._record_index = self._stack.addWidget(self.record_view)  # index 3
+        self._stack = QStackedWidget()
+        folder_source = QWidget()
+        folder_layout = QVBoxLayout(folder_source)
+        folder_layout.setContentsMargins(0, 0, 0, 0)
+        folder_hint = QLabel(tr("draft_folder_hint"))
+        folder_hint.setProperty("role", "muted")
+        folder_hint.setWordWrap(True)
+        folder_layout.addWidget(folder_hint)
+        queue_button = AnimatedButton(tr("draft_open_queue"))
+        queue_button.clicked.connect(lambda: self.status_bar._toggle_queue())
+        folder_layout.addWidget(queue_button)
+        folder_layout.addStretch()
+        self.draft_record = DraftRecord(
+            self.file_selector,
+            self.recorder_widget,
+            self.live_view,
+            folder_source,
+        )
+        self.draft_record.process_requested.connect(self._start_transcription)
+        self.draft_record.source_changed.connect(self._on_draft_source_changed)
+        self._draft_index = self._stack.addWidget(self.draft_record)
+        self._record_index = self._stack.addWidget(self.record_view)
+        self._section_index = {
+            "library": self._draft_index,
+            "queue": self._draft_index,
+            "recorder": self._draft_index,
+            "live": self._draft_index,
+        }
+
+        self.workspace_shell = WorkspaceShell(
+            self.library_view, self._stack, self.inspector
+        )
+        self.workspace_shell.new_requested.connect(self._show_new_draft)
+        self._workspace_layout.addWidget(self.workspace_shell, stretch=1)
+
+        self.status_bar = StatusBar()
+        self.operation_bar = self.status_bar
+        self.status_label = self.status_bar.status_label
+        self.progress_bar = self.status_bar.progress
+        self.cancel_btn = self.status_bar.cancel_button
+        self.device_btn = self.status_bar.device_button
+        self.device_btn.setToolTip(tr("tooltip_device"))
+        self.device_btn.clicked.connect(self._toggle_device)
+        self.status_bar.cancel_requested.connect(self._cancel_operation)
+        self.status_bar.bind_queue(self.batch_panel)
+        self.batch_panel.queue_changed.connect(self.status_bar.set_queue_count)
+        self.book_panel.connection_changed.connect(self.status_bar.set_llm_status)
+        self.progress_timeline = ProgressTimeline()
+        self.progress_timeline.stages = [
+            tr("timeline_select"), tr("timeline_extract"), tr("timeline_transcribe"),
+            tr("timeline_diarize"), tr("timeline_clean"), tr("timeline_generate"),
+        ]
+        self.progress_timeline.setVisible(False)
+        self.status_bar.add_detail_widget(self.progress_timeline)
+        self._workspace_layout.addWidget(self.status_bar)
+        self.transcribe_btn = self.draft_record.process_button
+        self._update_device_badge()
 
     def _on_section_changed(self, key: str) -> None:
-        """Switch the visible page when a sidebar button is clicked.
-
-        Also keeps the sidebar's own highlighted button in sync — needed
-        for programmatic navigation (keyboard shortcuts, _show_library())
-        where nothing already clicked the button itself. Previously every
-        caller had to remember to call sidebar.set_active() separately;
-        centralizing it here means a future call site can't forget to.
-        """
+        """Compatibility entry point: top-level destinations are draft sources."""
         idx = self._section_index.get(key)
         if idx is not None:
-            self.sidebar.set_active(key)
             self._stack.setCurrentIndex(idx)
+            self.status_bar.show_queue(key == "queue")
+            if key in {"recorder", "live"}:
+                self.draft_record.set_source(key)
+            elif key == "queue":
+                self.draft_record.set_source("folder")
+            else:
+                self.draft_record.set_source("file")
             if key == "live" and os.environ.get("WHISPERED_UI_GALLERY") != "1":
                 self.live_view.setup.refresh_targets()
 
     def _on_sidebar_collapsed(self, collapsed: bool) -> None:
-        cfg = get_config()
-        cfg.sidebar_collapsed = collapsed
-        save_config()
+        self.workspace_shell.set_library_collapsed(collapsed)
+
+    def _show_new_draft(self) -> None:
+        self._stack.setCurrentIndex(self._draft_index)
+        self.draft_record.set_source("file")
+        self.inspector.set_section("settings")
+
+    def _on_draft_source_changed(self, source: str) -> None:
+        is_live = source == "live"
+        self.settings_stack.setCurrentIndex(1 if is_live else 0)
+        if is_live:
+            self.inspector.set_section("settings")
 
     def _show_library(self) -> None:
         """Navigate back to the Library page (from the Record view) and
         refresh the list in case anything changed while a record was open."""
-        self._on_section_changed("library")
+        self._stack.setCurrentIndex(self._draft_index)
         self.library_view.refresh()
 
     def _open_record_view(self, record_id: int) -> None:
         """Load a history record and switch to the Record page."""
         if self._load_from_history(record_id):
+            self.library_view.set_open_record(record_id)
             self._stack.setCurrentIndex(self._record_index)
 
     def _live_options(self):
@@ -676,19 +651,30 @@ class MainWindow(QMainWindow):
         _sc("Ctrl+,",       self._open_settings)
         _sc("Ctrl+O",       self.file_selector.browse_btn.click)
         _sc("Ctrl+T",       self._start_transcription)
-        _sc("Ctrl+Return",  self.launch_bar.process_btn.click)
-        _sc("Ctrl+Enter",   self.launch_bar.process_btn.click)  # numpad Enter
+        _sc("Ctrl+Return",  self.transcribe_btn.click)
+        _sc("Ctrl+Enter",   self.transcribe_btn.click)  # numpad Enter
         _sc("Ctrl+E",       self._export_result)
         _sc("Ctrl+Shift+C", self._copy_to_clipboard)
         _sc("Ctrl+R",       self.recorder_widget._toggle_recording)
-        # Section navigation matches the sidebar's top-to-bottom order.
-        # _on_section_changed() also keeps the sidebar's highlighted button
-        # in sync, so no extra set_active() call is needed here.
-        _sc("Ctrl+1",       lambda: self._on_section_changed("library"))
-        _sc("Ctrl+2",       lambda: self._on_section_changed("queue"))
-        _sc("Ctrl+3",       lambda: self._on_section_changed("recorder"))
+        _sc("Ctrl+K",       self.command_palette.open_palette)
+        _sc("Ctrl+1",       self.library_view._search_edit.setFocus)
+        _sc("Ctrl+2",       lambda: self.inspector.set_section("materials"))
+        _sc("Ctrl+3",       lambda: self.inspector.set_section("settings"))
         # Space: play/pause only when focus is not inside a text input
         _sc("Space",        self._space_play_pause)
+
+    def _run_palette_action(self, action: str) -> None:
+        handlers = {
+            "new": self._show_new_draft,
+            "youtube": self.youtube_panel.generate,
+            "export": self._export_result,
+            "live": lambda: self._on_section_changed("live"),
+            "queue": lambda: self._on_section_changed("queue"),
+            "settings": self._open_settings,
+        }
+        handler = handlers.get(action)
+        if handler is not None:
+            handler()
 
     def _toggle_device(self):
         """Toggle between GPU and CPU mode."""
@@ -763,7 +749,9 @@ class MainWindow(QMainWindow):
         self.transcript_view.apply_display_settings()
         cfg = get_config()
         self.recorder_widget.set_device(getattr(cfg, "mic_device_index", None))
-        self.sidebar.set_live_enabled(cfg.live_transcription_enabled)
+        self.draft_record._source_buttons["live"].setEnabled(
+            cfg.live_transcription_enabled
+        )
 
     def _apply_config_defaults(self):
         """Re-seed header controls from the saved config (after settings change)."""
@@ -823,28 +811,10 @@ class MainWindow(QMainWindow):
         else:
             ov.hide()
 
-    # Below this width, RecordView's splitter can't fit both its panes at
-    # their minimum widths (400 + 320 + 1px handle = 721) once the expanded
-    # sidebar (200) and this page's own margins (40) are subtracted — the
-    # two widgets would overlap instead of just looking cramped. 961 is the
-    # exact floor; kept with a little slack. Below it we force-collapse
-    # without touching the user's saved sidebar_collapsed choice, same as
-    # any width above it always defers to that choice (see resizeEvent).
-    _SIDEBAR_FORCE_COLLAPSE_WIDTH = 980
-
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, "file_selector"):
             self.file_selector.set_compact(event.size().height() < 650)
-        if hasattr(self, "sidebar"):
-            if event.size().width() < self._SIDEBAR_FORCE_COLLAPSE_WIDTH:
-                self.sidebar.set_collapsed(True, emit=False)
-            else:
-                # Not narrow enough to force — always defer to the user's
-                # saved preference, so a resize can never silently undo an
-                # explicit expand/collapse click (see collapsed_changed).
-                collapsed = bool(getattr(get_config(), "sidebar_collapsed", False))
-                self.sidebar.set_collapsed(collapsed, emit=False)
         if hasattr(self, "_drop_overlay") and self._drop_overlay.isVisible():
             self._drop_overlay.setGeometry(self.centralWidget().geometry())
 
@@ -873,7 +843,7 @@ class MainWindow(QMainWindow):
         """Handle file selection."""
         self._source_kind = "file"
         self._source_filepath = filepath
-        self.launch_bar.set_process_enabled(True)
+        self.draft_record.set_process_enabled(True)
         self.status_label.setText(tr("status_ready_file", name=os.path.basename(filepath)))
         self.player.load(filepath)
 
@@ -882,7 +852,7 @@ class MainWindow(QMainWindow):
         self._source_filepath = None
         self._source_kind = "file"
         self.player.load("")
-        self.launch_bar.set_process_enabled(False)
+        self.draft_record.set_process_enabled(False)
         # Transcript-only records can still be exported, but cannot be cut.
         self.cut_view.video_panel.set_has_transcript(False)
 
@@ -988,6 +958,23 @@ class MainWindow(QMainWindow):
     def _cancel_operation(self):
         """Cancel the current operation (transcription, AI processing, or
         an in-progress preset chain — see _start_preset_chain)."""
+        if self.batch_panel._is_processing():
+            self.batch_panel.cancel_processing()
+            self.status_label.setText(tr("status_cancelled"))
+            return
+
+        if self._chain_extra_active or self._chain_extra_steps:
+            self._chain_extra_steps.clear()
+            self._chain_extra_active = ""
+            self.insights_panel.clear()
+            if self._ai_worker and self._ai_worker.isRunning():
+                self._ai_worker.cancel()
+                self._ai_worker.wait()
+                self._ai_worker = None
+            self.status_label.setText(tr("status_chain_cancelled"))
+            self._reset_ui()
+            return
+
         if self._preset_chain.is_active():
             self._preset_chain.cancel()
             self.youtube_panel._cancel_workers(timeout=1000)
@@ -1109,18 +1096,27 @@ class MainWindow(QMainWindow):
         self.record_view.set_title(title)
         self.record_view.set_has_result(True)
         if open_record:
-            self.sidebar.set_active("library")
             self._stack.setCurrentIndex(self._record_index)
+            self.inspector.set_section("materials")
+        self.inspector.set_artifacts(["transcript"])
 
         self._start_preset_chain()
 
     def _start_preset_chain(self) -> None:
         """After a fresh transcription, automatically run whatever extra
-        generation steps the selected launch-bar preset calls for
+        generation steps the selected checklist calls for
         (Phase C.3). "transcribe_only" does nothing here — the transcript
         itself is already saved to history above."""
-        steps = self._preset_chain.start(self.launch_bar.current_preset())
+        selected = self.step_checklist.selected_steps()
+        self._chain_extra_steps = [
+            step for step in selected if step in {"insights", "book"}
+        ]
+        self._chain_extra_ran = set()
+        self._chain_extra_had_error = False
+        self._chain_extra_active = ""
+        steps = self._preset_chain.start(self.step_checklist.legacy_preset())
         if not steps:
+            self._start_next_extra_chain_step()
             return
 
         self.cancel_btn.setVisible(True)
@@ -1134,6 +1130,63 @@ class MainWindow(QMainWindow):
 
     def _on_chain_youtube_done(self, success: bool) -> None:
         self._preset_chain.on_youtube_done(success)
+
+    def _start_next_extra_chain_step(self) -> None:
+        if not self._chain_extra_steps:
+            self._finish_extra_chain()
+            return
+        step = self._chain_extra_steps.pop(0)
+        self._chain_extra_active = step
+        self.cancel_btn.setVisible(True)
+        self.transcribe_btn.setEnabled(False)
+        self.status_label.setText(tr("status_chain_running"))
+        if step == "insights":
+            self.inspector.set_section("insights")
+            self.insights_panel._generate_all()
+        elif step == "book":
+            self.inspector.set_section("materials")
+            self.material_selector.setCurrentIndex(2)
+            self._on_book_run(
+                self.book_panel.chk_unwrap.isChecked(),
+                self.book_panel.chk_custom.isChecked(),
+                self.book_panel.custom_prompt_edit.text().strip(),
+            )
+
+    def _on_chain_insights_done(self, success: bool) -> None:
+        if self._chain_extra_active != "insights":
+            return
+        if success:
+            self._chain_extra_ran.add("insights")
+        else:
+            self._chain_extra_had_error = True
+        self._chain_extra_active = ""
+        self._start_next_extra_chain_step()
+
+    def _finish_extra_chain(self) -> None:
+        if not self._chain_extra_ran and not self._chain_extra_had_error:
+            return
+        artifacts = {"transcript", *self._chain_extra_ran}
+        if self._last_record_id is not None:
+            try:
+                from core.history import get_history_store
+                current = get_history_store().get_record(self._last_record_id) or {}
+                artifacts.update(current.get("artifacts", []))
+                get_history_store().set_artifacts(
+                    self._last_record_id, sorted(artifacts)
+                )
+                self.library_view.refresh()
+            except Exception as exc:
+                logger.warning("Failed to persist extra chain artifacts: %s", exc)
+        self.inspector.set_artifacts(artifacts)
+        self._reset_ui()
+        if self._chain_extra_had_error:
+            show_toast(self, tr("toast_chain_error"), kind="error")
+        elif self._chain_extra_ran:
+            show_toast(
+                self,
+                tr("toast_chain_done", count=len(self._chain_extra_ran)),
+                kind="success",
+            )
 
     def _finish_preset_chain(self, had_error: bool, ran: set[str]) -> None:
         """Auto-save whatever the chain produced to data_dir()/output/<stem>/
@@ -1165,6 +1218,12 @@ class MainWindow(QMainWindow):
                 self.library_view.refresh()
             except Exception as e:
                 logger.warning("Failed to persist chain artifacts to history: %s", e)
+
+        self._chain_extra_had_error = self._chain_extra_had_error or had_error
+        self._chain_extra_ran.update(ran)
+        if self._chain_extra_steps:
+            self._start_next_extra_chain_step()
+            return
 
         self._reset_ui()
 
@@ -1277,6 +1336,7 @@ class MainWindow(QMainWindow):
             self.main_tabs.setCurrentIndex(0)
             self.record_view.set_title(Path(source_name).stem if source_name else tr("app_title"))
             self.record_view.set_has_result(True)
+            self.inspector.set_artifacts(record.get("artifacts", ["transcript"]))
             return True
         except Exception as e:
             logger.warning("Failed to load history record %d: %s", record_id, e)
@@ -1299,8 +1359,12 @@ class MainWindow(QMainWindow):
         about to start), in which case Cancel must stay reachable and
         Process must stay disabled so the user can't start a second
         transcription mid-chain."""
-        chain_active = self._preset_chain.is_active()
-        self.launch_bar.set_process_enabled(
+        chain_active = bool(
+            self._preset_chain.is_active()
+            or self._chain_extra_active
+            or self._chain_extra_steps
+        )
+        self.draft_record.set_process_enabled(
             not chain_active and self.file_selector.get_file() is not None
         )
         self.transcribe_btn.setVisible(True)
@@ -1650,9 +1714,11 @@ class MainWindow(QMainWindow):
         self._reset_ui()
         self._ai_worker = None
 
+        book_succeeded = False
         if isinstance(result, BookResult) and result.stages:
             saved_paths = [s.output_path for s in result.stages if s.success and s.output_path]
             if saved_paths:
+                book_succeeded = True
                 files = ", ".join(os.path.basename(p) for p in saved_paths)
                 self.status_label.setText(tr("status_book_saved", files=files))
                 # Show result in Cleaned tab
@@ -1671,6 +1737,14 @@ class MainWindow(QMainWindow):
         else:
             self.status_label.setText(tr("status_book_pipeline_done"))
 
+        if self._chain_extra_active == "book":
+            if book_succeeded:
+                self._chain_extra_ran.add("book")
+            else:
+                self._chain_extra_had_error = True
+            self._chain_extra_active = ""
+            self._start_next_extra_chain_step()
+
     def _on_book_error(self, error_message: str):
         """Handle book pipeline error."""
         self.book_panel.set_processing(False)
@@ -1678,4 +1752,13 @@ class MainWindow(QMainWindow):
         self._ai_worker = None
 
         self.status_label.setText(tr("status_book_error", error=error_message[:60]))
-        QMessageBox.warning(self, tr("error_book_pipeline_title"), tr("error_occurred", detail=error_message))
+        if self._chain_extra_active == "book":
+            self._chain_extra_had_error = True
+            self._chain_extra_active = ""
+            self._start_next_extra_chain_step()
+        else:
+            QMessageBox.warning(
+                self,
+                tr("error_book_pipeline_title"),
+                tr("error_occurred", detail=error_message),
+            )

@@ -133,14 +133,6 @@ class SettingsDialog(QDialog):
         self._theme_combo.currentIndexChanged.connect(self._on_theme_changed)
         layout.addRow(tr("settings_theme"), self._theme_combo)
 
-        # Timestamps
-        self._timestamps_chk = QCheckBox(tr("settings_show_timestamps"))
-        layout.addRow(self._timestamps_chk)
-
-        # Speaker labels
-        self._speakers_chk = QCheckBox(tr("settings_show_speakers"))
-        layout.addRow(self._speakers_chk)
-
         # History
         self._history_chk = QCheckBox(tr("settings_history_enabled"))
         layout.addRow(self._history_chk)
@@ -322,8 +314,6 @@ class SettingsDialog(QDialog):
         # General
         idx = self._theme_combo.findData(cfg.theme)
         self._theme_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        self._timestamps_chk.setChecked(cfg.show_timestamps)
-        self._speakers_chk.setChecked(cfg.show_speaker_labels)
         self._history_chk.setChecked(cfg.history_enabled)
         self._live_chk.setChecked(getattr(cfg, "live_transcription_enabled", False))
         idx = self._lang_ui_combo.findData(getattr(cfg, "ui_language", "auto"))
@@ -360,8 +350,6 @@ class SettingsDialog(QDialog):
 
         # General
         cfg.theme = self._theme_combo.currentData() or "dark"
-        cfg.show_timestamps = self._timestamps_chk.isChecked()
-        cfg.show_speaker_labels = self._speakers_chk.isChecked()
         cfg.history_enabled = self._history_chk.isChecked()
         cfg.live_transcription_enabled = self._live_chk.isChecked()
         cfg.ui_language = self._lang_ui_combo.currentData() or "auto"

@@ -351,10 +351,16 @@ class TranscriptView(QWidget):
 
     def _toggle_timestamps(self):
         self._show_timestamps = self.timestamps_btn.isChecked()
+        from config import get_config, save_config
+        get_config().show_timestamps = self._show_timestamps
+        save_config()
         self._update_display()
 
     def _toggle_speakers(self):
         self._show_speakers = self.speakers_btn.isChecked()
+        from config import get_config, save_config
+        get_config().show_speaker_labels = self._show_speakers
+        save_config()
         self._update_display()
 
     def _get_display_name(self, speaker_id: str) -> str:

@@ -12,6 +12,8 @@ and lossless, but cuts snap to the nearest keyframe and are NOT frame-accurate.
 import os
 import subprocess
 import tempfile
+import time
+from typing import Callable
 
 from video_input import ensure_ffmpeg
 from core.external_tools import resolve_tool
@@ -24,6 +26,10 @@ class VideoCutError(RuntimeError):
     """Raised when ffmpeg fails to produce a valid output."""
 
 
+class VideoCutCancelled(VideoCutError):
+    """Raised when ``should_cancel`` fires while ffmpeg is running."""
+
+
 def assemble_draft(
     source_path: str,
     kept_segments,
@@ -32,6 +38,7 @@ def assemble_draft(
     fast: bool = False,
     crf: int = 18,
     preset: str = "fast",
+    should_cancel: Callable[[], bool] | None = None,
 ) -> None:
     """Cut and concatenate kept_segments from source_path into output_path.
 
@@ -47,6 +54,9 @@ def assemble_draft(
                     Default False = frame-accurate per-segment re-encode.
     crf           : x264 quality for the accurate path (lower = better).
     preset        : x264 speed/quality preset for the accurate path.
+    should_cancel : Optional callable polled between/during ffmpeg calls;
+                    raises ``VideoCutCancelled`` as soon as it returns True
+                    so a caller running this off-thread can be interrupted.
     """
     ensure_ffmpeg()
 
@@ -61,16 +71,18 @@ def assemble_draft(
 
     if fast:
         try:
-            _run_concat_copy(source_path, segs, output_path, _progress)
+            _run_concat_copy(source_path, segs, output_path, _progress, should_cancel)
             _verify_output(output_path)
             _progress(f"Done (fast copy): {output_path}")
             return
+        except VideoCutCancelled:
+            raise
         except VideoCutError as exc:
             _progress(f"Fast copy failed ({exc}); falling back to accurate re-encode…")
             if os.path.exists(output_path):
                 os.remove(output_path)
 
-    _assemble_accurate(source_path, segs, output_path, _progress, crf, preset)
+    _assemble_accurate(source_path, segs, output_path, _progress, crf, preset, should_cancel)
     _verify_output(output_path)
     _progress(f"Done: {output_path}")
 
@@ -79,7 +91,7 @@ def assemble_draft(
 # Frame-accurate path (default): per-segment re-encode + lossless concat
 # ---------------------------------------------------------------------------
 
-def _assemble_accurate(source_path, segments, output_path, progress, crf, preset):
+def _assemble_accurate(source_path, segments, output_path, progress, crf, preset, should_cancel=None):
     abs_source = os.path.abspath(source_path)
     total = len(segments)
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -98,7 +110,7 @@ def _assemble_accurate(source_path, segments, output_path, progress, crf, preset
                 "-f", "mpegts",
                 ts_path,
             ]
-            _run(cmd)
+            _run(cmd, should_cancel)
             ts_files.append(ts_path)
 
         progress("Joining segments…")
@@ -115,7 +127,7 @@ def _assemble_accurate(source_path, segments, output_path, progress, crf, preset
             "-movflags", "+faststart",
             output_path,
         ]
-        _run(cmd)
+        _run(cmd, should_cancel)
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +146,7 @@ def _write_concat_list(source_path: str, segments, tmpdir: str) -> str:
     return list_path
 
 
-def _run_concat_copy(source_path: str, segments, output_path: str, progress):
+def _run_concat_copy(source_path: str, segments, output_path: str, progress, should_cancel=None):
     """Attempt -c copy concat (fast, lossless, keyframe-snapped)."""
     progress("Assembling with stream copy (fast, keyframe-snapped)…")
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -146,18 +158,58 @@ def _run_concat_copy(source_path: str, segments, output_path: str, progress):
             "-c", "copy",
             output_path,
         ]
-        _run(cmd)
+        _run(cmd, should_cancel)
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _run(cmd: list):
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
-    if result.returncode != 0:
-        snippet = (result.stderr or "")[-400:]
-        raise VideoCutError(f"ffmpeg exited {result.returncode}: …{snippet}")
+_CANCEL_POLL_SECONDS = 0.2
+_MAX_RUN_SECONDS = 3600
+
+
+def _run(cmd: list, should_cancel: Callable[[], bool] | None = None):
+    if should_cancel is None:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=_MAX_RUN_SECONDS)
+        if result.returncode != 0:
+            snippet = (result.stderr or "")[-400:]
+            raise VideoCutError(f"ffmpeg exited {result.returncode}: …{snippet}")
+        return
+
+    deadline = time.monotonic() + _MAX_RUN_SECONDS
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        while True:
+            if should_cancel():
+                _stop(proc)
+                raise VideoCutCancelled("Cancelled by user.")
+            if time.monotonic() > deadline:
+                _stop(proc)
+                raise VideoCutError(f"ffmpeg timed out after {_MAX_RUN_SECONDS}s")
+            try:
+                stdout, stderr = proc.communicate(timeout=_CANCEL_POLL_SECONDS)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+    finally:
+        if proc.stdout:
+            proc.stdout.close()
+        if proc.stderr:
+            proc.stderr.close()
+
+    if proc.returncode != 0:
+        snippet = (stderr or "")[-400:]
+        raise VideoCutError(f"ffmpeg exited {proc.returncode}: …{snippet}")
+
+
+def _stop(proc: subprocess.Popen) -> None:
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=5)
 
 
 def _verify_output(path: str):

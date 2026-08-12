@@ -40,6 +40,7 @@ class BookPanel(QWidget):
 
     run_single_requested = pyqtSignal(bool, bool, str)
     cancel_requested = pyqtSignal()
+    connection_changed = pyqtSignal(bool, str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -84,6 +85,8 @@ class BookPanel(QWidget):
         status_row.addWidget(self.status_label)
         status_row.addStretch()
         layout.addLayout(status_row)
+        self.status_dot.setVisible(False)
+        self.status_label.setVisible(False)
 
         # ----- Stage checkboxes -----
         stages_label = QLabel(tr("book_stages_label"))
@@ -209,6 +212,22 @@ class BookPanel(QWidget):
         batch_btn_row.addWidget(self.batch_cancel_btn)
         layout.addLayout(batch_btn_row)
 
+        # Folder jobs now live in the one shared queue in StatusBar. Keep
+        # the worker methods for compatibility with in-flight sessions,
+        # but retire this duplicate picker/progress surface.
+        for widget in (
+            divider2,
+            batch_header,
+            self.folder_edit,
+            self.folder_browse,
+            self.batch_count_label,
+            self.batch_progress,
+            self.batch_status_label,
+            self.batch_start_btn,
+            self.batch_cancel_btn,
+        ):
+            widget.setVisible(False)
+
         layout.addStretch()
 
     # ------------------------------------------------------------------
@@ -222,10 +241,10 @@ class BookPanel(QWidget):
 
     def set_processing(self, processing: bool) -> None:
         """Show / hide progress widgets for single-file processing."""
-        self.single_progress.setVisible(processing)
-        self.single_status.setVisible(processing)
+        self.single_progress.setVisible(False)
+        self.single_status.setVisible(False)
         self.run_btn.setVisible(not processing)
-        self.cancel_btn.setVisible(processing)
+        self.cancel_btn.setVisible(False)
         if not processing:
             self.single_progress.setValue(0)
             self.single_status.setText("")
@@ -258,6 +277,7 @@ class BookPanel(QWidget):
 
     def _on_connection_result(self, connected: bool, _detail: str = "") -> None:
         self._connected = connected
+        self.connection_changed.emit(connected, _detail)
         if connected:
             set_role(self.status_dot, "success-text")
             self.status_label.setText(tr("book_lm_connected"))

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QComboBox, QPlainTextEdit, QApplication, QTabWidget,
+    QPushButton, QComboBox, QPlainTextEdit, QApplication, QToolBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -145,10 +145,31 @@ class YouTubePanel(QWidget):
         self._privacy_notice.setVisible(False)
         layout.addWidget(self._privacy_notice)
 
+        # Shown whenever a generation run comes back empty-handed (LM
+        # Studio unreachable, missing cloud API key, or every worker
+        # erroring out) so the user has an explicit way to retry once the
+        # underlying problem is fixed, without hunting for the Generate
+        # button again — this matters most when the run was kicked off
+        # automatically by a preset chain and the user is on another tab.
+        retry_row = QHBoxLayout()
+        retry_row.setSpacing(8)
+        self._retry_label = QLabel()
+        self._retry_label.setWordWrap(True)
+        self._retry_label.setProperty("role", "warning-text")
+        self._retry_label.setStyleSheet("font-size: 11px;")
+        retry_row.addWidget(self._retry_label, stretch=1)
+        self._retry_btn = QPushButton(tr("youtube_retry"))
+        self._retry_btn.clicked.connect(self._generate)
+        retry_row.addWidget(self._retry_btn)
+        self._retry_bar = QWidget()
+        self._retry_bar.setLayout(retry_row)
+        self._retry_bar.setVisible(False)
+        layout.addWidget(self._retry_bar)
+
         self._init_provider_from_config()
 
         # Inner tabs: Chapters | Titles | Description | Tags | Key Questions
-        self._tabs = QTabWidget()
+        self._tabs = QToolBox()
         self._tabs.setVisible(False)
 
         mono = QFont("Monospace")
@@ -160,7 +181,7 @@ class YouTubePanel(QWidget):
             if spec.mono:
                 edit.setFont(mono)
             setattr(self, spec.edit_attr, edit)
-            self._tabs.addTab(edit, tr(spec.label_key))
+            self._tabs.addItem(edit, tr(spec.label_key))
 
         layout.addWidget(self._tabs, stretch=1)
 
@@ -225,6 +246,7 @@ class YouTubePanel(QWidget):
         for edit in self._edits():
             edit.clear()
         self._tabs.setVisible(False)
+        self._retry_bar.setVisible(False)
         self._cancel_workers(timeout=2000)
         self._pending = 0
         self._placeholder.setText(tr("youtube_placeholder"))
@@ -285,6 +307,7 @@ class YouTubePanel(QWidget):
             self._chapters_edit.setPlainText(tr("youtube_no_api_key"))
             self._tabs.setVisible(True)
             self._placeholder.hide()
+            self._show_retry(tr("youtube_no_api_key"))
             self.generation_finished.emit(False)
             return
 
@@ -292,6 +315,7 @@ class YouTubePanel(QWidget):
             self._chapters_edit.setPlainText(tr("youtube_no_lm"))
             self._tabs.setVisible(True)
             self._placeholder.hide()
+            self._show_retry(tr("youtube_no_lm"))
             self.generation_finished.emit(False)
             return
 
@@ -310,6 +334,7 @@ class YouTubePanel(QWidget):
             edit.clear()
         self._tabs.setVisible(True)
         self._placeholder.hide()
+        self._retry_bar.setVisible(False)
 
         # "Auto" (None) falls back to the transcript's own detected
         # language rather than sending no directive at all — an empty
@@ -403,11 +428,20 @@ class YouTubePanel(QWidget):
             self._save_btn.setEnabled(True)
         if self._any_error:
             show_toast(self, tr("youtube_generate_error"), kind="error")
+            self._show_retry(tr("youtube_generate_error"))
         self.generation_finished.emit(self._any_success)
 
     def _reset_button(self):
         self._gen_btn.setEnabled(bool(self._segments))
         self._gen_btn.setText(tr("youtube_generate"))
+
+    def _show_retry(self, reason: str) -> None:
+        """Surface an inline retry bar so a failed run — e.g. LM Studio was
+        unreachable when a preset chain kicked this off in the background —
+        can be re-run with one click once the user notices and switches to
+        this tab, instead of them having to rediscover the Generate button."""
+        self._retry_label.setText(f"{reason} {tr('youtube_retry_hint')}")
+        self._retry_bar.setVisible(True)
 
     def _edits(self) -> list[QPlainTextEdit]:
         """All tab edit widgets, in tab order."""

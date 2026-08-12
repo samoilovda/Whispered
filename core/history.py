@@ -317,12 +317,16 @@ class HistoryStore:
         with self._connect() as conn:
             row = conn.execute(
                 """SELECT id, source_path, source_name, source_kind, duration, language, model,
-                          json_payload
+                          artifacts, json_payload
                    FROM transcripts WHERE id = ?""",
                 (record_id,),
             ).fetchone()
         if row is None:
             return None
+        try:
+            artifacts = json.loads(row["artifacts"]) if row["artifacts"] else ["transcript"]
+        except (TypeError, json.JSONDecodeError):
+            artifacts = ["transcript"]
         return {
             "id": row["id"],
             "source_path": row["source_path"],
@@ -331,6 +335,7 @@ class HistoryStore:
             "duration": row["duration"],
             "language": row["language"],
             "model": row["model"],
+            "artifacts": artifacts,
             "payload": _payload_to_dict(row["json_payload"]),
         }
 

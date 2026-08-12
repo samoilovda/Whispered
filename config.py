@@ -61,6 +61,10 @@ class Config:
     sidebar_collapsed: bool = False
     record_tools_width: int = 360
     live_diagnostics_expanded: bool = False
+    inspector_section: str = "materials"
+    inspector_collapsed: bool = False
+    chain_steps: list = field(default_factory=lambda: ["transcript"])
+    library_collapsed: bool = False
 
     # UI language
     ui_language: str = "auto"   # "auto" | "en" | "ru"
@@ -165,6 +169,21 @@ class Config:
             for name in _SECRET_FIELDS:
                 if filtered_data.get(name) == secrets_store.KEYRING_SENTINEL:
                     filtered_data[name] = secrets_store.get_secret(name) or ""
+
+            # The redesigned workspace exposes the old launch preset as an
+            # explicit checklist.  Keep launch_preset for backwards
+            # compatibility, but only use it to seed chain_steps when a
+            # pre-redesign config has no checklist of its own.
+            if "chain_steps" not in data:
+                preset_steps = {
+                    "transcribe_only": ["transcript"],
+                    "youtube": ["transcript", "youtube"],
+                    "article": ["transcript", "article"],
+                    "full": ["transcript", "youtube", "article", "insights"],
+                }
+                filtered_data["chain_steps"] = preset_steps.get(
+                    data.get("launch_preset", "transcribe_only"), ["transcript"]
+                )
 
             return cls(**filtered_data)
         except Exception as e:
