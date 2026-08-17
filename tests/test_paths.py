@@ -1,5 +1,10 @@
 """Platform data-location tests; no real user directories are touched."""
 
+import os
+import stat
+
+import pytest
+
 import core.paths as paths
 
 
@@ -59,6 +64,24 @@ def test_linux_uses_xdg_data(monkeypatch, tmp_path):
 
     assert paths.data_dir() == xdg / "Whispered"
     assert paths.history_path() == xdg / "Whispered" / "history.db"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file permissions only")
+def test_data_directories_are_owner_only(monkeypatch, tmp_path):
+    _home(monkeypatch, tmp_path)
+    xdg = tmp_path / "xdg"
+    monkeypatch.setenv("XDG_DATA_HOME", str(xdg))
+    monkeypatch.setattr(paths.platform, "system", lambda: "Linux")
+
+    directories = (
+        paths.data_dir(),
+        paths.models_dir(),
+        paths.logs_dir(),
+        paths.output_dir(),
+        paths.runtime_dir(),
+    )
+
+    assert all(stat.S_IMODE(path.stat().st_mode) == 0o700 for path in directories)
 
 
 def test_resource_path_uses_source_root_when_not_frozen(monkeypatch):

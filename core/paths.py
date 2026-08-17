@@ -11,6 +11,18 @@ _APP_NAME = "Whispered"
 _LEGACY_DIR = Path.home() / ".whisper-fedora"
 
 
+def _ensure_private_dir(path: Path) -> Path:
+    """Create an application-data directory with owner-only POSIX access."""
+    path.mkdir(parents=True, exist_ok=True)
+    if os.name != "nt":
+        try:
+            path.chmod(0o700)
+        except OSError:
+            # Some mounted/network filesystems do not expose POSIX modes.
+            pass
+    return path
+
+
 def _previous_xdg_dir() -> Path:
     """Return the data directory used by versions before platform support."""
     xdg = os.environ.get("XDG_DATA_HOME", "")
@@ -42,8 +54,7 @@ def data_dir() -> Path:
         old_xdg = _previous_xdg_dir()
         system = platform.system()
         path = old_xdg if system == "Darwin" and old_xdg.exists() else _platform_data_dir()
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return _ensure_private_dir(path)
 
 
 def config_dir() -> Path:
@@ -65,8 +76,7 @@ def models_dir() -> Path:
         path = Path.home() / "Library" / "Application Support" / _APP_NAME / "models"
     else:
         path = data_dir() / "models"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return _ensure_private_dir(path)
 
 
 def logs_dir() -> Path:
@@ -76,20 +86,17 @@ def logs_dir() -> Path:
         path = Path.home() / "Library" / "Application Support" / _APP_NAME / "logs"
     else:
         path = data_dir() / "logs"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return _ensure_private_dir(path)
 
 
 def output_dir() -> Path:
     path = data_dir() / "output"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return _ensure_private_dir(path)
 
 
 def runtime_dir() -> Path:
     path = data_dir() / "runtime"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return _ensure_private_dir(path)
 
 
 def resource_path(relative: str | Path) -> Path:

@@ -204,9 +204,19 @@ private func listeningSocket(path: String) throws -> Int32 {
             bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
         }
     }
-    guard result == 0, listen(descriptor, 1) == 0 else {
+    guard result == 0 else {
         Darwin.close(descriptor)
         throw HelperError.message("cannot bind Unix socket: \(errno)")
+    }
+    guard chmod(path, mode_t(S_IRUSR | S_IWUSR)) == 0 else {
+        unlink(path)
+        Darwin.close(descriptor)
+        throw HelperError.message("cannot restrict Unix socket permissions: \(errno)")
+    }
+    guard listen(descriptor, 1) == 0 else {
+        unlink(path)
+        Darwin.close(descriptor)
+        throw HelperError.message("cannot listen on Unix socket: \(errno)")
     }
     return descriptor
 }

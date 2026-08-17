@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import queue
 import math
+import os
 import struct
 import threading
 import wave
@@ -145,6 +146,8 @@ class Recorder(QObject):
             self._output_path = str(_DATA_DIR / f"REC_{ts}.wav")
             try:
                 self._wav = wave.open(self._output_path, "wb")
+                if os.name != "nt":
+                    os.chmod(self._output_path, 0o600)
                 self._wav.setnchannels(_CHANNELS)
                 self._wav.setsampwidth(2)    # int16 → 2 bytes
                 self._wav.setframerate(_SAMPLE_RATE)
@@ -184,7 +187,6 @@ class Recorder(QObject):
             self._output_path = None
             if failed_path:
                 try:
-                    import os
                     os.unlink(failed_path)
                 except OSError:
                     pass

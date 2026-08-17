@@ -58,6 +58,11 @@ def setup_logging(level: int = logging.INFO) -> None:
             backupCount=3,
             encoding='utf-8'
         )
+        if os.name != "nt":
+            try:
+                os.chmod(log_file, 0o600)
+            except OSError:
+                pass
         file_handler.setLevel(logging.DEBUG)
         file_fmt = logging.Formatter(
             '%(asctime)s  %(levelname)-8s  [%(name)s]  %(message)s',

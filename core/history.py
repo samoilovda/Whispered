@@ -7,6 +7,7 @@ FTS5 full-text search with unicode61 tokeniser (Cyrillic-aware).
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -190,6 +191,14 @@ class HistoryStore:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._fts_available: bool = False
         self._init_db()
+        if os.name != "nt":
+            try:
+                self._db_path.chmod(0o600)
+            except OSError:
+                logger.warning(
+                    "Could not restrict history database permissions: %s",
+                    self._db_path,
+                )
 
     # ------------------------------------------------------------------ init
 
