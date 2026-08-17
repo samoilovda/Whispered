@@ -1,0 +1,43 @@
+{
+  "id": "prosvet_9x16", "version": 1,
+  "canvas": {"w": 1080, "h": 1920},
+  "fonts": {"display": {"file": "Bellota-Bold.ttf", "family": "Bellota"}, "body": {"file": "Forum-Regular.ttf", "family": "Forum"}},
+  "palette": {"yellow": "#F9B913", "sand": "#CCB999", "orange": "#EE7227", "mint": "#B6DCCD", "teal": "#1B8E88", "brown": "#726858", "white": "#FFFFFF"},
+  "variants": {
+    "mint": {"label": "Мятный", "background": "bg_hands.jpg", "veil": {"color": "white", "alpha": 0.8}, "decor": "mint", "band": "yellow", "band_text": "white", "frame": "mint"},
+    "warm": {"label": "Тёплый", "background": "bg_hands.jpg", "veil": {"color": "brown", "alpha": 0.8}, "decor": "orange", "band": "teal", "band_text": "white", "frame": "orange"}
+  },
+  "layouts": {
+    "duo": {"label": "Двое", "slots": ["title", "names", "photo_a", "photo_b"], "layers": [
+      {"type": "background_image", "source": "variant.background", "fit": "cover_height_center"},
+      {"type": "rect", "box": [0, 0, 1080, 1920], "fill": "variant.veil"},
+      {"type": "decor", "path": "leaf_13", "box": [-150, -80, 650, 700], "fill": "variant.decor"},
+      {"type": "round_rect", "box": [72, 182, 880, 700], "radius_ratio": 0.12, "stroke": {"color": "variant.frame", "width": 8}},
+      {"type": "photo", "slot": "photo_a", "box": [100, 210, 880, 700], "radius_ratio": 0.12, "fit": "cover"},
+      {"type": "round_rect", "box": [128, 900, 880, 700], "radius_ratio": 0.12, "stroke": {"color": "variant.frame", "width": 8}},
+      {"type": "photo", "slot": "photo_b", "box": [100, 872, 880, 700], "radius_ratio": 0.12, "fit": "cover"},
+      {"type": "round_rect", "box": [90, 70, 760, 90], "radius_ratio": 0.17, "fill": "variant.band"},
+      {"type": "text", "slot": "names", "box": [100, 70, 740, 90], "font": "display", "size": 52, "color": "variant.band_text", "align": "center", "autofit": {"min_size": 34, "max_lines": 1}},
+      {"type": "round_rect", "box": [30, 1600, 1020, 280], "radius_ratio": 0.12, "fill": "variant.band"},
+      {"type": "text", "slot": "title", "box": [55, 1605, 970, 265], "font": "display", "color": "variant.band_text", "align": "center", "line_styles": [{"size": 120}, {"size": 72}], "autofit": {"min_size": 48, "max_lines": 3, "step": 3}},
+      {"type": "image", "box": [870, 25, 160, 165], "source": "logo_butterfly.png"}
+    ]},
+    "solo": {"label": "Один", "slots": ["title", "names", "photo_a"], "layers": [
+      {"type": "background_image", "source": "variant.background", "fit": "cover_height_center"},
+      {"type": "rect", "box": [0, 0, 1080, 1920], "fill": "variant.veil"},
+      {"type": "photo", "slot": "photo_a", "box": [100, 230, 880, 1050], "radius_ratio": 0.12, "fit": "cover"},
+      {"type": "round_rect", "box": [80, 1320, 920, 100], "radius_ratio": 0.16, "fill": "variant.band"},
+      {"type": "text", "slot": "names", "box": [100, 1320, 880, 100], "font": "display", "size": 58, "color": "variant.band_text", "align": "center", "autofit": {"min_size": 36, "max_lines": 1}},
+      {"type": "round_rect", "box": [30, 1460, 1020, 400], "radius_ratio": 0.12, "fill": "variant.band"},
+      {"type": "text", "slot": "title", "box": [55, 1480, 970, 360], "font": "display", "color": "variant.band_text", "align": "center", "line_styles": [{"size": 120}, {"size": 72}], "autofit": {"min_size": 48, "max_lines": 4, "step": 3}},
+      {"type": "image", "box": [870, 25, 160, 165], "source": "logo_butterfly.png"}
+    ]},
+    "text_only": {"label": "Текст", "slots": ["title"], "layers": [
+      {"type": "background_image", "source": "variant.background", "fit": "cover_height_center"},
+      {"type": "rect", "box": [0, 0, 1080, 1920], "fill": "variant.veil"},
+      {"type": "round_rect", "box": [30, 570, 1020, 780], "radius_ratio": 0.12, "fill": "variant.band"},
+      {"type": "text", "slot": "title", "box": [70, 610, 940, 700], "font": "display", "color": "variant.band_text", "align": "center", "line_styles": [{"size": 130}, {"size": 82}], "autofit": {"min_size": 50, "max_lines": 5, "step": 3}},
+      {"type": "image", "box": [870, 25, 160, 165], "source": "logo_butterfly.png"}
+    ]}
+  }
+}

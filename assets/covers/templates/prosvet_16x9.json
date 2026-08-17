@@ -1,0 +1,69 @@
+{
+  "id": "prosvet_16x9",
+  "version": 1,
+  "canvas": {"w": 1280, "h": 720},
+  "fonts": {
+    "display": {"file": "Bellota-Bold.ttf", "family": "Bellota"},
+    "body": {"file": "Forum-Regular.ttf", "family": "Forum"}
+  },
+  "palette": {
+    "yellow": "#F9B913", "sand": "#CCB999", "orange": "#EE7227",
+    "mint": "#B6DCCD", "teal": "#1B8E88", "brown": "#726858", "white": "#FFFFFF"
+  },
+  "variants": {
+    "mint": {"label": "Мятный", "background": "bg_hands.jpg", "veil": {"color": "white", "alpha": 0.80}, "decor": "mint", "band": "yellow", "band_text": "white", "frame": "mint"},
+    "warm": {"label": "Тёплый", "background": "bg_hands.jpg", "veil": {"color": "brown", "alpha": 0.80}, "decor": "orange", "band": "teal", "band_text": "white", "frame": "orange"}
+  },
+  "layouts": {
+    "duo": {
+      "label": "Двое в кадре", "slots": ["title", "names", "photo_a", "photo_b"],
+      "layers": [
+        {"type": "background_image", "source": "variant.background", "fit": "cover_width_center"},
+        {"type": "rect", "box": [0, 0, 1280, 720], "fill": "variant.veil"},
+        {"type": "decor", "path": "leaf_06", "box": [-34, 360, 614, 625], "fill": "variant.decor"},
+        {"type": "decor", "path": "leaf_13", "box": [-48, -280, 577, 597], "fill": "variant.decor"},
+        {"type": "decor", "path": "leaf_12", "box": [911, 608, 149, 270], "fill": "variant.decor"},
+        {"type": "decor", "path": "leaf_23", "box": [791, 267, 150, 256], "fill": "variant.decor"},
+        {"type": "decor", "path": "leaf_24", "box": [1049, 121, 349, 965], "fill": "variant.decor"},
+        {"type": "round_rect", "box": [189, 92, 392, 393], "radius_ratio": 0.16667, "stroke": {"color": "variant.frame", "width": 4.5}},
+        {"type": "photo", "slot": "photo_a", "box": [211, 113, 392, 392], "radius_ratio": 0.16667, "fit": "cover"},
+        {"type": "round_rect", "box": [694, 129, 392, 393], "radius_ratio": 0.16667, "stroke": {"color": "variant.frame", "width": 4.5}},
+        {"type": "photo", "slot": "photo_b", "box": [671, 113, 392, 392], "radius_ratio": 0.16667, "fit": "cover"},
+        {"type": "round_rect", "box": [300, 19, 680, 51], "radius_ratio": 0.16667, "fill": "variant.band", "grow_with": "names", "grow_padding": 28},
+        {"type": "text", "slot": "names", "box": [300, 19, 680, 51], "font": "display", "size": 36, "color": "variant.band_text", "align": "center", "vertical": "center", "autofit": {"min_size": 24, "max_lines": 1}},
+        {"type": "round_rect", "box": [30, 542, 1219, 157], "radius_ratio": 0.16667, "fill": "variant.band"},
+        {"type": "text", "slot": "title", "box": [40, 531, 1199, 162], "font": "display", "color": "variant.band_text", "align": "center", "vertical": "center", "line_styles": [{"size": 80}, {"size": 48}], "autofit": {"min_size": 30, "max_lines": 3, "step": 2}},
+        {"type": "image", "box": [1123, 11, 116, 120], "source": "logo_butterfly.png"},
+        {"type": "text", "box": [1128, 135, 128, 41], "value": "ПРОСВЕТ", "font": "display", "size": 22, "color": "variant.band_text", "align": "center"}
+      ]
+    },
+    "solo": {
+      "label": "Один в кадре", "slots": ["title", "names", "photo_a"],
+      "layers": [
+        {"type": "background_image", "source": "variant.background", "fit": "cover_width_center"},
+        {"type": "rect", "box": [0, 0, 1280, 720], "fill": "variant.veil"},
+        {"type": "decor", "path": "leaf_13", "box": [-120, -100, 600, 620], "fill": "variant.decor"},
+        {"type": "decor", "path": "leaf_24", "box": [1000, 120, 360, 800], "fill": "variant.decor"},
+        {"type": "round_rect", "box": [424, 40, 432, 432], "radius_ratio": 0.16667, "stroke": {"color": "variant.frame", "width": 5}},
+        {"type": "photo", "slot": "photo_a", "box": [442, 58, 432, 432], "radius_ratio": 0.16667, "fit": "cover"},
+        {"type": "round_rect", "box": [230, 492, 820, 54], "radius_ratio": 0.16667, "fill": "variant.band"},
+        {"type": "text", "slot": "names", "box": [240, 492, 800, 54], "font": "display", "size": 34, "color": "variant.band_text", "align": "center", "autofit": {"min_size": 22, "max_lines": 1}},
+        {"type": "round_rect", "box": [30, 558, 1220, 132], "radius_ratio": 0.16667, "fill": "variant.band"},
+        {"type": "text", "slot": "title", "box": [45, 552, 1190, 138], "font": "display", "color": "variant.band_text", "align": "center", "line_styles": [{"size": 66}, {"size": 44}], "autofit": {"min_size": 28, "max_lines": 3, "step": 2}},
+        {"type": "image", "box": [1123, 11, 116, 120], "source": "logo_butterfly.png"}
+      ]
+    },
+    "text_only": {
+      "label": "Только текст", "slots": ["title"],
+      "layers": [
+        {"type": "background_image", "source": "variant.background", "fit": "cover_width_center"},
+        {"type": "rect", "box": [0, 0, 1280, 720], "fill": "variant.veil"},
+        {"type": "decor", "path": "leaf_06", "box": [-80, 250, 650, 660], "fill": "variant.decor"},
+        {"type": "decor", "path": "leaf_24", "box": [950, -80, 430, 950], "fill": "variant.decor"},
+        {"type": "round_rect", "box": [70, 210, 1140, 300], "radius_ratio": 0.12, "fill": "variant.band"},
+        {"type": "text", "slot": "title", "box": [100, 220, 1080, 280], "font": "display", "color": "variant.band_text", "align": "center", "line_styles": [{"size": 92}, {"size": 62}], "autofit": {"min_size": 32, "max_lines": 4, "step": 2}},
+        {"type": "image", "box": [1123, 11, 116, 120], "source": "logo_butterfly.png"}
+      ]
+    }
+  }
+}
