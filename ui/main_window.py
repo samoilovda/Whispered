@@ -57,6 +57,7 @@ from utils import (
     get_thread_count,
     is_supported_format,
 )
+from application.document_session import DocumentSession
 from config import get_config
 from core.ai_worker import AIProcessingWorker
 from core.base_worker import BaseWorker
@@ -210,6 +211,8 @@ class MainWindow(QMainWindow):
         self._last_record_id: int | None = None
         self._live_checkpoint = LiveCheckpointTracker()
         self._setup_ui()
+        self._document_session = DocumentSession()
+        self._register_document_session_consumers()
         self.command_palette = CommandPalette(self)
         self.command_palette.record_requested.connect(self._open_record_view)
         self.command_palette.action_requested.connect(self._run_palette_action)
@@ -704,6 +707,44 @@ class MainWindow(QMainWindow):
         if self._current_result is not None:
             self._stack.setCurrentIndex(self._record_index)
 
+    def _register_document_session_consumers(self) -> None:
+        """Build the one list of "who gets told about a new result" that
+        _on_finished, _load_from_history, and _on_transcript_changed all
+        used to maintain separately (see DocumentSession's docstring).
+
+        transcript_view is deliberately not registered here: it's the
+        source of MANUAL_EDIT's result_changed signal, so re-applying
+        set_result() from inside that same edit's handler would fight the
+        widget's own in-progress state. FRESH_TRANSCRIPTION/HISTORY_OPEN/
+        LIVE_FINISH still call transcript_view.set_result() directly at
+        their own call sites.
+        """
+        self._document_session.register_consumer(
+            lambda result: self.chat_panel.set_transcript(result.full_text)
+        )
+        self._document_session.register_consumer(
+            lambda result: self.insights_panel.set_segments(
+                result.segments, transcript_language=result.language
+            )
+        )
+        self._document_session.register_consumer(
+            lambda result: self.youtube_panel.set_segments(
+                result.segments, transcript_language=result.language
+            )
+        )
+        self._document_session.register_consumer(
+            lambda result: self.cover_view.set_segments(result.segments)
+        )
+        self._document_session.register_consumer(
+            lambda result: self.cut_view.set_result(result)
+        )
+        self._document_session.register_consumer(
+            lambda result: self.ai_panel.set_has_transcription(True)
+        )
+        self._document_session.register_consumer(
+            lambda result: self.book_panel.set_has_transcript(True)
+        )
+
     def _connect_signals(self):
         """Connect widget signals."""
         self.file_selector.file_selected.connect(self._on_file_selected)
@@ -955,11 +996,7 @@ class MainWindow(QMainWindow):
         self._cleaned_text = None
         self.cleaned_view.clear()
         self.article_view.clear()
-        self.chat_panel.set_transcript(result.full_text)
-        self.insights_panel.set_segments(result.segments, transcript_language=result.language)
-        self.youtube_panel.set_segments(result.segments, transcript_language=result.language)
-        self.cover_view.set_segments(result.segments)
-        self.cut_view.set_result(result)
+        self._document_session.apply_result(result)
         if self._last_record_id is not None:
             try:
                 from core.history import get_history_store
@@ -1152,11 +1189,6 @@ class MainWindow(QMainWindow):
         self.transcript_view.set_result(result)
         self._reset_ui()
 
-        # Enable AI panel (posts mode)
-        self.ai_panel.set_has_transcription(True)
-        # Enable book panel (book mode)
-        self.book_panel.set_has_transcript(True)
-
         elapsed = time.monotonic() - self._transcription_start if self._transcription_start else 0
         word_count = len(result.full_text.split())
         self.status_label.setText(tr("status_complete", words=word_count, seconds=int(elapsed)))
@@ -1171,19 +1203,18 @@ class MainWindow(QMainWindow):
                 speaker_names=getattr(self.transcript_view, "_speaker_names", {}),
             )
 
-        # Feed transcript into chat and insights panels
-        self.chat_panel.set_transcript(result.full_text)
-        self.insights_panel.set_segments(result.segments, transcript_language=result.language)
-        self.youtube_panel.set_segments(result.segments, transcript_language=result.language)
-        self.cover_view.set_segments(result.segments)
+        # Feed the result to every registered consumer (chat, insights,
+        # YouTube, Cover, Cut, AI/Book enable flags — see DocumentSession).
+        self._document_session.apply_result(result)
         if self._source_filepath:
             self.youtube_panel.set_source_name(Path(self._source_filepath).stem)
         elif self._source_kind == "live":
             self.youtube_panel.set_source_name(self._live_checkpoint.source_name)
 
-        # Populate the Cut tab's segment list and video actions
+        # Cut tab's video actions depend on source media, not the result
+        # content — cut_view.set_result() itself already ran via
+        # apply_result() above.
         self.cut_view.video_panel.set_has_transcript(bool(self._source_filepath))
-        self.cut_view.set_result(result)
         self.main_tabs.setCurrentIndex(0)
 
         # A fresh transcription result is a record too — open the Record
@@ -1423,17 +1454,11 @@ class MainWindow(QMainWindow):
                 self.file_selector._clear_selection()
                 self.player.load("")
 
-            self.ai_panel.set_has_transcription(True)
-            self.book_panel.set_has_transcript(True)
-            self.chat_panel.set_transcript(result.full_text)
-            self.insights_panel.set_segments(result.segments, transcript_language=result.language)
-            self.youtube_panel.set_segments(result.segments, transcript_language=result.language)
-            self.cover_view.set_segments(result.segments)
+            self._document_session.apply_result(result)
             self.youtube_panel.set_source_name(
                 Path(source_path or source_name).stem if (source_path or source_name) else ""
             )
             self.cut_view.video_panel.set_has_transcript(has_media)
-            self.cut_view.set_result(result)
             word_count = len(result.full_text.split())
             self.status_label.setText(tr("toast_loaded_history", words=word_count))
             self.main_tabs.setCurrentIndex(0)

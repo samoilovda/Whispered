@@ -9,6 +9,7 @@ the original development plan (`docs/archive/ROADMAP_full_2026-07.md`).
 |---|---|---|
 | Entry | `main.py` | QApplication, theme, locale; calls `multiprocessing.freeze_support()` for the frozen build — do not move it above `_setup_frozen_runtime()` |
 | Domain | `domain/` | Qt-free DTOs shared by engines, UI, and Live (`transcription.py`: `Segment`, `Word`, `TranscriptionResult`). Must never import `PyQt6`, `ui`, or `core.live` — enforced by `tests/test_domain_transcription.py`. New shared data types go here, not in `transcriber.py` |
+| Application | `application/` | Coordination between UI widgets and engines, above `domain/` but below `ui/`. Currently `document_session.py`: the single `DocumentSession.apply_result()` fan-out that `MainWindow` uses to hand a new/loaded/edited `TranscriptionResult` to every panel that needs it — new panel dependencies register a consumer there instead of adding another hand-copied call site |
 | UI | `ui/` | PyQt6 widgets; `main_window.py` owns the preset chain; `ui/__init__.py` intentionally has no re-exports — import from concrete modules |
 | Workers | `core/` | `lm_client.py` (LM Studio, OpenAI-compatible), `ai_provider.py` (optional cloud), `insights_worker.py`, `history.py` (SQLite+FTS5), `i18n.py`, `logger.py`, `worker_registry.py` (lifecycle for background `QThread`s — see rule 3) |
 | Engines | `transcriber.py` (whisper.cpp in a spawn child process; re-exports the domain DTOs for backward compatibility), `diarizer.py` (pyannote, lazy import), `article_generator.py`, `text_processor.py`, `batch_processor.py`, `book_pipeline.py` |
@@ -61,7 +62,7 @@ python -m compileall -q . -x '.venv|.claude|build|dist|docs/archive'
 # mypy is a blocking gate for this set — it is clean and must stay clean.
 # ui/ is not typed yet and is only checked informationally in CI.
 python -m mypy --ignore-missing-imports core/ transcriber.py diarizer.py \
-    exporters.py utils.py config.py domain/
+    exporters.py utils.py config.py domain/ application/
 # real-Qt headless smoke (PyQt6 lives only in the project venv):
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests_qt/ -q
 ```
