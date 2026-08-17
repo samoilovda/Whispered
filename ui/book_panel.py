@@ -19,6 +19,7 @@ from core.book_batch_worker import BookBatchWorker
 from core.i18n import tr
 from core.logger import get_logger
 from core.lm_status_worker import LMStatusWorker
+from core.worker_registry import WorkerRegistry
 from ui.theme import set_role
 
 logger = get_logger(__name__)
@@ -47,6 +48,7 @@ class BookPanel(QWidget):
         self._pipeline = BookPipeline()
         self._batch_worker: BookBatchWorker | None = None
         self._checker: LMStatusWorker | None = None  # guard against duplicate checks
+        self._registry = WorkerRegistry(parent=self)
         self._has_transcript = False
         self._connected = False
         self._setup_ui()
@@ -273,6 +275,7 @@ class BookPanel(QWidget):
         self._checker = LMStatusWorker(self._pipeline.base_url, parent=self)
         self._checker.status_ready.connect(self._on_connection_result)
         self._checker.finished.connect(lambda: setattr(self, '_checker', None))
+        self._registry.register(self._checker, name="lm_status_checker")
         self._checker.start()
 
     def _on_connection_result(self, connected: bool, _detail: str = "") -> None:
@@ -392,9 +395,20 @@ class BookPanel(QWidget):
         """Part of the Shutdownable protocol (ui/shutdownable.py). Used to
         require MainWindow.closeEvent to reach into ``_batch_worker``
         directly; that guard now lives with the rest of this panel's
-        state."""
+        state.
+
+        Also stops the periodic LM Studio connection-check timer and
+        retires its worker through ``WorkerRegistry``: left running, the
+        10 s repeat timer keeps spawning new ``LMStatusWorker`` threads
+        after the window starts closing, and a bare ``wait()`` here would
+        either block the GUI thread or drop the last reference to a still
+        -running QThread — both of which Qt punishes with a hard abort.
+        """
         if self._batch_worker:
             self._cancel_batch()
+        if self._conn_timer is not None:
+            self._conn_timer.stop()
+        self._registry.retire_all()
 
     def _on_batch_file_started(self, index: int, total: int, filename: str) -> None:
         self.batch_status_label.setText(f"[{index + 1}/{total}] {filename}")

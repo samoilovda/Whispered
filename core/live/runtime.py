@@ -18,8 +18,11 @@ from core.live.preflight import default_helper_path, resource_profile
 from core.live.session_pipeline import LiveSessionPipeline
 from core.live.system_audio_source import SystemAudioSource
 from core.live.system_capture_protocol import CaptureTarget
+from core.logger import get_logger
 from core.paths import runtime_dir
 from core.platform_support import live_system_audio_unavailable_message, supports_live_system_audio
+
+logger = get_logger(__name__)
 
 
 class SourceState(str, Enum):
@@ -282,7 +285,21 @@ class LiveRuntime(QObject):
             time.sleep(0.05)
         if self._worker is not None:
             self._worker.shutdown()
-            self._worker.wait(3000)
+            if not self._worker.wait(3000):
+                # The worker may still be mutating the pipeline (in-flight
+                # transcription segments) past this deadline — building a
+                # result now would silently hand the UI a truncated
+                # transcript dressed up as a successful session.
+                logger.error(
+                    "Live ASR worker did not stop within 3000 ms while "
+                    "finalizing the session; reporting failure instead of "
+                    "a possibly-incomplete result"
+                )
+                for source in self._states:
+                    self._set_state(source, SourceState.STOPPED)
+                self._set_session_state(SessionState.FAILED)
+                self.error_occurred.emit("asr", "ASR worker did not stop in time")
+                return
         result = self._pipeline.build_result(self._language) if self._pipeline else None
         for source in self._states:
             self._set_state(source, SourceState.STOPPED)

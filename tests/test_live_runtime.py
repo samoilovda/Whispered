@@ -103,6 +103,48 @@ def test_shutdown_cleans_worker_owned_by_failed_session():
     assert source.cancelled == 1
 
 
+class _WorkerThatNeverStops:
+    def __init__(self) -> None:
+        self.shutdown_calls = 0
+        self.wait_timeouts = []
+
+    def shutdown(self) -> None:
+        self.shutdown_calls += 1
+
+    def wait(self, timeout: int) -> bool:
+        self.wait_timeouts.append(timeout)
+        return False  # simulates a worker stuck past the deadline
+
+
+def test_finish_session_fails_instead_of_completing_when_worker_wont_stop():
+    """A worker that ignores its shutdown deadline must not be treated as a
+    clean finish — the pipeline could still be mutating in-flight segments,
+    so reporting COMPLETED would hand the UI a silently truncated result."""
+    runtime = LiveRuntime()
+    worker = _WorkerThatNeverStops()
+    runtime._worker = worker
+    runtime._sources = {}
+    runtime._states = {"mic": SourceState.RUNNING}
+    runtime._pipeline = _PipelineStub()
+    runtime._pipeline.flush = lambda: None
+    runtime._pipeline.scheduler.stats = lambda: SimpleNamespace(queued=0, in_flight=0)
+    runtime._pipeline.build_result = lambda *_a, **_kw: object()
+
+    finished_calls = []
+    errors = []
+    runtime.finished.connect(lambda *args: finished_calls.append(args))
+    runtime.error_occurred.connect(lambda *args: errors.append(args))
+
+    runtime._finish_session()
+
+    assert worker.shutdown_calls == 1
+    assert worker.wait_timeouts == [3000]
+    assert finished_calls == []
+    assert errors == [("asr", "ASR worker did not stop in time")]
+    assert runtime.session_state is SessionState.FAILED
+    assert runtime._states == {"mic": SourceState.STOPPED}
+
+
 def test_stop_does_not_start_a_second_finalizer(monkeypatch):
     runtime = LiveRuntime()
     runtime._states = {"mic": SourceState.RUNNING}

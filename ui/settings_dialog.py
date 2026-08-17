@@ -25,6 +25,7 @@ from ui.option_labels import (
 )
 from ui.theme import apply_theme, set_role
 from core.lm_status_worker import LMStatusWorker
+from core.worker_registry import WorkerRegistry
 from core.logger import get_logger
 from core.i18n import tr
 
@@ -40,6 +41,7 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self._cfg = get_config()
         self._checker: Optional[LMStatusWorker] = None
+        self._registry = WorkerRegistry(parent=self)
         self._pending_theme: Optional[str] = None
         self._lang_changed: bool = False
         self._setup_ui()
@@ -474,6 +476,7 @@ class SettingsDialog(QDialog):
             )
 
     def _on_ok(self):
+        self._stop_checker()
         self._lang_changed = False
         self._save_values()
         self.settings_applied.emit()
@@ -485,16 +488,25 @@ class SettingsDialog(QDialog):
             )
         self.accept()
 
+    def _stop_checker(self) -> None:
+        """Retire any in-flight connection check through ``WorkerRegistry``.
+
+        Retirement disconnects ``status_ready`` and calls ``cancel()``
+        immediately but keeps a strong reference to the QThread until it
+        actually finishes, then ``deleteLater()``s it. That's the part a
+        bare ``self._checker.wait(1000); self._checker = None`` got wrong:
+        the network probe's socket timeout can outlast a 1 s wait, and
+        dropping the last reference to a still-running QThread — or later
+        letting the dialog itself be destroyed while it's still alive — is
+        what Qt aborts the process for.
+        """
+        if self._checker is not None:
+            self._registry.retire(self._checker)
+            self._checker = None
+
     def reject(self):
         """Cancel: revert theme preview and stop any running connection check."""
-        if self._checker is not None and self._checker.isRunning():
-            self._checker.cancel()
-            try:
-                self._checker.status_ready.disconnect(self._on_check_result)
-            except (RuntimeError, TypeError):
-                pass
-            self._checker.wait(1000)
-            self._checker = None
+        self._stop_checker()
 
         if self._pending_theme is not None:
             from PyQt6.QtWidgets import QApplication
@@ -523,6 +535,7 @@ class SettingsDialog(QDialog):
 
         self._checker = LMStatusWorker(url, parent=self)
         self._checker.status_ready.connect(self._on_check_result)
+        self._registry.register(self._checker, name="lm_status_checker")
         self._checker.start()
 
     def _on_check_result(self, connected: bool, detail: str):
