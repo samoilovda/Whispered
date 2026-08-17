@@ -48,6 +48,18 @@ class BatchItem:
         return self.status in (BatchStatus.COMPLETE, BatchStatus.ERROR, BatchStatus.CANCELLED)
 
 
+@dataclass
+class ExportOutcome:
+    """Result of exporting a single batch item's transcription.
+
+    Returned by :meth:`BatchProcessor.export_all` to make per-item I/O
+    failures visible instead of swallowing them silently.
+    """
+    path: str                  # intended output path (may not exist on failure)
+    success: bool
+    error: str = ""            # empty when success is True
+
+
 # ============================================================================
 # BATCH WORKER
 # ============================================================================
@@ -389,7 +401,7 @@ class BatchProcessor(QObject):
         self,
         output_dir: str,
         format_key: str = 'txt'
-    ) -> List[str]:
+    ) -> List['ExportOutcome']:
         """
         Export all completed transcriptions to a directory.
 
@@ -398,12 +410,14 @@ class BatchProcessor(QObject):
             format_key: Export format ('txt', 'srt', 'vtt', 'json')
 
         Returns:
-            List of created file paths
+            List of :class:`ExportOutcome` — one per completed item.  Check
+            ``outcome.success`` to detect per-item I/O failures; previously
+            these were silently dropped.
         """
         from exporters import export_result
 
         os.makedirs(output_dir, exist_ok=True)
-        created_files = []
+        outcomes: List[ExportOutcome] = []
 
         for item in self._items:
             if item.status != BatchStatus.COMPLETE or not item.result:
@@ -416,11 +430,13 @@ class BatchProcessor(QObject):
 
             try:
                 export_result(item.result, output_path, format_key)
-                created_files.append(output_path)
-            except Exception:
-                pass
+                outcomes.append(ExportOutcome(path=output_path, success=True))
+            except Exception as exc:
+                outcomes.append(
+                    ExportOutcome(path=output_path, success=False, error=str(exc))
+                )
 
-        return created_files
+        return outcomes
 
 
 # ============================================================================

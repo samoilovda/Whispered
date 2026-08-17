@@ -250,13 +250,15 @@ class TestResultsAndExport:
         monkeypatch.setattr("exporters.export_result", fake_export_result)
 
         out_dir = tmp_path / "exported"
-        created = processor.export_all(str(out_dir), format_key="srt")
+        outcomes = processor.export_all(str(out_dir), format_key="srt")
 
-        assert len(created) == 1
-        assert created[0].endswith(".srt")
-        assert written == created
+        assert len(outcomes) == 1
+        assert outcomes[0].success is True
+        assert outcomes[0].path.endswith(".srt")
+        assert written == [outcomes[0].path]
 
-    def test_export_all_skips_failed_export_silently(self, media_files, tmp_path, monkeypatch):
+    def test_export_all_records_failure_in_outcome(self, media_files, tmp_path, monkeypatch):
+        """R12: a failed export is no longer silently dropped."""
         processor = BatchProcessor()
         processor.add_files(media_files)
         processor._items[0].status = BatchStatus.COMPLETE
@@ -267,5 +269,7 @@ class TestResultsAndExport:
 
         monkeypatch.setattr("exporters.export_result", raising_export)
 
-        created = processor.export_all(str(tmp_path / "out"), format_key="txt")
-        assert created == []
+        outcomes = processor.export_all(str(tmp_path / "out"), format_key="txt")
+        assert len(outcomes) == 1
+        assert outcomes[0].success is False
+        assert "disk full" in outcomes[0].error

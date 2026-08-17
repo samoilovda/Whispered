@@ -164,6 +164,7 @@ class BookPipeline:
         self,
         transcript_text: str,
         source_path: str,
+        output_dir: str | Path | None = None,
         do_unwrap: bool = True,
         do_custom: bool = False,
         custom_prompt_path: str = "",
@@ -176,6 +177,8 @@ class BookPipeline:
         Args:
             transcript_text: Raw transcription text (from .md or transcriber).
             source_path: Path to the original audio/md file (used for naming outputs).
+            output_dir: Directory where output files are written.  Defaults to
+                the directory of *source_path* when ``None``.
             do_unwrap: If True, run speech-to-prose unwrapping.
             do_custom: If True, run the user-specified custom prompt.
             custom_prompt_path: Path to a .md file with the custom system prompt.
@@ -189,6 +192,10 @@ class BookPipeline:
         current_text = transcript_text
         source = Path(source_path)
         base_stem = source.stem
+
+        # Resolve the output directory: explicit override or source's parent.
+        out_dir = Path(output_dir) if output_dir is not None else source.parent
+        out_dir.mkdir(parents=True, exist_ok=True)
 
         # ---- Stage 1: Speech unwrapping (расшивка) ----
         if do_unwrap:
@@ -214,7 +221,7 @@ class BookPipeline:
                 return result
 
             if output_text:
-                out_path = _versioned_path(source.parent / f"{base_stem}_расшито.md")
+                out_path = _versioned_path(out_dir / f"{base_stem}_расшито.md")
                 try:
                     out_path.write_text(output_text, encoding="utf-8")
                     logger.info("Book pipeline: unwrap saved to %s", out_path)
@@ -261,7 +268,7 @@ class BookPipeline:
                 return result
 
             if output_text:
-                out_path = _versioned_path(source.parent / f"{base_stem}_custom.md")
+                out_path = _versioned_path(out_dir / f"{base_stem}_custom.md")
                 try:
                     out_path.write_text(output_text, encoding="utf-8")
                     logger.info("Book pipeline: custom stage saved to %s", out_path)

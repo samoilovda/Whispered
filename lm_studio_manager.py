@@ -52,6 +52,48 @@ class ModelInfo:
 
 
 # ============================================================================
+# HELPERS
+# ============================================================================
+
+def _parse_model_entry(item: object) -> "ModelInfo | None":
+    """Parse a single model entry from the LM Studio JSON output.
+
+    Returns ``None`` (and logs a warning) if the entry is not a dict or has
+    unexpected field types so the caller can filter bad entries out instead
+    of crashing on attribute access later.
+    """
+    if not isinstance(item, dict):
+        logger.warning("lm_studio: unexpected model entry type %s, skipping", type(item).__name__)
+        return None
+
+    raw_path = item.get('path', item.get('id', ''))
+    if not isinstance(raw_path, str):
+        logger.warning("lm_studio: model entry 'path' is not a string (%r), skipping", raw_path)
+        return None
+
+    raw_name = item.get('name', raw_path.split('/')[-1] if '/' in raw_path else raw_path)
+    if not isinstance(raw_name, str):
+        logger.warning("lm_studio: model entry 'name' is not a string (%r), using path", raw_name)
+        raw_name = raw_path.split('/')[-1] if '/' in raw_path else raw_path
+
+    raw_size = item.get('size', item.get('sizeBytes', 0))
+    if not isinstance(raw_size, int):
+        try:
+            raw_size = int(raw_size) if raw_size is not None else 0
+        except (TypeError, ValueError):
+            logger.warning("lm_studio: model 'size_bytes' is not int (%r), using 0", raw_size)
+            raw_size = 0
+
+    return ModelInfo(
+        path=raw_path,
+        name=raw_name,
+        size_bytes=raw_size,
+        quantization=str(item.get('quantization', '') or ''),
+        architecture=str(item.get('architecture', '') or ''),
+    )
+
+
+# ============================================================================
 # LM STUDIO MANAGER
 # ============================================================================
 
@@ -255,7 +297,7 @@ class LMStudioManager:
 
         try:
             data = json.loads(output)
-            models = []
+            models: list[ModelInfo] = []
 
             # Accept either a bare list or a dict wrapping the list under a
             # common key (e.g. {"data": [...]} / {"models": [...]}).
@@ -267,22 +309,7 @@ class LMStudioManager:
                 else:
                     data = []
 
-            for item in data:
-                # Handle different possible JSON structures
-                if isinstance(item, dict):
-                    path = item.get('path', item.get('id', ''))
-                    name = item.get('name', path.split('/')[-1] if '/' in path else path)
-                    size = item.get('size', item.get('sizeBytes', 0))
-                    quant = item.get('quantization', '')
-                    arch = item.get('architecture', '')
-
-                    models.append(ModelInfo(
-                        path=path,
-                        name=name,
-                        size_bytes=size,
-                        quantization=quant,
-                        architecture=arch
-                    ))
+            models.extend(filter(None, (_parse_model_entry(item) for item in data)))
 
             self._cached_models = models
             return models
@@ -318,7 +345,11 @@ class LMStudioManager:
         try:
             data = json.loads(output)
             if isinstance(data, list):
-                return [item.get('id', item.get('path', '')) for item in data if isinstance(item, dict)]
+                return [
+                    str(item.get('id', item.get('path', '')))
+                    for item in data
+                    if isinstance(item, dict)
+                ]
             return []
         except json.JSONDecodeError:
             return []

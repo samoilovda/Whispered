@@ -419,5 +419,9 @@ class BatchPanel(QWidget):
         return self.processor.get_results()
 
     def export_all(self, output_dir: str, format_key: str = 'txt'):
-        """Export all completed transcriptions."""
+        """Export all completed transcriptions.
+
+        Returns a list of :class:`~batch_processor.ExportOutcome` objects so
+        callers can see which items failed and why.
+        """
         return self.processor.export_all(output_dir, format_key)
