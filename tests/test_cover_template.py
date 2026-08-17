@@ -37,3 +37,56 @@ def test_validation_errors_are_actionable(tmp_path, change, message):
     source.write_text(json.dumps(raw), encoding="utf-8")
     with pytest.raises(TemplateError, match=message):
         CoverTemplate.from_dict(raw, source)
+
+
+class TestPathContainment:
+    """R11: decor asset paths must stay inside the template root."""
+
+    def _make_template_with_decor(self, tmp_path, path_value):
+        """Helper: create a minimal template JSON with a decor layer."""
+        template_dir = tmp_path / "templates"
+        template_dir.mkdir()
+        source = template_dir / "test.json"
+        raw = {
+            "id": "test",
+            "canvas": {"w": 1280, "h": 720},
+            "fonts": {},
+            "palette": {},
+            "variants": {"default": {}},
+            "layouts": {
+                "duo": {
+                    "layers": [
+                        {"type": "decor", "path": path_value, "box": [0, 0, 100, 100]},
+                    ]
+                }
+            },
+        }
+        source.write_text(json.dumps(raw), encoding="utf-8")
+        return raw, source
+
+    def test_path_traversal_raises(self, tmp_path):
+        raw, source = self._make_template_with_decor(tmp_path, "../../etc/passwd")
+        with pytest.raises(TemplateError, match="escapes template root"):
+            CoverTemplate.from_dict(raw, source)
+
+    def test_absolute_path_raises(self, tmp_path):
+        raw, source = self._make_template_with_decor(tmp_path, "/etc/passwd")
+        with pytest.raises(TemplateError, match="escapes template root"):
+            CoverTemplate.from_dict(raw, source)
+
+    def test_overlong_path_raises(self, tmp_path):
+        long_name = "a" * 300
+        raw, source = self._make_template_with_decor(tmp_path, long_name)
+        with pytest.raises(TemplateError, match="too long"):
+            CoverTemplate.from_dict(raw, source)
+
+    def test_oversize_json_raises(self, tmp_path):
+        from covers.template import load_template, _MAX_TEMPLATE_BYTES
+        big_file = tmp_path / "big.json"
+        # Write > 1 MB of valid-looking JSON
+        payload = json.dumps(
+            {"id": "big", "canvas": {"w": 1, "h": 1}, "data": "x" * (_MAX_TEMPLATE_BYTES + 100)}
+        )
+        big_file.write_text(payload, encoding="utf-8")
+        with pytest.raises(TemplateError, match="too large"):
+            load_template(big_file)

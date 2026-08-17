@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from core.paths import data_dir, resource_path
+
+# Maximum allowed size for a template JSON file (bytes).
+_MAX_TEMPLATE_BYTES = 1_000_000  # 1 MB
+
+# Maximum allowed length for a path data string (e.g. decor .path filename).
+_MAX_PATH_DATA_LEN = 256
 
 
 class TemplateError(ValueError):
@@ -144,9 +151,25 @@ class CoverTemplate:
                 if radius is not None and not 0 <= float(radius) <= 0.5:
                     raise TemplateError("radius_ratio must be between 0 and 0.5")
                 if layer.type == "decor":
-                    path = self.root / "decor" / f"{layer.get('path')}.path"
-                    if not path.is_file():
-                        raise TemplateError(f"missing decor path: {path.name}")
+                    path_name = layer.get('path')
+                    if isinstance(path_name, str) and len(path_name) > _MAX_PATH_DATA_LEN:
+                        raise TemplateError(
+                            f"decor path is too long ({len(path_name)} chars, "
+                            f"max {_MAX_PATH_DATA_LEN})"
+                        )
+                    raw_path = self.root / "decor" / f"{path_name}.path"
+                    # Containment check: the resolved path must stay inside
+                    # the template root to prevent directory traversal.
+                    try:
+                        resolved = raw_path.resolve()
+                        root_resolved = self.root.resolve()
+                        resolved.relative_to(root_resolved)
+                    except ValueError:
+                        raise TemplateError(
+                            f"decor path escapes template root: {path_name!r}"
+                        )
+                    if not resolved.is_file():
+                        raise TemplateError(f"missing decor path: {raw_path.name}")
                 self._validate_references(layer.data)
 
     def _validate_references(self, value: Any) -> None:
@@ -210,6 +233,12 @@ def load_template(name: str | Path) -> CoverTemplate:
         ]
     for path in paths:
         if path.is_file():
+            file_size = os.path.getsize(path)
+            if file_size > _MAX_TEMPLATE_BYTES:
+                raise TemplateError(
+                    f"Template file is too large ({file_size} bytes, "
+                    f"max {_MAX_TEMPLATE_BYTES}): {path}"
+                )
             try:
                 raw = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:
