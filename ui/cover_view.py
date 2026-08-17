@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 from config import get_config
 from core.i18n import tr
 from core.insights_worker import InsightsWorker
+from core.worker_registry import WorkerRegistry
 from covers.export import export
 from covers.renderer import render
 from covers.template import load_template
@@ -31,6 +32,7 @@ class CoverView(QWidget):
         self.photos: dict[str, str] = {}
         self.last_image = None
         self._workers: list = []
+        self._registry = WorkerRegistry(parent=self)
         self._segments = []
         root = QHBoxLayout(self)
         preview_column = QVBoxLayout()
@@ -92,6 +94,7 @@ class CoverView(QWidget):
             else None
         )
         self._workers.append(worker)
+        self._registry.register(worker, name=f"cover_title_{id(worker)}")
         worker.start()
 
     def _on_title_suggestions(self, _kind, suggestions) -> None:
@@ -162,7 +165,16 @@ class CoverView(QWidget):
         )
 
     def shutdown(self, timeout: int = 2000) -> None:
+        """Part of the Shutdownable protocol (ui/shutdownable.py).
+
+        Retiring through WorkerRegistry — rather than a bare cancel()+
+        wait(timeout) per worker — disconnects each worker's business
+        signals before waiting (a title-suggestion result arriving after
+        the window starts closing must not still write into
+        self.inspector) and keeps any worker that outlives the bounded
+        wait alive until its QThread actually finishes, instead of leaving
+        it referenced with no further supervision.
+        """
         self._timer.stop()
-        for worker in self._workers:
-            worker.cancel()
-            worker.wait(timeout)
+        self._workers.clear()
+        self._registry.shutdown_all(timeout_ms=timeout)

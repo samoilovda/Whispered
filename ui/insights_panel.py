@@ -11,10 +11,11 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel,
     QPushButton, QFrame,
 )
-from PyQt6.QtCore import QThread, Qt, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import Qt, pyqtSignal
 
 from core.logger import get_logger
 from core.i18n import tr
+from core.worker_registry import WorkerRegistry
 from utils import format_duration, language_name_for_code
 
 logger = get_logger(__name__)
@@ -108,7 +109,7 @@ class InsightsPanel(QWidget):
         self._segments = []
         self._transcript_language: str | None = None
         self._workers: dict[str, object] = {}
-        self._retired_workers: dict[int, object] = {}
+        self._registry = WorkerRegistry(parent=self)
         self._pending = 0
         self._insight_queue: list[str] = []
         self._any_error = False
@@ -214,56 +215,10 @@ class InsightsPanel(QWidget):
         self._placeholder.show()
 
     def _cancel_workers(self, timeout: int) -> None:
-        """Cancel workers and retain any that outlive the bounded wait."""
-        workers = list(self._workers.values())
+        """Cancel workers via WorkerRegistry and retain any that outlive the
+        bounded wait until their QThread actually finishes."""
         self._workers.clear()
-        for w in workers:
-            if not w:
-                continue
-
-            # Disconnect only business signals.  The no-argument built-in
-            # QThread.finished signal is reserved for lifecycle cleanup.
-            for signal, slot in (
-                (w.finished, self._on_finished),
-                (w.error_occurred, self._on_error),
-            ):
-                try:
-                    signal.disconnect(slot)
-                except (RuntimeError, TypeError):
-                    pass
-
-            if not w.isRunning():
-                w.deleteLater()
-                continue
-
-            worker_key = id(w)
-            self._retired_workers[worker_key] = w
-            # InsightsWorker.finished(str, object) shadows QThread.finished;
-            # bind the base-class signal explicitly so cleanup observes the
-            # actual end of run().
-            QThread.finished.__get__(w, type(w)).connect(
-                self._on_retired_worker_finished
-            )
-
-            if not w.isRunning():
-                self._dispose_retired_worker(worker_key)
-                continue
-
-            w.cancel()
-            w.wait(timeout)
-            if not w.isRunning():
-                self._dispose_retired_worker(worker_key)
-
-    @pyqtSlot()
-    def _on_retired_worker_finished(self) -> None:
-        worker = self.sender()
-        if worker is not None:
-            self._dispose_retired_worker(id(worker))
-
-    def _dispose_retired_worker(self, worker_key: int) -> None:
-        worker = self._retired_workers.pop(worker_key, None)
-        if worker is not None:
-            worker.deleteLater()
+        self._registry.shutdown_all(timeout_ms=timeout)
 
     # ── Generation ──────────────────────────────────────────────────
 
@@ -308,6 +263,7 @@ class InsightsPanel(QWidget):
         worker.finished.connect(self._on_finished)
         worker.error_occurred.connect(self._on_error)
         self._workers[insight_type] = worker
+        self._registry.register(worker, name=f"insights_{insight_type}")
         worker.start()
 
     def _decrement_pending(self):

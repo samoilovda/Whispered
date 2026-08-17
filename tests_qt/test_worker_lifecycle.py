@@ -60,6 +60,10 @@ def test_running_worker_is_retained_until_qthread_finished(
     worker.finished.connect(panel._on_finished)
     worker.error_occurred.connect(panel._on_error)
     panel._workers["chapters"] = worker
+    # Production code (_generate/_start_next_worker) registers each worker
+    # with the panel's WorkerRegistry at creation time; this test injects
+    # the worker directly to control its timing, so it has to do the same.
+    panel._registry.register(worker, name="chapters")
     panel._pending = 1
 
     worker.start()
@@ -68,10 +72,15 @@ def test_running_worker_is_retained_until_qthread_finished(
         panel.clear()
 
         assert worker.cancelled is True
-        assert worker.wait_timeouts == [2000]
+        # WorkerRegistry.shutdown_all() computes the wait from a global
+        # deadline (deadline - now()), not a fixed constant like the old
+        # per-worker wait(timeout) call — allow for wall-clock jitter
+        # between starting the deadline and reaching wait().
+        assert len(worker.wait_timeouts) == 1
+        assert 1900 <= worker.wait_timeouts[0] <= 2000
         assert delete_calls == []
         assert panel._workers == {}
-        assert panel._retired_workers[id(worker)] is worker
+        assert panel._registry.retired_count == 1
 
         # Neither the already-queued result nor signals emitted after
         # disconnect may decrement a replacement run's count.
@@ -85,7 +94,7 @@ def test_running_worker_is_retained_until_qthread_finished(
         assert QThread.wait(worker, 1000)
         process_events()
 
-        assert panel._retired_workers == {}
+        assert panel._registry.retired_count == 0
         assert delete_calls == [worker]
     finally:
         # A failed assertion must never leave a real QThread running in the

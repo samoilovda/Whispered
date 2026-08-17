@@ -62,6 +62,7 @@ from core.ai_worker import AIProcessingWorker
 from core.base_worker import BaseWorker
 from core.logger import get_logger
 from core.i18n import tr
+from core.worker_registry import WorkerRegistry
 from transcriber import _build_initial_prompt
 from timeline_export import write_edl
 from video_edit import mark_pauses
@@ -155,7 +156,18 @@ class _WorkerShutdown:
         if worker is None or not worker.isRunning():
             return
         worker.cancel()
-        worker.wait(self._wait_ms)
+        if not worker.wait(self._wait_ms):
+            # The bounded wait is a UX budget, not a correctness guarantee.
+            # A worker that outlives it must not be abandoned — dropping
+            # the last reference to (or later destroying) a still-running
+            # QThread is what Qt aborts the process for. WorkerRegistry
+            # keeps it alive and deletes it once it actually finishes.
+            logger.warning(
+                "%s did not stop within %d ms; deferring cleanup to WorkerRegistry",
+                self._attr, self._wait_ms,
+            )
+            self._owner._registry.register(worker, name=self._attr)
+            self._owner._registry.retire(worker)
 
 
 class MainWindow(QMainWindow):
@@ -167,6 +179,7 @@ class MainWindow(QMainWindow):
         # registers itself here instead of closeEvent reaching into each
         # one individually (see ui/shutdownable.py).
         self._shutdownables: list[Shutdownable] = []
+        self._registry = WorkerRegistry(parent=self)
         self.transcriber = Transcriber()
         self._shutdownables.append(self.transcriber)
         self._current_result: TranscriptionResult | None = None
@@ -1033,6 +1046,21 @@ class MainWindow(QMainWindow):
             on_error=self._on_error
         )
 
+    def _cancel_ai_worker(self) -> None:
+        """Cancel the current AI worker without blocking the GUI thread.
+
+        This runs on a button click, not window close — a blocking
+        ``wait(5000)`` here would freeze the whole UI for up to 5 seconds
+        if the worker doesn't stop quickly. ``retire()`` disconnects its
+        business signals immediately (so a late finished/error can't reach
+        UI state that already believes the operation was cancelled) and
+        hands it to WorkerRegistry, which deletes it once its QThread
+        actually finishes.
+        """
+        if self._ai_worker is not None and self._ai_worker.isRunning():
+            self._registry.retire(self._ai_worker)
+            self._ai_worker = None
+
     def _cancel_operation(self):
         """Cancel the current operation (transcription, AI processing, or
         an in-progress preset chain — see _start_preset_chain)."""
@@ -1045,10 +1073,7 @@ class MainWindow(QMainWindow):
             self._chain_extra_steps.clear()
             self._chain_extra_active = ""
             self.insights_panel.clear()
-            if self._ai_worker and self._ai_worker.isRunning():
-                self._ai_worker.cancel()
-                self._ai_worker.wait(5000)
-                self._ai_worker = None
+            self._cancel_ai_worker()
             self.status_label.setText(tr("status_chain_cancelled"))
             self._reset_ui()
             return
@@ -1056,19 +1081,14 @@ class MainWindow(QMainWindow):
         if self._preset_chain.is_active():
             self._preset_chain.cancel()
             self.youtube_panel._cancel_workers(timeout=1000)
-            if self._ai_worker and self._ai_worker.isRunning():
-                self._ai_worker.cancel()
-                self._ai_worker.wait(5000)
-                self._ai_worker = None
+            self._cancel_ai_worker()
             self.ai_panel.set_processing(False)
             self.status_label.setText(tr("status_chain_cancelled"))
             self._reset_ui()
             return
 
         if self._ai_worker and self._ai_worker.isRunning():
-            self._ai_worker.cancel()
-            self._ai_worker.wait(5000)
-            self._ai_worker = None
+            self._cancel_ai_worker()
             self.ai_panel.set_processing(False)
             self.status_label.setText(tr("status_ai_cancelled"))
         else:

@@ -19,6 +19,20 @@ class AIProcessingWorker(BaseWorker):
     finished = pyqtSignal(object)     # result object
     error = pyqtSignal(str)           # error message
 
+    def _disconnect_business_signals(self) -> None:
+        """WorkerRegistry hook (see core/worker_registry.py).
+
+        The registry's generic by-name sweep deliberately skips any signal
+        named ``finished`` so it never touches QThread's own lifecycle
+        signal — but this class's ``finished`` is a business signal that
+        happens to shadow it. Disconnect all three explicitly instead.
+        """
+        for signal in (self.progress, self.finished, self.error):
+            try:
+                signal.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+
     def __init__(self, task: str, text: str, **kwargs) -> None:
         super().__init__()
         self.task: str = task

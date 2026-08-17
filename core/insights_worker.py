@@ -132,6 +132,20 @@ class InsightsWorker(BaseWorker):
     finished = pyqtSignal(str, object)   # (insight_type, list_or_None)
     error_occurred = pyqtSignal(str, str)  # (insight_type, message)
 
+    def _disconnect_business_signals(self) -> None:
+        """WorkerRegistry hook (see core/worker_registry.py).
+
+        The registry's generic by-name sweep deliberately skips any signal
+        named ``finished`` so it never touches QThread's own lifecycle
+        signal — but this class's ``finished`` is a business signal that
+        happens to shadow it. Disconnect both explicitly instead.
+        """
+        for signal in (self.finished, self.error_occurred):
+            try:
+                signal.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+
     def __init__(self, insight_type: str, segments, lm_url: str,
                  language: Optional[str] = None,
                  provider: Optional["ProviderSettings"] = None, parent=None):

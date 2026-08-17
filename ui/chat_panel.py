@@ -16,6 +16,7 @@ from PyQt6.QtGui import QFont
 
 from core.logger import get_logger
 from core.i18n import tr
+from core.worker_registry import WorkerRegistry
 from ui.theme import set_role
 
 logger = get_logger(__name__)
@@ -83,6 +84,7 @@ class ChatPanel(QWidget):
         self._transcript: str = ""
         self._history: list[dict] = []   # [{role, content}, …]
         self._worker = None
+        self._registry = WorkerRegistry(parent=self)
         self._current_bubble: Optional[_Bubble] = None
         self._token_buf: list[str] = []
         self._scroll_timer: Optional[QTimer] = None
@@ -172,12 +174,32 @@ class ChatPanel(QWidget):
         self._placeholder.setText(tr("chat_placeholder"))
 
     def shutdown(self) -> None:
-        """Stop any in-flight chat worker. Call from MainWindow.closeEvent."""
+        """Stop any in-flight chat worker. Call from MainWindow.closeEvent.
+
+        Unlike _cancel_worker() (used by interactive Stop/Clear, which must
+        not block the GUI thread), this bounds the wait: if the whole
+        process exits shortly after closeEvent returns, a worker given no
+        wall-clock time at all to stop is what Qt aborts the process for.
+        A worker that outlives the bound is still not abandoned — it stays
+        alive in the registry until it actually finishes.
+        """
         if self._scroll_timer:
             self._scroll_timer.stop()
-        if self._worker and self._worker.isRunning():
-            self._worker.cancel()
-            self._worker.wait(5000)
+        self._registry.shutdown_all(timeout_ms=5000)
+
+    def _cancel_worker(self) -> None:
+        """Cancel the in-flight chat worker without blocking the GUI thread.
+
+        The previous ``cancel()`` + ``wait(5000)`` froze the UI for up to
+        5 s on a Stop/Clear button click, and abandoned the worker outright
+        if the LM Studio stream didn't unblock in time. ``retire()``
+        disconnects its signals immediately (a late token/turn_finished
+        can't land on a bubble the user already considers stopped) and
+        hands it to WorkerRegistry, which deletes it once its QThread
+        actually finishes.
+        """
+        if self._worker is not None and self._worker.isRunning():
+            self._registry.retire(self._worker)
 
     # ------------------------------------------------------------------ internals
 
@@ -223,6 +245,7 @@ class ChatPanel(QWidget):
         self._worker.token_received.connect(self._on_token)
         self._worker.turn_finished.connect(self._on_finished)
         self._worker.error_occurred.connect(self._on_error)
+        self._registry.register(self._worker, name="chat")
         self._worker.start()
 
         # Coalesce scroll-to-bottom at ~10 Hz so we don't scroll on every token
@@ -267,9 +290,7 @@ class ChatPanel(QWidget):
     def _on_stop(self):
         if self._scroll_timer:
             self._scroll_timer.stop()
-        if self._worker and self._worker.isRunning():
-            self._worker.cancel()
-            self._worker.wait(5000)
+        self._cancel_worker()
         if self._current_bubble:
             text = self._current_bubble.text()
             if text and text != "…":
@@ -305,9 +326,7 @@ class ChatPanel(QWidget):
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return
-        if self._worker and self._worker.isRunning():
-            self._worker.cancel()
-            self._worker.wait(5000)
+        self._cancel_worker()
         self._history.clear()
         # Remove all bubbles (keep stretch and placeholder)
         while self._msg_layout.count() > 2:

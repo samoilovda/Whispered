@@ -11,11 +11,12 @@ import requests
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QProgressBar, QPushButton, QHBoxLayout, QMessageBox
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 
 from utils import get_models_dir
 from core.base_worker import BaseWorker
 from core.i18n import tr
+from core.worker_registry import WorkerRegistry
 
 
 class DownloadWorker(BaseWorker):
@@ -23,6 +24,18 @@ class DownloadWorker(BaseWorker):
 
     progress = pyqtSignal(int, int)  # (bytes_read, total_bytes)
     finished = pyqtSignal(bool, str) # (success, error_or_path)
+
+    def _disconnect_business_signals(self) -> None:
+        """WorkerRegistry hook (see core/worker_registry.py) — ``finished``
+        here shadows QThread's own lifecycle signal with a business one, so
+        the registry's generic by-name sweep skips it; disconnect
+        explicitly so a cancelled download can't still call
+        ``_on_download_finished`` after the dialog has moved on."""
+        for signal in (self.progress, self.finished):
+            try:
+                signal.disconnect()
+            except (RuntimeError, TypeError):
+                pass
 
     def __init__(self, url: str, target_path: str, parent=None):
         super().__init__(parent)
@@ -78,6 +91,13 @@ class DiarizationCacheWorker(BaseWorker):
 
     finished = pyqtSignal(bool, str)
 
+    def _disconnect_business_signals(self) -> None:
+        """WorkerRegistry hook — see DownloadWorker._disconnect_business_signals."""
+        try:
+            self.finished.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+
     def __init__(self, hf_token: str, parent=None):
         super().__init__(parent)
         self.hf_token = hf_token
@@ -121,6 +141,7 @@ class ModelDownloaderDialog(QDialog):
         self.url = f"https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{self.target_filename}"
 
         self.worker = None
+        self._registry = WorkerRegistry(parent=self)
         self.start_time = 0
 
         self._setup_ui()
@@ -188,14 +209,16 @@ class ModelDownloaderDialog(QDialog):
 
         if self.is_diarization:
             # Pyannote caching
-            self.worker = DiarizationCacheWorker(self.hf_token)
+            self.worker = DiarizationCacheWorker(self.hf_token, parent=self)
             self.worker.finished.connect(self._on_download_finished)
+            self._registry.register(self.worker, name="model_download")
             self.worker.start()
         else:
             # Whisper downloading
-            self.worker = DownloadWorker(self.url, self.target_path)
+            self.worker = DownloadWorker(self.url, self.target_path, parent=self)
             self.worker.progress.connect(self._on_progress)
             self.worker.finished.connect(self._on_download_finished)
+            self._registry.register(self.worker, name="model_download")
             self.worker.start()
 
     def _on_progress(self, bytes_read: int, total_bytes: int):
@@ -243,11 +266,27 @@ class ModelDownloaderDialog(QDialog):
             self.reject()
 
     def _on_cancel(self):
-        """Cancel download."""
-        if self.worker and self.worker.isRunning():
-            if isinstance(self.worker, DownloadWorker):
-                self.worker.cancel()
+        """Cancel download.
+
+        Only DownloadWorker's ``_execute`` loop actually polls
+        ``is_cancelled()``; DiarizationCacheWorker's pyannote pipeline load
+        has no cancellation point once started (a real limitation of
+        huggingface_hub's blocking download, not something a flag flip can
+        fix), so cancel() is called for both cases but only DownloadWorker
+        can react to it before its own natural completion. Either way, the
+        dialog must not close (and Python must not drop the worker's last
+        reference) while it's still running — that combination is what Qt
+        aborts the process for. Wait for the QThread to actually finish
+        before rejecting.
+        """
+        if not self.worker or not self.worker.isRunning():
             self.reject()
+            return
+        self.worker.cancel()
+        self.cancel_btn.setEnabled(False)
+        self.stats_label.setText(tr("progress_cancelling"))
+        self._registry.retire(self.worker)
+        QThread.finished.__get__(self.worker, type(self.worker)).connect(self.reject)
 
 
 def ensure_whisper_model(model_name: str, parent=None) -> bool:

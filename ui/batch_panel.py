@@ -15,6 +15,7 @@ from ui.theme import set_role
 from ui.empty_state import EmptyStateWidget
 from core.i18n import tr
 from core.book_batch_worker import BookBatchWorker
+from core.worker_registry import WorkerRegistry
 
 
 STATUS_ICONS = {
@@ -117,6 +118,7 @@ class BatchPanel(QWidget):
         super().__init__(parent)
         self.processor = BatchProcessor()
         self._book_worker: BookBatchWorker | None = None
+        self._registry = WorkerRegistry(parent=self)
         self._setup_ui()
         self._connect_signals()
         # _refresh_list() is what sets file_list/empty_state visibility;
@@ -303,6 +305,7 @@ class BatchPanel(QWidget):
         worker.file_error.connect(self._on_book_error)
         worker.batch_finished.connect(self._on_book_batch_finished)
         self._book_worker = worker
+        self._registry.register(worker, name="book_batch")
         worker.start()
 
     def _on_book_started(self, index: int, _total: int, _filename: str) -> None:
@@ -367,7 +370,13 @@ class BatchPanel(QWidget):
         if self._is_processing():
             self.cancel_processing()
         if self._book_worker and self._book_worker.isRunning():
-            self._book_worker.wait(3000)
+            if not self._book_worker.wait(3000):
+                # Outliving the bounded wait must not mean abandoning it —
+                # WorkerRegistry keeps it alive and deletes it once its
+                # QThread actually finishes, instead of leaving
+                # self._book_worker pointing at an unsupervised thread.
+                self._registry.retire(self._book_worker)
+            self._book_worker = None
 
     def _on_item_started(self, index: int):
         """Handle item started."""

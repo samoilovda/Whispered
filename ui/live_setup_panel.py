@@ -21,6 +21,7 @@ from core.i18n import tr
 from core.live.preflight import default_helper_path
 from core.live.target_discovery import DiscoveredTarget, discover_targets
 from core.platform_support import live_system_audio_unavailable_message, supports_live_system_audio
+from core.worker_registry import WorkerRegistry
 from ui.components import FormSection
 from ui.option_labels import whisper_language_options, whisper_model_options
 
@@ -48,6 +49,7 @@ class LiveSetupPanel(FormSection):
     def __init__(self, parent=None) -> None:
         super().__init__(tr("live_setup_title"), tr("live_setup_description"), parent)
         self._target_worker: TargetDiscoveryWorker | None = None
+        self._registry = WorkerRegistry(parent=self)
         self._build()
 
     def _build(self) -> None:
@@ -150,6 +152,7 @@ class LiveSetupPanel(FormSection):
         worker.failed.connect(self._targets_failed)
         worker.finished.connect(lambda: self.refresh_btn.setEnabled(True))
         self._target_worker = worker
+        self._registry.register(worker, name="target_discovery")
         worker.start()
 
     def _targets_ready(self, targets: tuple[DiscoveredTarget, ...]) -> None:
@@ -184,4 +187,6 @@ class LiveSetupPanel(FormSection):
     def shutdown(self) -> None:
         if self._target_worker and self._target_worker.isRunning():
             self._target_worker.cancel()
-            self._target_worker.wait(1500)
+            if not self._target_worker.wait(1500):
+                self._registry.retire(self._target_worker)
+            self._target_worker = None

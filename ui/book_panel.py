@@ -49,10 +49,15 @@ class BookPanel(QWidget):
         self._batch_worker: BookBatchWorker | None = None
         self._checker: LMStatusWorker | None = None  # guard against duplicate checks
         self._registry = WorkerRegistry(parent=self)
+        self._conn_timer: QTimer | None = None
         self._has_transcript = False
         self._connected = False
         self._setup_ui()
-        self._start_connection_check()
+        # The deterministic gallery (tools/render_ui_gallery.py) must never
+        # touch a user's LM Studio installation or depend on its response
+        # time — see the identical guard in ui/ai_panel.py.
+        if os.environ.get("WHISPERED_UI_GALLERY") != "1":
+            self._start_connection_check()
 
     # ------------------------------------------------------------------
     # UI Setup
@@ -403,12 +408,18 @@ class BookPanel(QWidget):
         after the window starts closing, and a bare ``wait()`` here would
         either block the GUI thread or drop the last reference to a still
         -running QThread — both of which Qt punishes with a hard abort.
+
+        shutdown_all() (rather than a bare non-blocking retire_all())
+        still gives it a short bound to actually stop: the connection
+        probe is a cheap local socket call that normally finishes almost
+        instantly, but if the whole process exits right after closeEvent
+        returns, zero wall-clock time would otherwise be all it gets.
         """
         if self._batch_worker:
             self._cancel_batch()
         if self._conn_timer is not None:
             self._conn_timer.stop()
-        self._registry.retire_all()
+        self._registry.shutdown_all(timeout_ms=1500)
 
     def _on_batch_file_started(self, index: int, total: int, filename: str) -> None:
         self.batch_status_label.setText(f"[{index + 1}/{total}] {filename}")

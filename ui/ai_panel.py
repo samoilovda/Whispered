@@ -17,6 +17,7 @@ from lm_studio_manager import LMStudioManager
 from core.base_worker import BaseWorker
 from core.i18n import tr
 from core.logger import get_logger
+from core.worker_registry import WorkerRegistry
 from ui.theme import set_role
 
 
@@ -151,6 +152,7 @@ class AIProcessingPanel(QWidget):
         self._processing = False
         self._has_transcription = False
         self._worker: LMStudioTaskWorker | None = None
+        self._registry = WorkerRegistry(parent=self)
         self._pending_task: tuple[str, object] | None = None
         self._closing = False
         self._current_model: str | None = None
@@ -166,15 +168,26 @@ class AIProcessingPanel(QWidget):
 
     def shutdown(self) -> None:
         """Stop timers and cleanup resources. Part of the Shutdownable
-        protocol (ui/shutdownable.py) — called once from closeEvent."""
+        protocol (ui/shutdownable.py) — called once from closeEvent.
+
+        Uses WorkerRegistry.shutdown_all() rather than a bare cancel()+
+        wait(): a worker that outlives the bounded wait is kept alive
+        (not abandoned) until its QThread actually finishes. The bounded
+        wait itself still matters here and is not just cosmetic — if the
+        whole process exits shortly after closeEvent returns (as it does
+        once this is the last open window), a purely non-blocking retire
+        would give the worker no wall-clock time at all to actually stop
+        before interpreter teardown, which is what Qt aborts the process
+        for.
+        """
         if self.check_timer:
             self.check_timer.stop()
         self._closing = True
         self._pending_task = None
-        if self._worker and self._worker.isRunning():
-            self._worker.cancel()
-            if not self._worker.wait(4000):
-                logger.warning("LM Studio worker did not stop during cleanup")
+        if self._worker is not None:
+            # Already registered by _submit_task() when it was created.
+            self._registry.shutdown_all(timeout_ms=4000)
+            self._worker = None
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -357,6 +370,7 @@ class AIProcessingPanel(QWidget):
             action, self._processor, self._manager, payload, self
         )
         self._worker = worker
+        self._registry.register(worker, name="lm_task")
         worker.result_ready.connect(self._on_task_result)
         worker.failed.connect(self._on_task_failed)
         worker.finished.connect(lambda current=worker: self._on_task_finished(current))
