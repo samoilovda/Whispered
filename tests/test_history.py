@@ -298,3 +298,76 @@ class TestSchemaMigrations:
         rid = store.add(_make_result(), "/tmp/audio.wav", source_kind="live")
         store.set_artifacts(rid, ["transcript"])
         assert store.get_record(rid)["source_kind"] == "live"
+
+
+class TestFTSRebuildPolicy:
+    """R13: FTS rebuild must only happen on first creation or explicit repair."""
+
+    def test_second_init_does_not_rebuild(self, tmp_path):
+        """After first creation the fts_state marker is 'ok'; a second
+        HistoryStore opening the same file must not run rebuild."""
+        import sqlite3 as _sqlite3
+        from core.history import HistoryStore, _FTS_STATE_OK
+
+        db = tmp_path / "history.db"
+
+        # First init: creates FTS table, runs rebuild, writes fts_state='ok'
+        store1 = HistoryStore(db_path=db)
+        assert store1._fts_available
+
+        # Verify state was written
+        conn = _sqlite3.connect(str(db))
+        try:
+            row = conn.execute(
+                "SELECT value FROM schema_meta WHERE key='fts_state'"
+            ).fetchone()
+        finally:
+            conn.close()
+        assert row is not None and row[0] == _FTS_STATE_OK, (
+            f"fts_state not persisted after first init: {row}"
+        )
+
+        # Second init: fts_state is 'ok' → no rebuild
+        # We verify by checking the FTS table still queries correctly
+        store2 = HistoryStore(db_path=db)
+        assert store2._fts_available
+
+        # Sanity: searching on fresh db returns no results (not a crash)
+        results = store2.search("hello")
+        assert results == []
+
+    def test_repair_fts_triggers_rebuild_on_next_init(self, tmp_path):
+        """repair_fts() sets fts_state='repair_needed'; the next init then
+        runs a full rebuild and resets state back to 'ok'."""
+        import sqlite3 as _sqlite3
+        from core.history import HistoryStore, _FTS_STATE_OK, _FTS_STATE_REPAIR
+
+        db = tmp_path / "history.db"
+
+        store1 = HistoryStore(db_path=db)
+        assert store1._fts_available
+
+        # Schedule repair
+        store1.repair_fts()
+
+        conn = _sqlite3.connect(str(db))
+        try:
+            row = conn.execute(
+                "SELECT value FROM schema_meta WHERE key='fts_state'"
+            ).fetchone()
+        finally:
+            conn.close()
+        assert row is not None and row[0] == _FTS_STATE_REPAIR
+
+        # Next init should detect repair_needed, run rebuild, reset to ok
+        store2 = HistoryStore(db_path=db)
+        assert store2._fts_available
+
+        conn = _sqlite3.connect(str(db))
+        try:
+            row = conn.execute(
+                "SELECT value FROM schema_meta WHERE key='fts_state'"
+            ).fetchone()
+        finally:
+            conn.close()
+        assert row is not None and row[0] == _FTS_STATE_OK

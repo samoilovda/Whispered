@@ -99,6 +99,19 @@ AFTER UPDATE ON transcripts BEGIN
 END;
 """
 
+# Persistent key-value metadata table used to track FTS state.
+# Stored inside the same SQLite file to avoid a separate sidecar.
+_CREATE_SCHEMA_META_SQL = """
+CREATE TABLE IF NOT EXISTS schema_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+"""
+
+# Values stored under the key "fts_state".
+_FTS_STATE_OK = "ok"
+_FTS_STATE_REPAIR = "repair_needed"
+
 
 def _result_to_payload(result: Any, model: str = "", speaker_names: dict | None = None) -> str:
     """Serialize a TranscriptionResult to a JSON string for storage."""
@@ -247,17 +260,70 @@ class HistoryStore:
                 # own loop counter, never external input.
                 conn.execute(f"PRAGMA user_version = {version}")
 
-    def _init_fts(self):
-        """Attempt to create the FTS5 index; set _fts_available accordingly."""
+    def _init_fts(self) -> None:
+        """Create the FTS5 index if needed; set _fts_available accordingly.
+
+        A rebuild (expensive on large databases) runs only once — when the
+        virtual table is first created — or when the stored ``fts_state``
+        marker is ``repair_needed`` (set by :meth:`repair_fts`).  Every
+        subsequent launch skips the rebuild and takes the fast path.
+        """
         try:
             with self._connect() as conn:
+                # Ensure the metadata tracking table exists.
+                conn.executescript(_CREATE_SCHEMA_META_SQL)
+
+                fts_state_row = conn.execute(
+                    "SELECT value FROM schema_meta WHERE key = 'fts_state'"
+                ).fetchone()
+                current_state = fts_state_row[0] if fts_state_row else None
+
+                # Check whether the FTS virtual table already exists.
+                fts_exists = conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                    " AND name='transcripts_fts'"
+                ).fetchone() is not None
+
                 conn.executescript(_CREATE_FTS_SQL)
-                # Rebuild index to cover any rows inserted before FTS was created.
-                conn.execute("INSERT INTO transcripts_fts(transcripts_fts) VALUES ('rebuild')")
+
+                need_rebuild = (
+                    not fts_exists  # first time — table just created
+                    or current_state == _FTS_STATE_REPAIR  # explicit repair request
+                )
+                if need_rebuild:
+                    logger.debug("FTS5: running full index rebuild (state=%s)", current_state)
+                    conn.execute(
+                        "INSERT INTO transcripts_fts(transcripts_fts) VALUES ('rebuild')"
+                    )
+                    conn.execute(
+                        "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('fts_state', ?)",
+                        (_FTS_STATE_OK,),
+                    )
+                else:
+                    logger.debug("FTS5: index already up-to-date, skipping rebuild")
+
             self._fts_available = True
         except sqlite3.OperationalError as exc:
             logger.warning("FTS5 not available — falling back to LIKE search: %s", exc)
             self._fts_available = False
+
+    def repair_fts(self) -> None:
+        """Schedule a full FTS rebuild on the next :class:`HistoryStore` init.
+
+        Call this when the FTS index is suspected to be corrupt (e.g. after
+        an unclean shutdown interrupted a rebuild).  The repair itself is
+        deferred to the next time :meth:`_init_fts` runs so this method is
+        safe to call from any thread without holding a connection.
+        """
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('fts_state', ?)",
+                    (_FTS_STATE_REPAIR,),
+                )
+            logger.info("FTS5: repair scheduled — will rebuild on next HistoryStore init")
+        except sqlite3.OperationalError as exc:
+            logger.warning("Could not schedule FTS repair: %s", exc)
 
     @contextmanager
     def _connect(self) -> Generator[sqlite3.Connection, None, None]:
