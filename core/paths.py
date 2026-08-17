@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import sys
 from pathlib import Path
 
 _APP_NAME = "Whispered"
 _LEGACY_DIR = Path.home() / ".whisper-fedora"
+_UNSAFE_STEM_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
 def _ensure_private_dir(path: Path) -> Path:
@@ -92,6 +94,31 @@ def logs_dir() -> Path:
 def output_dir() -> Path:
     path = data_dir() / "output"
     return _ensure_private_dir(path)
+
+
+def artifact_dir(record_id: int | str, source: Path | str) -> Path:
+    """Per-source output directory, scoped by history record id.
+
+    Two different source files that happen to share a name (two unrelated
+    ``interview.mp4``, one from each of two folders) used to both resolve to
+    ``output_dir() / "interview"`` — later artifacts silently overwrote or
+    mixed with earlier ones. Suffixing with the history record id keeps
+    every transcription's outputs in their own directory regardless of how
+    many source files share a stem.
+
+    This is the short-term fix (see docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md,
+    R5) ahead of a full Artifact/manifest model; existing output
+    directories from before this change are left in place and not migrated.
+    """
+    stem = _UNSAFE_STEM_CHARS.sub("_", Path(source).stem).strip(". ") or "output"
+    dir_name = f"{stem}-{record_id}"
+    candidate = (output_dir() / dir_name).resolve()
+    root = output_dir().resolve()
+    if root not in candidate.parents and candidate != root:
+        # A pathological stem could not plausibly escape the sanitizer
+        # above, but refuse rather than write outside output_dir().
+        raise ValueError(f"resolved artifact directory escapes output_dir(): {candidate}")
+    return candidate
 
 
 def runtime_dir() -> Path:

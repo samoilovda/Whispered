@@ -1271,11 +1271,14 @@ class MainWindow(QMainWindow):
         """Auto-save whatever the chain produced to data_dir()/output/<stem>/
         and report how many files came out of it — the plan's "Готово: N
         артефактов" toast. Connected to PresetChainController.finished."""
-        from core.paths import output_dir
+        from core.paths import artifact_dir, output_dir
         from article_generator import export_all_articles
 
         stem = Path(self._source_filepath).stem if self._source_filepath else "recording"
-        out_dir = output_dir() / stem
+        if self._last_record_id is not None:
+            out_dir = artifact_dir(self._last_record_id, self._source_filepath or stem)
+        else:
+            out_dir = output_dir() / stem
 
         saved: list[Path] = []
         if "youtube" in ran:

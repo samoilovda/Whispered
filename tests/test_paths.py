@@ -84,6 +84,44 @@ def test_data_directories_are_owner_only(monkeypatch, tmp_path):
     assert all(stat.S_IMODE(path.stat().st_mode) == 0o700 for path in directories)
 
 
+def test_artifact_dir_scopes_same_stem_sources_by_record_id(monkeypatch, tmp_path):
+    _home(monkeypatch, tmp_path)
+    xdg = tmp_path / "xdg"
+    monkeypatch.setenv("XDG_DATA_HOME", str(xdg))
+    monkeypatch.setattr(paths.platform, "system", lambda: "Linux")
+
+    first = paths.artifact_dir(1, "/Users/alice/podcasts/interview.mp4")
+    second = paths.artifact_dir(2, "/Users/alice/other-folder/interview.mp4")
+
+    assert first != second
+    assert first.parent == paths.output_dir()
+    assert first.name.startswith("interview-")
+    assert second.name.startswith("interview-")
+
+
+def test_artifact_dir_sanitizes_unsafe_stem_characters(monkeypatch, tmp_path):
+    _home(monkeypatch, tmp_path)
+    xdg = tmp_path / "xdg"
+    monkeypatch.setenv("XDG_DATA_HOME", str(xdg))
+    monkeypatch.setattr(paths.platform, "system", lambda: "Linux")
+
+    result = paths.artifact_dir(7, "weird:name/with*chars?.mp4")
+
+    assert paths.output_dir() in result.parents
+    assert "/" not in result.name and ":" not in result.name and "*" not in result.name
+
+
+def test_artifact_dir_falls_back_for_empty_stem(monkeypatch, tmp_path):
+    _home(monkeypatch, tmp_path)
+    xdg = tmp_path / "xdg"
+    monkeypatch.setenv("XDG_DATA_HOME", str(xdg))
+    monkeypatch.setattr(paths.platform, "system", lambda: "Linux")
+
+    result = paths.artifact_dir(3, "...")
+
+    assert result.name == "output-3"
+
+
 def test_resource_path_uses_source_root_when_not_frozen(monkeypatch):
     monkeypatch.delattr(paths.sys, "frozen", raising=False)
     assert paths.resource_path("locales").name == "locales"
