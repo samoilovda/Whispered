@@ -627,4 +627,59 @@ Unit-тесты — системным python (Qt заглушен в `tests/con
 > Раздел заполняется агентом по ходу работы. Формат:
 > `- [дата] [задача, в которой нашлось] описание + файл:строка`.
 
-(пусто)
+- [2026-08-17] [R1] `tests_qt/` фатально падал (`QThread: Destroyed while
+  thread is still running`, `Fatal Python error: Aborted`) — не найдено в
+  плане явно, обнаружено при прогоне gate. Причина: `BookPanel.shutdown()`
+  ([ui/book_panel.py](../ui/book_panel.py)) не трогал периодический
+  `_conn_timer`/`_checker` (LM Studio connection check), а
+  `SettingsDialog._on_ok()` ([ui/settings_dialog.py](../ui/settings_dialog.py))
+  вообще не останавливал `_checker`. Оба переведены на уже созданный, но
+  нигде не подключённый `WorkerRegistry`. Отдельно `tests_qt/conftest.py` не
+  глушил реальный сетевой `LMStudioClient.probe` — real-Qt smoke тесты били
+  по настоящему сокету, что и обнажало гонку при завершении процесса.
+  Исправлено, тест добавлен неявно (регрессия ловится самим фактом, что
+  `tests_qt/` больше не падает).
+- [2026-08-17] [R1] `core/live/runtime.py::_finish_session` игнорировал
+  результат `self._worker.wait(3000)` и эмитил `finished` с результатом
+  независимо от того, успел ли ASR worker остановиться — именно та
+  регрессия, которую явно требовал закрыть acceptance R1
+  ("Live-сессия с зависшим ASR worker завершается как FAILED"). Это не было
+  сделано в предыдущих коммитах R1, хотя явно значилось в шаге 6 плана.
+  Исправлено вместе с тестом
+  `test_finish_session_fails_instead_of_completing_when_worker_wont_stop`.
+- [2026-08-17] [R1, не сделано] Полная миграция панелей на `WorkerRegistry`
+  из плана (`ui/youtube_panel.py`, `ui/insights_panel.py`, `ui/ai_panel.py`,
+  `ui/chat_panel.py`, `ui/model_downloader.py`, `ui/live_setup_panel.py`,
+  `ui/main_window.py::_WorkerShutdown`) **не выполнена**. Предыдущие коммиты
+  ограничились точечным увеличением таймаутов `wait(None → 5000)` в
+  `main_window.py`/`chat_panel.py` — это не то же самое, что интеграция с
+  registry, и не даёт retain-until-finished гарантии. `youtube_panel.py` и
+  `insights_panel.py` уже имели собственный `_retired_workers` до аудита —
+  их можно оставить как есть или мигрировать позже, они не падают.
+  Сетевой transport (`core/lm_client.py::complete`,
+  `core/ai_provider.py`, `core/anthropic_client.py`) также не проверен на
+  предмет прерываемости активного response/socket по Cancel — пункт плана
+  остаётся открытым.
+- [2026-08-17] [R2, не сделано] `core/model_manifest.py` — все `sha256`
+  оставлены пустыми (`sha256=""`) для всех 10 записей моделей; заполнены
+  только `size_bytes`. Код `ModelRepository` корректно откатывается на
+  size-only проверку и громко логирует warning при отсутствии hash, но
+  фактическая integrity-защита слабее, чем задумано R2, пока хэши не
+  вычислены. Это требует один раз скачать каждый файл модели и посчитать
+  `sha256sum` — не сделано в этой сессии сознательно: тянуть ~10 бинарников
+  (десятки–сотни МБ каждый) с Hugging Face без явного запроса пользователя
+  не в духе "скачивание файла требует явного разрешения". Кто-то с доступом
+  к уже скачанным моделям может заполнить хэши через
+  `hashlib.sha256(open(path,'rb').read()).hexdigest()` и обновить манифест.
+- [2026-08-17] [R5, смежное, не сделано] `ui/youtube_panel.py::_save_to_file`
+  (кнопка ручного сохранения одной вкладки) по-прежнему пишет в глобальный
+  `_OUTPUT_DIR` с именем `{stem}_{key}.txt` без записи по record id — в
+  отличие от `save_all()` (используется preset-chain'ом), который уже
+  получает record-id-scoped директорию из R5. Это осознанно не тронуто:
+  явное ручное действие пользователя, а не тихий автосейв, ниже риск и
+  другая природа проблемы. Если понадобится — завести отдельную задачу.
+- [2026-08-17] [R4] Проверка peer credentials на macOS (`LOCAL_PEERCRED`) из
+  плана не реализована — задокументирован как открытый gap в
+  `docs/SYSTEM_CAPTURE_IPC.ru.md`. Nonce handshake закрывает
+  практический риск (гонка за первым `accept()`); peer credentials — это
+  defense-in-depth поверх него.
