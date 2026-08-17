@@ -31,7 +31,7 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
-    <release version="1.0.0" date="2026-01-20">
+    <release version="0.1.0" date="2026-01-20">
       <description>
         <p>Initial release with full transcription, AI processing, and batch support.</p>
       </description>

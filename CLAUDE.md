@@ -63,7 +63,7 @@ python -m compileall -q . -x '.venv|.claude|build|dist|docs/archive'
 # mypy is a blocking gate for this set — it is clean and must stay clean.
 # ui/ is not typed yet and is only checked informationally in CI.
 python -m mypy --ignore-missing-imports core/ transcriber.py diarizer.py \
-    exporters.py utils.py config.py domain/ application/ infrastructure/
+    exporters.py utils.py config.py version.py domain/ application/ infrastructure/
 # real-Qt headless smoke (PyQt6 lives only in the project venv):
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests_qt/ -q
 ```

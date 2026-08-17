@@ -1,0 +1,13 @@
+[project]
+name = "whispered"
+version = "0.1.0"
+description = "Local-first transcription workspace: whisper.cpp, speaker diarization, and an offline-friendly content pipeline."
+requires-python = ">=3.11"
+
+# This is the canonical version source (see docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md,
+# R9). version.py reads it at runtime for source/dev runs. Packaging config
+# that can't read this file at build time — packaging/windows/version_info.txt,
+# packaging/windows/installer.iss, appimage/io.github.whispered.metainfo.xml —
+# currently has its own copy that must be bumped by hand alongside this one;
+# tests/test_version.py checks they stay in sync. Generating those files from
+# this one instead of hand-syncing them is tracked as further R9 follow-up.
