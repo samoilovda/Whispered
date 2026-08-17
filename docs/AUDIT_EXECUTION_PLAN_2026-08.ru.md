@@ -372,6 +372,13 @@ worker-инфраструктуру. Exporters и Live тянут весь эт�
 
 ### Задача R6 — `DocumentSession.apply_result()` (первый шаг разделения)
 
+> **Статус (2026-08-17): сделано.** `application/document_session.py`,
+> все три fan-out сайта переведены, тесты в
+> `tests_qt/test_document_session.py`. Строки `main_window.py` не
+> сократились (1847 → 1892) — это ожидаемо для первого шага: список
+> consumers пока живёт инлайн в `_register_document_session_consumers`;
+> сокращение размера — задача R6-cont (следующий срез), не эта.
+
 **Проблема.** `ui/main_window.py` — 1847 строк; одновременно composition
 root, document state, координатор transcription/live/batch, фасад истории,
 контроллер экспорта и AI-пайплайна. Ручные fan-out блоки результата уже
