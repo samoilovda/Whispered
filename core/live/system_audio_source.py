@@ -22,6 +22,7 @@ from core.live.system_capture_protocol import (
     IPCFrame,
     MessageType,
     ProtocolError,
+    generate_nonce,
     start_frame,
     stop_frame,
 )
@@ -73,6 +74,7 @@ class SystemAudioSource(QObject):
         self._stopped_emitted = False
         self._sequence_fallback = 0
         self._lock = threading.Lock()
+        self._ipc_nonce: str | None = None  # set fresh each start()
 
     def start(self, target: CaptureTarget) -> bool:
         """Start helper connection asynchronously; ``started`` confirms readiness."""
@@ -91,6 +93,8 @@ class SystemAudioSource(QObject):
         self._stop_event.clear()
         self._stopped_event.clear()
         self._stopped_emitted = False
+        # Fresh nonce per session — helper must echo it back in HELLO
+        self._ipc_nonce = generate_nonce()
         self._launch_helper()
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()
@@ -145,6 +149,8 @@ class SystemAudioSource(QObject):
             return
         env = os.environ.copy()
         env["WHISPERED_CAPTURE_SOCKET"] = self.socket_path
+        if self._ipc_nonce:
+            env["WHISPERED_CAPTURE_NONCE"] = self._ipc_nonce
         try:
             self._helper_process = subprocess.Popen(self.helper_command, env=env)
         except OSError as exc:
@@ -201,6 +207,13 @@ class SystemAudioSource(QObject):
         if frame.message_type is MessageType.HELLO:
             if self._target is None:
                 raise ProtocolError("capture target is missing")
+            # Nonce handshake: verify helper echoed our nonce back
+            if self._ipc_nonce is not None:
+                received_nonce = frame.header.get("nonce")
+                if received_nonce != self._ipc_nonce:
+                    raise ProtocolError(
+                        "IPC nonce mismatch — rejecting connection from unknown process"
+                    )
             self._lifecycle.prepare_start()
             sock.sendall(start_frame(self._target))
         elif frame.message_type is MessageType.STARTED:

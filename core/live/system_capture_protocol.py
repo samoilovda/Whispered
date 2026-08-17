@@ -12,6 +12,7 @@ PCM and keep timestamps/sequence numbers in the JSON header.
 from __future__ import annotations
 
 import json
+import secrets
 import struct
 from dataclasses import dataclass
 from enum import Enum
@@ -209,11 +210,26 @@ def encode_frame(
     return _PREFIX.pack(MAGIC, len(encoded_header), len(payload)) + encoded_header + payload
 
 
-def hello_frame(helper_pid: int, capabilities: set[str]) -> bytes:
-    return encode_frame(
-        MessageType.HELLO,
-        {"helper_pid": helper_pid, "capabilities": sorted(capabilities)},
-    )
+def generate_nonce() -> str:
+    """Return a 32-byte (256-bit) cryptographically random nonce as hex.
+
+    Passed via ``WHISPERED_CAPTURE_NONCE`` env var to the helper process
+    and verified in the HELLO frame to prevent rogue clients from connecting
+    to the Unix socket before the legitimate helper can.
+    """
+    return secrets.token_hex(32)
+
+
+def hello_frame(helper_pid: int, capabilities: set[str], *, nonce: str | None = None) -> bytes:
+    fields: dict[str, Any] = {
+        "helper_pid": helper_pid,
+        "capabilities": sorted(capabilities),
+    }
+    if nonce is not None:
+        if not isinstance(nonce, str) or len(nonce) < 8:
+            raise ProtocolError("nonce must be a non-empty hex string of at least 8 chars")
+        fields["nonce"] = nonce
+    return encode_frame(MessageType.HELLO, fields)
 
 
 def start_frame(target: CaptureTarget, *, sample_rate: int = 16_000, channels: int = 1) -> bytes:

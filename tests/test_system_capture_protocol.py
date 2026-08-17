@@ -101,3 +101,66 @@ def test_invalid_header_version_and_payload_are_rejected():
 
     with pytest.raises(ProtocolError, match="cannot carry"):
         encode_frame(MessageType.PING, payload=b"unexpected")
+
+
+# ─── Nonce handshake tests ────────────────────────────────────────────────────
+
+from core.live.system_capture_protocol import generate_nonce
+
+
+def test_generate_nonce_is_64_hex_chars():
+    """generate_nonce returns a 64-character hex string (32 bytes)."""
+    nonce = generate_nonce()
+    assert isinstance(nonce, str)
+    assert len(nonce) == 64
+    assert all(c in "0123456789abcdef" for c in nonce)
+
+
+def test_generate_nonce_is_unique():
+    """Two consecutive nonces must differ (birthday bound is negligible)."""
+    assert generate_nonce() != generate_nonce()
+
+
+def test_hello_frame_with_nonce_roundtrips():
+    """hello_frame with a nonce survives encode → decode with the nonce intact."""
+    nonce = generate_nonce()
+    wire = hello_frame(42, {"audio"}, nonce=nonce)
+    frames = FrameDecoder().feed(wire)
+    assert len(frames) == 1
+    frame = frames[0]
+    assert frame.message_type is MessageType.HELLO
+    assert frame.header["nonce"] == nonce
+    assert frame.header["helper_pid"] == 42
+
+
+def test_hello_frame_without_nonce_has_no_nonce_field():
+    """hello_frame without nonce arg omits nonce from the wire frame."""
+    wire = hello_frame(42, {"audio"})
+    frames = FrameDecoder().feed(wire)
+    assert len(frames) == 1
+    assert "nonce" not in frames[0].header
+
+
+def test_nonce_env_var_passthrough(tmp_path):
+    """launch_helper passes WHISPERED_CAPTURE_NONCE to helper subprocess env."""
+    from unittest.mock import patch, MagicMock
+
+    captured_env: dict = {}
+
+    def mock_popen(cmd, env=None, **kwargs):
+        captured_env.update(env or {})
+        mock = MagicMock()
+        mock.poll.return_value = None
+        return mock
+
+    with patch("subprocess.Popen", side_effect=mock_popen):
+        from core.live.system_audio_source import SystemAudioSource
+        source = SystemAudioSource(
+            socket_path=str(tmp_path / "test.sock"),
+            enabled=True,
+            helper_command=["echo", "fake"],
+        )
+        source._ipc_nonce = "aabbcc1234567890" * 4  # 64 char hex
+        source._launch_helper()
+
+    assert captured_env.get("WHISPERED_CAPTURE_NONCE") == source._ipc_nonce

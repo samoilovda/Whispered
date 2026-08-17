@@ -70,6 +70,34 @@ audio запрещён. Повторный Start создаёт новую sessi
 Python считает helper освобождённым только после `stopped` или подтверждённого
 process exit.
 
+## Аутентификация handshake
+
+Каталог сокета создаётся с правами `0700`, сам socket-файл — с `0600` после
+`bind()`, а его имя случайно генерируется на каждый запуск — это закрывает
+межпользовательский доступ, но не защищает от другого процесса **того же**
+пользователя, который мог бы выиграть гонку за первое `accept()` на сокете
+раньше настоящего helper'а.
+
+Поэтому перед `start`/`started` выполняется nonce handshake:
+
+1. Python генерирует `secrets.token_hex(32)` (256 бит) на каждый `start()` и
+   передаёт его helper-процессу через переменную окружения
+   `WHISPERED_CAPTURE_NONCE` — не через argv, который виден в `ps` другим
+   процессам того же пользователя.
+2. Helper эхом добавляет это значение в поле `nonce` своего `hello` frame.
+3. Python сверяет `nonce` из `hello` с тем, что сам сгенерировал. Несовпадение
+   или отсутствие поля — это `ProtocolError`; `start` не отправляется, PCM не
+   принимается, соединение и helper-процесс закрываются.
+
+Реализация: `core/live/system_capture_protocol.py::generate_nonce`/
+`hello_frame`, `core/live/system_audio_source.py::_launch_helper`/`_consume`,
+`native/system_capture_helper/.../main.swift` (читает
+`WHISPERED_CAPTURE_NONCE` и кладёт в `hello`).
+
+**Не реализовано (известный gap, см. `docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md`,
+R4):** проверка peer credentials на macOS (`LOCAL_PEERCRED`/`LOCAL_PEERPID`)
+как дополнительный слой поверх nonce handshake.
+
 ## Compatibility rules
 
 - неизвестная `version` отклоняется с понятной ошибкой;

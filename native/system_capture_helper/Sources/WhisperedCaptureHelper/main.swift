@@ -261,10 +261,15 @@ struct Main {
             guard client >= 0 else { throw HelperError.message("cannot accept client") }
             let connection = Connection(descriptor: client)
             activeConnection = connection
-            try connection.send(type: "hello", fields: [
+            // Read nonce from env and echo it back so Python can verify identity
+            var helloFields: [String: Any] = [
                 "helper_pid": ProcessInfo.processInfo.processIdentifier,
                 "capabilities": ["audio", "screen_capture_kit", "application_filter"],
-            ])
+            ]
+            if let nonce = ProcessInfo.processInfo.environment["WHISPERED_CAPTURE_NONCE"] {
+                helloFields["nonce"] = nonce
+            }
+            try connection.send(type: "hello", fields: helloFields)
             let start = try connection.nextControl()
             guard start["type"] as? String == "start",
                   let target = start["target"] as? [String: Any] else {

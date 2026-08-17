@@ -71,7 +71,9 @@ def test_system_source_handshakes_and_exposes_audio_meter_and_frames():
     source.level_changed.connect(levels.append)
 
     assert source.start(CaptureTarget(bundle_id="com.zoom")) is True
-    sock.incoming.put(hello_frame(42, {"audio", "screen_capture_kit"}))
+    # Echo back the nonce that was generated for this session
+    nonce = source._ipc_nonce
+    sock.incoming.put(hello_frame(42, {"audio", "screen_capture_kit"}, nonce=nonce))
     _wait_for_sent(sock, 1)
     assert source.lifecycle_state == "starting"
 
@@ -104,7 +106,8 @@ def test_permission_error_is_user_actionable():
     errors: list[str] = []
     source.error_occurred.connect(errors.append)
     source.start(CaptureTarget(process_id=99))
-    sock.incoming.put(hello_frame(42, {"audio"}))
+    nonce = source._ipc_nonce
+    sock.incoming.put(hello_frame(42, {"audio"}, nonce=nonce))
     _wait_for_sent(sock, 1)
     sock.incoming.put(
         encode_frame(
@@ -119,6 +122,62 @@ def test_permission_error_is_user_actionable():
     source.cancel()
 
 
+def test_wrong_nonce_is_rejected_and_no_pcm_starts():
+    """A HELLO that echoes the wrong nonce must be rejected through the real
+    ``_consume`` path — not a value ever accepted as a legitimate helper —
+    and capture must never begin (no start_frame sent, no STARTED reached)."""
+    sock = _FakeSocket()
+    source = SystemAudioSource(
+        socket_path="/tmp/whispered-test.sock",
+        enabled=True,
+        socket_factory=_SocketFactory(sock),
+    )
+    errors: list[str] = []
+    started: list[bool] = []
+    source.error_occurred.connect(errors.append)
+    source.started.connect(lambda: started.append(True))
+
+    assert source.start(CaptureTarget(bundle_id="com.zoom")) is True
+    assert source._ipc_nonce is not None
+    sock.incoming.put(hello_frame(42, {"audio"}, nonce="attacker-supplied-nonce"))
+
+    deadline = time.monotonic() + 1.0
+    while not errors and time.monotonic() < deadline:
+        time.sleep(0.005)
+
+    assert errors, "expected error_occurred for a nonce mismatch"
+    assert started == []
+    # start_frame is only sent once the nonce check passes — a rejected
+    # HELLO must never trigger it, i.e. PCM streaming never begins.
+    assert sock.sent == []
+    source.cancel()
+
+
+def test_missing_nonce_in_hello_is_rejected():
+    """A HELLO with no ``nonce`` field at all (helper never received the env
+    var, or a rogue process skipped the handshake) must be rejected the
+    same way as a wrong one, not treated as an implicit pass."""
+    sock = _FakeSocket()
+    source = SystemAudioSource(
+        socket_path="/tmp/whispered-test.sock",
+        enabled=True,
+        socket_factory=_SocketFactory(sock),
+    )
+    errors: list[str] = []
+    source.error_occurred.connect(errors.append)
+
+    assert source.start(CaptureTarget(bundle_id="com.zoom")) is True
+    sock.incoming.put(hello_frame(42, {"audio"}))  # no nonce=
+
+    deadline = time.monotonic() + 1.0
+    while not errors and time.monotonic() < deadline:
+        time.sleep(0.005)
+
+    assert errors, "expected error_occurred when HELLO omits the nonce"
+    assert sock.sent == []
+    source.cancel()
+
+
 def test_stop_sends_stop_and_waits_for_stopped_ack():
     sock = _FakeSocket()
     source = SystemAudioSource(
@@ -127,7 +186,8 @@ def test_stop_sends_stop_and_waits_for_stopped_ack():
         socket_factory=_SocketFactory(sock),
     )
     source.start(CaptureTarget(window_id=123))
-    sock.incoming.put(hello_frame(42, {"audio"}))
+    nonce = source._ipc_nonce
+    sock.incoming.put(hello_frame(42, {"audio"}, nonce=nonce))
     _wait_for_sent(sock, 1)
     sock.incoming.put(encode_frame(MessageType.STARTED))
     deadline = time.monotonic() + 1.0
@@ -143,3 +203,4 @@ def test_stop_sends_stop_and_waits_for_stopped_ack():
     assert not stop_thread.is_alive()
     assert source.lifecycle_state == "stopped"
     assert sock.closed is True
+
