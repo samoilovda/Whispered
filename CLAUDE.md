@@ -11,6 +11,7 @@ the original development plan (`docs/archive/ROADMAP_full_2026-07.md`).
 | UI | `ui/` | PyQt6 widgets; `main_window.py` owns the preset chain; `ui/__init__.py` intentionally has no re-exports — import from concrete modules |
 | Workers | `core/` | `lm_client.py` (LM Studio, OpenAI-compatible), `ai_provider.py` (optional cloud), `insights_worker.py`, `history.py` (SQLite+FTS5), `i18n.py`, `logger.py` |
 | Engines | `transcriber.py` (whisper.cpp in a spawn child process), `diarizer.py` (pyannote, lazy import), `article_generator.py`, `text_processor.py`, `batch_processor.py`, `book_pipeline.py` |
+| Covers | `covers/` | Declarative templates and QPainter renderer; frame/Zoom/ONNX/ComfyUI modules are experimental and not yet wired into the workspace |
 | Prompts | `prompts/*.md` | every LLM task is an editable Markdown prompt loaded via `core.prompts.load_prompt` |
 
 Key data types: `TranscriptionResult` and `Segment` (`start`, `end`, `text`,
@@ -30,11 +31,13 @@ Key data types: `TranscriptionResult` and `Segment` (`start`, `end`, `text`,
 4. **Settings go through `Config`** (`config.py` dataclass). New fields get
    defaults; the loader drops unknown keys, so backward compatibility is
    automatic.
-5. **Code style.** Python 3.10+, type hints, docstrings matching neighbors,
+5. **Code style.** CPython 3.11, type hints, docstrings matching neighbors,
    logging via `core.logger.get_logger(__name__)`. `print()` only in
    standalone CLI scripts (`build.py`, `setup_diarization.py`).
-6. **Platforms.** Linux (primary) and macOS are both supported and tested;
-   keep `appimage/`, `setup.sh`/`run.sh` working. Windows is a future task.
+6. **Platforms.** macOS is primary. Linux source installs are supported, but
+   AppImage is not a validated release channel. Windows 11 x64 has source,
+   packaging, and CI preview support; keep its open hardware/signing gates
+   explicit.
 7. **Dependencies.** Pin minimum versions in `requirements.txt`; import
    heavy/optional deps (pyannote) lazily with a clear error message.
 8. **One step = one commit** (`feat:`/`fix:`/`docs:`/`chore:`). Don't mix
@@ -88,6 +91,21 @@ CI mirrors all of the above (`.github/workflows/ci.yml`).
   (`_build_prompt_text`) — don't reintroduce per-segment timestamp lines.
 - `word_timestamps=True` breaks Cyrillic transcripts (word-gluing in
   `_group_words_into_segments`) — the default flow must keep it `False`.
+
+## Cover generator gotchas
+
+- In the source PPTX, the 16:9 slide scale makes the numeric point size equal
+  to the pixel size on the 1280×720 project canvas. Do not apply another
+  point-to-pixel conversion in the renderer.
+- `onnxruntime` is imported only inside restoration/face-detection calls.
+  Cover rendering and manual photo selection must keep working without model
+  weights or a usable execution provider.
+- The PPTX converter drops shapes fully outside the slide. Decorative
+  `custGeom` paths accept only `moveTo`, `cubicBezTo`, and `close`; unknown
+  geometry commands are errors rather than silently degraded output.
+- Bellota Bold is the default OFL-licensed replacement for Templegarten;
+  Poiret One remains an optional lighter alternative. Keep each font's OFL
+  file with its TTF and preserve the generic fallback path.
 
 ## Layout conventions
 

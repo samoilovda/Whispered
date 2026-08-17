@@ -1,9 +1,9 @@
 # Whispered
 
 [![CI](https://github.com/samoilovda/Whispered/actions/workflows/ci.yml/badge.svg)](https://github.com/samoilovda/Whispered/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-403%20passing-brightgreen)](TESTING.md)
+[![Tests](https://img.shields.io/badge/tests-500%20passing-brightgreen)](TESTING.md)
 [![Lint](https://img.shields.io/badge/lint-ruff-261230)](https://docs.astral.sh/ruff/)
-[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows%20preview-lightgrey)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -23,7 +23,44 @@ explicitly selected in the YouTube tab.
 
 ---
 
+## Interface
+
+The window is a three-column workspace: a Library pane on the left, the
+current document (a new-record picker or the player/transcript view) in the
+center, and a collapsible Inspector rail on the right with five sections —
+Materials, Insights, Cut, Chat, and Settings. The Library pane stays on
+screen instead of being swapped out, and both side columns can be collapsed
+or auto-collapse on narrow windows; the layout is remembered between runs.
+
+- `Ctrl+K` opens a command palette that searches transcript history and
+  exposes quick actions (new record, YouTube package, export, Live, queue,
+  settings).
+- A new record starts from a picker (file, folder, microphone, or Live)
+  rather than a separate screen; the same view turns into the player and
+  transcript once a recording exists.
+- Which artifacts a run produces — YouTube package, Article, Insights, Book,
+  or any combination — is chosen with checkboxes in the Inspector's
+  Parameters area instead of a separate launch bar.
+- A single status bar at the bottom shows the current operation, progress,
+  cancel control, a popover queue for batch jobs, and LM Studio/GPU status.
+
+---
+
 ## What the application can do
+
+### Cover generator
+
+Open **Covers** from the Library to create Prosvet YouTube artwork from the
+bundled declarative template. The workspace supports duo, solo, and text-only
+layouts, mint/warm variants, live preview, manual portraits, and reproducible
+PNG/JPEG exports with a `.cover.json` sidecar, plus title suggestions from the
+open transcript. The original Templegarten face is replaced by bundled
+OFL-licensed Bellota Bold, with a generic system-font fallback. Shorts export
+stays opt-in until the authored 9:16 adaptation receives brand approval.
+
+Frame extraction, Zoom-tile detection, ONNX restoration, and the localhost
+ComfyUI adapter currently exist as experimental core modules. They are not yet
+wired into the Cover workspace; portraits are selected from PNG/JPEG files.
 
 ### Transcription
 
@@ -61,12 +98,8 @@ application data directory.
 - built-in audio/video player with click-to-seek transcript segments;
 - segment editing while preserving timestamps;
 - find, replace, copy, and speaker renaming;
-- 9 formats implemented by the export module: TXT, timestamped TXT, SRT, VTT,
+- 9 export formats: TXT, timestamped TXT, SRT, VTT,
   JSON, Markdown, HTML, DOCX, and PDF.
-
-The current multi-export UI exposes TXT, SRT, VTT, JSON, Markdown, HTML, and
-DOCX. Timestamped TXT and PDF exporters exist in code but are not yet exposed
-in that menu.
 
 ### AI tools
 
@@ -93,25 +126,18 @@ Anthropic with the user's key. All other AI tools currently use LM Studio.
 
 ### API-key storage
 
-Cloud-provider API keys and the optional Hugging Face token are stored in the
-local application configuration file. Whispered restricts this file to the
-current user where the operating system supports POSIX permissions, but it is
-not encrypted or stored in the OS credential vault. Use a dedicated,
-least-privilege key and protect the user account accordingly.
+When the optional `keyring` package and a working OS backend are available,
+cloud-provider API keys and the Hugging Face token are stored in macOS
+Keychain, Windows Credential Manager, or a Linux Secret Service. Otherwise
+Whispered falls back to its owner-only local configuration file. Use a
+dedicated, least-privilege key and protect the user account accordingly.
 
-### Presets
+### Processing checklist
 
-The Library launch bar offers four workflows:
-
-| Preset | What it runs |
-|---|---|
-| Transcribe only | transcription and history save |
-| Transcribe + YouTube package | transcription and five YouTube artifacts |
-| Transcribe + Article | transcription, cleanup, and all five article formats |
-| Full package | transcription, YouTube package, cleanup, and all five article formats |
-
-Insights, the book pipeline, and editing operations are started manually from
-the record workspace and are not part of the Full package preset.
+Transcription and the history save always run. The Parameters checklist can
+then add YouTube package, Article, Insights, and Book steps in any combination.
+YouTube and Article use the existing preset controller; Insights and Book are
+continued sequentially after those steps. Editing operations remain manual.
 
 ### Editing
 
@@ -122,7 +148,9 @@ accurate cut boundaries.
 
 ### Live transcription
 
-The experimental Live section can be enabled manually in Settings. It includes:
+The experimental Live section can be enabled manually in Settings and is then
+started from the source picker (file / folder / recorder / Live) when
+starting a new record. It includes:
 
 - microphone and system-audio sources;
 - asynchronous preflight checks;
@@ -146,7 +174,7 @@ full release soak gate.
 
 Requirements:
 
-- Python 3.10+;
+- CPython 3.11;
 - `ffmpeg` and `ffprobe`;
 - macOS (primary platform), Linux, or Windows 11 x64 preview;
 - LM Studio only for AI features.
@@ -155,20 +183,17 @@ Requirements:
 
 ```bash
 ./setup-mac.sh
-.venv/bin/pip install -r requirements.txt
 ./run-mac.sh
 ```
 
-`setup-mac.sh` creates the environment and builds `pywhispercpp` with Metal on
-Apple Silicon. Whispered downloads the selected runtime model when needed.
-Installing `requirements.txt` adds the microphone-recording and DOCX-export
-dependencies.
+`setup-mac.sh` creates the environment, builds `pywhispercpp` with Metal on
+Apple Silicon, and installs all declared runtime dependencies. Whispered
+downloads the selected model when it is first needed.
 
 ### Linux
 
 ```bash
 ./setup.sh
-.venv/bin/pip install -r requirements.txt
 ./run.sh
 ```
 
@@ -248,10 +273,11 @@ signing remain release-gated; see `packaging/windows/README.md`.
 QT_QPA_PLATFORM=offscreen .venv/bin/python tools/render_ui_gallery.py --check
 ```
 
-Current repository state: 403 tests pass. CI runs tests and blocking `ruff`
-checks on Linux (Python 3.10 and 3.12), and is configured to build an unsigned
-Windows package with a frozen smoke test on Python 3.11. `mypy` is
-informational.
+Current repository state: the unit suite and a separate offscreen-Qt smoke
+suite in `tests_qt/` pass. CI runs tests and blocking `ruff` checks on Linux
+(Python 3.11), and builds an unsigned Windows package with a frozen smoke test
+on Python 3.11 on every push. `mypy` is blocking for the module
+set listed in [CLAUDE.md](CLAUDE.md) and informational for `ui/`.
 
 The main AI task templates live in 17 Markdown files under `prompts/`. Some
 modules also keep embedded fallback text for resilience.
@@ -268,11 +294,13 @@ See [TESTING.md](TESTING.md), [ROADMAP.md](ROADMAP.md), and
   remain open.
 - Diarization requires separate heavyweight dependencies, a Hugging Face
   token, and accepted model terms.
-- Long or parallel requests can overwhelm LM Studio; YouTube and Insights
-  start several generations concurrently.
+- Local LM Studio calls are serialized process-wide. Long generations can
+  still delay cancellation while the current HTTP response is being read.
 - AI requests use a configured context cap; for long recordings, chapters and
   insights are sampled evenly across the recording.
 - Cloud providers apply only to the YouTube package.
+- The Cover portrait-processing modules are not yet connected to the UI;
+  manual PNG/JPEG portrait selection is the supported path.
 - Live system-audio capture is macOS-only and remains experimental.
 
 ---

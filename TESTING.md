@@ -1,12 +1,31 @@
 # Whispered — Testing Checklist
 
+## Cover generator manual checks (available workspace)
+
+- [ ] Open **Covers** from the Library, switch between `duo`, `solo`, and
+  `text_only`, then between mint and warm; confirm that one debounced preview
+  update occurs and the shifted portrait frames remain visible.
+- [ ] Choose both portraits from PNG/JPEG files and verify the preview updates.
+- [ ] Generate a title after a fresh transcription and after reopening a
+  history record; both paths must provide the open transcript to Cover.
+- [ ] Temporarily make Bellota Bold unavailable. The preview must still render
+  with a system font and show a non-blocking installation warning.
+- [ ] Export twice with the same name. Confirm unique filenames, a 1280×720
+  PNG, JPEG no larger than 2 MB, and a complete `.cover.json` sidecar.
+- [ ] Review the authored 1080×1920 layout with the brand owner before enabling
+  Shorts export by default.
+
+The frame picker/extraction, Zoom-tile selection, ONNX restoration, and
+ComfyUI modules are not yet wired into this workspace. Their end-to-end manual
+checks become release gates only after that integration is implemented.
+
 Pre-release checklist for local testing before building with PyInstaller.
 
 ---
 
 ## 1. Prerequisites
 
-- [ ] Python 3.10+ virtual environment activated
+- [ ] CPython 3.11 virtual environment activated
 - [ ] `pip install -r requirements.txt` succeeds without errors
 - [ ] `ffmpeg` is installed: `ffmpeg -version`
 - [ ] LM Studio is running (optional, for AI features)

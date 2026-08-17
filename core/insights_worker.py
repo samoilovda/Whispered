@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-_INSIGHT_TYPES = ("chapters", "action_items", "key_moments", "yt_titles", "yt_description", "yt_tags", "yt_questions")
+_INSIGHT_TYPES = ("chapters", "action_items", "key_moments", "yt_titles", "yt_description", "yt_tags", "yt_questions", "thumb_title")
 _TRANSCRIPT_MAX_CHARS = 48_000   # ~12 k tokens; matches chat_worker._CONTEXT_CHARS
 # LM Studio's DEFAULT_MAX_TOKENS (4096) truncated Cyrillic/multi-byte JSON
 # responses mid-string on longer insight types (chapters, descriptions);
@@ -185,6 +185,12 @@ class InsightsWorker(BaseWorker):
             return
         if raw is None:
             self.error_occurred.emit(self._type, self._no_response_message())
+            return
+
+        if self._type == "thumb_title":
+            from covers.title import parse_title_suggestions
+
+            self.finished.emit(self._type, parse_title_suggestions(raw))
             return
 
         result = _parse_json_response(raw)

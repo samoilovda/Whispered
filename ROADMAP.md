@@ -8,11 +8,17 @@ The original long-form development plan (2026-07) is preserved in
 
 - **Core pipeline** — whisper.cpp transcription in a cancellable child
   process, pyannote speaker diarization, ffmpeg format conversion.
-- **Library-first UI** — sidebar navigation (Library / Queue / Recorder),
-  transcription history with SQLite FTS5 full-text search, built-in audio
-  player synced to the transcript, editable transcript with speaker renaming.
-- **Launch-bar presets** — one click runs a whole chain: transcribe →
-  YouTube package and/or article generation, with artifacts auto-saved.
+- **Workspace shell redesign** — three permanent columns (Library / document
+  / Inspector rail with Materials, Insights, Cut, Chat, Settings sections),
+  `Ctrl+K` command palette over the existing FTS index, a single status bar
+  for operation/progress/cancel/queue/LLM status, and a new-record source
+  picker (file / folder / recorder / Live) replacing the old sidebar screens.
+- **Library** — transcription history with SQLite FTS5 full-text search,
+  built-in audio player synced to the transcript, editable transcript with
+  speaker renaming.
+- **Checklist presets** — an Inspector checklist runs a whole chain in one
+  go: transcribe → any combination of YouTube package, article, insights, and
+  book generation, with artifacts auto-saved.
 - **YouTube package** — titles, hook+summary description, viewer-oriented
   chapter timecodes (≤7.5-minute gaps), key-question timecodes, tags;
   local LLM by default, optional user-keyed cloud provider.
@@ -20,18 +26,23 @@ The original long-form development plan (2026-07) is preserved in
   AI chat with the transcript, insights (chapters / action items / key
   moments), book pipeline, Cut tab with EDL export.
 - **9 export formats** — TXT, TXT+timestamps, SRT, VTT, JSON, MD, HTML,
-  DOCX, PDF.
+  DOCX, and PDF are available in the record export menu.
 - **Polish** — RU/EN localization, dark/light themes, mic recorder, batch
   queue, custom vocabulary, standalone macOS `.app` build (PyInstaller,
-  external whisper stack), AppImage build script.
-- **Quality** — 360 unit tests with fully stubbed Qt, ruff-clean codebase,
-  headless UI smoke checks in the pre-commit gate.
+  external whisper stack), Linux source setup, and an unvalidated AppImage
+  build script.
+- **Prosvet cover MVP** — declarative 16:9/9:16 templates, QPainter preview,
+  manual portraits, title suggestion, and PNG/JPEG/sidecar export. Frame,
+  Zoom-tile, ONNX, and ComfyUI modules exist but are not yet connected to UI.
+- **Quality** — a unit suite with fully stubbed Qt plus a separate
+  offscreen real-Qt smoke suite (`tests_qt/`), ruff-clean codebase, blocking
+  mypy on `core/`/engines, headless UI smoke checks in the pre-commit gate.
 
 ## Current focus
 
-- **Local-LLM robustness** — sequential insight generation (parallel
-  requests can overwhelm LM Studio), reasoning-model token budgets,
-  failed-generation artifacts must never be saved as results.
+- **Local-LLM robustness** — local completions are serialized process-wide;
+  continue making network cancellation interruptible, simplify YouTube worker
+  orchestration, and prevent failed generations from being saved as results.
 
 ## Next
 
@@ -43,9 +54,14 @@ The original long-form development plan (2026-07) is preserved in
   [docs/LIVE_TRANSCRIPTION_PLAN.ru.md](docs/LIVE_TRANSCRIPTION_PLAN.ru.md#62-ревизия-l1l14-и-обязательная-стабилизация-перед-l15).
 - **Distribution** — Flathub package for Linux; signed, notarized DMG for
   macOS. Goal: install without cloning the repo.
-- **Windows support** — setup/run scripts, CI coverage, packaging. The code
-  uses `pathlib` throughout, but real Windows support needs testing and
-  scripts.
+- **Cover portrait pipeline** — connect the existing frame picker/extraction,
+  Zoom-tile, ONNX, and ComfyUI modules through cancellable UI workers and add
+  model download/integrity handling.
+- **Windows support** — setup/run scripts, packaging (PyInstaller + Inno
+  Setup), and a CI job that builds the frozen package and runs a smoke test
+  on every push are in place. What's left before calling it a supported
+  release platform: real-hardware validation, a clean-VM install check, and
+  code signing (`docs/WINDOWS_SUPPORT_PLAN.ru.md`).
 
 ## Ideas parked for later
 
