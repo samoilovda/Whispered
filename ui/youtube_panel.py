@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QComboBox, QPlainTextEdit, QApplication, QToolBox,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QThread, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QFont
 
 from core.i18n import tr
@@ -74,6 +74,10 @@ class YouTubePanel(QWidget):
         super().__init__(parent)
         self._segments = []
         self._workers: dict = {}   # insight_type → worker
+        # A bounded wait may expire while a cancelled QThread is still
+        # running.  Keep those workers alive until QThread's own no-argument
+        # finished signal fires; deleting a running QThread is unsafe.
+        self._retired_workers: dict[int, object] = {}
         self._pending = 0
         self._source_name = ""
         self._transcript_language: str | None = None
@@ -253,8 +257,7 @@ class YouTubePanel(QWidget):
         self._placeholder.show()
 
     def _cancel_workers(self, timeout: int) -> None:
-        """Cancel, disconnect, and schedule deletion of all workers before
-        dropping them.
+        """Cancel active workers without deleting a thread that is running.
 
         Disconnecting before wait() matters: if a worker doesn't finish
         within *timeout*, it keeps running in the background and would
@@ -262,27 +265,66 @@ class YouTubePanel(QWidget):
         run later, corrupting its _pending count and overwriting tabs
         with stale data.
 
-        Every worker is constructed with parent=self, so losing the Python
-        reference in self._workers alone does not free it — as a QObject
-        child of this panel it stays alive (and shows up in
-        findChildren(QThread)) until deleteLater() actually runs. Workers
-        that already finished normally (isRunning() is False by the time
-        the *next* _generate() call gets here) still need this, not just
-        ones that were still running and had to be cancelled.
+        A worker which outlives the bounded wait moves to
+        ``_retired_workers``.  Its business signals stay disconnected while
+        QThread's built-in ``finished()`` signal remains connected solely to
+        deferred cleanup.  This is deliberately not ``worker.finished``:
+        InsightsWorker shadows that name with ``finished(str, object)``.
         """
-        for w in self._workers.values():
+        workers = list(self._workers.values())
+        self._workers.clear()
+        for w in workers:
             if not w:
                 continue
-            if w.isRunning():
-                w.cancel()
+
+            # Disconnect only result/error delivery.  Never disconnect all
+            # receivers: the built-in QThread.finished cleanup connection
+            # must remain intact for already-retired workers.
+            for signal, slot in (
+                (w.finished, self._on_finished),
+                (w.error_occurred, self._on_error),
+            ):
                 try:
-                    w.finished.disconnect(self._on_finished)
-                    w.error_occurred.disconnect(self._on_error)
+                    signal.disconnect(slot)
                 except (RuntimeError, TypeError):
                     pass
-                w.wait(timeout)
-            w.deleteLater()
-        self._workers.clear()
+
+            if not w.isRunning():
+                w.deleteLater()
+                continue
+
+            # Connect before requesting cancellation so a very fast finish
+            # cannot race past the cleanup subscription.  The explicit base
+            # descriptor selects QThread.finished(), not the worker's
+            # same-named business signal.
+            worker_key = id(w)
+            self._retired_workers[worker_key] = w
+            QThread.finished.__get__(w, type(w)).connect(
+                self._on_retired_worker_finished
+            )
+
+            # The thread may have completed between the first isRunning()
+            # check and connecting the built-in signal.
+            if not w.isRunning():
+                self._dispose_retired_worker(worker_key)
+                continue
+
+            w.cancel()
+            w.wait(timeout)
+            if not w.isRunning():
+                self._dispose_retired_worker(worker_key)
+
+    @pyqtSlot()
+    def _on_retired_worker_finished(self) -> None:
+        """Delete a cancelled worker only after its thread has stopped."""
+        worker = self.sender()
+        if worker is not None:
+            self._dispose_retired_worker(id(worker))
+
+    def _dispose_retired_worker(self, worker_key: int) -> None:
+        worker = self._retired_workers.pop(worker_key, None)
+        if worker is not None:
+            worker.deleteLater()
 
     # ── Generation ──────────────────────────────────────────────────
 
@@ -355,6 +397,11 @@ class YouTubePanel(QWidget):
             worker.start()
 
     def _on_finished(self, insight_type: str, data):
+        # A queued result from a cancelled generation can already be in the
+        # event queue when its business signal is disconnected.  Only the
+        # worker registered for the current generation may change counters.
+        if self._workers.get(insight_type) is not self.sender():
+            return
         self._pending = max(0, self._pending - 1)
         self._any_success = True
 
@@ -409,6 +456,8 @@ class YouTubePanel(QWidget):
             self._desc_edit.setPlainText(full)
 
     def _on_error(self, insight_type: str, msg: str):
+        if self._workers.get(insight_type) is not self.sender():
+            return
         logger.warning("YouTube worker error (%s): %s", insight_type, msg)
         self._pending = max(0, self._pending - 1)
         self._any_error = True

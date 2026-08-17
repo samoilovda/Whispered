@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel,
     QPushButton, QFrame,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QThread, Qt, pyqtSignal, pyqtSlot
 
 from core.logger import get_logger
 from core.i18n import tr
@@ -108,6 +108,7 @@ class InsightsPanel(QWidget):
         self._segments = []
         self._transcript_language: str | None = None
         self._workers: dict[str, object] = {}
+        self._retired_workers: dict[int, object] = {}
         self._pending = 0
         self._insight_queue: list[str] = []
         self._any_error = False
@@ -206,28 +207,63 @@ class InsightsPanel(QWidget):
         self._gen_btn.setEnabled(False)
         for layout in (self._ch_layout, self._ai_layout, self._km_layout):
             self._clear_section(layout)
-        for w in list(self._workers.values()):
-            if not w:
-                continue
-            if w.isRunning():
-                w.cancel()
-                # Disconnect before waiting so stale signals don't fire after reset
-                try:
-                    w.finished.disconnect(self._on_finished)
-                    w.error_occurred.disconnect(self._on_error)
-                except (RuntimeError, TypeError):
-                    pass
-                w.wait(2000)  # 2 s timeout; thread finishes on its own if slow
-            # Workers are constructed with parent=self; losing the Python
-            # reference alone doesn't free them as QObject children of this
-            # panel — schedule real deletion or they silently accumulate
-            # across generation runs.
-            w.deleteLater()
-        self._workers.clear()
+        self._cancel_workers(timeout=2000)
         self._pending = 0
         self._insight_queue.clear()
         self._placeholder.setText(tr("insights_placeholder"))
         self._placeholder.show()
+
+    def _cancel_workers(self, timeout: int) -> None:
+        """Cancel workers and retain any that outlive the bounded wait."""
+        workers = list(self._workers.values())
+        self._workers.clear()
+        for w in workers:
+            if not w:
+                continue
+
+            # Disconnect only business signals.  The no-argument built-in
+            # QThread.finished signal is reserved for lifecycle cleanup.
+            for signal, slot in (
+                (w.finished, self._on_finished),
+                (w.error_occurred, self._on_error),
+            ):
+                try:
+                    signal.disconnect(slot)
+                except (RuntimeError, TypeError):
+                    pass
+
+            if not w.isRunning():
+                w.deleteLater()
+                continue
+
+            worker_key = id(w)
+            self._retired_workers[worker_key] = w
+            # InsightsWorker.finished(str, object) shadows QThread.finished;
+            # bind the base-class signal explicitly so cleanup observes the
+            # actual end of run().
+            QThread.finished.__get__(w, type(w)).connect(
+                self._on_retired_worker_finished
+            )
+
+            if not w.isRunning():
+                self._dispose_retired_worker(worker_key)
+                continue
+
+            w.cancel()
+            w.wait(timeout)
+            if not w.isRunning():
+                self._dispose_retired_worker(worker_key)
+
+    @pyqtSlot()
+    def _on_retired_worker_finished(self) -> None:
+        worker = self.sender()
+        if worker is not None:
+            self._dispose_retired_worker(id(worker))
+
+    def _dispose_retired_worker(self, worker_key: int) -> None:
+        worker = self._retired_workers.pop(worker_key, None)
+        if worker is not None:
+            worker.deleteLater()
 
     # ── Generation ──────────────────────────────────────────────────
 
@@ -240,15 +276,10 @@ class InsightsPanel(QWidget):
             self.generation_finished.emit(False)
             return
 
-        # A prior run's workers are done by the time the button is
-        # re-enabled (see _decrement_pending), but they're still QObject
-        # children of this panel (parent=self) until deleted — clicking
-        # Generate again would otherwise silently accumulate one QThread
-        # per insight type on every re-run.
-        for stale in self._workers.values():
-            if stale:
-                stale.deleteLater()
-        self._workers.clear()
+        # Normally the prior run is done when the button is re-enabled, but
+        # programmatic callers can start a replacement run sooner.  Reuse the
+        # safe bounded-cancellation path instead of deleting blindly.
+        self._cancel_workers(timeout=1000)
 
         self._gen_btn.setEnabled(False)
         self._gen_btn.setText(tr("insights_generating"))
@@ -290,6 +321,8 @@ class InsightsPanel(QWidget):
             self._start_next_worker()
 
     def _on_finished(self, insight_type: str, data):
+        if self._workers.get(insight_type) is not self.sender():
+            return
         layout_map = {
             "chapters": self._ch_layout,
             "action_items": self._ai_layout,
@@ -314,6 +347,8 @@ class InsightsPanel(QWidget):
         self._decrement_pending()
 
     def _on_error(self, insight_type: str, msg: str):
+        if self._workers.get(insight_type) is not self.sender():
+            return
         self._any_error = True
         layout_map = {
             "chapters": self._ch_layout,

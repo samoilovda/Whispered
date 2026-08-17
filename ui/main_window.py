@@ -39,6 +39,7 @@ from ui.recorder_widget import RecorderWidget
 from ui.chat_panel import ChatPanel
 from ui.insights_panel import InsightsPanel
 from ui.youtube_panel import YouTubePanel
+from ui.cover_view import CoverView
 from ui.live_view import LiveView
 from ui.live_preflight_panel import LivePreflightWorker
 from ui.progress_timeline import ProgressTimeline
@@ -368,6 +369,7 @@ class MainWindow(QMainWindow):
 
         self.library_view = LibraryView()
         self.library_view.open_record.connect(self._open_record_view)
+        self.library_view.open_cover.connect(lambda: self._on_section_changed("cover"))
 
     def _build_queue_section(self) -> None:
         """Queue is mounted in the persistent status surface later."""
@@ -493,11 +495,15 @@ class MainWindow(QMainWindow):
         self.draft_record.source_changed.connect(self._on_draft_source_changed)
         self._draft_index = self._stack.addWidget(self.draft_record)
         self._record_index = self._stack.addWidget(self.record_view)
+        self.cover_view = CoverView()
+        self._shutdownables.append(self.cover_view)
+        self._cover_index = self._stack.addWidget(self.cover_view)
         self._section_index = {
             "library": self._draft_index,
             "queue": self._draft_index,
             "recorder": self._draft_index,
             "live": self._draft_index,
+            "cover": self._cover_index,
         }
 
         self.workspace_shell = WorkspaceShell(
@@ -540,7 +546,7 @@ class MainWindow(QMainWindow):
                 self.draft_record.set_source(key)
             elif key == "queue":
                 self.draft_record.set_source("folder")
-            else:
+            elif key != "cover":
                 self.draft_record.set_source("file")
             if key == "live" and os.environ.get("WHISPERED_UI_GALLERY") != "1":
                 self.live_view.setup.refresh_targets()
@@ -942,6 +948,7 @@ class MainWindow(QMainWindow):
         self.chat_panel.set_transcript(result.full_text)
         self.insights_panel.set_segments(result.segments, transcript_language=result.language)
         self.youtube_panel.set_segments(result.segments, transcript_language=result.language)
+        self.cover_view.set_segments(result.segments)
         self.cut_view.set_result(result)
         if self._last_record_id is not None:
             try:
@@ -1151,6 +1158,7 @@ class MainWindow(QMainWindow):
         self.chat_panel.set_transcript(result.full_text)
         self.insights_panel.set_segments(result.segments, transcript_language=result.language)
         self.youtube_panel.set_segments(result.segments, transcript_language=result.language)
+        self.cover_view.set_segments(result.segments)
         if self._source_filepath:
             self.youtube_panel.set_source_name(Path(self._source_filepath).stem)
         elif self._source_kind == "live":
@@ -1400,6 +1408,7 @@ class MainWindow(QMainWindow):
             self.chat_panel.set_transcript(result.full_text)
             self.insights_panel.set_segments(result.segments, transcript_language=result.language)
             self.youtube_panel.set_segments(result.segments, transcript_language=result.language)
+            self.cover_view.set_segments(result.segments)
             self.youtube_panel.set_source_name(
                 Path(source_path or source_name).stem if (source_path or source_name) else ""
             )

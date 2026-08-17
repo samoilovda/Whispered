@@ -179,6 +179,50 @@ class TestBatchWorkerFailures:
         assert item.error == "Model download failed"
         assert errors == [(0, "Model download failed")]
 
+    def test_fatal_item_failure_finishes_batch_exactly_once(self, monkeypatch):
+        items = [
+            BatchItem(filepath="broken.mp3"),
+            BatchItem(filepath="not-started.mp3"),
+        ]
+        worker = BatchWorker(items, model_name="base")
+
+        def fail_transcription(**kwargs):
+            raise RuntimeError("transcriber crashed")
+
+        monkeypatch.setattr(worker._transcriber, "transcribe", fail_transcription)
+        errors = []
+        finished = []
+        worker.item_error.connect(lambda index, error: errors.append((index, error)))
+        worker.batch_finished.connect(lambda: finished.append(True))
+
+        worker.run()
+
+        assert items[0].status is BatchStatus.ERROR
+        assert items[0].error == "transcriber crashed"
+        assert items[1].status is BatchStatus.CANCELLED
+        assert errors == [(0, "transcriber crashed")]
+        assert finished == [True]
+
+    def test_cancel_marks_all_unfinished_items_and_finishes_once(self):
+        items = [
+            BatchItem(filepath="active.mp3", status=BatchStatus.PROCESSING),
+            BatchItem(filepath="pending.mp3"),
+            BatchItem(filepath="done.mp3", status=BatchStatus.COMPLETE),
+        ]
+        worker = BatchWorker(items, model_name="base")
+        finished = []
+        worker.batch_finished.connect(lambda: finished.append(True))
+
+        worker.cancel()
+        worker.run()
+
+        assert [item.status for item in items] == [
+            BatchStatus.CANCELLED,
+            BatchStatus.CANCELLED,
+            BatchStatus.COMPLETE,
+        ]
+        assert finished == [True]
+
 
 class TestResultsAndExport:
     def test_get_results_only_includes_complete_items(self, media_files):

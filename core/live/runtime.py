@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import os
+import secrets
 import threading
 import time
 from dataclasses import dataclass, replace
@@ -144,7 +144,7 @@ class LiveRuntime(QObject):
         if use_system:
             helper = helper_path or default_helper_path()
             socket_dir = runtime_dir()
-            socket_path = socket_dir / f"capture-{os.getpid()}-{int(time.time())}.sock"
+            socket_path = socket_dir / f"capture-{secrets.token_hex(16)}.sock"
             system = SystemAudioSource(
                 self,
                 socket_path=str(socket_path),
@@ -163,6 +163,11 @@ class LiveRuntime(QObject):
         started = any(state is not SourceState.FAILED for state in self._states.values())
         if not started:
             self._set_session_state(SessionState.FAILED)
+            # The ASR thread is started before the capture adapters so it is
+            # ready for their first frames.  If every adapter rejects Start,
+            # there will be no later Stop transition to tear that thread down.
+            self.cancel()
+            self._wait_for_worker()
         return started
 
     def pause(self) -> None:
@@ -186,7 +191,7 @@ class LiveRuntime(QObject):
         self._set_session_state(SessionState.RUNNING)
 
     def stop(self) -> None:
-        if not self.is_running():
+        if self._session_state is SessionState.FINALIZING or not self.is_running():
             return
         self._set_session_state(SessionState.FINALIZING)
         threading.Thread(target=self._finish_session, daemon=True).start()
@@ -206,8 +211,10 @@ class LiveRuntime(QObject):
 
     def shutdown(self) -> None:
         """Part of the Shutdownable protocol (ui/shutdownable.py)."""
-        if self.is_running():
-            self.cancel()
+        # Failed sessions may still own a worker even though is_running() is
+        # false, so shutdown must be based on owned resources, not UI state.
+        self.cancel()
+        self._wait_for_worker()
 
     def metrics(self) -> LiveRuntimeMetrics:
         pipeline = self._pipeline
@@ -282,6 +289,10 @@ class LiveRuntime(QObject):
         if result is not None:
             self._set_session_state(SessionState.COMPLETED)
             self.finished.emit(result, self._output_path)
+
+    def _wait_for_worker(self) -> None:
+        if self._worker is not None:
+            self._worker.wait(3000)
 
     def _source_error(self, source: str, message: str) -> None:
         if source in self._states:

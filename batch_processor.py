@@ -85,6 +85,7 @@ class BatchWorker(BaseWorker):
         self.use_gpu = use_gpu
         self._transcriber = Transcriber()
         self._current_index = -1
+        self._batch_finished_emitted = False
 
     def cancel(self):
         """Cancel the batch processing."""
@@ -93,32 +94,61 @@ class BatchWorker(BaseWorker):
 
     def _on_error(self, msg: str) -> None:
         # No batch-level error signal exists (only per-item item_error);
-        # this only fires for a bug escaping the loop below, which
-        # previously crashed the thread silently with batch_finished never
-        # emitted. Logging it is strictly better than that.
+        # the execute/finally path has already made every item terminal and
+        # emitted batch_finished before BaseWorker forwards the exception.
         logger.error("BatchWorker: unexpected failure, batch aborted: %s", msg)
 
     def _execute(self):
         """Process all items in sequence."""
-        while not self.is_cancelled():
-            next_index = -1
-            for i, item in enumerate(self.items):
-                if item.status == BatchStatus.PENDING:
-                    next_index = i
+        aborted = False
+        try:
+            while not self.is_cancelled():
+                next_index = -1
+                for i, item in enumerate(self.items):
+                    if item.status == BatchStatus.PENDING:
+                        next_index = i
+                        break
+
+                if next_index == -1:
                     break
 
-            if next_index == -1:
-                break
+                item = self.items[next_index]
+                self._current_index = next_index
+                self._process_item(next_index, item)
+        except Exception as exc:
+            aborted = True
+            if not self.is_cancelled():
+                self._mark_current_item_failed(str(exc))
+            raise
+        finally:
+            if aborted or self.is_cancelled():
+                self._cancel_unfinished_items()
+            self._emit_batch_finished_once()
 
-            item = self.items[next_index]
-            self._current_index = next_index
-            self._process_item(next_index, item)
+    def _mark_current_item_failed(self, error: str) -> None:
+        """Record a fatal per-item failure before BaseWorker handles it."""
+        if not 0 <= self._current_index < len(self.items):
+            return
 
-        if self.is_cancelled():
-            for item in self.items:
-                if item.status == BatchStatus.PENDING:
-                    item.status = BatchStatus.CANCELLED
+        item = self.items[self._current_index]
+        if item.is_complete:
+            return
 
+        item.status = BatchStatus.ERROR
+        item.error = error
+        self.item_error.emit(self._current_index, error)
+
+    def _cancel_unfinished_items(self) -> None:
+        """Make every item terminal when the batch is aborted or cancelled."""
+        for item in self.items:
+            if item.status in (BatchStatus.PENDING, BatchStatus.PROCESSING):
+                item.status = BatchStatus.CANCELLED
+
+    def _emit_batch_finished_once(self) -> None:
+        """Emit the batch terminal signal at most once for this worker."""
+        if self._batch_finished_emitted:
+            return
+        self._batch_finished_emitted = True
         self.batch_finished.emit()
 
     def _process_item(self, index: int, item: BatchItem):

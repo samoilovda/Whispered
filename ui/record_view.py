@@ -21,9 +21,10 @@ from exporters import EXPORT_FORMATS
 from ui.icons import get_icon, IconColors
 from ui.animated_button import AnimatedButton
 
-# Order the Export menu lists formats in (subset of EXPORT_FORMATS that
-# makes sense as a persisted multi-select; matches the old checkbox order).
-_FORMAT_KEYS = ("txt", "srt", "vtt", "json", "md", "html", "docx")
+# Order the Export menu lists formats in.  Keep every implemented exporter
+# reachable from the workspace; the redesign previously hid timestamped TXT
+# and PDF even though both were production-ready.
+_FORMAT_KEYS = ("txt", "txt_ts", "srt", "vtt", "json", "md", "html", "docx", "pdf")
 
 
 class RecordView(QWidget):
