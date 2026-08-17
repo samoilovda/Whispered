@@ -467,6 +467,16 @@ ui/                main_window.py (только composition/navigation), views/
 
 ### Задача R8 — единый resumable Job/Pipeline Engine
 
+> **Статус (2026-08-17): шаги 1-2 сделаны** (`domain/job.py`,
+> `application/job_engine.py`: DAG, зависимости, resource pools с реальной
+> конкурентностью независимых шагов, cache-skip через `Artifact`, cancel,
+> retry через `reset_step()`, resume в рамках процесса). **Не сделано**:
+> SQLite-persisted state (resume переживает только внутри процесса, не
+> через рестарт), retry-with-backoff, и — шаг 3 — миграция preset chain/
+> YouTube/Insights/batch на движок. Двойной расчёт `chapters` (проблема
+> ниже) остаётся, пока миграция не сделана — движок сам по себе её не
+> чинит, он лишь делает миграцию возможной.
+
 **Проблема.** Оркестрация размазана: preset controller, extra-chain,
 YouTube workers, очередь Insights и два batch-механизма
 (`batch_processor.py`, `core/book_batch_worker.py`). При одновременно
