@@ -8,14 +8,14 @@ import re
 import tempfile
 import subprocess
 import time
-from dataclasses import dataclass, field
-from typing import Any, Callable, Optional, List, Dict
+from typing import Any, Callable, Optional
 from PyQt6.QtCore import QObject, pyqtSignal
 
 
 from utils import get_cached_gpu
 from core.base_worker import BaseWorker
 from core.logger import get_logger
+from domain.transcription import Segment, TranscriptionResult, Word  # noqa: F401 (re-exported)
 
 logger = get_logger(__name__)
 
@@ -84,46 +84,6 @@ def _convert_to_wav(input_path: str) -> str:
 # Formats that need FFmpeg conversion
 FORMATS_NEEDING_CONVERSION = {'.m4a', '.aac', '.wma', '.opus', '.ogg', '.flac',
                                '.mp4', '.mkv', '.avi', '.mov', '.webm', '.wmv', '.flv', '.m4v'}
-
-
-@dataclass
-class Word:
-    """A single word with its timing from word-level transcription."""
-    start: float
-    end: float
-    text: str
-
-
-@dataclass
-class Segment:
-    """Represents a transcription segment with timing."""
-    start: float  # Start time in seconds
-    end: float    # End time in seconds
-    text: str     # Transcribed text
-    speaker: Optional[str] = None  # Speaker label (e.g., "Speaker 1")
-    words: List['Word'] = field(default_factory=list)  # Word-level timings (video mode only)
-
-
-@dataclass
-class TranscriptionResult:
-    """Complete transcription result."""
-    segments: List[Segment]
-    language: str
-    duration: float
-    # Maps raw speaker id (e.g. "Speaker 1") to a user-assigned display name.
-    # Empty by default; populated when the user renames speakers.
-    speaker_names: Dict[str, str] = field(default_factory=dict)
-
-    @property
-    def full_text(self) -> str:
-        """Get the complete transcription as plain text."""
-        return ' '.join(seg.text.strip() for seg in self.segments)
-
-    def speaker_label(self, speaker_id: Optional[str]) -> Optional[str]:
-        """Resolve a speaker id to its display name (or the id if unmapped)."""
-        if not speaker_id:
-            return None
-        return self.speaker_names.get(speaker_id, speaker_id)
 
 
 import multiprocessing as mp

@@ -157,7 +157,7 @@ class LiveSegmentReconciler:
 
 def _coerce_segment(raw_segment: Any, source: str) -> Any:
     if isinstance(raw_segment, dict):
-        from transcriber import Segment
+        from domain.transcription import Segment
 
         return Segment(
             start=float(raw_segment["start"]),

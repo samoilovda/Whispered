@@ -106,7 +106,7 @@ class LiveSessionPipeline:
 
     def build_result(self, language: str = "auto") -> Any:
         """Return the ordinary batch model consumed by Library/Export/Content."""
-        from transcriber import TranscriptionResult
+        from domain.transcription import TranscriptionResult
 
         segments = list(self.final_segments())
         duration = max((float(segment.end) for segment in segments), default=0.0)

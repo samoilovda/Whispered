@@ -369,7 +369,7 @@ class PersistentWhisperWorker(BaseWorker):
 
 def _to_batch_segments(payload: tuple[dict, ...]) -> list[Any]:
     """Convert process-safe dictionaries to the existing Segment model."""
-    from transcriber import Segment
+    from domain.transcription import Segment
 
     return [
         Segment(
