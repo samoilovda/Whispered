@@ -647,19 +647,37 @@ Unit-тесты — системным python (Qt заглушен в `tests/con
   сделано в предыдущих коммитах R1, хотя явно значилось в шаге 6 плана.
   Исправлено вместе с тестом
   `test_finish_session_fails_instead_of_completing_when_worker_wont_stop`.
-- [2026-08-17] [R1, не сделано] Полная миграция панелей на `WorkerRegistry`
-  из плана (`ui/youtube_panel.py`, `ui/insights_panel.py`, `ui/ai_panel.py`,
-  `ui/chat_panel.py`, `ui/model_downloader.py`, `ui/live_setup_panel.py`,
-  `ui/main_window.py::_WorkerShutdown`) **не выполнена**. Предыдущие коммиты
-  ограничились точечным увеличением таймаутов `wait(None → 5000)` в
-  `main_window.py`/`chat_panel.py` — это не то же самое, что интеграция с
-  registry, и не даёт retain-until-finished гарантии. `youtube_panel.py` и
-  `insights_panel.py` уже имели собственный `_retired_workers` до аудита —
-  их можно оставить как есть или мигрировать позже, они не падают.
+- [2026-08-17] [R1] Полная миграция панелей на `WorkerRegistry`
+  **выполнена** отдельным проходом: `ui/youtube_panel.py`,
+  `ui/insights_panel.py` (заменили собственный предаудитный
+  `_retired_workers` на общий `WorkerRegistry`), `ui/ai_panel.py`,
+  `ui/chat_panel.py`, `ui/model_downloader.py` (плюс исправлен сам баг из
+  R1 — `DiarizationCacheWorker` теперь тоже получает `cancel()`, диалог не
+  закрывается до фактического завершения потока), `ui/batch_panel.py`
+  (book worker), `ui/cover_view.py`, `ui/live_setup_panel.py`,
+  `ui/main_window.py::_WorkerShutdown`/`_ai_worker`. Попутно найдено и
+  закрыто: `InsightsWorker`/`AIProcessingWorker`/`DownloadWorker`/
+  `DiarizationCacheWorker` называют свой business-сигнал `finished`,
+  затеняя built-in `QThread.finished` — generic-фоллбэк `WorkerRegistry`
+  сознательно пропускает сигналы с именем `finished`, поэтому без
+  `_disconnect_business_signals()` на этих классах поздний результат мог
+  бы всё ещё долететь до UI. Добавлены overrides.
+  При повторных прогонах `tools/render_ui_gallery.py` всплыли и закрыты
+  два регресса из того же прохода: (1) перевод `ai_panel`/`chat_panel`/
+  `book_panel`'s `shutdown()` на чисто неблокирующий `retire()` убрал
+  bounded wait, который этим путям всё ещё нужен — короткоживущий процесс,
+  выходящий сразу после `closeEvent`, не даёт worker'у вообще никакого
+  времени на остановку; заменено на `shutdown_all(timeout_ms=...)`,
+  интерактивные пути (Stop/Cancel-кнопки) остались неблокирующими; (2)
+  `book_panel.py`'s `_conn_timer` инициализировался только внутри теперь
+  условного `_start_connection_check()` — `shutdown()` падал с
+  `AttributeError`, который PyQt6 эскалирует в фатальный abort прямо из
+  `closeEvent`. Проверено 5 повторными прогонами `tests_qt/` и 5 — gallery
+  script, оба ранее падали нестабильно.
   Сетевой transport (`core/lm_client.py::complete`,
-  `core/ai_provider.py`, `core/anthropic_client.py`) также не проверен на
-  предмет прерываемости активного response/socket по Cancel — пункт плана
-  остаётся открытым.
+  `core/ai_provider.py`, `core/anthropic_client.py`) по-прежнему не
+  проверен на предмет прерываемости активного response/socket по Cancel —
+  этот пункт плана остаётся открытым.
 - [2026-08-17] [R2, не сделано] `core/model_manifest.py` — все `sha256`
   оставлены пустыми (`sha256=""`) для всех 10 записей моделей; заполнены
   только `size_bytes`. Код `ModelRepository` корректно откатывается на
