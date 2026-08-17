@@ -5,6 +5,8 @@ Extracted from text_processor.py for reuse across modules.
 """
 
 import json
+import socket
+import time
 import urllib.request
 import urllib.error
 import functools
@@ -23,6 +25,16 @@ DEFAULT_LM_STUDIO_URL = "http://localhost:1234/v1"
 DEFAULT_MAX_TOKENS = 4096
 DEFAULT_TEMPERATURE = 0.7
 DEFAULT_TIMEOUT = 300  # 5 minutes for long texts
+
+# The socket-level timeout used while polling an SSE stream for the next
+# line. is_cancelled() is only checked between successfully read lines —
+# on a stalled connection (server accepted the request but is producing no
+# tokens, e.g. a reasoning model mid-"thinking") a single long socket
+# timeout means Cancel does nothing until that timeout finally fires,
+# however long DEFAULT_TIMEOUT/the caller's timeout is. Polling with a
+# short socket timeout and rechecking is_cancelled() between attempts
+# bounds that to roughly _STREAM_POLL_S regardless of server behavior.
+_STREAM_POLL_S = 2.0
 
 # LM Studio can deadlock or become unresponsive when several long requests
 # prefill concurrently.  The application deliberately has one process-wide
@@ -243,10 +255,29 @@ class LMStudioClient:
             headers = {"Content-Type": "application/json", **self._auth_headers()}
             req = urllib.request.Request(endpoint, data=data, headers=headers)
             full_text = []
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                for raw_line in resp:
+            # A short poll timeout (not the caller's full `timeout`) so a
+            # stalled server can't keep is_cancelled() from being checked
+            # for the whole request duration — see _STREAM_POLL_S.
+            poll_timeout = min(_STREAM_POLL_S, timeout) if timeout else _STREAM_POLL_S
+            deadline = time.monotonic() + timeout
+            with urllib.request.urlopen(req, timeout=poll_timeout) as resp:
+                line_iter = iter(resp)
+                while True:
                     if is_cancelled and is_cancelled():
                         return None
+                    if time.monotonic() > deadline:
+                        logger.warning(
+                            "LM Studio stream exceeded overall timeout of %ds", timeout
+                        )
+                        return None
+                    try:
+                        raw_line = next(line_iter)
+                    except StopIteration:
+                        break
+                    except (socket.timeout, TimeoutError):
+                        # No data within the poll window — loop back to
+                        # recheck cancellation/deadline, not an error.
+                        continue
                     line = raw_line.decode("utf-8").strip()
                     if not line.startswith("data:"):
                         continue

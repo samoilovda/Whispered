@@ -1,6 +1,7 @@
 """Unit tests for core/lm_client.py — no network, urllib is mocked."""
 
 import json
+import socket
 import sys
 from unittest.mock import patch, MagicMock
 
@@ -190,3 +191,102 @@ class TestTruncationDetection:
                 )
             assert result == "done"
             assert not any("truncated" in r.message for r in caplog.records)
+
+
+class _StalledIterator:
+    """Simulates a connection that never produces a line — every read
+    blocks until the socket-level timeout fires."""
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        raise socket.timeout("no data")
+
+
+class TestStreamCancellation:
+    """Regression coverage for the R1 gap: a single long socket timeout on
+    the SSE read meant is_cancelled() was only checked between already-
+    received lines, so Cancel did nothing for a stalled connection until
+    the full request timeout eventually fired — however long that was."""
+
+    def test_urlopen_uses_a_short_poll_timeout_not_the_full_one(self):
+        client = LMStudioClient("http://localhost:1234/v1")
+        with patch("urllib.request.urlopen") as mock_open, \
+             patch("urllib.request.Request"):
+            mock_open.return_value = _fake_sse_response([])
+            client.chat_completion_stream(
+                [{"role": "user", "content": "hi"}], timeout=600,
+            )
+            # The socket-level timeout urlopen is given must be the short
+            # poll window, not the caller's 600s budget — otherwise a
+            # stalled connection blocks is_cancelled() checks for 600s.
+            assert mock_open.call_args.kwargs["timeout"] <= 2.0
+
+    def test_cancellation_during_a_stalled_stream_returns_promptly(self):
+        client = LMStudioClient("http://localhost:1234/v1")
+        resp = MagicMock()
+        resp.__iter__.return_value = _StalledIterator()
+        resp.__enter__.return_value = resp
+        resp.__exit__.return_value = False
+
+        calls = {"n": 0}
+
+        def is_cancelled():
+            calls["n"] += 1
+            return calls["n"] >= 3
+
+        with patch("urllib.request.urlopen") as mock_open, \
+             patch("urllib.request.Request"):
+            mock_open.return_value = resp
+            result = client.chat_completion_stream(
+                [{"role": "user", "content": "hi"}],
+                timeout=600,
+                is_cancelled=is_cancelled,
+            )
+
+        assert result is None
+        # Cancelled on the 3rd check — proves the poll loop rechecks
+        # is_cancelled() every _STREAM_POLL_S rather than blocking for the
+        # full 600s request timeout on a stalled connection.
+        assert calls["n"] == 3
+
+    def test_stalled_reads_do_not_raise_and_keep_polling(self):
+        """A socket.timeout on an individual poll must not be treated as a
+        stream error — only sustained stalling past the overall deadline
+        (or cancellation) should end the call."""
+        client = LMStudioClient("http://localhost:1234/v1")
+
+        class _FlakyThenDone:
+            def __init__(self, stalls: int, lines: list[bytes]):
+                self._stalls = stalls
+                self._lines = iter(lines)
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self._stalls > 0:
+                    self._stalls -= 1
+                    raise socket.timeout("no data yet")
+                return next(self._lines)
+
+        resp = MagicMock()
+        resp.__iter__.return_value = _FlakyThenDone(
+            stalls=3,
+            lines=[
+                b'data: {"choices": [{"delta": {"content": "hi"}}]}',
+                b"data: [DONE]",
+            ],
+        )
+        resp.__enter__.return_value = resp
+        resp.__exit__.return_value = False
+
+        with patch("urllib.request.urlopen") as mock_open, \
+             patch("urllib.request.Request"):
+            mock_open.return_value = resp
+            result = client.chat_completion_stream(
+                [{"role": "user", "content": "hi"}], timeout=600,
+            )
+
+        assert result == "hi"
