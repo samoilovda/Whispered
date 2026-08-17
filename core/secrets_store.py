@@ -12,6 +12,7 @@ requirement to run the app (see requirements.txt).
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Optional
 
 from core.logger import get_logger
@@ -25,6 +26,26 @@ _SERVICE_NAME = "Whispered"
 # Config.load() knows to look the real value up instead of treating the
 # field as empty.
 KEYRING_SENTINEL = "__keyring__"
+
+
+@dataclass(frozen=True)
+class SecretReadResult:
+    """Tri-state result of a keyring lookup.
+
+    Attributes:
+        found:         True when the secret was successfully read.
+        value:         The secret value; non-empty only when ``found`` is True.
+        missing:       True when the keyring is reachable but has no entry.
+        backend_error: True when the keyring raised an exception (broken
+                       backend, locked keychain, etc.).  The caller should
+                       preserve the KEYRING_SENTINEL rather than treating
+                       the secret as empty.
+    """
+
+    found: bool = False
+    value: str = ""
+    missing: bool = False
+    backend_error: bool = False
 
 
 def _keyring_module():
@@ -54,6 +75,27 @@ def set_secret(name: str, value: str) -> bool:
     except Exception as exc:
         logger.warning("Keyring write failed for %s, falling back to file: %s", name, exc)
         return False
+
+
+def read_secret(name: str) -> SecretReadResult:
+    """Look ``name`` up in the OS keyring; return a :class:`SecretReadResult`.
+
+    Use this instead of :func:`get_secret` when the caller needs to
+    distinguish a missing entry from a broken backend (e.g. to decide
+    whether to preserve the KEYRING_SENTINEL or replace it with ``""``).
+    """
+    keyring = _keyring_module()
+    if keyring is None:
+        # No keyring installed — treat as missing, not an error.
+        return SecretReadResult(missing=True)
+    try:
+        value = keyring.get_password(_SERVICE_NAME, name)
+        if value is None:
+            return SecretReadResult(missing=True)
+        return SecretReadResult(found=True, value=value)
+    except Exception as exc:
+        logger.warning("Keyring read failed for %s: %s", name, exc)
+        return SecretReadResult(backend_error=True)
 
 
 def get_secret(name: str) -> Optional[str]:

@@ -9,6 +9,7 @@ import stat
 import tempfile
 from dataclasses import dataclass, field, asdict
 from typing import Optional
+from urllib.parse import urlparse
 
 from core import secrets_store
 from core.logger import get_logger
@@ -24,6 +25,17 @@ CONFIG_FILE = config_path()
 # yt_anthropic_api_key hold the real value in memory either way — this
 # only changes where save()/load() persist it.
 _SECRET_FIELDS = ("hf_token", "yt_openai_api_key", "yt_anthropic_api_key")
+
+# Current schema version written to config.json under "schema_version".
+# Increment when load() gains a new migration step.
+_CURRENT_SCHEMA_VERSION = 1
+
+# Allowed enum values for validated fields.
+_VALID_PROVIDERS = frozenset({"lmstudio", "openai", "anthropic"})
+_VALID_THEMES = frozenset({"dark", "light"})
+_VALID_PERFORMANCE_MODES = frozenset({"fast", "balanced", "accurate"})
+_VALID_FPS = frozenset({24, 25, 30, 60})
+_VALID_UI_LANGUAGES = frozenset({"auto", "en", "ru"})
 
 
 @dataclass
@@ -118,6 +130,47 @@ class Config:
     cover_export_shorts: bool = False
     cover_jpeg_max_bytes: int = 2_000_000
 
+    def validate(self) -> list[str]:
+        """Check field values for common mistakes; return a list of warning
+        strings.  Never raises — a config with invalid values is still
+        usable; callers decide how to surface the warnings."""
+        warnings: list[str] = []
+
+        if self.yt_provider not in _VALID_PROVIDERS:
+            warnings.append(
+                f"yt_provider={self.yt_provider!r} is not one of"
+                f" {sorted(_VALID_PROVIDERS)}"
+            )
+        if self.theme not in _VALID_THEMES:
+            warnings.append(
+                f"theme={self.theme!r} is not one of {sorted(_VALID_THEMES)}"
+            )
+        if self.performance_mode not in _VALID_PERFORMANCE_MODES:
+            warnings.append(
+                f"performance_mode={self.performance_mode!r} is not one of"
+                f" {sorted(_VALID_PERFORMANCE_MODES)}"
+            )
+        if self.video_fps not in _VALID_FPS:
+            warnings.append(
+                f"video_fps={self.video_fps} is not one of {sorted(_VALID_FPS)}"
+            )
+        if self.ui_language not in _VALID_UI_LANGUAGES:
+            warnings.append(
+                f"ui_language={self.ui_language!r} is not one of"
+                f" {sorted(_VALID_UI_LANGUAGES)}"
+            )
+
+        for url_field in ("lm_studio_url", "book_lm_url", "yt_openai_base_url"):
+            url = getattr(self, url_field, "")
+            if url:
+                parsed = urlparse(url)
+                if parsed.scheme not in ("http", "https"):
+                    warnings.append(
+                        f"{url_field}={url!r}: expected http or https scheme"
+                    )
+
+        return warnings
+
     def save(self) -> bool:
         """Save configuration to file.
 
@@ -130,6 +183,9 @@ class Config:
         try:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
             data = asdict(self)
+            # Persist schema version alongside the rest of the config so
+            # future load() can run targeted migrations.
+            data["schema_version"] = _CURRENT_SCHEMA_VERSION
             for name in _SECRET_FIELDS:
                 value = data.get(name)
                 if value:
@@ -182,8 +238,23 @@ class Config:
             filtered_data = {k: v for k, v in data.items() if k in known_fields}
 
             for name in _SECRET_FIELDS:
-                if filtered_data.get(name) == secrets_store.KEYRING_SENTINEL:
-                    filtered_data[name] = secrets_store.get_secret(name) or ""
+                raw = filtered_data.get(name)
+                if raw == secrets_store.KEYRING_SENTINEL:
+                    result = secrets_store.read_secret(name)
+                    if result.found:
+                        filtered_data[name] = result.value
+                    elif result.backend_error:
+                        # Keyring backend is broken — preserve the sentinel so
+                        # the next save() does not overwrite the keyring entry
+                        # with an empty string.
+                        filtered_data[name] = secrets_store.KEYRING_SENTINEL
+                        logger.warning(
+                            "Keyring backend error reading %s — keeping sentinel",
+                            name,
+                        )
+                    else:
+                        # Missing from keyring (entry deleted externally)
+                        filtered_data[name] = ""
 
             # The redesigned workspace exposes the old launch preset as an
             # explicit checklist.  Keep launch_preset for backwards
@@ -200,7 +271,11 @@ class Config:
                     data.get("launch_preset", "transcribe_only"), ["transcript"]
                 )
 
-            return cls(**filtered_data)
+            instance = cls(**filtered_data)
+            warnings = instance.validate()
+            for w in warnings:
+                logger.warning("Config validation: %s", w)
+            return instance
         except Exception as e:
             logger.warning("Failed to load config: %s", e)
             return cls()

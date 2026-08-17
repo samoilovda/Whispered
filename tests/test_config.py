@@ -41,6 +41,13 @@ class _FakeKeyringBackend:
     def get_secret(self, name: str):
         return self.store.get(name)
 
+    def read_secret(self, name: str):
+        from core.secrets_store import SecretReadResult
+        value = self.store.get(name)
+        if value is None:
+            return SecretReadResult(missing=True)
+        return SecretReadResult(found=True, value=value)
+
     def delete_secret(self, name: str) -> None:
         self.store.pop(name, None)
 
@@ -50,6 +57,7 @@ def fake_keyring(monkeypatch):
     backend = _FakeKeyringBackend()
     monkeypatch.setattr(config_module.secrets_store, "set_secret", backend.set_secret)
     monkeypatch.setattr(config_module.secrets_store, "get_secret", backend.get_secret)
+    monkeypatch.setattr(config_module.secrets_store, "read_secret", backend.read_secret)
     monkeypatch.setattr(config_module.secrets_store, "delete_secret", backend.delete_secret)
     return backend
 
@@ -277,3 +285,85 @@ class TestConfigKeyringIntegration:
         cfg.save()
         loaded = Config.load()
         assert loaded.theme == "light"
+
+class TestConfigValidation:
+    """R10: Config.validate() logs warnings but keeps the config loadable."""
+
+    def test_invalid_yt_provider_loads_but_warns(self, caplog):
+        import logging
+        import config as config_module
+
+        config_module.CONFIG_FILE.write_text(
+            '{"yt_provider": "typo"}', encoding="utf-8"
+        )
+        with caplog.at_level(logging.WARNING):
+            loaded = Config.load()
+
+        # Config loads successfully — invalid value preserved
+        assert loaded.yt_provider == "typo"
+        # But a warning was logged
+        assert any("yt_provider" in r.message for r in caplog.records)
+
+    def test_invalid_theme_is_flagged(self):
+        cfg = Config(theme="banana")
+        warnings = cfg.validate()
+        assert any("theme" in w for w in warnings)
+
+    def test_valid_config_has_no_warnings(self):
+        cfg = Config()  # all defaults are valid
+        assert cfg.validate() == []
+
+    def test_bad_url_scheme_is_flagged(self):
+        cfg = Config(lm_studio_url="ftp://localhost:1234/v1")
+        warnings = cfg.validate()
+        assert any("lm_studio_url" in w for w in warnings)
+
+    def test_invalid_fps_is_flagged(self):
+        cfg = Config(video_fps=15)
+        warnings = cfg.validate()
+        assert any("video_fps" in w for w in warnings)
+
+    def test_schema_version_written_to_json(self, tmp_path):
+        import json
+        cfg = Config()
+        cfg.save()
+        data = json.loads(config_module.CONFIG_FILE.read_text())
+        assert "schema_version" in data
+        assert data["schema_version"] >= 1
+
+
+class TestConfigBackendError:
+    """R10: backend_error during keyring read must NOT replace sentinel with ''."""
+
+    def _make_broken_keyring(self, monkeypatch):
+        import core.secrets_store as ss_module
+
+        class _BrokenKeyring:
+            def get_password(self, service, name):
+                raise RuntimeError("backend unavailable")
+
+            def set_password(self, service, name, value):
+                return True
+
+            def delete_password(self, service, name):
+                pass
+
+        monkeypatch.setattr(ss_module, "_keyring_module", lambda: _BrokenKeyring())
+
+    def test_backend_error_preserves_sentinel_in_memory(self, monkeypatch, tmp_path):
+        import json
+        import core.secrets_store as ss_module
+
+        # Write a config with a sentinel (as if keyring was working before)
+        config_module.CONFIG_FILE.write_text(
+            json.dumps({"hf_token": ss_module.KEYRING_SENTINEL}),
+            encoding="utf-8",
+        )
+
+        self._make_broken_keyring(monkeypatch)
+
+        loaded = Config.load()
+
+        # Field in memory should still be the sentinel, not ""
+        # (so the next save() doesn't wipe the keyring entry)
+        assert loaded.hf_token == ss_module.KEYRING_SENTINEL
