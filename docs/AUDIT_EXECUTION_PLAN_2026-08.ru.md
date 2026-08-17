@@ -442,6 +442,14 @@ ui/                main_window.py (только composition/navigation), views/
 
 ### Задача R5-full / R8-pre — Artifact entity и manifest
 
+> **Статус (2026-08-17): шаги 1-2 сделаны (`domain/artifact.py`,
+> `infrastructure/persistence/artifact_store.py`, полностью протестировано).
+> Шаг 3 (миграция генераторов) не начат** — у каждого генератора свой
+> bespoke save/export путь (например `covers/export.py` уже пишет
+> собственный `.cover.json` sidecar с другим форматом); миграция даже
+> одного безопасно — отдельная проверяемая задача, не часть
+> инфраструктурного коммита.
+
 **Шаги**
 
 1. `domain/artifact.py`: `Artifact` с полями `record_id`, `source_hash`,
