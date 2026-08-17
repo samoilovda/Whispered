@@ -48,7 +48,8 @@ from ui.live_checkpoint_tracker import LiveCheckpointTracker
 from ui.preset_chain_controller import PresetChainController
 from ui.shutdownable import Shutdownable
 from transcriber import Transcriber, TranscriptionResult
-from exporters import export_result, EXPORT_FORMATS
+from exporters import EXPORT_FORMATS
+from application import export_controller
 from utils import (
     WHISPER_MODELS,
     WHISPER_LANGUAGES,
@@ -1511,7 +1512,12 @@ class MainWindow(QMainWindow):
 
     def _export_result(self):
         """Export the transcription result using the formats currently
-        checked in the Record view's Export menu."""
+        checked in the Record view's Export menu.
+
+        The actual export work (what succeeded, what failed) is delegated
+        to application/export_controller.py; this method only owns the
+        file dialog / message box / toast presentation around it.
+        """
         result = self.transcript_view.get_result()
         if not result:
             return
@@ -1524,7 +1530,7 @@ class MainWindow(QMainWindow):
             # Single format
             format_key = format_keys[0]
             format_name, _ = EXPORT_FORMATS[format_key]
-            ext = 'txt' if format_key in ('txt', 'txt_ts') else format_key
+            ext = export_controller.format_extension(format_key)
             filepath, _ = QFileDialog.getSaveFileName(
                 self, f"Export as {format_name}", f"{default_name}.{ext}",
                 f"{format_name} (*.{ext});;All Files (*)"
@@ -1532,7 +1538,7 @@ class MainWindow(QMainWindow):
 
             if filepath:
                 try:
-                    export_result(result, filepath, format_key)
+                    export_controller.export_single(result, filepath, format_key)
                     show_toast(self, tr("toast_exported_one", name=os.path.basename(filepath)), kind="success")
                 except Exception as e:
                     QMessageBox.critical(self, tr("error_export"), str(e))
@@ -1540,29 +1546,20 @@ class MainWindow(QMainWindow):
             # Multiple formats - directory
             directory = QFileDialog.getExistingDirectory(self, "Select Export Directory")
             if directory:
-                count = 0
-                failures: list[str] = []
-                for format_key in format_keys:
-                    ext = 'txt' if format_key in ('txt', 'txt_ts') else format_key
-                    suffix = '_ts' if format_key == 'txt_ts' else ''
-                    filepath = os.path.join(directory, f"{default_name}{suffix}.{ext}")
-                    try:
-                        export_result(result, filepath, format_key)
-                        count += 1
-                    except Exception as exc:
-                        logger.warning("Failed to export %s: %s", format_key, exc)
-                        failures.append(format_key)
-                if count:
+                outcome = export_controller.export_many_to_directory(
+                    result, directory, format_keys, default_name
+                )
+                if outcome.any_succeeded:
                     show_toast(
                         self,
-                        tr("toast_exported_many", count=count),
-                        kind="success" if not failures else "warning",
+                        tr("toast_exported_many", count=len(outcome.succeeded)),
+                        kind="success" if not outcome.any_failed else "warning",
                     )
-                if failures:
+                if outcome.any_failed:
                     QMessageBox.warning(
                         self,
                         tr("error_export"),
-                        "Failed formats: " + ", ".join(failures),
+                        "Failed formats: " + ", ".join(outcome.failed),
                     )
 
     # ===== AI Processing Methods =====
