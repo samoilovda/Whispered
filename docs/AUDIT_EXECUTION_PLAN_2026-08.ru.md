@@ -503,6 +503,15 @@ YouTube workers, очередь Insights и два batch-механизма
 
 ### Задача R9 — единая release metadata и ресурсный manifest
 
+> **Статус (2026-08-17): шаг 1 сделан** (`pyproject.toml` как canonical
+> version source, `version.py`, синхронизирован реально расходившийся
+> `appimage/io.github.whispered.metainfo.xml` — было 1.0.0 против 0.1.0 в
+> Windows-файлах; `tests/test_version.py` теперь ловит будущий дрейф).
+> **Шаги 2-4 не начаты** — требуют реальных прогонов PyInstaller/Inno
+> Setup/appimagetool и настоящего CI, которые нельзя провалидировать из
+> этого окружения; форсировать их без возможности проверить результат
+> означало бы правки packaging-конфигов вслепую. См. раздел 9.
+
 **Шаги**
 
 1. Создать `pyproject.toml` как canonical source версии; `__version__` в
@@ -783,3 +792,15 @@ Unit-тесты — системным python (Qt заглушен в `tests/con
   `pipeline_controller` должен был бы закрыть — реальным образом решается
   в R8 (Job Engine), не отдельным файловым переносом; дальше в этом
   проходе делается R5-full и R8 вместо форсированного `pipeline_controller`.
+- [2026-08-17] [R9] Шаг 1 сделан и вскрыл реальный, а не гипотетический
+  дрейф: `appimage/io.github.whispered.metainfo.xml` был `1.0.0`, оба
+  Windows-файла — `0.1.0`. Синхронизировано на `0.1.0`, добавлен
+  `pyproject.toml`/`version.py`/`tests/test_version.py`. Шаги 2-4
+  (`packaging/resources.toml`, генерация Windows/AppImage конфигов из
+  него, CI: nightly macOS `.app`, AppImage build+smoke, SBOM, pin Actions
+  по SHA, dependency audit в CI) **сознательно не начаты** в этой сессии:
+  ни PyInstaller, ни Inno Setup, ни appimagetool, ни реальный GitHub
+  Actions прогон нельзя провалидировать из этого окружения — правка
+  packaging-конфигов без возможности собрать и проверить результат хуже,
+  чем не трогать их вовсе. Это финальная точка прохода по плану ("continue
+  until R9" от владельца) — P2 (R10–R14) не начат.
