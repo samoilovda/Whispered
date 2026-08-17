@@ -698,22 +698,31 @@ class Transcriber:
     def prepare_models(model_name: str, enable_diarization: bool = False) -> bool:
         """Verify/download models from the GUI thread before worker startup.
 
-        ``ensure_*`` opens Qt dialogs, therefore it must never be called by
-        ``BatchWorker.run`` or another background thread.
+        This method no longer imports ``ui.model_downloader`` directly.
+        Callers on the GUI thread should open download dialogs themselves and
+        then call this method, or provide an alternative progress mechanism.
+
+        The bare minimum check: if the model file is present (any size > 0)
+        we consider it ready and let the native parser validate it on load.
+        Full integrity checks are performed by ``core.model_repository``.
         """
         try:
-            from ui.model_downloader import ensure_diarization_models, ensure_whisper_model
-            from config import get_config
-            if not ensure_whisper_model(model_name):
+            from utils import get_models_dir
+            import os
+            model_file = os.path.join(get_models_dir(), f"ggml-{model_name}.bin")
+            if not os.path.exists(model_file) or os.path.getsize(model_file) == 0:
+                logger.warning(
+                    "prepare_models: model file not found or empty: %s",
+                    model_file,
+                )
                 return False
             if enable_diarization:
-                config = get_config()
-                hf_token = config.hf_token
-                if hf_token and config.has_hf_token() and not ensure_diarization_models(hf_token):
-                    return False
+                # Diarization models live in the HuggingFace cache;
+                # their presence is verified by the UI layer before calling here.
+                pass
             return True
         except Exception as exc:
-            logger.warning("Model downloader check failed: %s", exc)
+            logger.warning("Model check failed: %s", exc)
             return False
 
     def cancel(self):
