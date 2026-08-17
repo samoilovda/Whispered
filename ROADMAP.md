@@ -40,9 +40,23 @@ The original long-form development plan (2026-07) is preserved in
 
 ## Current focus
 
+*Last audit: 2026-08-13, execution tracked in
+[docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md](docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md).
+Its P0 items (worker lifecycle, model integrity, Recorder backpressure,
+system-audio IPC auth, output-path collisions) are closed as of 2026-08-17;
+P1 structural work (splitting `main_window.py`, a unified Job engine) is in
+progress.*
+
 - **Local-LLM robustness** — local completions are serialized process-wide;
-  continue making network cancellation interruptible, simplify YouTube worker
-  orchestration, and prevent failed generations from being saved as results.
+  network cancellation is now interruptible (LM Studio streaming reads poll
+  instead of blocking on a single long socket timeout). Remaining:
+  Anthropic's client is still a single non-streaming request with no
+  mid-flight abort, simplify YouTube worker orchestration, and prevent
+  failed generations from being saved as results.
+- **Structural cleanup** — extracting Qt-free domain types
+  (`domain/transcription.py`) out of `transcriber.py` so exporters and the
+  Live subsystem stop pulling in Qt just to use a DTO; `main_window.py`
+  (1800+ lines) is next to split into a `DocumentSession` + controllers.
 
 ## Next
 

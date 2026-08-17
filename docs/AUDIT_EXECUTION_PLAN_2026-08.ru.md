@@ -341,6 +341,9 @@ entity делается в Задаче R8-pre (фаза 2).
 
 ### Задача R7-pre — вынести domain DTO (делать раньше R6)
 
+> **Статус (2026-08-17): шаги 1, 2, 5 сделаны; частично — шаг 3 (только
+> `core/live/*`); шаг 4 не начат.** См. запись в разделе 9.
+
 **Проблема.** `Segment`, `Word`, `TranscriptionResult` живут в
 `transcriber.py`, который импортирует `PyQt6.QtCore` (`transcriber.py:13`) и
 worker-инфраструктуру. Exporters и Live тянут весь этот модуль ради трёх
@@ -716,3 +719,18 @@ Unit-тесты — системным python (Qt заглушен в `tests/con
   `docs/SYSTEM_CAPTURE_IPC.ru.md`. Nonce handshake закрывает
   практический риск (гонка за первым `accept()`); peer credentials — это
   defense-in-depth поверх него.
+- [2026-08-17] [R7-pre] Сделаны шаги 1, 2, 5 (`domain/transcription.py`,
+  реэкспорт из `transcriber.py`, статический AST-тест). Шаг 3 сделан только
+  для `core/live/reconciler.py`/`asr_worker.py`/`session_pipeline.py` —
+  это были единственные потребители, тянувшие Qt транзитивно ради DTO;
+  `exporters.py`, `core/insights_worker.py`, `core/history.py`, `ui/*`
+  по-прежнему импортируют из `transcriber` (реэкспорт работает, поведение
+  не изменилось, но новый код должен предпочитать `domain.transcription`
+  напрямую). Шаг 4 (`core/live/__init__.py` → пустой/полностью lazy) **не
+  начат** — модуль всё ещё eagerly импортирует Qt-зависимый
+  `system_audio_source` на уровне пакета (`from core.live.system_audio_source
+  import SystemAudioSource`), то есть голый `import core.live` уже тянет Qt
+  независимо от DTO-проблемы. Это отдельный, более рискованный рефакторинг
+  (нужно проверить внутренние cross-import между submodules `core/live/*` и
+  список `__all__`) — не делался в этом проходе, чтобы не смешивать с
+  behaviour-preserving шагом.
