@@ -6,7 +6,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv"
-MODELS_DIR="$SCRIPT_DIR/models"
+MODELS_DIR="$HOME/Library/Application Support/Whispered/models"
+PYWHISPERCPP_REV="294e1e15f1fa3991aaa8db5f5e9afb97ade5ba5f"
+PYWHISPERCPP_SOURCE="git+https://github.com/absadiki/pywhispercpp@$PYWHISPERCPP_REV"
 
 # Colors
 RED='\033[0;31m'
@@ -42,8 +44,6 @@ echo -e "  ${GREEN}✓${NC} Homebrew installed"
 PYTHON_CMD=""
 if command -v python3.11 &> /dev/null; then
     PYTHON_CMD="python3.11"
-elif command -v python3 &> /dev/null; then
-    PYTHON_CMD="python3"
 else
     echo -e "${YELLOW}→ Installing Python via Homebrew...${NC}"
     brew install python@3.11
@@ -102,36 +102,25 @@ echo "   This may take a few minutes (compiling with Metal)..."
 
 if [ "$GPU_TYPE" = "metal" ]; then
     # Metal acceleration for Apple Silicon
-    GGML_METAL=1 pip install pywhispercpp 2>&1 | tail -3
+    GGML_METAL=1 pip install --no-cache-dir --force-reinstall "$PYWHISPERCPP_SOURCE"
 else
-    pip install pywhispercpp 2>&1 | tail -3
+    pip install 'pywhispercpp>=1.2.0'
 fi
 echo -e "  ${GREEN}✓${NC} pywhispercpp installed"
+
+# Install every remaining declared runtime dependency.  pywhispercpp is
+# already present with the selected Metal/CPU build, so pip keeps it.
+echo ""
+echo -e "${YELLOW}→ Installing remaining runtime dependencies...${NC}"
+pip install -r "$SCRIPT_DIR/requirements.txt" > /dev/null
+echo -e "  ${GREEN}✓${NC} Runtime dependencies installed"
 
 # Create models directory
 echo ""
 echo -e "${YELLOW}→ Setting up models directory...${NC}"
 mkdir -p "$MODELS_DIR"
+chmod 700 "$MODELS_DIR" 2>/dev/null || true
 echo -e "  ${GREEN}✓${NC} Models directory: $MODELS_DIR"
-
-# Download default model
-echo ""
-echo -e "${YELLOW}→ Downloading default Whisper model (base)...${NC}"
-echo "   ~142MB download..."
-$PYTHON_CMD -c "
-import sys
-sys.path.insert(0, '$SCRIPT_DIR')
-from pywhispercpp.model import Model
-import os
-
-models_dir = '$MODELS_DIR'
-try:
-    model = Model('base', models_dir=models_dir)
-    print('  ✓ Model downloaded successfully')
-except Exception as e:
-    print(f'  ⚠ Could not download model: {e}')
-    print('    The model will be downloaded on first use.')
-"
 
 # Save GPU configuration
 echo "$GPU_TYPE" > "$SCRIPT_DIR/.gpu_type"

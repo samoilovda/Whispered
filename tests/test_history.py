@@ -1,7 +1,9 @@
 """Tests for core/history.py — no Qt or network required."""
 
 # Qt and core.lm_client/core.ai_worker stand-ins come from tests/conftest.py.
+import os
 import sqlite3
+import stat
 
 import pytest
 from types import SimpleNamespace
@@ -24,6 +26,12 @@ def store(tmp_path):
 
 
 class TestHistoryStoreBasics:
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX file permissions only")
+    def test_database_is_owner_only(self, tmp_path):
+        path = tmp_path / "private-history.db"
+        HistoryStore(db_path=path)
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
     def test_empty_list(self, store):
         assert store.list() == []
 

@@ -12,6 +12,8 @@ datas = [
     (str(ROOT / "locales"), "locales"),
     (str(ROOT / "prompts"), "prompts"),
     (str(ASSETS / "icon.png"), "assets"),
+    (str(ASSETS / "covers"), "assets/covers"),
+    (str(ASSETS / "fonts"), "assets/fonts"),
 ]
 binaries = collect_dynamic_libs("pywhispercpp")
 hiddenimports = [

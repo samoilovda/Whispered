@@ -140,6 +140,7 @@ class LibraryView(QWidget):
     """
 
     open_record = pyqtSignal(int)  # record id
+    open_cover = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -168,6 +169,10 @@ class LibraryView(QWidget):
         self._search_edit.setClearButtonEnabled(True)
         self._search_edit.textChanged.connect(self._schedule_search)
         toolbar.addWidget(self._search_edit, stretch=1)
+
+        self._cover_btn = QPushButton(tr("cover_workspace_title"))
+        self._cover_btn.clicked.connect(self.open_cover.emit)
+        toolbar.addWidget(self._cover_btn)
 
         self._refresh_btn = QPushButton()
         self._refresh_btn.setIcon(get_icon('refresh', IconColors.default(), 14))

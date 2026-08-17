@@ -1,7 +1,10 @@
 # Version bounds here are the minimums this codebase requires. For a
 # reproducible install with exact pinned versions (CI, Docker, testing),
 # use requirements.lock instead: pip install -r requirements.lock
-# (regenerate with: uv pip compile requirements.txt -o requirements.lock)
+# (regenerate with: uv pip compile requirements.txt --python-version 3.11
+#  -o requirements.lock)
+# Supported runtime interpreter: CPython 3.11.  The pinned NumPy and
+# pyqtdarktheme releases do not share a compatible 3.10/3.12 range.
 # Note: setup.sh/setup-mac.sh install pywhispercpp separately with GPU
 # build flags (GGML_CUDA/GGML_METAL/GGML_HIPBLAS) — the lock file's
 # pywhispercpp pin does not apply to those scripts.
@@ -14,9 +17,13 @@ pywhispercpp>=1.2.0
 # Audio recording and level metering (microphone capture)
 sounddevice>=0.4.6
 numpy>=1.24
+onnxruntime>=1.17
 
 # DOCX export
 python-docx>=1.0
+
+# Model downloads and configured HTTP integrations
+requests>=2.31
 
 # Note: sounddevice, numpy, and python-docx are guarded by try/except ImportError
 # in the code so the app can start and show a useful error rather than crashing

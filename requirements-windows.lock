@@ -4,11 +4,16 @@
 certifi==2026.6.17
 cffi==2.1.0
 charset-normalizer==3.4.9
+colorama==0.4.6
 darkdetect==0.7.1
+flatbuffers==25.12.19
 idna==3.18
 lxml==6.1.1
 numpy==2.4.6
+onnxruntime==1.28.0
+packaging==26.3
 platformdirs==4.10.0
+protobuf==7.35.1
 pycparser==3.0
 pyqt6==6.11.0
 pyqt6-qt6==6.11.1

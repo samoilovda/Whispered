@@ -84,6 +84,7 @@ class SettingsDialog(QDialog):
             ("settings_category_recording_live", self._build_recording_live_tab()),
             ("settings_category_diarization", self._build_diarization_tab()),
             ("settings_category_ai", self._build_ai_tab()),
+            ("settings_category_covers", self._build_covers_tab()),
         )
         for label_key, page in pages:
             self._categories.addItem(tr(label_key))
@@ -218,6 +219,40 @@ class SettingsDialog(QDialog):
         layout.addRow(hint)
         return tab
 
+    def _build_covers_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QFormLayout(tab)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+        self._cover_layout_combo = QComboBox()
+        for label, value in (
+            (tr("cover_layout_duo"), "duo"),
+            (tr("cover_layout_solo"), "solo"),
+            (tr("cover_layout_text"), "text_only"),
+        ):
+            self._cover_layout_combo.addItem(label, value)
+        self._cover_variant_combo = QComboBox()
+        self._cover_variant_combo.addItem(tr("cover_variant_mint"), "mint")
+        self._cover_variant_combo.addItem(tr("cover_variant_warm"), "warm")
+        self._cover_host_name_edit = QLineEdit()
+        self._cover_host_photo_edit = QLineEdit()
+        self._cover_provider_combo = QComboBox()
+        self._cover_provider_combo.addItem("Local", "local")
+        self._cover_provider_combo.addItem("ComfyUI", "comfyui")
+        self._cover_provider_combo.addItem("HTTP", "http")
+        self._cover_comfy_edit = QLineEdit()
+        self._cover_upscale_chk = QCheckBox(tr("settings_cover_upscale"))
+        self._cover_shorts_chk = QCheckBox(tr("settings_cover_shorts"))
+        layout.addRow(tr("cover_layout"), self._cover_layout_combo)
+        layout.addRow(tr("cover_variant"), self._cover_variant_combo)
+        layout.addRow(tr("settings_cover_host_name"), self._cover_host_name_edit)
+        layout.addRow(tr("settings_cover_host_photo"), self._cover_host_photo_edit)
+        layout.addRow(tr("settings_cover_provider"), self._cover_provider_combo)
+        layout.addRow("ComfyUI URL", self._cover_comfy_edit)
+        layout.addRow(self._cover_upscale_chk)
+        layout.addRow(self._cover_shorts_chk)
+        return tab
+
     def _build_diarization_tab(self) -> QWidget:
         tab = QWidget()
         layout = QFormLayout(tab)
@@ -342,6 +377,19 @@ class SettingsDialog(QDialog):
         self._book_model_edit.setText(cfg.book_model_name or "")
         self._book_temp_spin.setValue(cfg.book_temperature)
 
+        for combo, value in (
+            (self._cover_layout_combo, cfg.cover_layout),
+            (self._cover_variant_combo, cfg.cover_variant),
+            (self._cover_provider_combo, cfg.cover_image_provider),
+        ):
+            index = combo.findData(value)
+            combo.setCurrentIndex(index if index >= 0 else 0)
+        self._cover_host_name_edit.setText(cfg.cover_host_name)
+        self._cover_host_photo_edit.setText(cfg.cover_host_photo)
+        self._cover_comfy_edit.setText(cfg.cover_comfy_url)
+        self._cover_upscale_chk.setChecked(cfg.cover_upscale_enabled)
+        self._cover_shorts_chk.setChecked(cfg.cover_export_shorts)
+
     def _save_values(self):
         """Write widget values back to config."""
         cfg = self._cfg
@@ -372,6 +420,15 @@ class SettingsDialog(QDialog):
         cfg.book_lm_url = self._book_lm_url_edit.text().strip() or "http://localhost:1234/v1"
         cfg.book_model_name = self._book_model_edit.text().strip()
         cfg.book_temperature = self._book_temp_spin.value()
+
+        cfg.cover_layout = self._cover_layout_combo.currentData() or "duo"
+        cfg.cover_variant = self._cover_variant_combo.currentData() or "mint"
+        cfg.cover_host_name = self._cover_host_name_edit.text().strip()
+        cfg.cover_host_photo = self._cover_host_photo_edit.text().strip()
+        cfg.cover_image_provider = self._cover_provider_combo.currentData() or "local"
+        cfg.cover_comfy_url = self._cover_comfy_edit.text().strip() or "http://127.0.0.1:8188"
+        cfg.cover_upscale_enabled = self._cover_upscale_chk.isChecked()
+        cfg.cover_export_shorts = self._cover_shorts_chk.isChecked()
 
         save_config()
 

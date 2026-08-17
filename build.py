@@ -77,6 +77,8 @@ def build_app() -> None:
         "--add-data=locales:locales",
         "--add-data=prompts:prompts",
         "--add-data=assets/icon.png:assets",
+        "--add-data=assets/covers:assets/covers",
+        "--add-data=assets/fonts:assets/fonts",
         # Imported dynamically (theme fallback), invisible to analysis
         "--hidden-import=qdarktheme",
         # The whole point of this build: whisper stays external

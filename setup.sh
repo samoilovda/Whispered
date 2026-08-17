@@ -6,6 +6,8 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv"
+PYWHISPERCPP_REV="294e1e15f1fa3991aaa8db5f5e9afb97ade5ba5f"
+PYWHISPERCPP_SOURCE="git+https://github.com/absadiki/pywhispercpp@$PYWHISPERCPP_REV"
 if [ "$(uname -s)" = "Darwin" ]; then
     MODELS_DIR="$HOME/Library/Application Support/Whispered/models"
 else
@@ -31,13 +33,9 @@ echo -e "${YELLOW}→ Checking system dependencies...${NC}"
 PYTHON_CMD=""
 if command -v python3.11 &> /dev/null; then
     PYTHON_CMD="python3.11"
-elif command -v python3.10 &> /dev/null; then
-    PYTHON_CMD="python3.10"
-elif command -v python3 &> /dev/null; then
-    PYTHON_CMD="python3"
 else
-    echo -e "${RED}❌ Python 3 is required but not found. Please install Python 3.10+${NC}"
-    echo "   On Fedora: sudo dnf install python3 python3-pip python3-devel"
+    echo -e "${RED}❌ CPython 3.11 is required but was not found.${NC}"
+    echo "   Install Python 3.11 with pip and development headers, then retry."
     exit 1
 fi
 
@@ -119,7 +117,7 @@ fi
 echo ""
 echo -e "${YELLOW}→ Installing PyQt6 and theme...${NC}"
 pip install 'PyQt6>=6.6.0' > /dev/null
-pip install 'pyqtdarktheme>=2.1.0' --ignore-requires-python > /dev/null
+pip install 'pyqtdarktheme>=2.1.0' > /dev/null
 echo -e "  ${GREEN}✓${NC} PyQt6 and pyqtdarktheme installed"
 
 # Install pywhispercpp with appropriate GPU support
@@ -128,38 +126,30 @@ echo -e "${YELLOW}→ Installing pywhispercpp ($GPU_TYPE mode)...${NC}"
 echo "   This may take a few minutes..."
 
 if [ "$GPU_TYPE" = "cuda" ]; then
-    GGML_CUDA=1 pip install pywhispercpp 2>&1 | tail -3
+    GGML_CUDA=1 pip install --no-cache-dir --force-reinstall "$PYWHISPERCPP_SOURCE"
 elif [ "$GPU_TYPE" = "rocm" ]; then
-    GGML_HIPBLAS=1 pip install pywhispercpp 2>&1 | tail -3
+    echo -e "${YELLOW}⚠ pywhispercpp does not publish a supported ROCm build path.${NC}"
+    echo "   Installing the CPU wheel; do not treat GPU_TYPE=rocm as acceleration."
+    pip install 'pywhispercpp>=1.2.0'
+    GPU_TYPE="cpu"
 else
-    pip install pywhispercpp 2>&1 | tail -3
+    pip install 'pywhispercpp>=1.2.0'
 fi
 echo -e "  ${GREEN}✓${NC} pywhispercpp installed"
+
+# Install every remaining declared runtime dependency.  pywhispercpp is
+# already present with the selected accelerator, so pip keeps that build.
+echo ""
+echo -e "${YELLOW}→ Installing remaining runtime dependencies...${NC}"
+pip install -r "$SCRIPT_DIR/requirements.txt" > /dev/null
+echo -e "  ${GREEN}✓${NC} Runtime dependencies installed"
 
 # Create models directory
 echo ""
 echo -e "${YELLOW}→ Setting up models directory...${NC}"
 mkdir -p "$MODELS_DIR"
+chmod 700 "$MODELS_DIR" 2>/dev/null || true
 echo -e "  ${GREEN}✓${NC} Models directory: $MODELS_DIR"
-
-# Download default model (base)
-echo ""
-echo -e "${YELLOW}→ Downloading default Whisper model (base)...${NC}"
-echo "   ~142MB download - this may take a moment..."
-$PYTHON_CMD -c "
-import sys
-sys.path.insert(0, '$SCRIPT_DIR')
-from pywhispercpp.model import Model
-import os
-
-models_dir = '$MODELS_DIR'
-try:
-    model = Model('base', models_dir=models_dir)
-    print('  ✓ Model downloaded successfully')
-except Exception as e:
-    print(f'  ⚠ Could not download model: {e}')
-    print('    The model will be downloaded on first use.')
-"
 
 # Save GPU configuration
 echo "$GPU_TYPE" > "$SCRIPT_DIR/.gpu_type"

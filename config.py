@@ -103,6 +103,21 @@ class Config:
     yt_anthropic_api_key: str = ""
     yt_anthropic_model: str = "claude-sonnet-5"          # editable default
 
+    # Cover generator
+    cover_template: str = "prosvet_16x9"
+    cover_variant: str = "mint"
+    cover_layout: str = "duo"
+    cover_host_photo: str = ""
+    cover_host_name: str = ""
+    cover_image_provider: str = "local"
+    cover_comfy_url: str = "http://127.0.0.1:8188"
+    cover_comfy_workflow: str = ""
+    cover_restore_model: str = "gfpgan-1.4"
+    cover_upscale_enabled: bool = True
+    # The brand-owner has not visually approved the authored 9:16 layout yet.
+    cover_export_shorts: bool = False
+    cover_jpeg_max_bytes: int = 2_000_000
+
     def save(self) -> bool:
         """Save configuration to file.
 

@@ -9,6 +9,7 @@
 #
 # Versions mirror requirements.lock; keep them in step when that is
 # regenerated.
+# This suite uses the supported runtime interpreter, CPython 3.11.
 PyQt6==6.11.0
 PyQt6-Qt6==6.11.1
 PyQt6_sip==13.11.1

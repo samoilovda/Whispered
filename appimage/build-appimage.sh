@@ -1,5 +1,5 @@
 #!/bin/bash
-# Whisper Fedora AppImage Build Script
+# Whispered AppImage Build Script
 # Run this on a Fedora system to build the AppImage
 
 set -e
@@ -18,7 +18,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 echo -e "${BLUE}╔══════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║        Whisper Fedora - AppImage Build Script            ║${NC}"
+echo -e "${BLUE}║             Whispered - AppImage Build Script            ║${NC}"
 echo -e "${BLUE}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -79,19 +79,30 @@ cp "$PROJECT_DIR/lm_studio_manager.py" "$APPDIR/usr/lib/whisper-fedora/"
 cp "$PROJECT_DIR/text_processor.py" "$APPDIR/usr/lib/whisper-fedora/"
 cp "$PROJECT_DIR/batch_processor.py" "$APPDIR/usr/lib/whisper-fedora/"
 cp "$PROJECT_DIR/article_generator.py" "$APPDIR/usr/lib/whisper-fedora/"
+cp "$PROJECT_DIR/book_pipeline.py" "$APPDIR/usr/lib/whisper-fedora/"
+cp "$PROJECT_DIR/timeline_export.py" "$APPDIR/usr/lib/whisper-fedora/"
+cp "$PROJECT_DIR/video_cut.py" "$APPDIR/usr/lib/whisper-fedora/"
+cp "$PROJECT_DIR/video_edit.py" "$APPDIR/usr/lib/whisper-fedora/"
+cp "$PROJECT_DIR/video_input.py" "$APPDIR/usr/lib/whisper-fedora/"
 cp "$PROJECT_DIR/setup_diarization.py" "$APPDIR/usr/lib/whisper-fedora/"
 cp -r "$PROJECT_DIR/ui" "$APPDIR/usr/lib/whisper-fedora/"
 cp -r "$PROJECT_DIR/core" "$APPDIR/usr/lib/whisper-fedora/"
+cp -r "$PROJECT_DIR/covers" "$APPDIR/usr/lib/whisper-fedora/"
+cp -r "$PROJECT_DIR/locales" "$APPDIR/usr/lib/whisper-fedora/"
+cp -r "$PROJECT_DIR/prompts" "$APPDIR/usr/lib/whisper-fedora/"
+cp -r "$PROJECT_DIR/assets" "$APPDIR/usr/lib/whisper-fedora/"
 
 # Copy desktop file
 cp "$SCRIPT_DIR/whispered.desktop" "$APPDIR/usr/share/applications/"
+cp "$SCRIPT_DIR/io.github.whispered.metainfo.xml" "$APPDIR/usr/share/metainfo/"
 
 # Copy icon
-cp "$SCRIPT_DIR/whisper-fedora.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/" 2>/dev/null || \
+cp "$SCRIPT_DIR/whisper-fedora.png" \
+    "$APPDIR/usr/share/icons/hicolor/256x256/apps/whispered.png" 2>/dev/null || \
     echo -e "  ${YELLOW}⚠${NC} No icon found, using default"
 
 # Create launcher script
-cat > "$APPDIR/usr/bin/whisper-fedora" << 'EOF'
+cat > "$APPDIR/usr/bin/whispered" << 'EOF'
 #!/bin/bash
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 export PYTHONPATH="$SCRIPT_DIR/../lib/whisper-fedora:$PYTHONPATH"
@@ -99,7 +110,7 @@ export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-xcb}"
 export QT_AUTO_SCREEN_SCALE_FACTOR=1
 exec python3 "$SCRIPT_DIR/../lib/whisper-fedora/main.py" "$@"
 EOF
-chmod +x "$APPDIR/usr/bin/whisper-fedora"
+chmod +x "$APPDIR/usr/bin/whispered"
 
 # Create AppRun
 cat > "$APPDIR/AppRun" << 'EOF'
@@ -111,20 +122,18 @@ export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
 export PYTHONPATH="${HERE}/usr/lib/whisper-fedora:${PYTHONPATH}"
 export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-xcb}"
 export QT_AUTO_SCREEN_SCALE_FACTOR=1
-exec "${HERE}/usr/bin/whisper-fedora" "$@"
+exec "${HERE}/usr/bin/whispered" "$@"
 EOF
 chmod +x "$APPDIR/AppRun"
 
 # Link desktop file and icon to AppDir root
 ln -sf usr/share/applications/whispered.desktop "$APPDIR/"
-ln -sf usr/share/icons/hicolor/256x256/apps/whisper-fedora.png "$APPDIR/" 2>/dev/null || true
+ln -sf usr/share/icons/hicolor/256x256/apps/whispered.png "$APPDIR/" 2>/dev/null || true
 
-# Create requirements for Python plugin
-cat > "$BUILD_DIR/requirements.txt" << EOF
-PyQt6>=6.6.0
-pyqtdarktheme>=2.1.0
-pywhispercpp>=1.2.0
-EOF
+# Use the same runtime dependency declaration as source installs. Keeping a
+# second handwritten subset here previously produced an AppImage without
+# recording, DOCX and cover-pipeline dependencies.
+cp "$PROJECT_DIR/requirements.txt" "$BUILD_DIR/requirements.txt"
 
 # Build with linuxdeploy
 echo -e "${YELLOW}→ Building AppImage...${NC}"
@@ -145,8 +154,8 @@ export DEPLOY_PYTHON_VERSION=3.11
     2>&1 | tail -20
 
 # Move output
-mv Whisper_Fedora*.AppImage "$OUTPUT_DIR/" 2>/dev/null || \
-mv whisper-fedora*.AppImage "$OUTPUT_DIR/" 2>/dev/null || \
+mv Whispered*.AppImage "$OUTPUT_DIR/" 2>/dev/null || \
+mv whispered*.AppImage "$OUTPUT_DIR/" 2>/dev/null || \
 echo -e "${YELLOW}⚠ AppImage may be in $BUILD_DIR${NC}"
 
 echo ""

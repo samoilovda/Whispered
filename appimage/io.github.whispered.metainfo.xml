@@ -25,7 +25,7 @@
     </ul>
   </description>
   <launchable type="desktop-id">whispered.desktop</launchable>
-  <url type="homepage">https://github.com/whispered</url>
+  <url type="homepage">https://github.com/samoilovda/Whispered</url>
   <provides>
     <binary>whispered</binary>
   </provides>
