@@ -177,7 +177,7 @@ class ChatPanel(QWidget):
             self._scroll_timer.stop()
         if self._worker and self._worker.isRunning():
             self._worker.cancel()
-            self._worker.wait()
+            self._worker.wait(5000)
 
     # ------------------------------------------------------------------ internals
 
@@ -269,7 +269,7 @@ class ChatPanel(QWidget):
             self._scroll_timer.stop()
         if self._worker and self._worker.isRunning():
             self._worker.cancel()
-            self._worker.wait()
+            self._worker.wait(5000)
         if self._current_bubble:
             text = self._current_bubble.text()
             if text and text != "…":
@@ -307,7 +307,7 @@ class ChatPanel(QWidget):
                 return
         if self._worker and self._worker.isRunning():
             self._worker.cancel()
-            self._worker.wait()
+            self._worker.wait(5000)
         self._history.clear()
         # Remove all bubbles (keep stretch and placeholder)
         while self._msg_layout.count() > 2:

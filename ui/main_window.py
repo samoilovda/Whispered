@@ -144,7 +144,7 @@ class _WorkerShutdown:
         self,
         owner: MainWindow,
         attr: str,
-        wait_ms: int | None = None,
+        wait_ms: int = 5000,
     ) -> None:
         self._owner = owner
         self._attr = attr
@@ -155,10 +155,7 @@ class _WorkerShutdown:
         if worker is None or not worker.isRunning():
             return
         worker.cancel()
-        if self._wait_ms is None:
-            worker.wait()
-        else:
-            worker.wait(self._wait_ms)
+        worker.wait(self._wait_ms)
 
 
 class MainWindow(QMainWindow):
@@ -1050,7 +1047,7 @@ class MainWindow(QMainWindow):
             self.insights_panel.clear()
             if self._ai_worker and self._ai_worker.isRunning():
                 self._ai_worker.cancel()
-                self._ai_worker.wait()
+                self._ai_worker.wait(5000)
                 self._ai_worker = None
             self.status_label.setText(tr("status_chain_cancelled"))
             self._reset_ui()
@@ -1061,7 +1058,7 @@ class MainWindow(QMainWindow):
             self.youtube_panel._cancel_workers(timeout=1000)
             if self._ai_worker and self._ai_worker.isRunning():
                 self._ai_worker.cancel()
-                self._ai_worker.wait()
+                self._ai_worker.wait(5000)
                 self._ai_worker = None
             self.ai_panel.set_processing(False)
             self.status_label.setText(tr("status_chain_cancelled"))
@@ -1070,7 +1067,7 @@ class MainWindow(QMainWindow):
 
         if self._ai_worker and self._ai_worker.isRunning():
             self._ai_worker.cancel()
-            self._ai_worker.wait()
+            self._ai_worker.wait(5000)
             self._ai_worker = None
             self.ai_panel.set_processing(False)
             self.status_label.setText(tr("status_ai_cancelled"))
