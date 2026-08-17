@@ -13,6 +13,7 @@ import os
 import subprocess
 import tempfile
 import time
+from pathlib import Path
 from typing import Callable
 
 from video_input import ensure_ffmpeg
@@ -69,22 +70,40 @@ def assemble_draft(
             on_progress(msg)
         logger.info(msg)
 
-    if fast:
-        try:
-            _run_concat_copy(source_path, segs, output_path, _progress, should_cancel)
-            _verify_output(output_path)
-            _progress(f"Done (fast copy): {output_path}")
-            return
-        except VideoCutCancelled:
-            raise
-        except VideoCutError as exc:
-            _progress(f"Fast copy failed ({exc}); falling back to accurate re-encode…")
-            if os.path.exists(output_path):
-                os.remove(output_path)
+    target = Path(output_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(
+        prefix=f".{target.stem}.", suffix=target.suffix, dir=target.parent
+    )
+    os.close(fd)
+    try:
+        if fast:
+            try:
+                _run_concat_copy(source_path, segs, temporary, _progress, should_cancel)
+                _verify_output(temporary)
+                os.replace(temporary, target)
+                _progress(f"Done (fast copy): {output_path}")
+                return
+            except VideoCutCancelled:
+                raise
+            except VideoCutError as exc:
+                _progress(f"Fast copy failed ({exc}); falling back to accurate re-encode…")
+                try:
+                    os.remove(temporary)
+                except OSError:
+                    pass
 
-    _assemble_accurate(source_path, segs, output_path, _progress, crf, preset, should_cancel)
-    _verify_output(output_path)
-    _progress(f"Done: {output_path}")
+        _assemble_accurate(
+            source_path, segs, temporary, _progress, crf, preset, should_cancel
+        )
+        _verify_output(temporary)
+        os.replace(temporary, target)
+        _progress(f"Done: {output_path}")
+    finally:
+        try:
+            os.remove(temporary)
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +136,7 @@ def _assemble_accurate(source_path, segments, output_path, progress, crf, preset
         list_path = os.path.join(tmpdir, "concat.txt")
         with open(list_path, "w", encoding="utf-8") as f:
             for p in ts_files:
-                f.write(f"file '{p}'\n")
+                f.write(f"file {_quote_concat_path(p)}\n")
         cmd = [
             resolve_tool("ffmpeg") or "ffmpeg", "-y",
             "-f", "concat", "-safe", "0",
@@ -140,10 +159,22 @@ def _write_concat_list(source_path: str, segments, tmpdir: str) -> str:
     abs_source = os.path.abspath(source_path)
     with open(list_path, "w", encoding="utf-8") as f:
         for seg in segments:
-            f.write(f"file '{abs_source}'\n")
+            f.write(f"file {_quote_concat_path(abs_source)}\n")
             f.write(f"inpoint {seg.start:.6f}\n")
             f.write(f"outpoint {seg.end:.6f}\n")
     return list_path
+
+
+def _quote_concat_path(path: str) -> str:
+    """Quote one path for ffconcat's token grammar.
+
+    An apostrophe ends a quoted token, so re-enter quoting around an escaped
+    apostrophe. Newlines cannot be represented safely in the line-oriented
+    concat format; the fast path reports that and falls back to re-encoding.
+    """
+    if "\n" in path or "\r" in path:
+        raise VideoCutError("Fast concat does not support newlines in file paths")
+    return "'" + path.replace("'", "'\\''") + "'"
 
 
 def _run_concat_copy(source_path: str, segments, output_path: str, progress, should_cancel=None):

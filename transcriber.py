@@ -20,15 +20,23 @@ from core.logger import get_logger
 logger = get_logger(__name__)
 
 
-def _convert_to_wav(input_path: str) -> Optional[str]:
+class MediaConversionError(RuntimeError):
+    """FFmpeg was available but could not produce a usable WAV file."""
+
+
+class FFmpegUnavailableError(MediaConversionError):
+    """No FFmpeg executable could be resolved for a required conversion."""
+
+
+def _convert_to_wav(input_path: str) -> str:
     """
     Convert audio/video file to WAV format using FFmpeg.
-    Returns path to temporary WAV file, or None if FFmpeg not available.
+    Return a unique temporary WAV path or raise a diagnostic error.
     """
     from core.external_tools import resolve_tool
     ffmpeg = resolve_tool("ffmpeg")
     if not ffmpeg:
-        return None
+        raise FFmpegUnavailableError("FFmpeg is not installed")
 
     # Reserve a unique temporary filename.  A deterministic name here lets
     # concurrent transcriptions of equally named files overwrite each other.
@@ -36,6 +44,7 @@ def _convert_to_wav(input_path: str) -> Optional[str]:
     with tempfile.NamedTemporaryFile(suffix=".wav", prefix=f"{base_name}_", delete=False) as tmp:
         output_path = tmp.name
 
+    error = "FFmpeg did not produce a usable WAV file"
     try:
         # Convert to 16kHz mono WAV (optimal for Whisper)
         result = subprocess.run([
@@ -46,10 +55,20 @@ def _convert_to_wav(input_path: str) -> Optional[str]:
             output_path
         ], capture_output=True, text=True, timeout=3600)
 
-        if result.returncode == 0 and os.path.exists(output_path):
+        if (
+            result.returncode == 0
+            and os.path.exists(output_path)
+            and os.path.getsize(output_path) > 44
+        ):
             return output_path
-    except (subprocess.TimeoutExpired, Exception):
-        pass
+        detail = (result.stderr or "").strip()[-600:]
+        error = f"FFmpeg exited with code {result.returncode}"
+        if detail:
+            error += f": {detail}"
+    except subprocess.TimeoutExpired:
+        error = "FFmpeg conversion timed out after 3600 seconds"
+    except Exception as exc:
+        error = f"FFmpeg conversion failed: {exc}"
 
     # FFmpeg did not produce a usable file. Do not leave an empty reservation
     # in the system temporary directory.
@@ -59,7 +78,7 @@ def _convert_to_wav(input_path: str) -> Optional[str]:
     except OSError:
         pass
 
-    return None
+    raise MediaConversionError(error)
 
 
 # Formats that need FFmpeg conversion
@@ -263,16 +282,22 @@ def _run_transcription_process(
 
         if file_ext in FORMATS_NEEDING_CONVERSION:
             q.put(('progress', 5, "Converting audio format..."))
-            temp_wav_path = _convert_to_wav(filepath)
-            if temp_wav_path:
+            try:
+                temp_wav_path = _convert_to_wav(filepath)
                 audio_path = temp_wav_path
-            else:
+            except FFmpegUnavailableError:
                 from core.external_tools import ffmpeg_install_hint
                 hint = ffmpeg_install_hint()
                 q.put(('error',
                     f"Cannot process {file_ext} files: FFmpeg is not installed.\n\n"
                     f"Install it with:\n  {hint}\n\n"
                     "Then restart the application."
+                ))
+                return
+            except MediaConversionError as exc:
+                q.put((
+                    'error',
+                    f"Cannot convert {file_ext} media: {exc}",
                 ))
                 return
 
@@ -332,7 +357,9 @@ def _run_transcription_process(
         # Custom vocabulary / initial prompt
         if initial_prompt:
             params['initial_prompt'] = initial_prompt
-            logger.info("Using initial prompt (%d chars): %.60s…", len(initial_prompt), initial_prompt)
+            # Custom vocabulary can contain names and other private context;
+            # record only diagnostic size, never its contents.
+            logger.info("Using initial prompt (%d chars)", len(initial_prompt))
 
         # Tweaks for improving transcription quality
         params['no_context'] = True  # Equivalent to condition_on_previous_text=False

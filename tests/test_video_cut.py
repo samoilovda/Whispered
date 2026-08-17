@@ -7,11 +7,13 @@ verified end to end rather than against a mock.
 
 import sys
 import time
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 import video_cut
-from video_cut import VideoCutCancelled, VideoCutError, _run
+from video_cut import VideoCutCancelled, VideoCutError, _run, _write_concat_list
 
 
 def _py(code: str) -> list:
@@ -65,3 +67,21 @@ class TestRunTimeout:
         monkeypatch.setattr(video_cut, "_MAX_RUN_SECONDS", 0)
         with pytest.raises(VideoCutError, match="timed out"):
             _run(_py("import time; time.sleep(30)"), should_cancel=lambda: False)
+
+
+class TestConcatListPaths:
+    def test_apostrophe_is_preserved_with_ffconcat_escaping(self, tmp_path):
+        source = tmp_path / "O'Brien.mp4"
+        list_path = _write_concat_list(
+            str(source), [SimpleNamespace(start=1.0, end=2.0)], str(tmp_path)
+        )
+
+        content = Path(list_path).read_text(encoding="utf-8")
+        assert "O'\\''Brien.mp4" in content
+
+    def test_newline_is_rejected_instead_of_targeting_the_wrong_file(self, tmp_path):
+        source = tmp_path / "line\nbreak.mp4"
+        with pytest.raises(VideoCutError, match="newlines"):
+            _write_concat_list(
+                str(source), [SimpleNamespace(start=1.0, end=2.0)], str(tmp_path)
+            )
