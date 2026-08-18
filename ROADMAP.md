@@ -42,10 +42,16 @@ The original long-form development plan (2026-07) is preserved in
 
 *Last audit: 2026-08-13, execution tracked in
 [docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md](docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md).
-Its P0 items (worker lifecycle, model integrity, Recorder backpressure,
-system-audio IPC auth, output-path collisions) are closed as of 2026-08-17;
-P1 structural work (splitting `main_window.py`, a unified Job engine) is in
-progress.*
+P0 (worker lifecycle, model integrity, Recorder backpressure, system-audio
+IPC auth, output-path collisions) and P2 (Config validation, Cover template
+path containment, structured export/batch errors, FTS rebuild policy) are
+closed as of 2026-08-17. P1 structural work is partial: `DocumentSession`
+and an `export_controller` are extracted from `main_window.py`; a Job/
+Pipeline engine exists but isn't wired into the preset chain yet; an
+`Artifact` provenance model exists but no generator has been migrated onto
+it. Release metadata (`pyproject.toml`/`version.py` as the single version
+source) is in place; the resource-manifest/CI parts of that work need a
+real build environment to validate and are not attempted from here.*
 
 - **Local-LLM robustness** — local completions are serialized process-wide;
   network cancellation is now interruptible (LM Studio streaming reads poll
@@ -53,10 +59,12 @@ progress.*
   Anthropic's client is still a single non-streaming request with no
   mid-flight abort, simplify YouTube worker orchestration, and prevent
   failed generations from being saved as results.
-- **Structural cleanup** — extracting Qt-free domain types
-  (`domain/transcription.py`) out of `transcriber.py` so exporters and the
-  Live subsystem stop pulling in Qt just to use a DTO; `main_window.py`
-  (1800+ lines) is next to split into a `DocumentSession` + controllers.
+- **Structural cleanup** — Qt-free domain types (`domain/transcription.py`,
+  `domain/artifact.py`, `domain/job.py`) are split out of `transcriber.py`;
+  `main_window.py` (still 1800+ lines) has `DocumentSession`/
+  `export_controller` extracted but transcription/pipeline orchestration
+  is intentionally still inline — it turned out to be mostly direct widget
+  calls with no further logic worth pulling into a separate file.
 
 ## Next
 

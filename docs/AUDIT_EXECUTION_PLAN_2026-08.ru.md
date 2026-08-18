@@ -544,6 +544,13 @@ YouTube workers, очередь Insights и два batch-механизма
 
 ### R10 — схема и миграции Config
 
+> **Статус (2026-08-17): сделано.** `Config.validate()` (enum-поля,
+> URL-схемы), `schema_version` в `save()`, `secrets_store.read_secret()`
+> tri-state. Миграций между версиями схемы пока нет — `schema_version`
+> только пишется, читающая сторона (migrate-on-load для будущих версий)
+> не реализована, т.к. версия всё ещё первая (`1`). Нормализация
+> таймаутов из плана не сделана.
+
 - `config.py`: versioned schema + миграции; валидация типов, enum и
   диапазонов; нормализация URL и таймаутов.
 - `core/secrets_store.py`: tri-state результат чтения —
@@ -554,6 +561,14 @@ YouTube workers, очередь Insights и два batch-механизма
   старого файла, невалидные значения, сломанный keyring backend.
 
 ### R11 — безопасные Cover templates и cancellable frame extraction
+
+> **Статус (2026-08-17): сделано.** Path containment для decor-ассетов
+> (проверено вручную на pathlib-подвохе с абсолютными путями — join с
+> абсолютным сегментом отбрасывает root, но итоговая `resolve()` +
+> `relative_to()` проверка всё равно ловит выход за пределы, защита
+> реально работает), лимиты на размер JSON и длину path data,
+> cancellable `ffmpeg` через `Popen`+`communicate(timeout=)`. Лимит
+> размера изображений из плана не сделан.
 
 - `covers/template.py::load_template`: после `resolve()` путь любого asset
   обязан оставаться внутри template root; абсолютные пути и `..` —
@@ -567,6 +582,16 @@ YouTube workers, очередь Insights и два batch-механизма
 
 ### R12 — явные ошибки вместо silent failure
 
+> **Статус (2026-08-17): сделано частично.** `batch_processor.py::export_all`
+> возвращает `ExportOutcome` (path/success/error), `ui/batch_panel.py`
+> обновлён под новый тип. `lm_studio_manager.py` получил
+> `_parse_model_entry()` с явной валидацией типов вместо доверия к форме
+> JSON. `book_pipeline.py::process` получил опциональный `output_dir` —
+> **не обязательный**, как просил план ("запрет на неявный CWD"), а
+> опциональный с дефолтом на `source.parent`; ни один UI-вызывающий код
+> пока не передаёт его явно. `core/external_tools.py` (вторая часть
+> пункта про JSON-схему CLI) **не тронут**.
+
 - `batch_processor.py`: экспорт возвращает structured outcome с перечнем
   частичных ошибок вместо подавления I/O failure.
 - `core/external_tools.py` / `LMStudioManager`: валидация JSON-схемы вывода
@@ -576,6 +601,12 @@ YouTube workers, очередь Insights и два batch-механизма
 - Тесты на каждый из трёх пунктов.
 
 ### R13 — убрать лишний FTS rebuild
+
+> **Статус (2026-08-17): сделано, кроме benchmark.** Таблица `schema_meta`
+> с маркером `fts_state`; rebuild теперь только при первом создании
+> таблицы или явном `repair_fts()`. Benchmark открытия истории на
+> ~5000 записей (план просил зафиксировать цифру в `TESTING.md`) —
+> **не добавлен**.
 
 - `core/history.py:250-257`: `INSERT INTO transcripts_fts(...) VALUES
   ('rebuild')` выполняется при каждом `__init__`. Хранить schema version и
@@ -587,6 +618,15 @@ YouTube workers, очередь Insights и два batch-механизма
   повреждённый FTS-индекс триггерит repair.
 
 ### R14 — усилить type- и real-Qt-gates
+
+> **Статус (2026-08-17): начато.** Два модуля из 33-ошибочного `ui/`
+> переведены в blocking mypy-набор: `ui/transcript_view.py`,
+> `ui/live_transcript_view.py`. Остальные ui/-модули не тронуты — план
+> явно просил "по одному модулю за раз", это только первые два. Real-Qt
+> тесты для worker lifecycle/`closeEvent`/model downloader/экспортов/
+> fan-out результата уже покрыты (`tests_qt/test_worker_lifecycle.py`,
+> `tests_qt/test_document_session.py` и т.д. из более раннего прохода).
+> Раздельная публикация coverage (domain/application/UI) — не сделана.
 
 - Снижать 33 mypy-ошибки в `ui/` **по модулю за раз**; после каждого модуля
   добавлять его в blocking-набор в `CLAUDE.md` и CI.
