@@ -444,11 +444,20 @@ ui/                main_window.py (только composition/navigation), views/
 
 > **Статус (2026-08-17): шаги 1-2 сделаны (`domain/artifact.py`,
 > `infrastructure/persistence/artifact_store.py`, полностью протестировано).
-> Шаг 3 (миграция генераторов) не начат** — у каждого генератора свой
-> bespoke save/export путь (например `covers/export.py` уже пишет
-> собственный `.cover.json` sidecar с другим форматом); миграция даже
-> одного безопасно — отдельная проверяемая задача, не часть
-> инфраструктурного коммита.
+> Шаг 3 — Cover мигрирован, 4 генератора (article, YouTube, insights,
+> book) — нет.** `ui/cover_view.py::_write_provenance` пишет
+> `Artifact`-manifest рядом с PNG на каждый export, best-effort (ошибка
+> записи манифеста не превращает успешный export в ошибку); собственный
+> `.cover.json` sidecar `covers/export.py` не тронут, манифест — рядом,
+> отдельным файлом. `application/artifact_provenance.py` вынес
+> `source_fingerprint()` (path+size+mtime, не полный content hash — не
+> стоит перечитывать гигабайтный source на каждый export) и
+> `transcript_revision()` (хэш текста сегментов) для переиспользования
+> следующими миграциями. Provenance конкретно AI-предложенного заголовка
+> (provider/model/prompt_version для `thumb_title`) не отслеживается —
+> нет надёжного способа понять, остался ли текущий текст заголовка ровно
+> тем, что предложила LLM, или уже отредактирован. article/YouTube/
+> insights/book — не начаты.
 
 **Шаги**
 
