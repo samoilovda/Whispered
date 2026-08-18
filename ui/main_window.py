@@ -739,7 +739,9 @@ class MainWindow(QMainWindow):
             )
         )
         self._document_session.register_consumer(
-            lambda result: self.cover_view.set_segments(result.segments)
+            lambda result: self.cover_view.set_segments(
+                result.segments, transcript_language=result.language
+            )
         )
         self._document_session.register_consumer(
             lambda result: self.cut_view.set_result(result)
@@ -1212,6 +1214,10 @@ class MainWindow(QMainWindow):
         # Feed the result to every registered consumer (chat, insights,
         # YouTube, Cover, Cut, AI/Book enable flags — see DocumentSession).
         self._document_session.apply_result(result)
+        # _last_record_id is finalized by now regardless of path (set
+        # directly above via _save_to_history, or by the live-checkpoint
+        # branches in _on_live_finished before it calls this method).
+        self.cover_view.set_provenance(self._last_record_id, self._source_filepath)
         if self._source_filepath:
             self.youtube_panel.set_source_name(Path(self._source_filepath).stem)
         elif self._source_kind == "live":
@@ -1461,6 +1467,7 @@ class MainWindow(QMainWindow):
                 self.player.load("")
 
             self._document_session.apply_result(result)
+            self.cover_view.set_provenance(record_id, source_path or None)
             self.youtube_panel.set_source_name(
                 Path(source_path or source_name).stem if (source_path or source_name) else ""
             )

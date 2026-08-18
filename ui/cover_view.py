@@ -15,14 +15,20 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from application.artifact_provenance import source_fingerprint, transcript_revision
 from config import get_config
 from core.i18n import tr
 from core.insights_worker import InsightsWorker
+from core.logger import get_logger
 from core.worker_registry import WorkerRegistry
 from covers.export import export
 from covers.renderer import render
 from covers.template import load_template
+from domain.artifact import Artifact
+from infrastructure.persistence import artifact_store
 from ui.cover_inspector import CoverInspector
+
+logger = get_logger(__name__)
 
 
 class CoverView(QWidget):
@@ -39,6 +45,12 @@ class CoverView(QWidget):
         # recomputing a title suggestion for the exact same transcript.
         self._insights_cache = insights_cache
         self._segments = []
+        # Set via set_provenance() by MainWindow whenever the open
+        # transcript changes — recorded into each export's Artifact
+        # manifest (see infrastructure/persistence/artifact_store.py).
+        self._record_id: int | None = None
+        self._source_path: str | None = None
+        self._transcript_language = ""
         root = QHBoxLayout(self)
         preview_column = QVBoxLayout()
         title = QLabel(tr("cover_workspace_title"))
@@ -79,8 +91,18 @@ class CoverView(QWidget):
             self.photos[slot] = path
             self.render_preview()
 
-    def set_segments(self, segments) -> None:
+    def set_segments(self, segments, transcript_language: str | None = None) -> None:
         self._segments = list(segments or [])
+        self._transcript_language = transcript_language or ""
+
+    def set_provenance(self, record_id: int | None, source_path: str | None) -> None:
+        """Called by MainWindow whenever the open transcript's identity
+        changes (fresh transcription, history load, or a save that first
+        assigns a record id) — recorded into each export's Artifact
+        manifest so a cover file can answer "which transcript/source
+        produced this" later."""
+        self._record_id = record_id
+        self._source_path = source_path
 
     def _suggest_title(self) -> None:
         if not self._segments:
@@ -166,9 +188,34 @@ class CoverView(QWidget):
         except Exception as exc:
             QMessageBox.critical(self, tr("cover_export"), str(exc))
             return
+        self._write_provenance(files)
         QMessageBox.information(
             self, tr("cover_export"), tr("cover_export_done", count=len(files))
         )
+
+    def _write_provenance(self, files: list[Path]) -> None:
+        """Record an Artifact manifest for this export's PNG (see
+        docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R5-full step 3) — answers
+        "which transcript revision and source produced this file" later.
+        Best-effort: the PNG/JPEG/sidecar are already safely written by
+        the time this runs, so a manifest failure must not turn a
+        successful export into a reported failure.
+        """
+        png = next((f for f in files if f.suffix == ".png" and "-shorts" not in f.name), None)
+        if png is None:
+            return
+        try:
+            artifact = Artifact(
+                record_id=str(self._record_id) if self._record_id is not None else "unsaved",
+                source_hash=source_fingerprint(self._source_path),
+                source_path=self._source_path or "",
+                transcript_revision=transcript_revision(self._segments, self._transcript_language),
+                type="cover",
+                path=str(png),
+            )
+            artifact_store.save(artifact)
+        except Exception as exc:
+            logger.warning("Failed to write cover artifact manifest for %s: %s", png, exc)
 
     def shutdown(self, timeout: int = 2000) -> None:
         """Part of the Shutdownable protocol (ui/shutdownable.py).
