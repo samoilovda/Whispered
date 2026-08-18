@@ -158,6 +158,35 @@ are not needed to construct the UI.
 
 ---
 
+## Performance benchmarks
+
+### History open time (R13)
+
+`core/history.py` used to run a full FTS5 rebuild on every
+`HistoryStore.__init__`, regardless of whether the index already existed.
+R13 (docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md) made rebuild run only on
+first creation or an explicit `repair_fts()` call.
+
+```bash
+python tools/bench_history_open.py --rows 5000
+```
+
+Measured on a 5000-row synthetic database (~3 MB), macOS, 2026-08-18. The
+"before" number simulates the rebuild statement's own cost in isolation
+(the pre-fix code path no longer exists to measure end-to-end) — treat it
+as the overhead R13 removed from every launch, not a full before/after of
+the whole `__init__`:
+
+| | Time |
+|---|---|
+| After (fast path, no rebuild) | ~1–2 ms |
+| Before (forced rebuild, simulated) | ~9–18 ms |
+| Speedup | ~7–11x |
+
+Re-run and update this table if `_init_fts()` or the FTS schema changes.
+
+---
+
 ## Windows preview gate
 
 Windows is not a released platform until every item in

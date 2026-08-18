@@ -602,11 +602,11 @@ YouTube workers, очередь Insights и два batch-механизма
 
 ### R13 — убрать лишний FTS rebuild
 
-> **Статус (2026-08-17): сделано, кроме benchmark.** Таблица `schema_meta`
+> **Статус (2026-08-17): сделано полностью.** Таблица `schema_meta`
 > с маркером `fts_state`; rebuild теперь только при первом создании
-> таблицы или явном `repair_fts()`. Benchmark открытия истории на
-> ~5000 записей (план просил зафиксировать цифру в `TESTING.md`) —
-> **не добавлен**.
+> таблицы или явном `repair_fts()`. Benchmark на ~5000 записей —
+> `tools/bench_history_open.py`, цифры (~1-2 мс против ~9-18 мс на
+> симулированный rebuild, ~7-11x) записаны в `TESTING.md`.
 
 - `core/history.py:250-257`: `INSERT INTO transcripts_fts(...) VALUES
   ('rebuild')` выполняется при каждом `__init__`. Хранить schema version и
