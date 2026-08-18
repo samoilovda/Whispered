@@ -26,13 +26,18 @@ from ui.cover_inspector import CoverInspector
 
 
 class CoverView(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, insights_cache=None):
         super().__init__(parent)
         self.template = load_template(get_config().cover_template)
         self.photos: dict[str, str] = {}
         self.last_image = None
         self._workers: list = []
         self._registry = WorkerRegistry(parent=self)
+        # Shared with YouTube/Insights panels by MainWindow — see
+        # core/insights_cache.py. thumb_title is a distinct insight_type
+        # so it never collides with their cache entries; this just avoids
+        # recomputing a title suggestion for the exact same transcript.
+        self._insights_cache = insights_cache
         self._segments = []
         root = QHBoxLayout(self)
         preview_column = QVBoxLayout()
@@ -82,7 +87,8 @@ class CoverView(QWidget):
             self.warning.setText(tr("cover_no_transcript"))
             return
         worker = InsightsWorker(
-            "thumb_title", self._segments, get_config().lm_studio_url, parent=self
+            "thumb_title", self._segments, get_config().lm_studio_url, parent=self,
+            cache=self._insights_cache,
         )
         worker.finished.connect(self._on_title_suggestions)
         worker.error_occurred.connect(

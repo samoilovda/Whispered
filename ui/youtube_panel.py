@@ -71,11 +71,15 @@ class YouTubePanel(QWidget):
     # when it's safe to move on without polling internal worker state.
     generation_finished = pyqtSignal(bool)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, insights_cache=None):
         super().__init__(parent)
         self._segments = []
         self._workers: dict = {}   # insight_type → worker
         self._registry = WorkerRegistry(parent=self)
+        # Shared with InsightsPanel by MainWindow so a type both panels
+        # generate (e.g. "chapters") isn't computed twice — see
+        # core/insights_cache.py.
+        self._insights_cache = insights_cache
         self._pending = 0
         self._source_name = ""
         self._transcript_language: str | None = None
@@ -332,7 +336,7 @@ class YouTubePanel(QWidget):
             worker = InsightsWorker(
                 yt_type, self._segments, cfg.lm_studio_url, language=lang,
                 provider=(None if provider.kind == "lmstudio" else provider),
-                parent=self,
+                parent=self, cache=self._insights_cache,
             )
             worker.finished.connect(self._on_finished)
             worker.error_occurred.connect(self._on_error)

@@ -13,6 +13,7 @@ from typing import Optional, TYPE_CHECKING
 from PyQt6.QtCore import pyqtSignal
 
 from core.base_worker import BaseWorker
+from core.insights_cache import InsightsCache
 from core.logger import get_logger
 from core.llm_text import sample_lines_evenly
 from core.prompts import load_prompt
@@ -148,7 +149,8 @@ class InsightsWorker(BaseWorker):
 
     def __init__(self, insight_type: str, segments, lm_url: str,
                  language: Optional[str] = None,
-                 provider: Optional["ProviderSettings"] = None, parent=None):
+                 provider: Optional["ProviderSettings"] = None, parent=None,
+                 cache: Optional[InsightsCache] = None):
         super().__init__(parent)
         if insight_type not in _INSIGHT_TYPES:
             raise ValueError(f"Unknown insight type: {insight_type}")
@@ -157,6 +159,7 @@ class InsightsWorker(BaseWorker):
         self._lm_url = lm_url
         self._language = language
         self._provider = provider
+        self._cache = cache
 
     def _on_error(self, msg: str) -> None:
         self.error_occurred.emit(self._type, msg)
@@ -172,6 +175,24 @@ class InsightsWorker(BaseWorker):
         return f"{label} did not respond."
 
     def _execute(self):
+        from config import get_config
+        max_chars = getattr(get_config(), "insights_context_chars", _TRANSCRIPT_MAX_CHARS)
+        prompt = _build_prompt_text(
+            self._type, self._segments, max_transcript_chars=max_chars, language=self._language
+        )
+
+        provider_id = self._provider.kind if self._provider else "lmstudio"
+        cache_key = self._cache.key(self._type, prompt, provider_id) if self._cache else None
+        if cache_key is not None:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                # Same insight type + same prompt + same provider already
+                # answered this in this session (e.g. YouTube and Insights
+                # both wanted "chapters") — reuse it instead of a second
+                # LLM round-trip for output that would be identical anyway.
+                self.finished.emit(self._type, cached)
+                return
+
         if self._provider:
             from core.ai_provider import create_client
             client = create_client(self._provider)
@@ -179,11 +200,6 @@ class InsightsWorker(BaseWorker):
             from core.lm_client import LMStudioClient
             client = LMStudioClient(self._lm_url)
 
-        from config import get_config
-        max_chars = getattr(get_config(), "insights_context_chars", _TRANSCRIPT_MAX_CHARS)
-        prompt = _build_prompt_text(
-            self._type, self._segments, max_transcript_chars=max_chars, language=self._language
-        )
         messages = [{"role": "user", "content": prompt}]
 
         raw = client.chat_completion_stream(
@@ -204,7 +220,10 @@ class InsightsWorker(BaseWorker):
         if self._type == "thumb_title":
             from covers.title import parse_title_suggestions
 
-            self.finished.emit(self._type, parse_title_suggestions(raw))
+            suggestions = parse_title_suggestions(raw)
+            if cache_key is not None:
+                self._cache.put(cache_key, suggestions)
+            self.finished.emit(self._type, suggestions)
             return
 
         result = _parse_json_response(raw)
@@ -225,7 +244,11 @@ class InsightsWorker(BaseWorker):
                 result = _parse_json_response(raw2)
             if result is None:
                 # Fall back: emit the raw text for the UI to display as-is
+                if cache_key is not None:
+                    self._cache.put(cache_key, raw)
                 self.finished.emit(self._type, raw)
                 return
 
+        if cache_key is not None:
+            self._cache.put(cache_key, result)
         self.finished.emit(self._type, result)

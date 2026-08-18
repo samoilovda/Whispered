@@ -104,12 +104,16 @@ class InsightsPanel(QWidget):
     seek_requested = pyqtSignal(int)
     generation_finished = pyqtSignal(bool)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, insights_cache=None):
         super().__init__(parent)
         self._segments = []
         self._transcript_language: str | None = None
         self._workers: dict[str, object] = {}
         self._registry = WorkerRegistry(parent=self)
+        # Shared with YouTubePanel by MainWindow so a type both panels
+        # generate (e.g. "chapters") isn't computed twice — see
+        # core/insights_cache.py.
+        self._insights_cache = insights_cache
         self._pending = 0
         self._insight_queue: list[str] = []
         self._any_error = False
@@ -259,6 +263,7 @@ class InsightsPanel(QWidget):
             get_config().lm_studio_url,
             language=lang,
             parent=self,
+            cache=self._insights_cache,
         )
         worker.finished.connect(self._on_finished)
         worker.error_occurred.connect(self._on_error)

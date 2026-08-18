@@ -61,6 +61,7 @@ from utils import (
 from application.document_session import DocumentSession
 from config import get_config
 from core.ai_worker import AIProcessingWorker
+from core.insights_cache import InsightsCache
 from core.base_worker import BaseWorker
 from core.logger import get_logger
 from core.i18n import tr
@@ -182,6 +183,10 @@ class MainWindow(QMainWindow):
         # one individually (see ui/shutdownable.py).
         self._shutdownables: list[Shutdownable] = []
         self._registry = WorkerRegistry(parent=self)
+        # Shared by insights_panel/youtube_panel/cover_view so a type more
+        # than one of them generates (e.g. "chapters") isn't recomputed —
+        # see core/insights_cache.py.
+        self._insights_cache = InsightsCache()
         self.transcriber = Transcriber()
         self._shutdownables.append(self.transcriber)
         self._current_result: TranscriptionResult | None = None
@@ -439,7 +444,7 @@ class MainWindow(QMainWindow):
         self.chat_panel = ChatPanel()
         self._shutdownables.append(self.chat_panel)
 
-        self.insights_panel = InsightsPanel()
+        self.insights_panel = InsightsPanel(insights_cache=self._insights_cache)
         self.insights_panel.generation_finished.connect(
             self._on_chain_insights_done
         )
@@ -450,7 +455,7 @@ class MainWindow(QMainWindow):
         self.cut_view.video_panel.mark_pauses_requested.connect(self._mark_pauses)
         self.cut_view.video_panel.assemble_requested.connect(self._assemble_draft)
 
-        self.youtube_panel = YouTubePanel()
+        self.youtube_panel = YouTubePanel(insights_cache=self._insights_cache)
         self.youtube_panel.generation_finished.connect(self._on_chain_youtube_done)
         self._shutdownables.append(self.youtube_panel)
         self.record_view.set_content_widgets(self.player, self.main_tabs)
@@ -509,7 +514,7 @@ class MainWindow(QMainWindow):
         self.draft_record.source_changed.connect(self._on_draft_source_changed)
         self._draft_index = self._stack.addWidget(self.draft_record)
         self._record_index = self._stack.addWidget(self.record_view)
-        self.cover_view = CoverView()
+        self.cover_view = CoverView(insights_cache=self._insights_cache)
         self._shutdownables.append(self.cover_view)
         self._cover_index = self._stack.addWidget(self.cover_view)
         self._section_index = {
