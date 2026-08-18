@@ -505,6 +505,9 @@ class TranscriptView(QWidget):
         if not parsed:
             return False
 
+        if self._result is None:
+            return False
+
         orig = self._result.segments
         new_segments: list = []
         for i, (start, speaker, text_parts) in enumerate(parsed):

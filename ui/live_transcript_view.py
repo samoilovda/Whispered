@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.i18n import tr
-from core.live.contracts import SegmentState
+from core.live.contracts import SegmentState, SegmentUpdate
 from core.live.presentation import LiveTranscriptModel
 from ui.components import StatusBadge
 from utils import format_duration
@@ -23,7 +23,7 @@ from utils import format_duration
 
 @dataclass
 class _Row:
-    update: object
+    update: SegmentUpdate
     item: QListWidgetItem
     time: QLabel
     source: QLabel

@@ -61,9 +61,12 @@ ruff check .                     # must be clean
 python -m pytest tests/ -q      # system python — Qt is stubbed in tests/conftest.py
 python -m compileall -q . -x '.venv|.claude|build|dist|docs/archive'
 # mypy is a blocking gate for this set — it is clean and must stay clean.
-# ui/ is not typed yet and is only checked informationally in CI.
+# ui/ is not typed yet as a whole and is only checked informationally in
+# CI; the two files below are the exception (see "Mypy blocking modules").
 python -m mypy --ignore-missing-imports core/ transcriber.py diarizer.py \
-    exporters.py utils.py config.py version.py domain/ application/ infrastructure/
+    exporters.py utils.py config.py version.py domain/ application/ infrastructure/ \
+    lm_studio_manager.py batch_processor.py book_pipeline.py \
+    ui/transcript_view.py ui/live_transcript_view.py
 # real-Qt headless smoke (PyQt6 lives only in the project venv):
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests_qt/ -q
 ```
@@ -123,3 +126,23 @@ CI mirrors all of the above (`.github/workflows/ci.yml`).
 - `input/`, `output/` are git-ignored user data.
 - Executed plans and historical docs live in `docs/archive/`; strategy docs
   in `docs/`. The public roadmap is `ROADMAP.md`.
+
+## Mypy blocking modules
+
+These modules are now fully typed and have **zero mypy errors**.
+Run `python -m mypy --ignore-missing-imports <module>` and ensure it stays
+clean before merging changes to these files.
+
+| Module | Fixed in |
+|---|---|
+| `core/` (all) | P0/P1 audit |
+| `transcriber.py`, `diarizer.py`, `exporters.py`, `utils.py`, `config.py` | P0/P1 audit |
+| `version.py`, `domain/`, `application/`, `infrastructure/` | written typed from the start (R6–R9) |
+| `lm_studio_manager.py` | R12 (P2 audit) |
+| `batch_processor.py` | R12 (P2 audit) |
+| `book_pipeline.py` | R12 (P2 audit) |
+| `ui/transcript_view.py` | R14 (P2 audit) |
+| `ui/live_transcript_view.py` | R14 (P2 audit) |
+
+`ui/` as a whole stays informational-only in CI until the rest of it is
+typed; these two files are ahead of that and are enforced now.
