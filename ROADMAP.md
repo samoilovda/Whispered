@@ -51,9 +51,10 @@ Pipeline engine exists but isn't wired into the preset chain yet (the one
 concrete bug it was meant to fix — "chapters" computed twice when both
 YouTube and Insights are enabled — is closed separately via a shared
 `InsightsCache`, not via the engine itself); the `Artifact` provenance
-model is now wired into every generator that actually writes a file —
-Cover, article, YouTube, and book — with one deliberate exception:
-Insights has no file-writing action of its own to attach provenance to.
+model is now wired into every generator that writes a file — Cover,
+article, YouTube, book, and Insights (which gained a "Save to file"
+button — one .txt per section — since it previously had no export
+action at all to attach provenance to).
 `provider`/`model`/`prompt_version` stay unfilled everywhere (no reliable
 way to tell whether a saved file's text still matches the exact LLM call
 that produced it, versus being hand-edited after). Release metadata
