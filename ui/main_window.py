@@ -1223,10 +1223,13 @@ class MainWindow(QMainWindow):
             result.segments, result.language,
         )
         self.youtube_panel.set_provenance(self._last_record_id, self._source_filepath)
+        self.insights_panel.set_provenance(self._last_record_id, self._source_filepath)
         if self._source_filepath:
             self.youtube_panel.set_source_name(Path(self._source_filepath).stem)
+            self.insights_panel.set_source_name(Path(self._source_filepath).stem)
         elif self._source_kind == "live":
             self.youtube_panel.set_source_name(self._live_checkpoint.source_name)
+            self.insights_panel.set_source_name(self._live_checkpoint.source_name)
 
         # Cut tab's video actions depend on source media, not the result
         # content — cut_view.set_result() itself already ran via
@@ -1488,9 +1491,10 @@ class MainWindow(QMainWindow):
                 record_id, source_path or None, result.segments, result.language,
             )
             self.youtube_panel.set_provenance(record_id, source_path or None)
-            self.youtube_panel.set_source_name(
-                Path(source_path or source_name).stem if (source_path or source_name) else ""
-            )
+            self.insights_panel.set_provenance(record_id, source_path or None)
+            stem = Path(source_path or source_name).stem if (source_path or source_name) else ""
+            self.youtube_panel.set_source_name(stem)
+            self.insights_panel.set_source_name(stem)
             self.cut_view.video_panel.set_has_transcript(has_media)
             word_count = len(result.full_text.split())
             self.status_label.setText(tr("toast_loaded_history", words=word_count))

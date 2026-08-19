@@ -13,9 +13,12 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
+from core.insights_export import format_insight_text
 from core.logger import get_logger
 from core.i18n import tr
+from core.paths import output_dir
 from core.worker_registry import WorkerRegistry
+from ui.toast import show_toast
 from utils import format_duration, language_name_for_code
 
 logger = get_logger(__name__)
@@ -117,6 +120,16 @@ class InsightsPanel(QWidget):
         self._pending = 0
         self._insight_queue: list[str] = []
         self._any_error = False
+        # Raw (unrendered) result per generated type — needed to save to
+        # disk later, since _render_*() only ever builds display widgets
+        # from it and doesn't keep the data itself.
+        self._results: dict[str, list] = {}
+        # Set via set_provenance()/set_source_name() by MainWindow whenever
+        # the open transcript changes — recorded into each saved file's
+        # Artifact manifest and used for its filename stem.
+        self._record_id: int | None = None
+        self._source_path: str | None = None
+        self._source_name: str = ""
         self._setup_ui()
 
     # ── UI ──────────────────────────────────────────────────────────
@@ -139,6 +152,12 @@ class InsightsPanel(QWidget):
         self._gen_btn.setEnabled(False)
         self._gen_btn.clicked.connect(self._generate_all)
         gen_row.addWidget(self._gen_btn)
+
+        self._save_btn = QPushButton(tr("insights_save"))
+        self._save_btn.setEnabled(False)
+        self._save_btn.clicked.connect(self._save_to_files)
+        gen_row.addWidget(self._save_btn)
+
         gen_row.addStretch()
         outer.addLayout(gen_row)
 
@@ -200,6 +219,16 @@ class InsightsPanel(QWidget):
         else:
             self._placeholder.show()
 
+    def set_provenance(self, record_id: int | None, source_path: str | None) -> None:
+        """Called by MainWindow whenever the open transcript's identity
+        changes — recorded into each saved file's Artifact manifest."""
+        self._record_id = record_id
+        self._source_path = source_path
+
+    def set_source_name(self, name: str) -> None:
+        """Base filename (no extension) used when saving generated files."""
+        self._source_name = name or ""
+
     def shutdown(self) -> None:
         """Part of the Shutdownable protocol (ui/shutdownable.py). clear()
         already cancels in-flight workers with a bounded timeout, which is
@@ -210,6 +239,8 @@ class InsightsPanel(QWidget):
         self._segments = []
         self._transcript_language = None
         self._gen_btn.setEnabled(False)
+        self._save_btn.setEnabled(False)
+        self._results.clear()
         for layout in (self._ch_layout, self._ai_layout, self._km_layout):
             self._clear_section(layout)
         self._cancel_workers(timeout=2000)
@@ -245,6 +276,8 @@ class InsightsPanel(QWidget):
         self._placeholder.hide()
         self._pending = 3
         self._any_error = False
+        self._results.clear()
+        self._save_btn.setEnabled(False)
 
         self._insight_queue = ["chapters", "action_items", "key_moments"]
         self._start_next_worker()
@@ -299,6 +332,10 @@ class InsightsPanel(QWidget):
                     self._render_action_items(data)
                 elif insight_type == "key_moments":
                     self._render_key_moments(data)
+                # Keep the raw data for _save_to_files() — rendering only
+                # ever builds display widgets from it, never stores it.
+                self._results[insight_type] = data
+                self._save_btn.setEnabled(True)
             else:
                 lbl = QLabel(str(data)[:500])
                 lbl.setWordWrap(True)
@@ -325,6 +362,61 @@ class InsightsPanel(QWidget):
             lbl.setStyleSheet("font-size: 11px;")
             layout.addWidget(lbl)
         self._decrement_pending()
+
+    # ── Export ──────────────────────────────────────────────────────
+
+    def _save_to_files(self) -> None:
+        """Save every generated section to output/ in the app data dir —
+        same location and one-file-per-section shape as
+        ui/youtube_panel.py's save button, adapted for Insights' three
+        sections all being visible at once rather than one tab at a time."""
+        if not self._results:
+            show_toast(self, tr("insights_nothing_to_save"), kind="error")
+            return
+
+        directory = output_dir()
+        stem = self._source_name or "insights"
+        saved = 0
+        for insight_type, data in self._results.items():
+            text = format_insight_text(insight_type, data)
+            if not text:
+                continue
+            try:
+                directory.mkdir(parents=True, exist_ok=True)
+                path = directory / f"{stem}_{insight_type}.txt"
+                path.write_text(text, encoding="utf-8")
+                saved += 1
+                self._write_provenance(path, insight_type)
+            except OSError as exc:
+                logger.warning("Failed to save %s to %s: %s", insight_type, directory, exc)
+                show_toast(
+                    self, tr("insights_save_error", section=insight_type), kind="error"
+                )
+
+        if saved:
+            show_toast(self, tr("insights_saved_files", count=saved), kind="success")
+
+    def _write_provenance(self, path, insight_type: str) -> None:
+        """Best-effort Artifact manifest write (see
+        docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R5-full step 3) — same
+        mechanism already used for Cover/article/YouTube/book exports. The
+        .txt file is already safely on disk by the time this runs, so a
+        manifest failure must not turn a successful save into an error."""
+        try:
+            from application.artifact_provenance import source_fingerprint, transcript_revision
+            from domain.artifact import Artifact
+            from infrastructure.persistence import artifact_store
+
+            artifact_store.save(Artifact(
+                record_id=str(self._record_id) if self._record_id is not None else "unsaved",
+                source_hash=source_fingerprint(self._source_path),
+                source_path=self._source_path or "",
+                transcript_revision=transcript_revision(self._segments, self._transcript_language or ""),
+                type=f"insights_{insight_type}",
+                path=str(path),
+            ))
+        except Exception as exc:
+            logger.warning("Failed to write insights artifact manifest for %s: %s", path, exc)
 
     # ── Renderers ───────────────────────────────────────────────────
 
