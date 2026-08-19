@@ -444,8 +444,9 @@ ui/                main_window.py (только composition/navigation), views/
 
 > **Статус (2026-08-17): шаги 1-2 сделаны (`domain/artifact.py`,
 > `infrastructure/persistence/artifact_store.py`, полностью протестировано).
-> Шаг 3 — Cover, article и YouTube мигрированы, 2 генератора (insights,
-> book) — нет.** `ui/cover_view.py::_write_provenance` пишет
+> Шаг 3 — закрыт с одним осознанным исключением: Cover, article, YouTube
+> и book мигрированы; insights — нет, потому что там нет ничего для
+> миграции (см. ниже).** `ui/cover_view.py::_write_provenance` пишет
 > `Artifact`-manifest рядом с PNG на каждый export, best-effort (ошибка
 > записи манифеста не превращает успешный export в ошибку); собственный
 > `.cover.json` sidecar `covers/export.py` не тронут, манифест — рядом,
@@ -479,7 +480,27 @@ ui/                main_window.py (только composition/navigation), views/
 > использует `QFileDialog` (в отличие от Cover/article) — риска
 > зависания диалога в тестах не было.
 >
-> insights/book — не начаты.
+> `book_pipeline.py::BookPipeline.process()` получил тот же набор
+> опциональных kwargs, что и `export_all_articles()`. Два реальных
+> вызывающих места: `core/ai_worker.py::_run_book_unwrap` (обычная кнопка
+> "Run" — реальный `record_id`, когда он есть, из `MainWindow._on_book_run`)
+> и `core/book_batch_worker.py::BookBatchWorker` (batch-очередь папки
+> `.md`-файлов — **без какой-либо связи с `core.history`** вообще, отсюда
+> `record_id="unsaved"` и `transcript_revision` — прямой хэш текста файла,
+> не через `application.artifact_provenance.transcript_revision()`,
+> которая ждёт объекты-сегменты, а не сырой текст). Ни `_run_book_unwrap`,
+> ни `BookBatchWorker` не имели тестов вообще — добавлены с нуля
+> (`tests/test_ai_worker_book.py`, `tests/test_book_batch_worker.py`);
+> первый потребовал `sys.modules.pop("core.ai_worker", None)` — конфтест
+> сам подставляет туда заглушку `object`, если модуль ещё не импортирован,
+> чтобы не тащить его тяжёлые зависимости в несвязанные тесты.
+>
+> **`InsightsPanel` — сознательно не мигрирован.** У панели вообще нет
+> файловой записи: `_render_chapters`/`_render_action_items`/
+> `_render_key_moments` только рисуют виджеты, ни один i18n-ключ или
+> путь кода не пишет главы/задачи/моменты на диск. Добавить экспорт —
+> это новая фича, а не миграция существующего пути; за пределами
+> согласованного объёма работы.
 
 **Шаги**
 
@@ -492,7 +513,14 @@ ui/                main_window.py (только composition/navigation), views/
    youtube → insights → book.
 
 **Приёмка**: для любого артефакта можно ответить, из какой ревизии
-транскрипта, какой моделью и каким промптом он получен.
+транскрипта, какой моделью и каким промптом он получен. ✅ Частично — для
+`transcript_revision`/`source_hash`/`record_id` верно для всех файловых
+артефактов (cover/article/YouTube/book); `provider`/`model`/`prompt_version`
+нигде не заполняются (везде пустая строка) — ни для одного генератора не
+реализовано отслеживание, каким конкретно provider/model/промптом
+получен текст (см. заметку про `thumb_title` выше — причина одна и та же
+для всех: нет надёжного способа связать текущий сохранённый текст с
+конкретным LLM-вызовом, который мог быть отредактирован после генерации).
 
 ---
 
