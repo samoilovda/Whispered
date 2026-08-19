@@ -664,8 +664,29 @@ def export_article_html(article: Article, filepath: str) -> None:
         f.write(html_template)
 
 
-def export_all_articles(articles: list[Article], directory: str) -> list[str]:
-    """Export all articles to a directory. Returns list of created files."""
+def export_all_articles(
+    articles: list[Article],
+    directory: str,
+    *,
+    record_id: str | int | None = None,
+    source_path: Optional[str] = None,
+    source_hash: Optional[str] = None,
+    transcript_revision: Optional[str] = None,
+) -> list[str]:
+    """Export all articles to a directory. Returns list of created files.
+
+    When *record_id*/*transcript_revision* are given, also writes an
+    Artifact provenance manifest next to each .md file (see
+    docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R5-full step 3) — answers
+    "which transcript revision and source produced this file" later, the
+    same mechanism already used for Cover exports. Best-effort: the .md
+    file is already safely on disk by the time this runs, so a manifest
+    failure is logged and swallowed rather than turning a successful
+    export into a reported error. The caller (ui/article_view.py,
+    ui/main_window.py) computes transcript_revision — this module stays
+    an engine and does not import the application layer that owns that
+    helper.
+    """
     import os
     os.makedirs(directory, exist_ok=True)
 
@@ -680,7 +701,45 @@ def export_all_articles(articles: list[Article], directory: str) -> list[str]:
         export_article_md(article, md_path)
         created_files.append(md_path)
 
+        if record_id is not None and transcript_revision is not None:
+            _write_article_provenance(
+                md_path,
+                record_id=record_id,
+                source_path=source_path,
+                source_hash=source_hash,
+                transcript_revision=transcript_revision,
+                article_format=article.format.value,
+            )
+
     return created_files
+
+
+def _write_article_provenance(
+    path: str,
+    *,
+    record_id: str | int,
+    source_path: Optional[str],
+    source_hash: Optional[str],
+    transcript_revision: str,
+    article_format: str,
+) -> None:
+    try:
+        from domain.artifact import Artifact
+        from infrastructure.persistence import artifact_store
+
+        artifact_store.save(Artifact(
+            record_id=str(record_id),
+            source_hash=source_hash or "",
+            source_path=source_path or "",
+            transcript_revision=transcript_revision,
+            type=f"article_{article_format}",
+            path=path,
+        ))
+    except Exception as exc:
+        from core.logger import get_logger
+        get_logger(__name__).warning(
+            "Failed to write article artifact manifest for %s: %s", path, exc
+        )
 
 
 # ============================================================================

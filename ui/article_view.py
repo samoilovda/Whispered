@@ -9,6 +9,10 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QFont
 
+from application.artifact_provenance import (
+    source_fingerprint,
+    transcript_revision as compute_transcript_revision,
+)
 from article_generator import (
     Article, ArticleFormat, ARTICLE_FORMAT_INFO,
     export_article_md, export_article_html, export_all_articles
@@ -210,6 +214,13 @@ class ArticleView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._articles: dict[ArticleFormat, Article] = {}
+        # Set via set_provenance() by MainWindow whenever the open
+        # transcript changes — recorded into each "Export All" run's
+        # Artifact manifests (see article_generator.export_all_articles).
+        self._record_id: int | None = None
+        self._source_path: str | None = None
+        self._segments: list = []
+        self._transcript_language: str = ""
         self._setup_ui()
 
     def _setup_ui(self):
@@ -279,6 +290,22 @@ class ArticleView(QWidget):
         """Get all current articles."""
         return list(self._articles.values())
 
+    def set_provenance(
+        self, record_id: int | None, source_path: str | None,
+        segments, transcript_language: str = "",
+    ) -> None:
+        """Called by MainWindow whenever the open transcript's identity
+        changes — recorded into each "Export All" run's Artifact
+        manifests. *segments*/*transcript_language* build the revision
+        identifier (see application/artifact_provenance.py); ArticleView
+        doesn't otherwise track the transcript that produced its
+        articles, only the generated Article objects themselves.
+        """
+        self._record_id = record_id
+        self._source_path = source_path
+        self._segments = list(segments or [])
+        self._transcript_language = transcript_language or ""
+
     def has_articles(self) -> bool:
         """Check if any articles are loaded."""
         return len(self._articles) > 0
@@ -298,7 +325,15 @@ class ArticleView(QWidget):
         if directory:
             try:
                 articles = list(self._articles.values())
-                created_files = export_all_articles(articles, directory)
+                created_files = export_all_articles(
+                    articles, directory,
+                    record_id=self._record_id if self._record_id is not None else "unsaved",
+                    source_path=self._source_path,
+                    source_hash=source_fingerprint(self._source_path),
+                    transcript_revision=compute_transcript_revision(
+                        self._segments, self._transcript_language
+                    ),
+                )
                 self.export_done.emit(
                     tr("article_exported_files", count=len(created_files))
                 )

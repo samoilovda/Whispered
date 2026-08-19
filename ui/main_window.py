@@ -1218,6 +1218,10 @@ class MainWindow(QMainWindow):
         # directly above via _save_to_history, or by the live-checkpoint
         # branches in _on_live_finished before it calls this method).
         self.cover_view.set_provenance(self._last_record_id, self._source_filepath)
+        self.article_view.set_provenance(
+            self._last_record_id, self._source_filepath,
+            result.segments, result.language,
+        )
         if self._source_filepath:
             self.youtube_panel.set_source_name(Path(self._source_filepath).stem)
         elif self._source_kind == "live":
@@ -1336,6 +1340,7 @@ class MainWindow(QMainWindow):
         артефактов" toast. Connected to PresetChainController.finished."""
         from core.paths import artifact_dir, output_dir
         from article_generator import export_all_articles
+        from application.artifact_provenance import source_fingerprint, transcript_revision
 
         stem = Path(self._source_filepath).stem if self._source_filepath else "recording"
         if self._last_record_id is not None:
@@ -1350,7 +1355,17 @@ class MainWindow(QMainWindow):
             articles = self.article_view.get_articles()
             if articles:
                 try:
-                    saved.extend(Path(p) for p in export_all_articles(list(articles), str(out_dir)))
+                    revision = (
+                        transcript_revision(self._current_result.segments, self._current_result.language)
+                        if self._current_result else ""
+                    )
+                    saved.extend(Path(p) for p in export_all_articles(
+                        list(articles), str(out_dir),
+                        record_id=self._last_record_id if self._last_record_id is not None else "unsaved",
+                        source_path=self._source_filepath,
+                        source_hash=source_fingerprint(self._source_filepath),
+                        transcript_revision=revision,
+                    ))
                 except OSError as e:
                     logger.warning("Failed to export chain articles to %s: %s", out_dir, e)
                     had_error = True
@@ -1468,6 +1483,9 @@ class MainWindow(QMainWindow):
 
             self._document_session.apply_result(result)
             self.cover_view.set_provenance(record_id, source_path or None)
+            self.article_view.set_provenance(
+                record_id, source_path or None, result.segments, result.language,
+            )
             self.youtube_panel.set_source_name(
                 Path(source_path or source_name).stem if (source_path or source_name) else ""
             )

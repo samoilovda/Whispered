@@ -43,6 +43,7 @@ from article_generator import (
     _split_into_chunks,
     _merge_topic_analyses,
     export_article_html,
+    export_all_articles,
 )
 
 
@@ -114,6 +115,64 @@ class TestHtmlExport:
         assert "<script>" not in content
         assert "&lt;script&gt;" in content
         assert "<title>&lt;unsafe&gt;</title>" in content
+
+
+class TestExportAllArticlesProvenance:
+    """R5-full step 3: export_all_articles() optionally writes an Artifact
+    manifest per exported .md (see docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md)."""
+
+    @staticmethod
+    def _article(fmt=ArticleFormat.SUMMARY, title="Test Article"):
+        return Article(title=title, format=fmt, content="Some content.", topics=[])
+
+    def test_without_provenance_kwargs_no_manifest_is_written(self, tmp_path):
+        from infrastructure.persistence import artifact_store
+
+        files = export_all_articles([self._article()], str(tmp_path))
+        assert artifact_store.load(files[0]) is None
+
+    def test_with_provenance_writes_a_manifest_per_article(self, tmp_path):
+        from infrastructure.persistence import artifact_store
+
+        articles = [self._article(ArticleFormat.SUMMARY), self._article(ArticleFormat.BLOG_POST)]
+        files = export_all_articles(
+            articles, str(tmp_path),
+            record_id=7, source_path="/media/talk.mp4", source_hash="abc123",
+            transcript_revision="rev-1",
+        )
+        assert len(files) == 2
+        for f in files:
+            artifact = artifact_store.load(f)
+            assert artifact is not None
+            assert artifact.record_id == "7"
+            assert artifact.source_path == "/media/talk.mp4"
+            assert artifact.source_hash == "abc123"
+            assert artifact.transcript_revision == "rev-1"
+            assert artifact.type.startswith("article_")
+
+    def test_manifest_write_failure_does_not_prevent_the_md_file(self, tmp_path, monkeypatch):
+        from pathlib import Path
+        import infrastructure.persistence.artifact_store as artifact_store_module
+
+        monkeypatch.setattr(
+            artifact_store_module, "save",
+            lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")),
+        )
+        # Must not raise even though the manifest write fails internally.
+        files = export_all_articles(
+            [self._article()], str(tmp_path),
+            record_id=1, transcript_revision="rev-1",
+        )
+        assert len(files) == 1
+        assert Path(files[0]).exists()
+
+    def test_partial_kwargs_are_treated_as_no_provenance(self, tmp_path):
+        """record_id without transcript_revision (or vice versa) must not
+        half-write a manifest with a placeholder — both are required."""
+        from infrastructure.persistence import artifact_store
+
+        files = export_all_articles([self._article()], str(tmp_path), record_id=1)
+        assert artifact_store.load(files[0]) is None
 
 
 class TestMergeTopicAnalyses:
