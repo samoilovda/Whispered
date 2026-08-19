@@ -93,3 +93,96 @@ class TestBookPipelineOutputDir:
         assert result.success
         files = [f for f in tmp_path.iterdir() if f != source]
         assert len(files) == 1
+
+
+class TestBookPipelineProvenance:
+    """R5-full step 3, see docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md: process()
+    optionally writes an Artifact manifest next to each stage's output."""
+
+    def test_without_provenance_kwargs_no_manifest_is_written(self, tmp_path, monkeypatch):
+        from infrastructure.persistence import artifact_store
+
+        source = tmp_path / "talk.md"
+        source.write_text("text", encoding="utf-8")
+        pipeline = _make_pipeline(monkeypatch)
+
+        result = pipeline.process(transcript_text="text", source_path=str(source), do_unwrap=True)
+
+        assert result.success
+        out_path = result.stages[0].output_path
+        assert artifact_store.load(out_path) is None
+
+    def test_with_provenance_writes_a_manifest_for_the_unwrap_stage(self, tmp_path, monkeypatch):
+        from infrastructure.persistence import artifact_store
+
+        source = tmp_path / "talk.md"
+        source.write_text("text", encoding="utf-8")
+        pipeline = _make_pipeline(monkeypatch)
+
+        result = pipeline.process(
+            transcript_text="text", source_path=str(source), do_unwrap=True,
+            record_id=9, source_hash="abc123", transcript_revision="rev-1",
+        )
+
+        assert result.success
+        artifact = artifact_store.load(result.stages[0].output_path)
+        assert artifact is not None
+        assert artifact.record_id == "9"
+        assert artifact.source_hash == "abc123"
+        assert artifact.transcript_revision == "rev-1"
+        assert artifact.type == "book_unwrap"
+
+    def test_custom_stage_gets_its_own_manifest_type(self, tmp_path, monkeypatch):
+        from infrastructure.persistence import artifact_store
+
+        source = tmp_path / "talk.md"
+        source.write_text("text", encoding="utf-8")
+        prompt_file = tmp_path / "prompt.md"
+        prompt_file.write_text("Custom system prompt", encoding="utf-8")
+        pipeline = _make_pipeline(monkeypatch)
+
+        result = pipeline.process(
+            transcript_text="text", source_path=str(source),
+            do_unwrap=False, do_custom=True, custom_prompt_path=str(prompt_file),
+            record_id=9, transcript_revision="rev-1",
+        )
+
+        assert result.success
+        artifact = artifact_store.load(result.stages[0].output_path)
+        assert artifact is not None
+        assert artifact.type == "book_custom"
+
+    def test_manifest_write_failure_does_not_block_the_md_file(self, tmp_path, monkeypatch):
+        from pathlib import Path
+        import infrastructure.persistence.artifact_store as artifact_store_module
+
+        source = tmp_path / "talk.md"
+        source.write_text("text", encoding="utf-8")
+        pipeline = _make_pipeline(monkeypatch)
+        monkeypatch.setattr(
+            artifact_store_module, "save",
+            lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")),
+        )
+
+        result = pipeline.process(
+            transcript_text="text", source_path=str(source), do_unwrap=True,
+            record_id=1, transcript_revision="rev-1",
+        )
+
+        assert result.success  # the .md write itself must still succeed
+        assert Path(result.stages[0].output_path).exists()
+
+    def test_partial_kwargs_are_treated_as_no_provenance(self, tmp_path, monkeypatch):
+        from infrastructure.persistence import artifact_store
+
+        source = tmp_path / "talk.md"
+        source.write_text("text", encoding="utf-8")
+        pipeline = _make_pipeline(monkeypatch)
+
+        result = pipeline.process(
+            transcript_text="text", source_path=str(source), do_unwrap=True,
+            record_id=1,  # transcript_revision missing
+        )
+
+        assert result.success
+        assert artifact_store.load(result.stages[0].output_path) is None

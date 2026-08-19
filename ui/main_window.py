@@ -1846,12 +1846,19 @@ class MainWindow(QMainWindow):
         self.cancel_btn.setVisible(True)
         self.transcribe_btn.setVisible(False)
 
+        from application.artifact_provenance import source_fingerprint, transcript_revision
+
         self._ai_worker = AIProcessingWorker(
             "book_unwrap", text,
             do_unwrap=do_unwrap,
             do_custom=do_custom,
             custom_prompt_path=custom_prompt_path,
             source_path=source_path,
+            record_id=self._last_record_id if self._last_record_id is not None else "unsaved",
+            source_hash=source_fingerprint(self._source_filepath),
+            transcript_revision=transcript_revision(
+                self._current_result.segments, self._current_result.language
+            ),
         )
         self._ai_worker.progress.connect(self._on_book_progress)
         self._ai_worker.finished.connect(self._on_book_finished)

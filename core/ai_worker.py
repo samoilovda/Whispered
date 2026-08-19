@@ -119,6 +119,9 @@ class AIProcessingWorker(BaseWorker):
         do_custom = self.kwargs.get('do_custom', False)
         custom_prompt_path = self.kwargs.get('custom_prompt_path', '')
         source_path = self.kwargs.get('source_path', 'transcript')
+        record_id = self.kwargs.get('record_id')
+        source_hash = self.kwargs.get('source_hash')
+        transcript_revision = self.kwargs.get('transcript_revision')
 
         def on_progress(pct: int, msg: str) -> None:
             if not self._cancelled.is_set():
@@ -132,6 +135,9 @@ class AIProcessingWorker(BaseWorker):
             custom_prompt_path=custom_prompt_path,
             on_progress=on_progress,
             is_cancelled=self._cancelled.is_set,
+            record_id=record_id,
+            source_hash=source_hash,
+            transcript_revision=transcript_revision,
         )
 
         if not self._cancelled.is_set():

@@ -85,6 +85,35 @@ def _versioned_path(path: Path) -> Path:
     raise RuntimeError("Too many versions for output file")
 
 
+def _write_book_provenance(
+    path: Path,
+    *,
+    stage: str,
+    record_id: str | int,
+    source_path: str,
+    source_hash: Optional[str],
+    transcript_revision: str,
+) -> None:
+    """Best-effort Artifact manifest write — the .md file is already
+    safely on disk by the time this runs, so a manifest failure is logged
+    and swallowed rather than turning a successful save into an error
+    (same pattern as article_generator.py's _write_article_provenance)."""
+    try:
+        from domain.artifact import Artifact
+        from infrastructure.persistence import artifact_store
+
+        artifact_store.save(Artifact(
+            record_id=str(record_id),
+            source_hash=source_hash or "",
+            source_path=source_path,
+            transcript_revision=transcript_revision,
+            type=f"book_{stage}",
+            path=str(path),
+        ))
+    except Exception as exc:
+        logger.warning("Failed to write book artifact manifest for %s: %s", path, exc)
+
+
 def _chunk_text(text: str, chunk_size: int = BOOK_CHUNK_SIZE,
                 overlap: int = BOOK_CHUNK_OVERLAP) -> list[str]:
     """Split text into overlapping chunks for large-document processing."""
@@ -170,6 +199,9 @@ class BookPipeline:
         custom_prompt_path: str = "",
         on_progress: Optional[Callable[[int, str], None]] = None,
         is_cancelled: Optional[Callable[[], bool]] = None,
+        record_id: str | int | None = None,
+        source_hash: Optional[str] = None,
+        transcript_revision: Optional[str] = None,
     ) -> BookResult:
         """
         Run the book pipeline.
@@ -184,6 +216,15 @@ class BookPipeline:
             custom_prompt_path: Path to a .md file with the custom system prompt.
             on_progress: Callback (percentage: int, message: str).
             is_cancelled: Callback that returns True if user cancelled.
+            record_id, source_hash, transcript_revision: when *record_id*
+                and *transcript_revision* are both given, an Artifact
+                provenance manifest (see
+                docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R5-full step 3) is
+                written next to each stage's output file — the same
+                mechanism already used for Cover/article/YouTube exports.
+                The caller computes transcript_revision; this module is an
+                Engine and stays below the application layer that owns
+                that helper.
 
         Returns:
             BookResult with per-stage details.
@@ -236,6 +277,12 @@ class BookPipeline:
                 result.stages.append(BookStageResult(
                     stage="unwrap", output_text=output_text, output_path=str(out_path),
                 ))
+                if record_id is not None and transcript_revision is not None:
+                    _write_book_provenance(
+                        out_path, stage="unwrap", record_id=record_id,
+                        source_path=source_path, source_hash=source_hash,
+                        transcript_revision=transcript_revision,
+                    )
                 current_text = output_text  # feed into next stage
             else:
                 result.stages.append(BookStageResult(
@@ -282,6 +329,12 @@ class BookPipeline:
                 result.stages.append(BookStageResult(
                     stage="custom", output_text=output_text, output_path=str(out_path),
                 ))
+                if record_id is not None and transcript_revision is not None:
+                    _write_book_provenance(
+                        out_path, stage="custom", record_id=record_id,
+                        source_path=source_path, source_hash=source_hash,
+                        transcript_revision=transcript_revision,
+                    )
             else:
                 result.stages.append(BookStageResult(
                     stage="custom", output_text="", output_path="",
