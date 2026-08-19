@@ -444,7 +444,7 @@ ui/                main_window.py (только composition/navigation), views/
 
 > **Статус (2026-08-17): шаги 1-2 сделаны (`domain/artifact.py`,
 > `infrastructure/persistence/artifact_store.py`, полностью протестировано).
-> Шаг 3 — Cover и article мигрированы, 3 генератора (YouTube, insights,
+> Шаг 3 — Cover, article и YouTube мигрированы, 2 генератора (insights,
 > book) — нет.** `ui/cover_view.py::_write_provenance` пишет
 > `Artifact`-manifest рядом с PNG на каждый export, best-effort (ошибка
 > записи манифеста не превращает успешный export в ошибку); собственный
@@ -470,7 +470,16 @@ ui/                main_window.py (только composition/navigation), views/
 > в произвольный путь вне управляемого workflow, у `ArticleTab` нет
 > back-reference на `ArticleView` для передачи provenance.
 >
-> YouTube/insights/book — не начаты.
+> `ui/youtube_panel.py` — проще первых двух: `_segments`/
+> `_transcript_language` уже отслеживались (через `set_segments`,
+> consumer `DocumentSession`), оба реальных триггера сохранения (кнопка
+> "Save" текущей вкладки `_save_to_file` и `save_all` из preset-chain
+> auto-save) уже шли через один `_write_tab_file()`. Понадобилось только
+> добавить `set_provenance(record_id, source_path)`. Ни один триггер не
+> использует `QFileDialog` (в отличие от Cover/article) — риска
+> зависания диалога в тестах не было.
+>
+> insights/book — не начаты.
 
 **Шаги**
 
