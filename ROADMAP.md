@@ -45,13 +45,21 @@ The original long-form development plan (2026-07) is preserved in
 P0 (worker lifecycle, model integrity, Recorder backpressure, system-audio
 IPC auth, output-path collisions) and P2 (Config validation, Cover template
 path containment, structured export/batch errors, FTS rebuild policy) are
-closed as of 2026-08-17. P1 structural work is partial: `DocumentSession`
+closed as of 2026-08-18. P1 structural work is partial: `DocumentSession`
 and an `export_controller` are extracted from `main_window.py`; a Job/
-Pipeline engine exists but isn't wired into the preset chain yet; an
-`Artifact` provenance model exists but no generator has been migrated onto
-it. Release metadata (`pyproject.toml`/`version.py` as the single version
-source) is in place; the resource-manifest/CI parts of that work need a
-real build environment to validate and are not attempted from here.*
+Pipeline engine exists but isn't wired into the preset chain yet (the one
+concrete bug it was meant to fix — "chapters" computed twice when both
+YouTube and Insights are enabled — is closed separately via a shared
+`InsightsCache`, not via the engine itself); the `Artifact` provenance
+model is now wired into every generator that actually writes a file —
+Cover, article, YouTube, and book — with one deliberate exception:
+Insights has no file-writing action of its own to attach provenance to.
+`provider`/`model`/`prompt_version` stay unfilled everywhere (no reliable
+way to tell whether a saved file's text still matches the exact LLM call
+that produced it, versus being hand-edited after). Release metadata
+(`pyproject.toml`/`version.py` as the single version source) is in
+place; the resource-manifest/CI parts of that work need a real build
+environment to validate and are not attempted from here.*
 
 - **Local-LLM robustness** — local completions are serialized process-wide;
   network cancellation is now interruptible (LM Studio streaming reads poll
