@@ -444,7 +444,7 @@ ui/                main_window.py (только composition/navigation), views/
 
 > **Статус (2026-08-17): шаги 1-2 сделаны (`domain/artifact.py`,
 > `infrastructure/persistence/artifact_store.py`, полностью протестировано).
-> Шаг 3 — Cover мигрирован, 4 генератора (article, YouTube, insights,
+> Шаг 3 — Cover и article мигрированы, 3 генератора (YouTube, insights,
 > book) — нет.** `ui/cover_view.py::_write_provenance` пишет
 > `Artifact`-manifest рядом с PNG на каждый export, best-effort (ошибка
 > записи манифеста не превращает успешный export в ошибку); собственный
@@ -456,8 +456,21 @@ ui/                main_window.py (только composition/navigation), views/
 > следующими миграциями. Provenance конкретно AI-предложенного заголовка
 > (provider/model/prompt_version для `thumb_title`) не отслеживается —
 > нет надёжного способа понять, остался ли текущий текст заголовка ровно
-> тем, что предложила LLM, или уже отредактирован. article/YouTube/
-> insights/book — не начаты.
+> тем, что предложила LLM, или уже отредактирован.
+>
+> `article_generator.py::export_all_articles()` получил опциональные
+> `record_id`/`source_path`/`source_hash`/`transcript_revision` — пишет
+> manifest на оба реальных триггера (`ArticleView._on_export_all` и
+> `MainWindow._finish_preset_chain`'s auto-save), так как оба уже шли
+> через одну функцию. Функция осталась Qt/application-free (Engine не
+> должен зависеть от Application — направление слоёв: Domain →
+> Infrastructure → Application → UI); вызывающая сторона считает
+> `transcript_revision` и передаёт готовой строкой. Одиночный per-tab
+> export (кнопки `.md`/`.html` в `ArticleTab`) — **не мигрирован**: пишет
+> в произвольный путь вне управляемого workflow, у `ArticleTab` нет
+> back-reference на `ArticleView` для передачи provenance.
+>
+> YouTube/insights/book — не начаты.
 
 **Шаги**
 
