@@ -1222,6 +1222,7 @@ class MainWindow(QMainWindow):
             self._last_record_id, self._source_filepath,
             result.segments, result.language,
         )
+        self.youtube_panel.set_provenance(self._last_record_id, self._source_filepath)
         if self._source_filepath:
             self.youtube_panel.set_source_name(Path(self._source_filepath).stem)
         elif self._source_kind == "live":
@@ -1486,6 +1487,7 @@ class MainWindow(QMainWindow):
             self.article_view.set_provenance(
                 record_id, source_path or None, result.segments, result.language,
             )
+            self.youtube_panel.set_provenance(record_id, source_path or None)
             self.youtube_panel.set_source_name(
                 Path(source_path or source_name).stem if (source_path or source_name) else ""
             )

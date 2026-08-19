@@ -87,6 +87,11 @@ class YouTubePanel(QWidget):
         self._chapters_data: list | None = None
         self._any_success = False
         self._any_error = False
+        # Set via set_provenance() by MainWindow whenever the open
+        # transcript changes — recorded into each saved file's Artifact
+        # manifest (see core.paths.artifact_dir / R5-full in the audit plan).
+        self._record_id: int | None = None
+        self._source_path: str | None = None
         self._setup_ui()
 
     # ── UI ──────────────────────────────────────────────────────────
@@ -231,6 +236,12 @@ class YouTubePanel(QWidget):
     def set_source_name(self, name: str) -> None:
         """Base filename (no extension) used when saving generated files."""
         self._source_name = name or ""
+
+    def set_provenance(self, record_id: int | None, source_path: str | None) -> None:
+        """Called by MainWindow whenever the open transcript's identity
+        changes — recorded into each saved file's Artifact manifest."""
+        self._record_id = record_id
+        self._source_path = source_path
 
     def shutdown(self) -> None:
         """Part of the Shutdownable protocol (ui/shutdownable.py). clear()
@@ -503,4 +514,28 @@ class YouTubePanel(QWidget):
         stem = self._source_name or "youtube"
         path = directory / f"{stem}_{file_key}.txt"
         path.write_text(text, encoding="utf-8")
+        self._write_provenance(path, file_key)
         return path
+
+    def _write_provenance(self, path: Path, file_key: str) -> None:
+        """Record an Artifact manifest for a saved YouTube file (see
+        docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R5-full step 3) — same
+        mechanism already used for Cover and article exports. Best-effort:
+        the .txt file is already safely on disk by the time this runs, so
+        a manifest failure must not turn a successful save into an error.
+        """
+        try:
+            from application.artifact_provenance import source_fingerprint, transcript_revision
+            from domain.artifact import Artifact
+            from infrastructure.persistence import artifact_store
+
+            artifact_store.save(Artifact(
+                record_id=str(self._record_id) if self._record_id is not None else "unsaved",
+                source_hash=source_fingerprint(self._source_path),
+                source_path=self._source_path or "",
+                transcript_revision=transcript_revision(self._segments, self._transcript_language or ""),
+                type=f"youtube_{file_key}",
+                path=str(path),
+            ))
+        except Exception as exc:
+            logger.warning("Failed to write YouTube artifact manifest for %s: %s", path, exc)
