@@ -32,6 +32,36 @@ def test_add_lesson_updates_list_and_enables_start(process_events):
     panel.shutdown()
 
 
+def test_toggle_capture_reads_setup_combos_without_raising(monkeypatch, process_events):
+    """Regression: _toggle_capture() used to call LiveSetupPanel methods
+    (selected_model/selected_language/selected_mic_device) that only exist
+    on LiveView, which wraps LiveSetupPanel — this panel embeds
+    LiveSetupPanel directly, so those calls raised AttributeError the first
+    time a real click reached this path (the other tests below all bypass
+    _toggle_capture and call the runtime-signal handlers directly, so none
+    of them caught it)."""
+    panel = _make_panel()
+    panel.queue.add_item("Урок 1")
+    panel._refresh_list()
+
+    captured = {}
+
+    def _fake_start(**kwargs):
+        captured.update(kwargs)
+        return True
+
+    monkeypatch.setattr(panel._runtime, "start", _fake_start)
+
+    panel._toggle_capture()
+    process_events()
+
+    assert captured["use_system"] is True
+    assert isinstance(captured["model_name"], str)
+    assert isinstance(captured["language"], str)
+    assert panel._active_item_id is not None
+    panel.shutdown()
+
+
 def test_runtime_finished_saves_history_and_marks_done(monkeypatch, process_events):
     panel = _make_panel()
     item = panel.queue.add_item("Урок 1")

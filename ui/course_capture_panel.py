@@ -352,12 +352,17 @@ class CourseCapturePanel(QWidget):
             return
         use_mic, _ = self.setup.selected_sources()
         target = self.setup.selected_target()
+        # LiveSetupPanel exposes selected_sources()/selected_target(), but
+        # model/language/mic-device are only exposed by LiveView, which
+        # wraps it (see ui/live_view.py::selected_model and friends) — this
+        # panel embeds LiveSetupPanel directly without that wrapper, so it
+        # has to read the same combo boxes LiveView reads.
         started = self._runtime.start(
             use_mic=use_mic,
             use_system=True,
-            model_name=self.setup.selected_model(),
-            language=self.setup.selected_language(),
-            mic_device=self.setup.selected_mic_device(),
+            model_name=str(self.setup.model_combo.currentData()),
+            language=str(self.setup.language_combo.currentData()),
+            mic_device=self.setup.mic_combo.currentData(),
             target=target.capture_target() if target else None,
         )
         if not started:
