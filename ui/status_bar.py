@@ -12,6 +12,7 @@ from ui.components import StatusBadge
 class StatusBar(QFrame):
     cancel_requested = pyqtSignal()
     queue_requested = pyqtSignal()
+    course_requested = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -39,6 +40,10 @@ class StatusBar(QFrame):
         self.queue_button.setProperty("variant", "ghost")
         self.queue_button.clicked.connect(self._toggle_queue)
         row.addWidget(self.queue_button)
+        self.course_button = QPushButton(tr("status_course", count=0))
+        self.course_button.setProperty("variant", "ghost")
+        self.course_button.clicked.connect(self._toggle_course)
+        row.addWidget(self.course_button)
         self.llm_badge = StatusBadge(tr("status_llm_model", model="LM Studio"), "neutral")
         row.addWidget(self.llm_badge)
         self.device_button = QPushButton(tr("device_detecting"))
@@ -50,6 +55,7 @@ class StatusBar(QFrame):
         self.detail_layout.setContentsMargins(16, 0, 16, 8)
         root.addWidget(self.detail_container)
         self.queue_popup: QWidget | None = None
+        self.course_popup: QWidget | None = None
 
     def add_detail_widget(self, widget: QWidget) -> None:
         self.detail_layout.addWidget(widget)
@@ -67,6 +73,24 @@ class StatusBar(QFrame):
     def show_queue(self, visible: bool) -> None:
         if self.queue_popup is not None:
             self.queue_popup.setVisible(visible)
+            if visible:
+                self.show_course(False)
+
+    def bind_course(self, widget: QWidget) -> None:
+        self.course_popup = widget
+        self.detail_layout.addWidget(widget)
+        widget.setVisible(False)
+
+    def _toggle_course(self) -> None:
+        if self.course_popup is not None:
+            self.show_course(not self.course_popup.isVisible())
+        self.course_requested.emit()
+
+    def show_course(self, visible: bool) -> None:
+        if self.course_popup is not None:
+            self.course_popup.setVisible(visible)
+            if visible:
+                self.show_queue(False)
 
     def set_operation(
         self,
@@ -99,6 +123,9 @@ class StatusBar(QFrame):
 
     def set_queue_count(self, count: int) -> None:
         self.queue_button.setText(tr("status_queue", count=count))
+
+    def set_course_count(self, count: int) -> None:
+        self.course_button.setText(tr("status_course", count=count))
 
     def clear(self) -> None:
         self.status_label.setText(tr("status_idle"))

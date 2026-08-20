@@ -32,6 +32,7 @@ from ui.transcript_view import TranscriptView
 from ui.ai_panel import AIProcessingPanel
 from ui.article_view import ArticleView, CleanedTextView
 from ui.batch_panel import BatchPanel
+from ui.course_capture_panel import CourseCapturePanel
 from ui.book_panel import BookPanel
 from ui.cut_view import CutView
 from ui.player_widget import PlayerWidget
@@ -378,6 +379,13 @@ class MainWindow(QMainWindow):
         self.batch_panel.start_requested.connect(self._start_batch_processing)
         self._shutdownables.append(self.batch_panel)
 
+        # Course Capture Panel — same "persistent status surface" placement
+        # as Batch (see _build_queue_section): a queue of lessons captured
+        # one at a time via the Live system-audio pipeline instead of files.
+        self.course_capture_panel = CourseCapturePanel()
+        self.course_capture_panel.lesson_saved.connect(self._on_course_lesson_saved)
+        self._shutdownables.append(self.course_capture_panel)
+
         # Book Pipeline Panel — created here (not mode-gated) so its
         # connection-check timers start with the rest of setup; it's shown
         # as its own tab on the Record view (see content_tabs below).
@@ -543,6 +551,8 @@ class MainWindow(QMainWindow):
         self.status_bar.cancel_requested.connect(self._cancel_operation)
         self.status_bar.bind_queue(self.batch_panel)
         self.batch_panel.queue_changed.connect(self.status_bar.set_queue_count)
+        self.status_bar.bind_course(self.course_capture_panel)
+        self.course_capture_panel.queue_changed.connect(self.status_bar.set_course_count)
         self.book_panel.connection_changed.connect(self.status_bar.set_llm_status)
         self.progress_timeline = ProgressTimeline()
         self.progress_timeline.stages = [
@@ -708,6 +718,12 @@ class MainWindow(QMainWindow):
                 speaker_names=getattr(result, "speaker_names", {}) or {},
             )
             self._on_finished(result, open_record=False, save_history=False)
+
+    def _on_course_lesson_saved(self, _record_id: int) -> None:
+        """Course Capture panel saves each finished lesson to history itself
+        (it isn't the currently open document) — just refresh Library so
+        the new row shows up."""
+        self.library_view.refresh()
 
     def _open_completed_live(self):
         if self._current_result is not None:
