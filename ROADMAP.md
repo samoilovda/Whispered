@@ -83,6 +83,18 @@ environment to validate and are not attempted from here.*
   the real mic/model soak and Zoom/Meet/Teams matrix while the implemented
   L15–L21 UI/product path remains behind the disabled feature flag. See
   [docs/LIVE_TRANSCRIPTION_PLAN.ru.md](docs/LIVE_TRANSCRIPTION_PLAN.ru.md#62-ревизия-l1l14-и-обязательная-стабилизация-перед-l15).
+- **Course Capture panel** — a queue of lessons (`domain/course_capture.py`,
+  `ui/course_capture_panel.py`) recorded one at a time via the same
+  system-audio `LiveRuntime` path as Live, for content the user is
+  legitimately watching but can't download (e.g. a copy-protected course
+  video) — captures the app's audio output during normal playback, not a
+  downloader. Reuses `LiveSetupPanel` for target/model/language, saves each
+  finished lesson straight to history tagged with the course name, and can
+  stitch every finished lesson into one plain-text document. Sits behind
+  the same `live_transcription_enabled` flag as Live, since it shares its
+  unreleased capture pipeline; manually verified end-to-end (Chrome target
+  discovery, real non-silent capture) but has no automated Qt-level
+  coverage of the capture flow itself yet, only the Qt-free queue model.
 - **Distribution** — Flathub package for Linux; signed, notarized DMG for
   macOS. Goal: install without cloning the repo.
 - **Cover portrait pipeline** — connect the existing frame picker/extraction,
