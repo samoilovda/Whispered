@@ -199,6 +199,7 @@
   "course_stop": "Stop capture",
   "tooltip_course_start_disabled_empty": "Add a lesson to the queue first",
   "tooltip_course_start_disabled_busy": "Already capturing",
+  "course_target_required": "Pick the app to capture from (e.g. your browser) and click Refresh first",
   "course_clear": "Clear queue",
   "course_capture_hint": "Play the lesson in the selected app, then start capture — this records what you're already watching, it does not download or descramble anything.",
   "course_combine": "Combine into document",

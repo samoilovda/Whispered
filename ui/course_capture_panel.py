@@ -352,6 +352,15 @@ class CourseCapturePanel(QWidget):
             return
         use_mic, _ = self.setup.selected_sources()
         target = self.setup.selected_target()
+        if target is None:
+            # LiveRuntime.start() silently falls back to Zoom's bundle id
+            # when target is None (core/live/runtime.py) — fine for the
+            # meeting-transcription use case, wrong here: capturing "Zoom"
+            # when the user picked no target (and Zoom isn't even running)
+            # fails immediately and looks like "nothing got recorded" with
+            # no explanation. Refuse instead of guessing.
+            show_toast(self, tr("course_target_required"), "warning")
+            return
         # LiveSetupPanel exposes selected_sources()/selected_target(), but
         # model/language/mic-device are only exposed by LiveView, which
         # wraps it (see ui/live_view.py::selected_model and friends) — this
@@ -363,7 +372,7 @@ class CourseCapturePanel(QWidget):
             model_name=str(self.setup.model_combo.currentData()),
             language=str(self.setup.language_combo.currentData()),
             mic_device=self.setup.mic_combo.currentData(),
-            target=target.capture_target() if target else None,
+            target=target.capture_target(),
         )
         if not started:
             show_toast(self, tr("tooltip_course_start_disabled_busy"), "warning")

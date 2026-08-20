@@ -18,6 +18,15 @@ def _make_panel():
     return CourseCapturePanel()
 
 
+def _select_fake_target(panel, display_name="Google Chrome", bundle_id="com.google.Chrome"):
+    from core.live.target_discovery import DiscoveredTarget
+
+    target = DiscoveredTarget(display_name=display_name, bundle_id=bundle_id)
+    panel.setup.target_combo.addItem(display_name, target)
+    panel.setup.target_combo.setCurrentIndex(panel.setup.target_combo.count() - 1)
+    return target
+
+
 def test_add_lesson_updates_list_and_enables_start(process_events):
     panel = _make_panel()
     assert panel.start_stop_btn.isEnabled() is False
@@ -42,6 +51,7 @@ def test_toggle_capture_reads_setup_combos_without_raising(monkeypatch, process_
     of them caught it)."""
     panel = _make_panel()
     panel.queue.add_item("Урок 1")
+    _select_fake_target(panel)
     panel._refresh_list()
 
     captured = {}
@@ -59,6 +69,27 @@ def test_toggle_capture_reads_setup_combos_without_raising(monkeypatch, process_
     assert isinstance(captured["model_name"], str)
     assert isinstance(captured["language"], str)
     assert panel._active_item_id is not None
+    panel.shutdown()
+
+
+def test_toggle_capture_without_a_target_refuses_and_shows_toast(monkeypatch, process_events):
+    """No target selected (the fresh-launch default) must not silently
+    fall back to LiveRuntime's built-in Zoom default — that's what made a
+    real click on "Начать захват" look like nothing got recorded, with no
+    explanation, when the user hadn't picked a capture target yet."""
+    panel = _make_panel()
+    panel.queue.add_item("Урок 1")
+    panel._refresh_list()
+    assert panel.setup.selected_target() is None
+
+    start_calls = []
+    monkeypatch.setattr(panel._runtime, "start", lambda **kwargs: start_calls.append(kwargs) or True)
+
+    panel._toggle_capture()
+    process_events()
+
+    assert start_calls == []
+    assert panel._active_item_id is None
     panel.shutdown()
 
 
