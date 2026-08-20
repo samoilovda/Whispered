@@ -438,7 +438,14 @@ class AIProcessingPanel(QWidget):
         if self._worker is not worker:
             return
         self._worker = None
-        worker.deleteLater()
+        # Retire through the registry rather than calling deleteLater()
+        # directly — the registry still holds this worker under "lm_task"
+        # (see _submit_task), and a bare deleteLater() here leaves that
+        # entry pointing at a QObject Qt is about to destroy. The next
+        # _submit_task()'s register("lm_task") would then find and try to
+        # retire that stale entry, calling isRunning() on an already-deleted
+        # C++ object — a RuntimeError that aborts the process.
+        self._registry.retire(worker)
         if self._closing or self._pending_task is None:
             return
         action, payload = self._pending_task
