@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Optional
 
-from domain.transcription import TranscriptionResult
+from domain.transcription import Segment, TranscriptionResult
 
 
 class CaptureItemStatus(str, Enum):
@@ -96,6 +96,45 @@ class CaptureQueue:
         item.status = CaptureItemStatus.ERROR
         item.error = error
         return item
+
+    def combined_result(self, heading_prefix: str = "## ") -> Optional[TranscriptionResult]:
+        """One synthetic ``TranscriptionResult`` stitching every ``DONE``
+        item's segments together, in queue order, each preceded by a
+        heading segment carrying the lesson title.
+
+        Segments are re-timed onto one monotonic timeline (a heading
+        segment plus every content segment shifted by the running offset)
+        so the result stays a valid transcript for any exporter, even
+        though the primary use is a plain-text export that only reads
+        ``full_text`` and ignores timing. Returns ``None`` when no item is
+        done yet.
+        """
+        done_items = [
+            item for item in self.items
+            if item.status is CaptureItemStatus.DONE and item.result is not None
+        ]
+        if not done_items:
+            return None
+        segments: List[Segment] = []
+        offset = 0.0
+        language = ""
+        for item in done_items:
+            result = item.result
+            assert result is not None
+            language = language or result.language
+            heading_end = offset + 1.0
+            segments.append(Segment(start=offset, end=heading_end, text=f"{heading_prefix}{item.title}"))
+            offset = heading_end
+            for seg in result.segments:
+                segments.append(Segment(
+                    start=offset + seg.start,
+                    end=offset + seg.end,
+                    text=seg.text,
+                    speaker=seg.speaker,
+                    words=list(seg.words),
+                ))
+            offset += result.duration
+        return TranscriptionResult(segments=segments, language=language, duration=offset)
 
     def _index_of(self, item_id: str) -> int:
         for index, item in enumerate(self.items):

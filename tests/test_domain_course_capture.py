@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from domain.course_capture import CaptureItemStatus, CaptureQueue
-from domain.transcription import TranscriptionResult
+from domain.transcription import Segment, TranscriptionResult
 
 
 def test_domain_module_does_not_import_qt_or_ui_or_live():
@@ -84,3 +84,36 @@ def test_item_by_id_unknown_raises_keyerror():
     queue = CaptureQueue()
     with pytest.raises(KeyError):
         queue.item_by_id("missing")
+
+
+def test_combined_result_is_none_with_no_done_items():
+    queue = CaptureQueue()
+    queue.add_item("Урок 1")
+    assert queue.combined_result() is None
+
+
+def test_combined_result_stitches_done_items_with_headings():
+    queue = CaptureQueue()
+    first = queue.add_item("Урок 1")
+    second = queue.add_item("Урок 2")
+    third = queue.add_item("Урок 3")
+    queue.start_recording(first.id)
+    queue.finish_recording(first.id, TranscriptionResult(
+        segments=[Segment(start=0.0, end=1.0, text="hello")], language="ru", duration=1.0,
+    ))
+    queue.start_recording(second.id)
+    queue.fail_recording(second.id, "boom")  # excluded from the combined result
+    queue.start_recording(third.id)
+    queue.finish_recording(third.id, TranscriptionResult(
+        segments=[Segment(start=0.0, end=2.0, text="world")], language="ru", duration=2.0,
+    ))
+
+    combined = queue.combined_result()
+    assert combined is not None
+    assert combined.language == "ru"
+    texts = [seg.text for seg in combined.segments]
+    assert texts == ["## Урок 1", "hello", "## Урок 3", "world"]
+    # every segment lands on one monotonically increasing timeline
+    starts = [seg.start for seg in combined.segments]
+    assert starts == sorted(starts)
+    assert combined.full_text == "## Урок 1 hello ## Урок 3 world"

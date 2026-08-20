@@ -14,6 +14,7 @@ from __future__ import annotations
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QFileDialog,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -24,6 +25,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from application.export_controller import export_single
 from config import get_config
 from core.i18n import tr
 from core.live.runtime import LiveRuntime
@@ -159,6 +161,10 @@ class CourseCapturePanel(QWidget):
         self.start_stop_btn.clicked.connect(self._toggle_capture)
         self.start_stop_btn.setEnabled(False)
         actions_layout.addWidget(self.start_stop_btn)
+        self.combine_btn = QPushButton(tr("course_combine"))
+        self.combine_btn.clicked.connect(self._combine_into_document)
+        self.combine_btn.setEnabled(False)
+        actions_layout.addWidget(self.combine_btn)
         self.clear_btn = QPushButton(tr("course_clear"))
         self.clear_btn.clicked.connect(self._clear_queue)
         self.clear_btn.setEnabled(False)
@@ -197,6 +203,25 @@ class CourseCapturePanel(QWidget):
         ]
         self._refresh_list()
 
+    def _combine_into_document(self) -> None:
+        combined = self.queue.combined_result()
+        if combined is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            tr("course_combine_title"),
+            tr("course_combine_default_name"),
+            "Text (*.txt)",
+        )
+        if not path:
+            return
+        try:
+            export_single(combined, path, "txt")
+            show_toast(self, tr("course_combine_success", path=path), "success")
+        except OSError as exc:
+            logger.warning("Failed to export combined course transcript: %s", exc)
+            show_toast(self, tr("course_combine_error", error=str(exc)), "error")
+
     def _sync_visual_order(self, *_args) -> None:
         ids: list[str] = []
         for row in range(self.item_list.count()):
@@ -229,6 +254,7 @@ class CourseCapturePanel(QWidget):
         self.add_btn.setVisible(total > 0)
         is_capturing = self._active_item_id is not None
         self.clear_btn.setEnabled(total > 0 and not is_capturing)
+        self.combine_btn.setEnabled(done > 0)
         has_next = self.queue.next_pending() is not None
         self.start_stop_btn.setEnabled(is_capturing or has_next)
         if not is_capturing:
