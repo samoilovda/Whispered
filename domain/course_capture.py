@@ -15,9 +15,9 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
-from domain.transcription import Segment, TranscriptionResult
+from domain.transcription import TranscriptionResult
 
 
 class CaptureItemStatus(str, Enum):
@@ -104,48 +104,44 @@ class CaptureQueue:
         stay distinguishable in a flat list."""
         return f"{self.course_title} — {item.title}" if self.course_title else item.title
 
-    def combined_result(self, heading_prefix: str = "## ") -> Optional[TranscriptionResult]:
-        """One synthetic ``TranscriptionResult`` stitching every ``DONE``
-        item's segments together, in queue order, each preceded by a
-        heading segment carrying the lesson title.
-
-        Segments are re-timed onto one monotonic timeline (a heading
-        segment plus every content segment shifted by the running offset)
-        so the result stays a valid transcript for any exporter, even
-        though the primary use is a plain-text export that only reads
-        ``full_text`` and ignores timing. Returns ``None`` when no item is
-        done yet.
-        """
-        done_items = [
+    def _done_items(self) -> List[CaptureQueueItem]:
+        return [
             item for item in self.items
             if item.status is CaptureItemStatus.DONE and item.result is not None
         ]
+
+    def combined_text(self, heading_prefix: str = "## ") -> Optional[str]:
+        """One document stitching every ``DONE`` item's transcript together,
+        in queue order, each preceded by a heading line carrying the lesson
+        title (and the whole thing preceded by a course-title heading, when
+        set). Plain text with blank-line-separated paragraphs — readable as
+        Markdown when saved with a ``.md`` extension, or as-is for ``.txt``.
+        Returns ``None`` when no item is done yet.
+        """
+        done_items = self._done_items()
         if not done_items:
             return None
-        segments: List[Segment] = []
-        offset = 0.0
-        language = ""
+        parts: List[str] = []
         if self.course_title:
-            title_end = offset + 1.0
-            segments.append(Segment(start=offset, end=title_end, text=f"# {self.course_title}"))
-            offset = title_end
+            parts.append(f"# {self.course_title}")
         for item in done_items:
-            result = item.result
-            assert result is not None
-            language = language or result.language
-            heading_end = offset + 1.0
-            segments.append(Segment(start=offset, end=heading_end, text=f"{heading_prefix}{item.title}"))
-            offset = heading_end
-            for seg in result.segments:
-                segments.append(Segment(
-                    start=offset + seg.start,
-                    end=offset + seg.end,
-                    text=seg.text,
-                    speaker=seg.speaker,
-                    words=list(seg.words),
-                ))
-            offset += result.duration
-        return TranscriptionResult(segments=segments, language=language, duration=offset)
+            assert item.result is not None
+            parts.append(f"{heading_prefix}{item.title}")
+            parts.append(item.result.full_text)
+        return "\n\n".join(parts)
+
+    def per_lesson_texts(self, heading_prefix: str = "## ") -> List[Tuple[str, str]]:
+        """``(filename_stem, text)`` for every ``DONE`` item, in queue
+        order, sequentially numbered (``"01 - <title>"``, ``"02 - ..."``)
+        so files saved into one directory sort in lesson order.
+        """
+        pairs: List[Tuple[str, str]] = []
+        for index, item in enumerate(self._done_items(), start=1):
+            assert item.result is not None
+            stem = f"{index:02d} - {item.title}"
+            text = f"{heading_prefix}{item.title}\n\n{item.result.full_text}"
+            pairs.append((stem, text))
+        return pairs
 
     def _index_of(self, item_id: str) -> int:
         for index, item in enumerate(self.items):

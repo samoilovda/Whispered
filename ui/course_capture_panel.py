@@ -11,9 +11,13 @@ download, descramble, or otherwise touch the source site.
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QInputDialog,
@@ -26,7 +30,6 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from application.export_controller import export_single
 from config import get_config, save_config
 from core.i18n import tr
 from core.live.runtime import LiveRuntime
@@ -53,6 +56,12 @@ STATUS_ROLES = {
     CaptureItemStatus.DONE: "success-text",
     CaptureItemStatus.ERROR: "danger-text",
 }
+
+_UNSAFE_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]')
+
+
+def _sanitize_filename(name: str) -> str:
+    return _UNSAFE_FILENAME_CHARS.sub("-", name).strip() or "lesson"
 
 
 class CourseCaptureItemWidget(QWidget):
@@ -171,10 +180,19 @@ class CourseCapturePanel(QWidget):
         self.start_stop_btn.clicked.connect(self._toggle_capture)
         self.start_stop_btn.setEnabled(False)
         actions_layout.addWidget(self.start_stop_btn)
+        actions_layout.addStretch()
+        self.format_combo = QComboBox()
+        self.format_combo.addItem(tr("course_format_txt"), "txt")
+        self.format_combo.addItem(tr("course_format_md"), "md")
+        actions_layout.addWidget(self.format_combo)
         self.combine_btn = QPushButton(tr("course_combine"))
         self.combine_btn.clicked.connect(self._combine_into_document)
         self.combine_btn.setEnabled(False)
         actions_layout.addWidget(self.combine_btn)
+        self.export_per_lesson_btn = QPushButton(tr("course_export_per_lesson"))
+        self.export_per_lesson_btn.clicked.connect(self._export_per_lesson)
+        self.export_per_lesson_btn.setEnabled(False)
+        actions_layout.addWidget(self.export_per_lesson_btn)
         self.clear_btn = QPushButton(tr("course_clear"))
         self.clear_btn.clicked.connect(self._clear_queue)
         self.clear_btn.setEnabled(False)
@@ -222,24 +240,54 @@ class CourseCapturePanel(QWidget):
         ]
         self._refresh_list()
 
+    def _selected_export_format(self) -> str:
+        return self.format_combo.currentData() or "txt"
+
     def _combine_into_document(self) -> None:
-        combined = self.queue.combined_result()
-        if combined is None:
+        text = self.queue.combined_text()
+        if text is None:
             return
+        ext = self._selected_export_format()
+        file_filter = "Markdown (*.md)" if ext == "md" else "Text (*.txt)"
         path, _ = QFileDialog.getSaveFileName(
             self,
             tr("course_combine_title"),
-            tr("course_combine_default_name"),
-            "Text (*.txt)",
+            f"course_transcript.{ext}",
+            file_filter,
         )
         if not path:
             return
         try:
-            export_single(combined, path, "txt")
+            Path(path).write_text(text, encoding="utf-8")
             show_toast(self, tr("course_combine_success", path=path), "success")
         except OSError as exc:
-            logger.warning("Failed to export combined course transcript: %s", exc)
+            logger.warning("Failed to save combined course transcript: %s", exc)
             show_toast(self, tr("course_combine_error", error=str(exc)), "error")
+
+    def _export_per_lesson(self) -> None:
+        pairs = self.queue.per_lesson_texts()
+        if not pairs:
+            return
+        directory = QFileDialog.getExistingDirectory(self, tr("course_export_dir_title"))
+        if not directory:
+            return
+        ext = self._selected_export_format()
+        failed = 0
+        for stem, text in pairs:
+            path = Path(directory) / f"{_sanitize_filename(stem)}.{ext}"
+            try:
+                path.write_text(text, encoding="utf-8")
+            except OSError as exc:
+                logger.warning("Failed to save lesson file %s: %s", path, exc)
+                failed += 1
+        if failed:
+            show_toast(
+                self, tr("course_export_per_lesson_partial", count=failed), "warning"
+            )
+        else:
+            show_toast(
+                self, tr("course_export_per_lesson_success", dir=directory), "success"
+            )
 
     def _sync_visual_order(self, *_args) -> None:
         ids: list[str] = []
@@ -274,6 +322,7 @@ class CourseCapturePanel(QWidget):
         is_capturing = self._active_item_id is not None
         self.clear_btn.setEnabled(total > 0 and not is_capturing)
         self.combine_btn.setEnabled(done > 0)
+        self.export_per_lesson_btn.setEnabled(done > 0)
         has_next = self.queue.next_pending() is not None
         self.start_stop_btn.setEnabled(is_capturing or has_next)
         if not is_capturing:

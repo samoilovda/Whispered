@@ -86,13 +86,13 @@ def test_item_by_id_unknown_raises_keyerror():
         queue.item_by_id("missing")
 
 
-def test_combined_result_is_none_with_no_done_items():
+def test_combined_text_is_none_with_no_done_items():
     queue = CaptureQueue()
     queue.add_item("Урок 1")
-    assert queue.combined_result() is None
+    assert queue.combined_text() is None
 
 
-def test_combined_result_stitches_done_items_with_headings():
+def test_combined_text_stitches_done_items_with_headings_on_own_lines():
     queue = CaptureQueue()
     first = queue.add_item("Урок 1")
     second = queue.add_item("Урок 2")
@@ -102,21 +102,47 @@ def test_combined_result_stitches_done_items_with_headings():
         segments=[Segment(start=0.0, end=1.0, text="hello")], language="ru", duration=1.0,
     ))
     queue.start_recording(second.id)
-    queue.fail_recording(second.id, "boom")  # excluded from the combined result
+    queue.fail_recording(second.id, "boom")  # excluded from the combined text
     queue.start_recording(third.id)
     queue.finish_recording(third.id, TranscriptionResult(
         segments=[Segment(start=0.0, end=2.0, text="world")], language="ru", duration=2.0,
     ))
 
-    combined = queue.combined_result()
-    assert combined is not None
-    assert combined.language == "ru"
-    texts = [seg.text for seg in combined.segments]
-    assert texts == ["## Урок 1", "hello", "## Урок 3", "world"]
-    # every segment lands on one monotonically increasing timeline
-    starts = [seg.start for seg in combined.segments]
-    assert starts == sorted(starts)
-    assert combined.full_text == "## Урок 1 hello ## Урок 3 world"
+    combined = queue.combined_text()
+    assert combined == "## Урок 1\n\nhello\n\n## Урок 3\n\nworld"
+
+
+def test_combined_text_prepends_course_title_heading():
+    queue = CaptureQueue(course_title="Вокальный курс")
+    item = queue.add_item("Урок 1")
+    queue.start_recording(item.id)
+    queue.finish_recording(item.id, TranscriptionResult(
+        segments=[Segment(start=0.0, end=1.0, text="hello")], language="ru", duration=1.0,
+    ))
+    combined = queue.combined_text()
+    assert combined == "# Вокальный курс\n\n## Урок 1\n\nhello"
+
+
+def test_per_lesson_texts_numbers_only_done_items_in_queue_order():
+    queue = CaptureQueue()
+    first = queue.add_item("Урок 1")
+    second = queue.add_item("Урок 2")
+    third = queue.add_item("Урок 3")
+    queue.start_recording(first.id)
+    queue.finish_recording(first.id, TranscriptionResult(
+        segments=[Segment(start=0.0, end=1.0, text="hello")], language="ru", duration=1.0,
+    ))
+    queue.start_recording(second.id)
+    queue.fail_recording(second.id, "boom")  # excluded
+    queue.start_recording(third.id)
+    queue.finish_recording(third.id, TranscriptionResult(
+        segments=[Segment(start=0.0, end=2.0, text="world")], language="ru", duration=2.0,
+    ))
+
+    pairs = queue.per_lesson_texts()
+    assert [stem for stem, _ in pairs] == ["01 - Урок 1", "02 - Урок 3"]
+    assert pairs[0][1] == "## Урок 1\n\nhello"
+    assert pairs[1][1] == "## Урок 3\n\nworld"
 
 
 def test_history_title_prefixes_course_name_when_set():
@@ -125,16 +151,3 @@ def test_history_title_prefixes_course_name_when_set():
     assert queue.history_title(item) == "Урок 1"
     queue.course_title = "Вокальный курс"
     assert queue.history_title(item) == "Вокальный курс — Урок 1"
-
-
-def test_combined_result_prepends_course_title_heading():
-    queue = CaptureQueue(course_title="Вокальный курс")
-    item = queue.add_item("Урок 1")
-    queue.start_recording(item.id)
-    queue.finish_recording(item.id, TranscriptionResult(
-        segments=[Segment(start=0.0, end=1.0, text="hello")], language="ru", duration=1.0,
-    ))
-    combined = queue.combined_result()
-    assert combined is not None
-    texts = [seg.text for seg in combined.segments]
-    assert texts == ["# Вокальный курс", "## Урок 1", "hello"]

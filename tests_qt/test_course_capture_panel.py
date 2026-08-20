@@ -63,6 +63,7 @@ def test_runtime_finished_saves_history_and_marks_done(monkeypatch, process_even
     assert saved["source_name"] == "Урок 1"
     assert received_ids == [42]
     assert panel.combine_btn.isEnabled() is True
+    assert panel.export_per_lesson_btn.isEnabled() is True
     panel.shutdown()
 
 
@@ -109,6 +110,68 @@ def test_remove_item_ignored_while_it_is_recording(process_events):
     panel._remove_item(item.id)
 
     assert panel.queue.item_by_id(item.id) is item
+    panel.shutdown()
+
+
+def _finish_one_lesson(panel, title="Урок 1", text="hello"):
+    item = panel.queue.add_item(title)
+    panel.queue.start_recording(item.id)
+    panel.queue.finish_recording(item.id, TranscriptionResult(
+        segments=[Segment(start=0.0, end=1.0, text=text)], language="ru", duration=1.0,
+    ))
+    panel._refresh_list()
+    return item
+
+
+def test_combine_into_document_writes_chosen_format(tmp_path, monkeypatch, process_events):
+    panel = _make_panel()
+    _finish_one_lesson(panel)
+
+    target = tmp_path / "combined.md"
+    monkeypatch.setattr(
+        "ui.course_capture_panel.QFileDialog.getSaveFileName",
+        lambda *a, **k: (str(target), "Markdown (*.md)"),
+    )
+    index = panel.format_combo.findData("md")
+    panel.format_combo.setCurrentIndex(index)
+
+    panel._combine_into_document()
+    process_events()
+
+    assert target.read_text(encoding="utf-8") == "## Урок 1\n\nhello"
+    panel.shutdown()
+
+
+def test_combine_into_document_cancelled_dialog_writes_nothing(tmp_path, monkeypatch, process_events):
+    panel = _make_panel()
+    _finish_one_lesson(panel)
+    monkeypatch.setattr(
+        "ui.course_capture_panel.QFileDialog.getSaveFileName", lambda *a, **k: ("", "")
+    )
+    panel._combine_into_document()
+    process_events()
+    assert list(tmp_path.iterdir()) == []
+    panel.shutdown()
+
+
+def test_export_per_lesson_writes_one_file_per_done_item(tmp_path, monkeypatch, process_events):
+    panel = _make_panel()
+    _finish_one_lesson(panel, "Урок 1", "hello")
+    _finish_one_lesson(panel, "Урок 2", "world")
+
+    monkeypatch.setattr(
+        "ui.course_capture_panel.QFileDialog.getExistingDirectory",
+        lambda *a, **k: str(tmp_path),
+    )
+    index = panel.format_combo.findData("txt")
+    panel.format_combo.setCurrentIndex(index)
+
+    panel._export_per_lesson()
+    process_events()
+
+    files = sorted(p.name for p in tmp_path.iterdir())
+    assert files == ["01 - Урок 1.txt", "02 - Урок 2.txt"]
+    assert (tmp_path / "01 - Урок 1.txt").read_text(encoding="utf-8") == "## Урок 1\n\nhello"
     panel.shutdown()
 
 
