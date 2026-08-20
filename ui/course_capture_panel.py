@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QPushButton,
@@ -26,7 +27,7 @@ from PyQt6.QtWidgets import (
 )
 
 from application.export_controller import export_single
-from config import get_config
+from config import get_config, save_config
 from core.i18n import tr
 from core.live.runtime import LiveRuntime
 from core.logger import get_logger
@@ -104,7 +105,7 @@ class CourseCapturePanel(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.queue = CaptureQueue()
+        self.queue = CaptureQueue(course_title=get_config().course_capture_course_name)
         self._runtime = LiveRuntime(self)
         self._active_item_id: str | None = None
         self._setup_ui()
@@ -135,6 +136,15 @@ class CourseCapturePanel(QWidget):
         hint.setProperty("role", "muted")
         hint.setWordWrap(True)
         layout.addWidget(hint)
+
+        course_name_row = QHBoxLayout()
+        course_name_label = QLabel(tr("course_name_label"))
+        course_name_row.addWidget(course_name_label)
+        self.course_name_edit = QLineEdit(self.queue.course_title)
+        self.course_name_edit.setPlaceholderText(tr("course_name_placeholder"))
+        self.course_name_edit.editingFinished.connect(self._on_course_title_changed)
+        course_name_row.addWidget(self.course_name_edit, stretch=1)
+        layout.addLayout(course_name_row)
 
         self.setup = LiveSetupPanel()
         self.setup.mic_check.setChecked(False)
@@ -177,6 +187,15 @@ class CourseCapturePanel(QWidget):
         self._runtime.session_state_changed.connect(self._on_session_state_changed)
 
     # -------------------------------------------------------------- queue
+
+    def _on_course_title_changed(self) -> None:
+        title = self.course_name_edit.text().strip()
+        if title == self.queue.course_title:
+            return
+        self.queue.course_title = title
+        cfg = get_config()
+        cfg.course_capture_course_name = title
+        save_config()
 
     def _add_lesson(self) -> None:
         default_title = tr("course_lesson_default_title", number=len(self.queue.items) + 1)
@@ -339,7 +358,7 @@ class CourseCapturePanel(QWidget):
                 source_path="",
                 model=get_config().default_model,
                 source_kind="live",
-                source_name=item.title,
+                source_name=self.queue.history_title(item),
             )
             self.lesson_saved.emit(record_id)
         except Exception:

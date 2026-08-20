@@ -91,6 +91,11 @@ class Config:
     # The batch pipeline never reads this flag.
     live_transcription_enabled: bool = False
 
+    # Course Capture panel: last-used course name, prefixed onto each saved
+    # lesson's history title (see ui/course_capture_panel.py). Gated by
+    # live_transcription_enabled like the rest of the Live pipeline.
+    course_capture_course_name: str = ""
+
     # AI Chat settings
     chat_context_chars: int = 48_000   # max transcript chars sent as system context
 

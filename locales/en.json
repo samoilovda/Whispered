@@ -206,6 +206,8 @@
   "course_combine_default_name": "course_transcript.txt",
   "course_combine_success": "Saved the combined transcript to {path}",
   "course_combine_error": "Could not save the combined transcript: {error}",
+  "course_name_label": "Course name",
+  "course_name_placeholder": "e.g. Vocal course",
   "rename_speakers_title": "Rename Speakers",
   "transcription_label": "Transcription",
   "tooltip_transcribe": "Transcribe  (Ctrl+T)",

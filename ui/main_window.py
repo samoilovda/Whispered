@@ -553,6 +553,10 @@ class MainWindow(QMainWindow):
         self.batch_panel.queue_changed.connect(self.status_bar.set_queue_count)
         self.status_bar.bind_course(self.course_capture_panel)
         self.course_capture_panel.queue_changed.connect(self.status_bar.set_course_count)
+        # Course Capture sits on the same not-GA system-audio pipeline as
+        # Live (see Config.live_transcription_enabled) and follows the same
+        # opt-in gate rather than shipping ahead of it.
+        self.status_bar.course_button.setVisible(get_config().live_transcription_enabled)
         self.book_panel.connection_changed.connect(self.status_bar.set_llm_status)
         self.progress_timeline = ProgressTimeline()
         self.progress_timeline.stages = [
@@ -907,6 +911,7 @@ class MainWindow(QMainWindow):
         self.draft_record._source_buttons["live"].setEnabled(
             cfg.live_transcription_enabled
         )
+        self.status_bar.course_button.setVisible(cfg.live_transcription_enabled)
 
     def _apply_config_defaults(self):
         """Re-seed header controls from the saved config (after settings change)."""

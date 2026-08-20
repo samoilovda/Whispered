@@ -206,6 +206,8 @@
   "course_combine_default_name": "course_transcript.txt",
   "course_combine_success": "Объединённый текст сохранён: {path}",
   "course_combine_error": "Не удалось сохранить объединённый текст: {error}",
+  "course_name_label": "Название курса",
+  "course_name_placeholder": "например, Вокальный курс",
   "rename_speakers_title": "Переименовать спикеров",
   "transcription_label": "Транскрипт",
   "tooltip_transcribe": "Транскрибировать  (Ctrl+T)",

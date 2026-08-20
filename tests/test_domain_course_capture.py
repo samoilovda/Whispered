@@ -117,3 +117,24 @@ def test_combined_result_stitches_done_items_with_headings():
     starts = [seg.start for seg in combined.segments]
     assert starts == sorted(starts)
     assert combined.full_text == "## Урок 1 hello ## Урок 3 world"
+
+
+def test_history_title_prefixes_course_name_when_set():
+    queue = CaptureQueue()
+    item = queue.add_item("Урок 1")
+    assert queue.history_title(item) == "Урок 1"
+    queue.course_title = "Вокальный курс"
+    assert queue.history_title(item) == "Вокальный курс — Урок 1"
+
+
+def test_combined_result_prepends_course_title_heading():
+    queue = CaptureQueue(course_title="Вокальный курс")
+    item = queue.add_item("Урок 1")
+    queue.start_recording(item.id)
+    queue.finish_recording(item.id, TranscriptionResult(
+        segments=[Segment(start=0.0, end=1.0, text="hello")], language="ru", duration=1.0,
+    ))
+    combined = queue.combined_result()
+    assert combined is not None
+    texts = [seg.text for seg in combined.segments]
+    assert texts == ["# Вокальный курс", "## Урок 1", "hello"]

@@ -52,6 +52,7 @@ class CaptureQueue:
     """
 
     items: List[CaptureQueueItem] = field(default_factory=list)
+    course_title: str = ""
 
     def add_item(self, title: str) -> CaptureQueueItem:
         item = CaptureQueueItem(id=uuid.uuid4().hex, title=title)
@@ -97,6 +98,12 @@ class CaptureQueue:
         item.error = error
         return item
 
+    def history_title(self, item: CaptureQueueItem) -> str:
+        """Display title for saving *item* to history/Library — prefixed
+        with the course name, when set, so lessons from different courses
+        stay distinguishable in a flat list."""
+        return f"{self.course_title} — {item.title}" if self.course_title else item.title
+
     def combined_result(self, heading_prefix: str = "## ") -> Optional[TranscriptionResult]:
         """One synthetic ``TranscriptionResult`` stitching every ``DONE``
         item's segments together, in queue order, each preceded by a
@@ -118,6 +125,10 @@ class CaptureQueue:
         segments: List[Segment] = []
         offset = 0.0
         language = ""
+        if self.course_title:
+            title_end = offset + 1.0
+            segments.append(Segment(start=offset, end=title_end, text=f"# {self.course_title}"))
+            offset = title_end
         for item in done_items:
             result = item.result
             assert result is not None
