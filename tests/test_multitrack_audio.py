@@ -172,3 +172,21 @@ def test_remap_segment_to_track_time():
     assert remapped.end == pytest.approx(10.8)
     assert remapped.text == "hi"
     assert remapped.speaker == "track_1"
+
+
+def test_probe_media_duration_on_synthetic_wav(tmp_path):
+    from core.external_tools import resolve_tool
+    from core.multitrack_audio import probe_media_duration
+
+    if not resolve_tool("ffprobe"):
+        pytest.skip("ffprobe not installed")
+    path = str(tmp_path / "probe.wav")
+    write_wav(path, _tone(1.5))
+    assert probe_media_duration(path) == pytest.approx(1.5, abs=0.05)
+
+
+def test_probe_media_duration_missing_ffprobe_raises(monkeypatch, tmp_path):
+    import core.multitrack_audio as mod
+    monkeypatch.setattr("core.external_tools.resolve_tool", lambda name: None)
+    with pytest.raises(RuntimeError):
+        mod.probe_media_duration(str(tmp_path / "missing.wav"))
