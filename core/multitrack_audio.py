@@ -13,15 +13,17 @@ hands back the exact bounded PCM per turn.
 
 from __future__ import annotations
 
+import bisect
 import wave
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Iterator, List, Tuple
+from typing import Iterator, List, Sequence, Tuple
+
+from domain.transcription import Segment
 
 from core.live.contracts import AudioFrame
 from core.live.vad import PerSourceVAD, VADConfig, pcm_rms
 from core.logger import get_logger
-from transcriber import FFmpegUnavailableError, MediaConversionError, _convert_to_wav  # noqa: F401 re-exported for callers
 
 logger = get_logger(__name__)
 
@@ -45,7 +47,15 @@ class SpeechWindow:
 def convert_track_to_wav(path: Path) -> str:
     """Decode a track (m4a or any ffmpeg-readable format) to a 16kHz mono
     WAV, reusing transcriber.py's converter so both pipelines share one
-    FFmpeg invocation and error surface."""
+    FFmpeg invocation and error surface.
+
+    Imported lazily: several tests replace ``sys.modules['transcriber']``
+    with a lightweight stub (see tests/test_batch_processor.py,
+    tests/test_exporters.py), and a module-level import here would bind
+    whichever version happened to be installed first in that shared
+    process, depending on test collection order.
+    """
+    from transcriber import _convert_to_wav
     return _convert_to_wav(str(path))
 
 
@@ -165,3 +175,73 @@ def speech_coverage_seconds(windows: List[SpeechWindow]) -> float:
 def wav_duration_seconds(path: str) -> float:
     with wave.open(path, "rb") as wf:
         return wf.getnframes() / float(wf.getframerate())
+
+
+@dataclass(frozen=True)
+class GatedTrack:
+    """Speech windows of one track concatenated into a single WAV, with the
+    bookkeeping needed to map whisper's output timestamps (in this
+    concatenated timeline) back to the original track's timeline.
+
+    Concatenating windows into one file — rather than transcribing each
+    window as its own whisper.cpp invocation — matters because every
+    invocation reloads the ggml model; for a track with dozens of short
+    speech windows that dominates wall-clock time.
+    """
+
+    pcm: bytes
+    sample_rate: int
+    # (gated_start, gated_end, original_start) per window, sorted by gated_start.
+    mapping: Tuple[Tuple[float, float, float], ...]
+
+
+def build_gated_track(
+    windows: Sequence[SpeechWindow],
+    sample_rate: int = TARGET_SAMPLE_RATE,
+    gap_seconds: float = 0.3,
+) -> GatedTrack:
+    """Concatenate speech windows with a short silence gap between them."""
+    gap_pcm = b"\x00\x00" * int(sample_rate * gap_seconds)
+    pcm_parts: List[bytes] = []
+    mapping: List[Tuple[float, float, float]] = []
+    cursor = 0.0
+    for i, window in enumerate(windows):
+        pcm_parts.append(window.pcm)
+        gated_end = cursor + window.duration
+        mapping.append((cursor, gated_end, window.start))
+        cursor = gated_end
+        if gap_seconds > 0 and i < len(windows) - 1:
+            pcm_parts.append(gap_pcm)
+            cursor += gap_seconds
+    return GatedTrack(pcm=b"".join(pcm_parts), sample_rate=sample_rate, mapping=tuple(mapping))
+
+
+def remap_gated_time(gated_time: float, mapping: Sequence[Tuple[float, float, float]]) -> float:
+    """Map a timestamp in the gated (concatenated) timeline back to the
+    original track's timeline, using the window whose gated range contains
+    it. A timestamp that falls in a silence gap (shouldn't normally happen
+    for a whisper segment boundary) is clamped to the nearest window edge.
+    """
+    if not mapping:
+        return gated_time
+    starts = [m[0] for m in mapping]
+    i = bisect.bisect_right(starts, gated_time) - 1
+    if i < 0:
+        gated_start, _gated_end, original_start = mapping[0]
+        return original_start
+    gated_start, gated_end, original_start = mapping[i]
+    if gated_time <= gated_end:
+        return original_start + (gated_time - gated_start)
+    # In a gap: clamp to the end of the preceding window rather than
+    # extrapolating into the next one's original time.
+    return original_start + (gated_end - gated_start)
+
+
+def remap_segment_to_track_time(seg: Segment, mapping: Sequence[Tuple[float, float, float]]) -> Segment:
+    """Return a copy of ``seg`` with start/end mapped from gated-track time
+    back to the original track's timeline (see :func:`remap_gated_time`)."""
+    return replace(
+        seg,
+        start=remap_gated_time(seg.start, mapping),
+        end=remap_gated_time(seg.end, mapping),
+    )

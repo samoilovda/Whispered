@@ -9,14 +9,19 @@ import struct
 import pytest
 
 from core.multitrack_audio import (
+    SpeechWindow,
+    build_gated_track,
     detect_speech_windows,
     read_wav_int16_mono,
+    remap_gated_time,
+    remap_segment_to_track_time,
     rms_in_range,
     speech_coverage_seconds,
     wav_duration_seconds,
     wav_to_frames,
     write_wav,
 )
+from domain.transcription import Segment
 
 SAMPLE_RATE = 16_000
 
@@ -115,8 +120,6 @@ def test_rms_in_range_empty_range_is_zero():
 
 
 def test_speech_coverage_seconds_sums_window_durations():
-    from core.multitrack_audio import SpeechWindow
-
     windows = [SpeechWindow(0.0, 1.5, b""), SpeechWindow(3.0, 4.0, b"")]
     assert speech_coverage_seconds(windows) == pytest.approx(2.5)
 
@@ -125,3 +128,47 @@ def test_wav_duration_seconds(tmp_path):
     path = str(tmp_path / "dur.wav")
     write_wav(path, _tone(2.0))
     assert wav_duration_seconds(path) == pytest.approx(2.0, abs=0.01)
+
+
+def test_build_gated_track_concatenates_with_gaps():
+    windows = [
+        SpeechWindow(start=10.0, end=11.0, pcm=_tone(1.0)),
+        SpeechWindow(start=20.0, end=21.5, pcm=_tone(1.5)),
+    ]
+    gated = build_gated_track(windows, sample_rate=SAMPLE_RATE, gap_seconds=0.5)
+    assert gated.mapping == (
+        (0.0, 1.0, 10.0),
+        (1.5, 3.0, 20.0),
+    )
+    expected_len = len(windows[0].pcm) + len(windows[1].pcm) + int(SAMPLE_RATE * 0.5) * 2
+    assert len(gated.pcm) == expected_len
+
+
+def test_remap_gated_time_inside_a_window():
+    mapping = ((0.0, 1.0, 10.0), (1.5, 3.0, 20.0))
+    assert remap_gated_time(0.4, mapping) == pytest.approx(10.4)
+    assert remap_gated_time(2.0, mapping) == pytest.approx(20.5)
+
+
+def test_remap_gated_time_before_first_window_clamps_to_start():
+    mapping = ((1.0, 2.0, 10.0), (3.0, 4.0, 20.0))
+    assert remap_gated_time(0.0, mapping) == pytest.approx(10.0)
+
+
+def test_remap_gated_time_in_gap_clamps_to_preceding_window_end():
+    mapping = ((0.0, 1.0, 10.0), (1.5, 3.0, 20.0))
+    assert remap_gated_time(1.2, mapping) == pytest.approx(11.0)
+
+
+def test_remap_gated_time_empty_mapping_is_identity():
+    assert remap_gated_time(5.0, ()) == 5.0
+
+
+def test_remap_segment_to_track_time():
+    mapping = ((0.0, 1.0, 10.0), (1.5, 3.0, 20.0))
+    seg = Segment(start=0.2, end=0.8, text="hi", speaker="track_1")
+    remapped = remap_segment_to_track_time(seg, mapping)
+    assert remapped.start == pytest.approx(10.2)
+    assert remapped.end == pytest.approx(10.8)
+    assert remapped.text == "hi"
+    assert remapped.speaker == "track_1"
