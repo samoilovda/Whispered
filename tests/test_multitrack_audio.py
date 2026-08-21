@@ -1,0 +1,127 @@
+"""core/multitrack_audio.py speech-window extraction, on synthetic PCM
+(silence/tone/silence) per docs/MULTITRACK_ZOOM_PLAN.ru.md M2 DoD."""
+
+from __future__ import annotations
+
+import math
+import struct
+
+import pytest
+
+from core.multitrack_audio import (
+    detect_speech_windows,
+    read_wav_int16_mono,
+    rms_in_range,
+    speech_coverage_seconds,
+    wav_duration_seconds,
+    wav_to_frames,
+    write_wav,
+)
+
+SAMPLE_RATE = 16_000
+
+
+def _tone(duration_s: float, freq: float = 440.0, amplitude: int = 12000) -> bytes:
+    n = int(SAMPLE_RATE * duration_s)
+    samples = [int(amplitude * math.sin(2 * math.pi * freq * i / SAMPLE_RATE)) for i in range(n)]
+    return struct.pack(f"<{n}h", *samples)
+
+
+def _silence(duration_s: float) -> bytes:
+    n = int(SAMPLE_RATE * duration_s)
+    return b"\x00\x00" * n
+
+
+def _write_pattern(path: str, *chunks: bytes) -> None:
+    write_wav(path, b"".join(chunks), sample_rate=SAMPLE_RATE)
+
+
+def test_wav_round_trip(tmp_path):
+    path = str(tmp_path / "x.wav")
+    pcm = _tone(0.5)
+    write_wav(path, pcm)
+    read_pcm, sr = read_wav_int16_mono(path)
+    assert sr == SAMPLE_RATE
+    assert read_pcm == pcm
+
+
+def test_wav_to_frames_covers_whole_signal_in_order(tmp_path):
+    path = str(tmp_path / "x.wav")
+    _write_pattern(path, _tone(1.0))
+    frames = list(wav_to_frames(path, source="t"))
+    assert frames
+    assert all(f.source == "t" for f in frames)
+    timestamps = [f.monotonic_timestamp for f in frames]
+    assert timestamps == sorted(timestamps)
+    total_pcm = b"".join(f.pcm for f in frames)
+    assert len(total_pcm) <= SAMPLE_RATE * 2  # int16 bytes for 1s, allowing tail truncation
+
+
+def test_detect_speech_windows_silence_tone_silence(tmp_path):
+    path = str(tmp_path / "sts.wav")
+    _write_pattern(path, _silence(2.0), _tone(3.0), _silence(2.0))
+    windows = detect_speech_windows(
+        path,
+        source="participant",
+        context_padding_seconds=0.2,
+        end_silence_seconds=0.5,
+        min_duration_seconds=0.4,
+    )
+    assert len(windows) == 1
+    w = windows[0]
+    # Tone starts at 2.0s and runs 3.0s; padding adds ~0.2s each side.
+    assert 1.7 <= w.start <= 2.3
+    assert 4.6 <= w.end <= 5.3
+    assert w.pcm
+
+
+def test_detect_speech_windows_pure_silence_yields_nothing(tmp_path):
+    path = str(tmp_path / "silence.wav")
+    _write_pattern(path, _silence(2.0))
+    windows = detect_speech_windows(path, source="p")
+    assert windows == []
+
+
+def test_detect_speech_windows_merges_close_speech_runs(tmp_path):
+    path = str(tmp_path / "merge.wav")
+    # Two tone bursts separated by a gap shorter than end_silence_seconds
+    # should merge into a single window.
+    _write_pattern(path, _silence(1.0), _tone(1.0), _silence(0.3), _tone(1.0), _silence(1.0))
+    windows = detect_speech_windows(
+        path, source="p", end_silence_seconds=0.6, context_padding_seconds=0.1, min_duration_seconds=0.1
+    )
+    assert len(windows) == 1
+
+
+def test_detect_speech_windows_drops_short_bursts_below_min_duration(tmp_path):
+    path = str(tmp_path / "short.wav")
+    _write_pattern(path, _silence(1.0), _tone(0.05), _silence(2.0))
+    windows = detect_speech_windows(
+        path, source="p", end_silence_seconds=0.3, context_padding_seconds=0.01, min_duration_seconds=0.4
+    )
+    assert windows == []
+
+
+def test_rms_in_range_silence_is_near_zero_tone_is_higher():
+    silence_pcm = _silence(1.0)
+    tone_pcm = _tone(1.0)
+    assert rms_in_range(silence_pcm, SAMPLE_RATE, 0.0, 1.0) == pytest.approx(0.0, abs=1e-6)
+    assert rms_in_range(tone_pcm, SAMPLE_RATE, 0.0, 1.0) > 0.1
+
+
+def test_rms_in_range_empty_range_is_zero():
+    tone_pcm = _tone(1.0)
+    assert rms_in_range(tone_pcm, SAMPLE_RATE, 0.5, 0.5) == 0.0
+
+
+def test_speech_coverage_seconds_sums_window_durations():
+    from core.multitrack_audio import SpeechWindow
+
+    windows = [SpeechWindow(0.0, 1.5, b""), SpeechWindow(3.0, 4.0, b"")]
+    assert speech_coverage_seconds(windows) == pytest.approx(2.5)
+
+
+def test_wav_duration_seconds(tmp_path):
+    path = str(tmp_path / "dur.wav")
+    write_wav(path, _tone(2.0))
+    assert wav_duration_seconds(path) == pytest.approx(2.0, abs=0.01)
