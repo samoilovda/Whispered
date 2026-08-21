@@ -174,6 +174,31 @@ def test_remap_segment_to_track_time():
     assert remapped.speaker == "track_1"
 
 
+def test_remap_segment_spanning_two_windows_stays_anchored_to_one_window():
+    # windows.py bug regression: window 0 is real time [1049.5, 1050.0],
+    # window 1 is real time [1200.0, 1205.0] — minutes apart in the real
+    # track even though they're only 0.3s apart in the gated timeline.
+    # A whisper segment that (wrongly) spans the gated boundary between
+    # them must NOT get start and end pulled from two different windows —
+    # that would fabricate a multi-minute-long segment and break
+    # chronological ordering once merged with other tracks.
+    mapping = ((0.0, 0.5, 1049.5), (0.8, 5.8, 1200.0))
+    # start (0.6) is past window 0's gated end (0.5), in the gap; end (1.0)
+    # is inside window 1. Midpoint (0.8) falls in window 1 -> both
+    # timestamps anchored there, duration preserved exactly, no
+    # cross-window jump of ~150 real seconds.
+    seg = Segment(start=0.6, end=1.0, text="spans the gap", speaker="track_1")
+    remapped = remap_segment_to_track_time(seg, mapping)
+    assert remapped.end - remapped.start == pytest.approx(seg.end - seg.start)
+    assert remapped.start == pytest.approx(1199.8)
+    assert remapped.end == pytest.approx(1200.2)
+
+
+def test_remap_segment_empty_mapping_returns_unchanged():
+    seg = Segment(start=1.0, end=2.0, text="x")
+    assert remap_segment_to_track_time(seg, ()) is seg
+
+
 def test_probe_media_duration_on_synthetic_wav(tmp_path):
     from core.external_tools import resolve_tool
     from core.multitrack_audio import probe_media_duration

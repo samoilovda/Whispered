@@ -219,8 +219,12 @@ def build_gated_track(
 def remap_gated_time(gated_time: float, mapping: Sequence[Tuple[float, float, float]]) -> float:
     """Map a timestamp in the gated (concatenated) timeline back to the
     original track's timeline, using the window whose gated range contains
-    it. A timestamp that falls in a silence gap (shouldn't normally happen
-    for a whisper segment boundary) is clamped to the nearest window edge.
+    it. A timestamp that falls in a silence gap is clamped to the nearest
+    window edge.
+
+    Only safe to call independently on a single point in time. A whisper
+    segment's start and end must NOT be remapped through two separate
+    calls to this function — see :func:`remap_segment_to_track_time`.
     """
     if not mapping:
         return gated_time
@@ -239,12 +243,35 @@ def remap_gated_time(gated_time: float, mapping: Sequence[Tuple[float, float, fl
 
 def remap_segment_to_track_time(seg: Segment, mapping: Sequence[Tuple[float, float, float]]) -> Segment:
     """Return a copy of ``seg`` with start/end mapped from gated-track time
-    back to the original track's timeline (see :func:`remap_gated_time`)."""
-    return replace(
-        seg,
-        start=remap_gated_time(seg.start, mapping),
-        end=remap_gated_time(seg.end, mapping),
-    )
+    back to the original track's timeline.
+
+    whisper.cpp's own segmentation ignores the window boundaries used to
+    build the gated track — a single whisper segment can span two speech
+    windows that were originally seconds or minutes apart in the real
+    recording (they're only ~0.3s apart in the gated audio). Remapping
+    start and end independently (each via its own window lookup, as
+    :func:`remap_gated_time` does for a lone timestamp) would then shift
+    them by two different, unrelated offsets: a fabricated, wildly wrong
+    duration, and — once merged chronologically with the other track's
+    segments — timestamps that jump backward relative to segments actually
+    sorted correctly.
+
+    Instead, the whole segment is anchored to a single window: whichever
+    one contains its midpoint. Both start and end get that window's one
+    offset, so real duration is preserved exactly and ordering stays
+    monotonic, at the cost of occasionally over- or under-shooting a
+    window's own original bounds by the same amount for a segment that
+    genuinely straddled two windows.
+    """
+    if not mapping:
+        return seg
+    midpoint = (seg.start + seg.end) / 2
+    starts = [m[0] for m in mapping]
+    i = bisect.bisect_right(starts, midpoint) - 1
+    i = max(0, min(i, len(mapping) - 1))
+    gated_start, _gated_end, original_start = mapping[i]
+    shift = original_start - gated_start
+    return replace(seg, start=seg.start + shift, end=seg.end + shift)
 
 
 def probe_media_duration(path: str) -> float:
