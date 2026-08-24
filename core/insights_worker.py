@@ -46,6 +46,36 @@ def _strip_json_fences(text: str) -> str:
     return text.strip()
 
 
+def _salvage_truncated_array(raw: str) -> Optional[list]:
+    """Recover the complete elements of a cut-off JSON array.
+
+    A local reasoning model that spends its ``max_tokens`` budget mid-array
+    leaves valid elements followed by a half-written one and no closing
+    ``]`` — so both plain parsing and the ``[...]`` regex fail and every
+    insight the model *did* finish is thrown away.  Decoding element by
+    element and stopping at the first incomplete one keeps them.
+
+    Returns the salvaged elements, or None if nothing usable was found.
+    """
+    start = raw.find("[")
+    if start == -1:
+        return None
+    decoder = json.JSONDecoder()
+    items: list = []
+    idx = start + 1
+    while True:
+        while idx < len(raw) and raw[idx] in " \t\r\n,":
+            idx += 1
+        if idx >= len(raw) or raw[idx] == "]":
+            break
+        try:
+            value, idx = decoder.raw_decode(raw, idx)
+        except ValueError:
+            break  # trailing partial element — drop just that one
+        items.append(value)
+    return items or None
+
+
 def _parse_json_response(raw: str, retry_hint: str = "") -> Optional[list]:
     """Try to parse a JSON array from a raw LLM response.
 
@@ -63,6 +93,13 @@ def _parse_json_response(raw: str, retry_hint: str = "") -> Optional[list]:
                 return json.loads(match.group())
             except json.JSONDecodeError:
                 pass
+        salvaged = _salvage_truncated_array(raw)
+        if salvaged is not None:
+            logger.warning(
+                "Insights JSON was cut off; salvaged %d complete item(s)",
+                len(salvaged),
+            )
+            return salvaged
         logger.warning("Failed to parse insights JSON: %.80s", raw)
         return None
 

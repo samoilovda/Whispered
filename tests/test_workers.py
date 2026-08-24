@@ -45,6 +45,33 @@ class TestParseJsonResponse:
         assert _parse_json_response("[]") == []
 
 
+class TestTruncatedJsonSalvage:
+    """A reasoning model that spends its max_tokens budget mid-array leaves
+    no closing `]`, so plain parsing and the `[...]` regex both fail. Every
+    insight it did finish used to be discarded with it."""
+
+    def test_keeps_complete_strings_from_a_cut_off_array(self):
+        raw = '["first question?", "second question?", "third but cut o'
+        assert _parse_json_response(raw) == [
+            "first question?",
+            "second question?",
+        ]
+
+    def test_keeps_complete_objects_from_a_cut_off_array(self):
+        raw = '[{"time": 0, "title": "Intro"}, {"time": 61, "title": "Mid'
+        assert _parse_json_response(raw) == [{"time": 0, "title": "Intro"}]
+
+    def test_salvage_survives_a_fenced_cut_off_array(self):
+        raw = '```json\n["kept one", "kept two", "cut'
+        assert _parse_json_response(raw) == ["kept one", "kept two"]
+
+    def test_cut_off_before_any_complete_item_is_still_a_failure(self):
+        assert _parse_json_response('["only a partial ite') is None
+
+    def test_prose_without_an_array_is_still_a_failure(self):
+        assert _parse_json_response("not json at all") is None
+
+
 # ── chat_worker helpers ───────────────────────────────────────────────────────
 
 from core.chat_worker import _build_system_prompt, _CONTEXT_CHARS
