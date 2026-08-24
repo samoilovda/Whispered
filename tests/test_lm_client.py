@@ -3,6 +3,9 @@
 import json
 import socket
 import sys
+import threading
+import time
+import urllib.error
 from unittest.mock import patch, MagicMock
 
 # Qt stand-ins come from tests/conftest.py, which also installs a bare
@@ -194,41 +197,38 @@ class TestTruncationDetection:
 
 
 class _StalledIterator:
-    """Simulates a connection that never produces a line — every read
-    blocks until the socket-level timeout fires."""
+    """Simulates a connection that accepted the request but never produces
+    a line — every read blocks until the caller gives up."""
+
+    def __init__(self, block: threading.Event):
+        self._block = block
 
     def __iter__(self):
         return self
 
     def __next__(self):
-        raise socket.timeout("no data")
+        self._block.wait()
+        raise StopIteration
 
 
 class TestStreamCancellation:
     """Regression coverage for the R1 gap: a single long socket timeout on
     the SSE read meant is_cancelled() was only checked between already-
     received lines, so Cancel did nothing for a stalled connection until
-    the full request timeout eventually fired — however long that was."""
+    the full request timeout eventually fired — however long that was.
 
-    def test_urlopen_uses_a_short_poll_timeout_not_the_full_one(self):
-        client = LMStudioClient("http://localhost:1234/v1")
-        with patch("urllib.request.urlopen") as mock_open, \
-             patch("urllib.request.Request"):
-            mock_open.return_value = _fake_sse_response([])
-            client.chat_completion_stream(
-                [{"role": "user", "content": "hi"}], timeout=600,
-            )
-            # The socket-level timeout urlopen is given must be the short
-            # poll window, not the caller's 600s budget — otherwise a
-            # stalled connection blocks is_cancelled() checks for 600s.
-            assert mock_open.call_args.kwargs["timeout"] <= 2.0
+    The fix reads the socket on a helper thread and polls a queue here, so
+    the socket keeps the caller's full timeout (a short one poisons
+    CPython's buffered reader) while Cancel is still noticed promptly."""
 
     def test_cancellation_during_a_stalled_stream_returns_promptly(self):
         client = LMStudioClient("http://localhost:1234/v1")
+        block = threading.Event()
         resp = MagicMock()
-        resp.__iter__.return_value = _StalledIterator()
+        resp.__iter__.return_value = _StalledIterator(block)
         resp.__enter__.return_value = resp
         resp.__exit__.return_value = False
+        resp.close.side_effect = lambda: block.set()
 
         calls = {"n": 0}
 
@@ -239,41 +239,59 @@ class TestStreamCancellation:
         with patch("urllib.request.urlopen") as mock_open, \
              patch("urllib.request.Request"):
             mock_open.return_value = resp
+            started = time.monotonic()
             result = client.chat_completion_stream(
                 [{"role": "user", "content": "hi"}],
                 timeout=600,
                 is_cancelled=is_cancelled,
             )
+            elapsed = time.monotonic() - started
 
+        block.set()
         assert result is None
-        # Cancelled on the 3rd check — proves the poll loop rechecks
-        # is_cancelled() every _STREAM_POLL_S rather than blocking for the
-        # full 600s request timeout on a stalled connection.
+        # Cancelled on the 3rd check — proves the consumer rechecks
+        # is_cancelled() on its own clock rather than blocking for the full
+        # 600s request timeout on a stalled connection.
         assert calls["n"] == 3
+        assert elapsed < 30
 
-    def test_stalled_reads_do_not_raise_and_keep_polling(self):
-        """A socket.timeout on an individual poll must not be treated as a
-        stream error — only sustained stalling past the overall deadline
-        (or cancellation) should end the call."""
+    def test_socket_keeps_the_callers_full_timeout(self):
+        """The short poll lives on the queue, not the socket: giving urlopen
+        a 2s timeout is what poisoned the reader ("cannot read from timed
+        out object") for every reasoning-model request whose first token
+        took longer than that to arrive."""
+        client = LMStudioClient("http://localhost:1234/v1")
+        with patch("urllib.request.urlopen") as mock_open, \
+             patch("urllib.request.Request"):
+            mock_open.return_value = _fake_sse_response([])
+            client.chat_completion_stream(
+                [{"role": "user", "content": "hi"}], timeout=600,
+            )
+            assert mock_open.call_args.kwargs["timeout"] == 600
+
+    def test_a_slow_first_token_is_not_an_error(self):
+        """A gap longer than the poll window before the first SSE byte is
+        normal for a reasoning model and must neither fail the call nor
+        reopen the request."""
         client = LMStudioClient("http://localhost:1234/v1")
 
-        class _FlakyThenDone:
-            def __init__(self, stalls: int, lines: list[bytes]):
-                self._stalls = stalls
+        class _SlowThenDone:
+            def __init__(self, delay: float, lines: list[bytes]):
+                self._delay = delay
                 self._lines = iter(lines)
 
             def __iter__(self):
                 return self
 
             def __next__(self):
-                if self._stalls > 0:
-                    self._stalls -= 1
-                    raise socket.timeout("no data yet")
+                if self._delay:
+                    time.sleep(self._delay)
+                    self._delay = 0.0
                 return next(self._lines)
 
         resp = MagicMock()
-        resp.__iter__.return_value = _FlakyThenDone(
-            stalls=3,
+        resp.__iter__.return_value = _SlowThenDone(
+            delay=1.2,
             lines=[
                 b'data: {"choices": [{"delta": {"content": "hi"}}]}',
                 b"data: [DONE]",
@@ -290,3 +308,75 @@ class TestStreamCancellation:
             )
 
         assert result == "hi"
+        # One request, not one per elapsed poll window.
+        assert mock_open.call_count == 1
+
+
+class TestStreamErrors:
+    """A stream that fails must fail once. An earlier reconnect loop
+    retried on any OSError — and urllib.error.URLError *is* an OSError, so
+    a refused connection (LM Studio not running) spun a tight reconnect
+    loop for the whole 300s timeout instead of returning immediately."""
+
+    def test_connection_refused_returns_immediately_without_retrying(self):
+        client = LMStudioClient("http://localhost:1234/v1")
+        with patch("urllib.request.urlopen") as mock_open, \
+             patch("urllib.request.Request"):
+            mock_open.side_effect = urllib.error.URLError(
+                ConnectionRefusedError("refused")
+            )
+            started = time.monotonic()
+            result = client.chat_completion_stream(
+                [{"role": "user", "content": "hi"}], timeout=300,
+            )
+            elapsed = time.monotonic() - started
+
+        assert result is None
+        assert mock_open.call_count == 1
+        assert elapsed < 10
+
+    def test_http_error_returns_immediately_without_retrying(self):
+        client = LMStudioClient("http://localhost:1234/v1")
+        with patch("urllib.request.urlopen") as mock_open, \
+             patch("urllib.request.Request"):
+            mock_open.side_effect = urllib.error.HTTPError(
+                "http://localhost:1234/v1/chat/completions",
+                400, "Bad Request", {}, None,
+            )
+            result = client.chat_completion_stream(
+                [{"role": "user", "content": "hi"}], timeout=300,
+            )
+
+        assert result is None
+        assert mock_open.call_count == 1
+
+    def test_a_mid_stream_failure_keeps_what_already_streamed(self):
+        client = LMStudioClient("http://localhost:1234/v1")
+
+        class _BreaksAfterOneLine:
+            def __init__(self):
+                self._sent = False
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self._sent:
+                    raise socket.timeout("connection died")
+                self._sent = True
+                return b'data: {"choices": [{"delta": {"content": "partial"}}]}'
+
+        resp = MagicMock()
+        resp.__iter__.return_value = _BreaksAfterOneLine()
+        resp.__enter__.return_value = resp
+        resp.__exit__.return_value = False
+
+        with patch("urllib.request.urlopen") as mock_open, \
+             patch("urllib.request.Request"):
+            mock_open.return_value = resp
+            result = client.chat_completion_stream(
+                [{"role": "user", "content": "hi"}], timeout=300,
+            )
+
+        assert result == "partial"
+        assert mock_open.call_count == 1
