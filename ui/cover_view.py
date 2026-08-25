@@ -20,6 +20,7 @@ from config import get_config
 from core.i18n import tr
 from core.insights_worker import InsightsWorker
 from core.logger import get_logger
+from core.prompts import prompt_version
 from core.worker_registry import WorkerRegistry
 from covers.export import export
 from covers.renderer import render
@@ -200,6 +201,15 @@ class CoverView(QWidget):
         Best-effort: the PNG/JPEG/sidecar are already safely written by
         the time this runs, so a manifest failure must not turn a
         successful export into a reported failure.
+
+        provider/model/prompt_version match application/steps.py's "cover"
+        step (see docs/UI_REDESIGN_PLAN_2026-09.ru.md, B5f) rather than
+        this export flow running through JobRunner itself — cover's render
+        is a synchronous, local QPainter call with no LLM involved (unlike
+        the other five generators), so there is no worker to migrate here;
+        this closes the same "empty provider/model/prompt_version" gap B0
+        already fixed for the step's own artifact writer, which this
+        interactive export path never shared.
         """
         png = next((f for f in files if f.suffix == ".png" and "-shorts" not in f.name), None)
         if png is None:
@@ -212,6 +222,8 @@ class CoverView(QWidget):
                 transcript_revision=transcript_revision(self._segments, self._transcript_language),
                 type="cover",
                 path=str(png),
+                provider="lmstudio",
+                prompt_version=prompt_version("thumb_title"),
             )
             artifact_store.save(artifact)
         except Exception as exc:

@@ -90,6 +90,27 @@ def test_manifest_write_failure_does_not_raise(tmp_path, monkeypatch):
     view.close()
 
 
+def test_manifest_provider_and_prompt_version_are_not_empty(tmp_path):
+    """B5f (see docs/UI_REDESIGN_PLAN_2026-09.ru.md): matches
+    application/steps.py's "cover" step artifact, which B0 already fixed —
+    this export path shares the same fields, not the step itself, since
+    cover's render has no worker to route through JobRunner."""
+    from infrastructure.persistence import artifact_store
+
+    view = _make_cover_view()
+    view.set_provenance(record_id=1, source_path=None)
+
+    files = _export_real_files(view, tmp_path)
+    view._write_provenance(files)
+
+    png = next(f for f in files if f.suffix == ".png")
+    artifact = artifact_store.load(png)
+    assert artifact.provider
+    assert artifact.prompt_version
+
+    view.close()
+
+
 def test_different_transcripts_get_different_revisions_in_the_manifest(tmp_path):
     from infrastructure.persistence import artifact_store
 
