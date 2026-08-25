@@ -116,3 +116,40 @@ def test_step_checklist_keeps_transcript_mandatory(process_events):
     assert "transcript" in checklist.selected_steps()
 
     checklist.close()
+
+
+def test_library_filter_chips_not_narrower_than_their_text(process_events):
+    """Regression for docs/UI_UX_AUDIT_2026-08.md P1 item 8 / the clipped
+    filter chips found in the 2026-09 gallery review ("Диктофон" -> "iктоф"
+    at 1100x700): a chip must never be narrower than what its own label
+    needs, in either locale. Library's filter row now wraps to a second
+    row (ui.components.FlowLayout) instead of squeezing chips below their
+    sizeHint(), same as a QHBoxLayout would.
+    """
+    from core.i18n import load_locale
+    from PyQt6.QtWidgets import QPushButton
+    from ui.main_window import MainWindow
+
+    for language in ("ru", "en"):
+        load_locale(language)
+        window = MainWindow()
+        window.show()
+        window.resize(1100, 700)
+        process_events()
+
+        chips = [
+            button
+            for button in window.library_view.findChildren(QPushButton)
+            if button.property("role") == "quick-chip"
+        ]
+        assert chips, "Library toolbar should expose its filter chips"
+        for chip in chips:
+            assert chip.width() >= chip.sizeHint().width(), (
+                f"Chip {chip.text()!r} is {chip.width()}px, "
+                f"needs {chip.sizeHint().width()}px"
+            )
+
+        window.close()
+        process_events()
+
+    load_locale("ru")

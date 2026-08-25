@@ -6,11 +6,12 @@ MainWindow/controllers and is passed in through narrow setters or signals.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QPoint, QRect, QSize, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QProgressBar,
     QPushButton,
     QSizePolicy,
@@ -22,6 +23,96 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QColor
 
 from ui.theme import SPACE_1, SPACE_2, SPACE_3, SPACE_4, SPACE_6, set_role
+
+
+class FlowLayout(QLayout):
+    """Left-to-right layout that wraps to a new row instead of squeezing
+    its items narrower than their own ``sizeHint()``.
+
+    A plain ``QHBoxLayout`` shrinks every child below its size hint once
+    the row runs out of horizontal space — that's how a filter chip like
+    "Диктофон" ends up rendered as "iктоф" (see
+    docs/UI_REDESIGN_PLAN_2026-09.ru.md, A2). This is the standard
+    Qt "flow layout" pattern (a QLayout, not a positioned QWidget) so it
+    participates normally in the parent's size negotiation via
+    heightForWidth.
+    """
+
+    def __init__(self, parent=None, margin: int = 0, spacing: int = 8) -> None:
+        super().__init__(parent)
+        self._items: list = []
+        self._spacing = spacing
+        if margin >= 0:
+            self.setContentsMargins(margin, margin, margin, margin)
+
+    def addItem(self, item) -> None:  # noqa: N802
+        self._items.append(item)
+
+    def horizontalSpacing(self) -> int:  # noqa: N802
+        return self._spacing
+
+    def verticalSpacing(self) -> int:  # noqa: N802
+        return self._spacing
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, index: int):  # noqa: N802
+        if 0 <= index < len(self._items):
+            return self._items[index]
+        return None
+
+    def takeAt(self, index: int):  # noqa: N802
+        if 0 <= index < len(self._items):
+            return self._items.pop(index)
+        return None
+
+    def expandingDirections(self) -> Qt.Orientation:  # noqa: N802
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802
+        return True
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802
+        return self._do_layout(QRect(0, 0, width, 0), test_only=True)
+
+    def setGeometry(self, rect) -> None:  # noqa: N802
+        super().setGeometry(rect)
+        self._do_layout(rect, test_only=False)
+
+    def sizeHint(self) -> QSize:
+        return self.minimumSize()
+
+    def minimumSize(self) -> QSize:
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        margins = self.contentsMargins()
+        size += QSize(
+            margins.left() + margins.right(), margins.top() + margins.bottom()
+        )
+        return size
+
+    def _do_layout(self, rect, test_only: bool) -> int:
+        margins = self.contentsMargins()
+        effective = rect.adjusted(
+            margins.left(), margins.top(), -margins.right(), -margins.bottom()
+        )
+        x, y = effective.x(), effective.y()
+        line_height = 0
+        for item in self._items:
+            hint = item.sizeHint()
+            next_x = x + hint.width() + self._spacing
+            if next_x - self._spacing > effective.right() and line_height > 0:
+                x = effective.x()
+                y += line_height + self._spacing
+                next_x = x + hint.width() + self._spacing
+                line_height = 0
+            if not test_only:
+                item.setGeometry(QRect(QPoint(x, y), hint))
+            x = next_x
+            line_height = max(line_height, hint.height())
+        return y + line_height - rect.y() + margins.bottom()
 
 
 class PageHeader(QWidget):

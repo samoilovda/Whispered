@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -32,7 +33,7 @@ from core.i18n import tr
 from utils import format_duration
 from ui.empty_state import EmptyStateWidget
 from ui.icons import get_icon, IconColors
-from ui.components import apply_soft_shadow
+from ui.components import FlowLayout, apply_soft_shadow
 
 logger = get_logger(__name__)
 
@@ -167,6 +168,10 @@ class LibraryView(QWidget):
         self._search_edit = QLineEdit()
         self._search_edit.setPlaceholderText(tr("history_search_placeholder"))
         self._search_edit.setClearButtonEnabled(True)
+        self._search_edit.setMinimumWidth(0)
+        self._search_edit.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self._search_edit.textChanged.connect(self._schedule_search)
         toolbar.addWidget(self._search_edit, stretch=1)
 
@@ -193,7 +198,12 @@ class LibraryView(QWidget):
 
         layout.addLayout(toolbar)
 
-        filters = QHBoxLayout()
+        # A plain QHBoxLayout would squeeze these chips narrower than their
+        # own label once the Library column is too narrow to fit all four
+        # ("Диктофон" clipped to "iктоф") — FlowLayout wraps to a second
+        # row at full width instead (see docs/UI_REDESIGN_PLAN_2026-09.ru.md, A2).
+        filters_widget = QWidget()
+        filters = FlowLayout(filters_widget, spacing=6)
         self._filter_group = QButtonGroup(self)
         self._filter_group.setExclusive(True)
         for key in ("all", "file", "recorder", "live"):
@@ -207,8 +217,7 @@ class LibraryView(QWidget):
             filters.addWidget(button)
             if key == "all":
                 button.setChecked(True)
-        filters.addStretch()
-        layout.addLayout(filters)
+        layout.addWidget(filters_widget)
 
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
