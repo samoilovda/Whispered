@@ -60,8 +60,6 @@ class SettingsDialog(QDialog):
 
     def _setup_ui(self):
         self.setWindowTitle(tr("settings_title"))
-        self.setMinimumSize(760, 560)
-        self.resize(840, 680)
         self.setModal(True)
 
         root = QVBoxLayout(self)
@@ -70,10 +68,22 @@ class SettingsDialog(QDialog):
 
         content = QHBoxLayout()
         content.setSpacing(16)
+
+        sidebar = QVBoxLayout()
+        sidebar.setContentsMargins(0, 0, 0, 0)
+        sidebar.setSpacing(8)
+        self._search_edit = QLineEdit()
+        self._search_edit.setPlaceholderText(tr("settings_search_placeholder"))
+        self._search_edit.setClearButtonEnabled(True)
+        self._search_edit.textChanged.connect(self._filter_categories)
+        self._search_edit.setFixedWidth(190)
+        sidebar.addWidget(self._search_edit)
         self._categories = QListWidget()
         self._categories.setProperty("role", "sidebar")
         self._categories.setFixedWidth(190)
         self._categories.setAccessibleName(tr("settings_title"))
+        sidebar.addWidget(self._categories, stretch=1)
+
         self._pages = QStackedWidget()
         # General has far fewer controls than its siblings; the stack
         # sizes every page to the tallest one, so wrapping its form in its
@@ -88,12 +98,27 @@ class SettingsDialog(QDialog):
             ("settings_category_ai", self._build_ai_tab()),
             ("settings_category_covers", self._build_covers_tab()),
         )
+        self._category_search_text: list[str] = []
         for label_key, page in pages:
             self._categories.addItem(tr(label_key))
             self._pages.addWidget(page)
+            # Indexes every child with a plain .text() — QLabel/QCheckBox/
+            # QPushButton, which also covers QFormLayout's own auto-built
+            # row-label QLabels — so a search for a control's own label
+            # (e.g. "Диаризация" typed while on another tab, or "HF
+            # token") finds the category that has it, not just a search
+            # matching the category name itself.
+            words = [tr(label_key)]
+            for widget in page.findChildren(QWidget):
+                text_fn = getattr(widget, "text", None)
+                if callable(text_fn):
+                    value = text_fn()
+                    if value:
+                        words.append(value)
+            self._category_search_text.append(" ".join(words).casefold())
         self._categories.currentRowChanged.connect(self._pages.setCurrentIndex)
         self._categories.setCurrentRow(0)
-        content.addWidget(self._categories)
+        content.addLayout(sidebar)
         content.addWidget(self._pages, stretch=1)
         root.addLayout(content, stretch=1)
 
@@ -113,6 +138,30 @@ class SettingsDialog(QDialog):
         self._apply_button.setText(tr("settings_apply"))
         self._apply_button.clicked.connect(self._on_apply)
         root.addWidget(btn_box)
+
+        # The stack sizes every page to its tallest (Транскрипция/Обложки,
+        # ~320px), so a dialog hardcoded to 840x680 left ~280px of empty
+        # space below EVERY tab's content, not just General's (see
+        # docs/UI_REDESIGN_PLAN_2026-09.ru.md, A7). Size to what the
+        # content actually needs instead of a fixed guess; the floor stays
+        # comfortably below that so a user can still shrink it a bit.
+        hint = self.sizeHint()
+        self.setMinimumSize(max(620, hint.width() - 120), max(360, hint.height() - 40))
+        self.resize(hint)
+
+    def _filter_categories(self, query: str) -> None:
+        needle = query.strip().casefold()
+        first_visible = None
+        for row in range(self._categories.count()):
+            item = self._categories.item(row)
+            visible = not needle or needle in self._category_search_text[row]
+            item.setHidden(not visible)
+            if visible and first_visible is None:
+                first_visible = row
+        if needle and first_visible is not None:
+            current = self._categories.currentRow()
+            if current < 0 or self._categories.item(current).isHidden():
+                self._categories.setCurrentRow(first_visible)
 
     # ------------------------------------------------------------------ tabs
 
@@ -442,7 +491,11 @@ class SettingsDialog(QDialog):
             widget.currentIndexChanged.connect(self._mark_dirty)
         for widget in self.findChildren(QCheckBox):
             widget.toggled.connect(self._mark_dirty)
+        # _search_edit filters the category list; it holds no setting of
+        # its own and must not enable Apply just because the user searched.
         for widget in self.findChildren(QLineEdit):
+            if widget is self._search_edit:
+                continue
             widget.textChanged.connect(self._mark_dirty)
         for widget in self.findChildren(QPlainTextEdit):
             widget.textChanged.connect(self._mark_dirty)

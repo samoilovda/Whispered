@@ -384,6 +384,7 @@
   "live_state_stopped": "остановлен",
   "settings_category_general": "Общие",
   "settings_title": "Настройки",
+  "settings_search_placeholder": "Поиск по настройкам…",
   "settings_category_transcription": "Транскрипция",
   "settings_category_recording_live": "Диктофон и эфир",
   "settings_category_diarization": "Диаризация",

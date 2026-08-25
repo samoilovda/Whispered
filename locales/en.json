@@ -384,6 +384,7 @@
   "live_state_stopped": "stopped",
   "settings_category_general": "General",
   "settings_title": "Settings",
+  "settings_search_placeholder": "Search settings…",
   "settings_category_transcription": "Transcription",
   "settings_category_recording_live": "Recorder & Live",
   "settings_category_diarization": "Diarization",
