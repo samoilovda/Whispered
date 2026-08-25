@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import tempfile
@@ -14,7 +15,14 @@ sys.path.insert(0, str(ROOT))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("WHISPERED_UI_GALLERY", "1")
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QLabel,
+    QPushButton,
+    QToolButton,
+)
 
 import config
 import core.history as history
@@ -24,6 +32,13 @@ from ui.theme import apply_theme
 
 SIZES = ((900, 550), (1100, 700), (1440, 900))
 SECTIONS = ("library", "recorder", "live", "queue")
+
+# A widget that elides its own text (QFontMetrics.elidedText + a tooltip
+# carrying the full text) is not a defect — see ui/theme.py's ``mark_elides``
+# helper. Only such a widget is allowed to be narrower than its sizeHint.
+_TEXT_WIDGET_CLASSES = (QLabel, QPushButton, QToolButton, QCheckBox, QComboBox)
+
+BASELINE_PATH = ROOT / "tools" / "ui_clip_baseline.json"
 
 
 def _parse_args() -> argparse.Namespace:
@@ -39,6 +54,52 @@ def _inside(parent, child) -> bool:
     return parent.rect().contains(top_left) and parent.rect().contains(bottom_right)
 
 
+def _widget_text(widget) -> str:
+    if isinstance(widget, QComboBox):
+        return widget.currentText()
+    return widget.text() if hasattr(widget, "text") else ""
+
+
+def clipped_text_widgets(window) -> list[tuple[str, int, int]]:
+    """Visible text widgets narrower than their own ``sizeHint()``.
+
+    A widget that elides its text on purpose (see ``mark_elides`` in
+    ui/theme.py) is excluded — it has already chosen to be narrower than
+    its full text and shows the full text via tooltip instead.
+    """
+    bad: list[tuple[str, int, int]] = []
+    for cls in _TEXT_WIDGET_CLASSES:
+        for widget in window.findChildren(cls):
+            if not widget.isVisible():
+                continue
+            if bool(widget.property("_elides")):
+                continue
+            text = _widget_text(widget)
+            if len(text.strip()) < 3:
+                continue
+            needed = widget.sizeHint().width()
+            if widget.width() < needed - 2:
+                bad.append((text[:40], widget.width(), needed))
+    return bad
+
+
+def _load_baseline() -> dict[str, int]:
+    if not BASELINE_PATH.exists():
+        return {}
+    return json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+
+
+def _check_clipping(window, state_key: str, baseline: dict[str, int]) -> None:
+    bad = clipped_text_widgets(window)
+    allowed = baseline.get(state_key, 0)
+    if len(bad) > allowed:
+        sample = "; ".join(f"{t!r} ({w}<{need})" for t, w, need in bad[:8])
+        raise AssertionError(
+            f"Clipped text regressed at {state_key}: {len(bad)} widgets "
+            f"(baseline allows {allowed}). Examples: {sample}"
+        )
+
+
 def render(output: Path, check: bool = False) -> list[Path]:
     output.mkdir(parents=True, exist_ok=True)
     config.CONFIG_DIR = output
@@ -46,6 +107,7 @@ def render(output: Path, check: bool = False) -> list[Path]:
     history._store = history.HistoryStore(output / "history.sqlite3")
     app = QApplication.instance() or QApplication(sys.argv)
     rendered: list[Path] = []
+    baseline = _load_baseline() if check else {}
 
     for language in ("ru", "en"):
         for theme in ("dark", "light"):
@@ -69,7 +131,8 @@ def render(output: Path, check: bool = False) -> list[Path]:
                     app.processEvents()
                     window.repaint()
                     app.processEvents()
-                    path = output / f"{language}-{theme}-{width}x{height}-{key}.png"
+                    state_key = f"{language}-{theme}-{width}x{height}-{key}"
+                    path = output / f"{state_key}.png"
                     if not window.grab().save(str(path)):
                         raise RuntimeError(f"Could not render {path}")
                     rendered.append(path)
@@ -84,12 +147,16 @@ def render(output: Path, check: bool = False) -> list[Path]:
                             raise AssertionError(
                                 f"File browse action is clipped at {width}x{height}"
                             )
+                        _check_clipping(window, state_key, baseline)
                 window._stack.setCurrentIndex(window._record_index)
                 window.status_bar.show_queue(False)
                 app.processEvents()
-                path = output / f"{language}-{theme}-{width}x{height}-record.png"
+                record_key = f"{language}-{theme}-{width}x{height}-record"
+                path = output / f"{record_key}.png"
                 window.grab().save(str(path))
                 rendered.append(path)
+                if check:
+                    _check_clipping(window, record_key, baseline)
 
                 window.command_palette.open_palette()
                 app.processEvents()
@@ -110,6 +177,8 @@ def render(output: Path, check: bool = False) -> list[Path]:
                 for widget in (settings._categories, settings._pages)
             ):
                 raise AssertionError("Settings content is outside its viewport")
+            if check:
+                _check_clipping(settings, f"{language}-{theme}-settings", baseline)
             settings.close()
             window.close()
             app.processEvents()

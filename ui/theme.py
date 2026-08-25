@@ -207,6 +207,20 @@ def get_theme() -> Theme:
     return _active_theme
 
 
+def mark_elides(widget, full_text: str) -> None:
+    """Flag *widget* as deliberately eliding its own text.
+
+    tools/render_ui_gallery.py's ``--check`` treats any visible text
+    widget narrower than its ``sizeHint()`` as a clipping defect, with one
+    exception: a widget that chose to elide (``QFontMetrics.elidedText``)
+    and expose the full text via tooltip instead. Call this once you've
+    set both the elided display text and the tooltip, so the gallery
+    check and a human reading the code agree on which widgets are exempt.
+    """
+    widget.setProperty("_elides", True)
+    widget.setToolTip(full_text)
+
+
 def set_role(widget, role: str) -> None:
     """Set a widget's `role` property and force Qt to re-evaluate the
     matching QSS selector immediately.
