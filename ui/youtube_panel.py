@@ -18,10 +18,8 @@ from PyQt6.QtGui import QFont
 from core.i18n import tr
 from core.logger import get_logger
 from core.paths import output_dir
-from core.worker_registry import WorkerRegistry
 from core.youtube_description import compose_full_description, format_youtube_description
 from ui.toast import show_toast
-from utils import language_name_for_code
 
 logger = get_logger(__name__)
 
@@ -47,8 +45,6 @@ _TAB_SPECS: tuple[_TabSpec, ...] = (
     _TabSpec("yt_questions", "_questions_edit", "questions", "yt_tab_questions"),
 )
 
-_YT_TYPES = tuple(spec.insight_type for spec in _TAB_SPECS)
-
 # Save location for generated files: the user data directory (same base as
 # config.json/history.db), not a path under the app's own install location —
 # in a PyInstaller bundle that location is read-only and saving would fail.
@@ -66,27 +62,19 @@ def _friendly_path(path: Path) -> str:
 class YouTubePanel(QWidget):
     """YouTube tab — generates titles, description, tags, and timecode chapters."""
 
-    # Emitted once every tab's worker has settled (success = at least one
-    # tab produced usable content). Lets a preset chain (MainWindow) know
-    # when it's safe to move on without polling internal worker state.
+    # Emitted by set_result()/set_error() once MainWindow's "youtube_package"
+    # JobRunner has settled. Lets a preset chain (MainWindow) know when it's
+    # safe to move on without polling internal job state.
+    generate_requested = pyqtSignal()
     generation_finished = pyqtSignal(bool)
 
-    def __init__(self, parent=None, insights_cache=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
         self._segments = []
-        self._workers: dict = {}   # insight_type → worker
-        self._registry = WorkerRegistry(parent=self)
-        # Shared with InsightsPanel by MainWindow so a type both panels
-        # generate (e.g. "chapters") isn't computed twice — see
-        # core/insights_cache.py.
-        self._insights_cache = insights_cache
-        self._pending = 0
         self._source_name = ""
         self._transcript_language: str | None = None
         self._description_text: str | None = None
         self._chapters_data: list | None = None
-        self._any_success = False
-        self._any_error = False
         # Set via set_provenance() by MainWindow whenever the open
         # transcript changes — recorded into each saved file's Artifact
         # manifest (see core.paths.artifact_dir / R5-full in the audit plan).
@@ -132,7 +120,7 @@ class YouTubePanel(QWidget):
         self._gen_btn = QPushButton(tr("youtube_generate"))
         self._gen_btn.setProperty("variant", "primary")
         self._gen_btn.setEnabled(False)
-        self._gen_btn.clicked.connect(self._generate)
+        self._gen_btn.clicked.connect(self.generate_requested.emit)
         controls.addWidget(self._gen_btn)
 
         controls.addStretch()
@@ -170,7 +158,7 @@ class YouTubePanel(QWidget):
         self._retry_label.setStyleSheet("font-size: 11px;")
         retry_row.addWidget(self._retry_label, stretch=1)
         self._retry_btn = QPushButton(tr("youtube_retry"))
-        self._retry_btn.clicked.connect(self._generate)
+        self._retry_btn.clicked.connect(self.generate_requested.emit)
         retry_row.addWidget(self._retry_btn)
         self._retry_bar = QWidget()
         self._retry_bar.setLayout(retry_row)
@@ -243,10 +231,19 @@ class YouTubePanel(QWidget):
         self._record_id = record_id
         self._source_path = source_path
 
+    def selected_language(self) -> str | None:
+        """Explicit language directive from the combo — ``None`` means
+        "auto", i.e. fall back to the transcript's own detected language
+        (MainWindow's _start_youtube_job() does that fallback, the same
+        way this panel used to)."""
+        return self._lang_combo.currentData()
+
     def shutdown(self) -> None:
-        """Part of the Shutdownable protocol (ui/shutdownable.py). clear()
-        already cancels in-flight workers with a bounded timeout, which is
-        exactly what window close needs too."""
+        """Part of the Shutdownable protocol (ui/shutdownable.py). This
+        panel no longer owns any worker — the "youtube_package" JobRunner
+        it triggers via generate_requested lives on MainWindow now (see
+        docs/UI_REDESIGN_PLAN_2026-09.ru.md, B5d) and is shut down there,
+        the same way _clean_job/_article_job/_insights_job already are."""
         self.clear()
 
     def clear(self) -> None:
@@ -254,155 +251,104 @@ class YouTubePanel(QWidget):
         self._source_name = ""
         self._transcript_language = None
         self._gen_btn.setEnabled(False)
+        self._gen_btn.setText(tr("youtube_generate"))
         self._copy_btn.setEnabled(False)
         self._save_btn.setEnabled(False)
         self._description_text = None
         self._chapters_data = None
-        self._any_success = False
-        self._any_error = False
         for edit in self._edits():
             edit.clear()
         self._tabs.setVisible(False)
         self._retry_bar.setVisible(False)
-        self._cancel_workers(timeout=2000)
-        self._pending = 0
         self._placeholder.setText(tr("youtube_placeholder"))
         self._placeholder.show()
 
-    def _cancel_workers(self, timeout: int) -> None:
-        """Cancel active workers via WorkerRegistry without deleting a
-        thread that is still running.
-
-        Retiring (not just clearing ``self._workers``) matters: a worker
-        that doesn't finish within *timeout* keeps running in the
-        background and would otherwise emit finished/error_occurred into a
-        *new* generation run later, corrupting its _pending count and
-        overwriting tabs with stale data. WorkerRegistry disconnects each
-        worker's business signals up front and only deletes it once its
-        QThread has actually finished.
-        """
-        self._workers.clear()
-        self._registry.shutdown_all(timeout_ms=timeout)
-
     # ── Generation ──────────────────────────────────────────────────
+    # This panel no longer runs anything itself — generate_requested asks
+    # MainWindow to run the "youtube_package" step via JobRunner
+    # (application/steps.py), and begin_generating()/set_result()/
+    # set_error() below are its side of that: busy-state before the job
+    # starts, and the two ways it can end.
 
     def generate(self) -> None:
         """Public trigger for programmatic (preset-chain) use — identical
         to clicking the Generate button."""
-        self._generate()
+        self.generate_requested.emit()
 
-    def _generate(self):
-        from config import get_config
-        from core.ai_provider import provider_from_config
-        from core.insights_worker import InsightsWorker
-
-        cfg = get_config()
-        provider = provider_from_config(cfg)
-
-        # Both misconfiguration paths still count as a settled run:
-        # generation_finished must fire so a preset chain waiting on this
-        # panel unblocks (shows its error toast, re-enables Process)
-        # instead of hanging on a step that never started.
-        if provider.kind != "lmstudio" and not provider.api_key:
-            self._chapters_edit.setPlainText(tr("youtube_no_api_key"))
-            self._tabs.setVisible(True)
-            self._placeholder.hide()
-            self._show_retry(tr("youtube_no_api_key"))
-            self.generation_finished.emit(False)
-            return
-
-        if provider.kind == "lmstudio" and not cfg.lm_studio_url:
-            self._chapters_edit.setPlainText(tr("youtube_no_lm"))
-            self._tabs.setVisible(True)
-            self._placeholder.hide()
-            self._show_retry(tr("youtube_no_lm"))
-            self.generation_finished.emit(False)
-            return
-
-        # Cancel any in-progress workers
-        self._cancel_workers(timeout=1000)
-
+    def begin_generating(self) -> None:
         self._gen_btn.setEnabled(False)
         self._gen_btn.setText(tr("youtube_generating"))
         self._copy_btn.setEnabled(False)
         self._save_btn.setEnabled(False)
         self._description_text = None
         self._chapters_data = None
-        self._any_success = False
-        self._any_error = False
         for edit in self._edits():
             edit.clear()
         self._tabs.setVisible(True)
         self._placeholder.hide()
         self._retry_bar.setVisible(False)
 
-        # "Auto" (None) falls back to the transcript's own detected
-        # language rather than sending no directive at all — an empty
-        # directive left the model free to answer in whatever language it
-        # defaulted to (usually English), even for a Russian transcript.
-        lang = self._lang_combo.currentData() or language_name_for_code(self._transcript_language)
-        self._pending = len(_YT_TYPES)
+    def set_result(self, payload: dict) -> None:
+        """*payload* is application/steps.py's "youtube_package" step
+        output: ``{"chapters": [...], "yt_titles": [...],
+        "yt_description": [...], "yt_tags": [...], "yt_questions": [...]}``."""
+        data = payload.get("chapters")
+        if isinstance(data, list):
+            self._chapters_data = data
+            text = format_youtube_description(data)
+            self._chapters_edit.setPlainText(text or tr("youtube_empty"))
+        else:
+            self._chapters_edit.setPlainText(str(data) if data else tr("youtube_empty"))
 
-        for yt_type in _YT_TYPES:
-            worker = InsightsWorker(
-                yt_type, self._segments, cfg.lm_studio_url, language=lang,
-                provider=(None if provider.kind == "lmstudio" else provider),
-                parent=self, cache=self._insights_cache,
+        titles = payload.get("yt_titles")
+        if isinstance(titles, list):
+            self._titles_edit.setPlainText(
+                "\n\n".join(f"{i + 1}. {t}" for i, t in enumerate(titles))
             )
-            worker.finished.connect(self._on_finished)
-            worker.error_occurred.connect(self._on_error)
-            self._workers[yt_type] = worker
-            self._registry.register(worker, name=f"youtube_{yt_type}")
-            worker.start()
+        else:
+            self._titles_edit.setPlainText(str(titles) if titles else "")
 
-    def _on_finished(self, insight_type: str, data):
-        # A queued result from a cancelled generation can already be in the
-        # event queue when its business signal is disconnected.  Only the
-        # worker registered for the current generation may change counters.
-        if self._workers.get(insight_type) is not self.sender():
-            return
-        self._pending = max(0, self._pending - 1)
-        self._any_success = True
+        desc = payload.get("yt_description")
+        if isinstance(desc, list) and desc:
+            self._description_text = desc[0] if isinstance(desc[0], str) else str(desc[0])
+            self._desc_edit.setPlainText(self._description_text)
+        elif isinstance(desc, str):
+            self._description_text = desc
+            self._desc_edit.setPlainText(desc)
+        self._maybe_compose_description()
 
-        if insight_type == "chapters":
-            if isinstance(data, list):
-                self._chapters_data = data
-                text = format_youtube_description(data)
-                self._chapters_edit.setPlainText(text or tr("youtube_empty"))
-            else:
-                self._chapters_edit.setPlainText(str(data) if data else tr("youtube_empty"))
-            self._maybe_compose_description()
+        tags = payload.get("yt_tags")
+        if isinstance(tags, list):
+            self._tags_edit.setPlainText(", ".join(tags))
+        elif isinstance(tags, str):
+            self._tags_edit.setPlainText(tags)
 
-        elif insight_type == "yt_titles":
-            if isinstance(data, list):
-                self._titles_edit.setPlainText("\n\n".join(f"{i+1}. {t}" for i, t in enumerate(data)))
-            else:
-                self._titles_edit.setPlainText(str(data) if data else "")
+        questions = payload.get("yt_questions")
+        if isinstance(questions, list):
+            text = format_youtube_description(questions)
+            self._questions_edit.setPlainText(text or tr("youtube_empty"))
+        else:
+            self._questions_edit.setPlainText(str(questions) if questions else tr("youtube_empty"))
 
-        elif insight_type == "yt_description":
-            if isinstance(data, list) and data:
-                self._description_text = data[0] if isinstance(data[0], str) else str(data[0])
-                self._desc_edit.setPlainText(self._description_text)
-            elif isinstance(data, str):
-                self._description_text = data
-                self._desc_edit.setPlainText(data)
-            self._maybe_compose_description()
+        self._reset_button()
+        self._copy_btn.setEnabled(True)
+        self._save_btn.setEnabled(True)
+        self.generation_finished.emit(True)
 
-        elif insight_type == "yt_tags":
-            if isinstance(data, list):
-                self._tags_edit.setPlainText(", ".join(data))
-            elif isinstance(data, str):
-                self._tags_edit.setPlainText(data)
-
-        elif insight_type == "yt_questions":
-            if isinstance(data, list):
-                text = format_youtube_description(data)
-                self._questions_edit.setPlainText(text or tr("youtube_empty"))
-            else:
-                self._questions_edit.setPlainText(str(data) if data else tr("youtube_empty"))
-
-        if self._pending == 0:
-            self._finish_run()
+    def set_error(self, message: str) -> None:
+        """Covers both a misconfigured provider (no API key / no LM Studio
+        URL) and a real job failure — both used to be handled separately
+        (the former skipped the "generate_error" toast); unified here
+        since both now flow through the same one-step JobRunner and a
+        precheck failure deserves the same visibility a runtime one gets."""
+        logger.warning("YouTube job failed: %s", message)
+        self._chapters_edit.setPlainText(f"{tr('youtube_error')}: {message}" if message else "")
+        self._tabs.setVisible(True)
+        self._placeholder.hide()
+        self._reset_button()
+        show_toast(self, tr("youtube_generate_error"), kind="error")
+        self._show_retry(message or tr("youtube_generate_error"))
+        self.generation_finished.emit(False)
 
     def _maybe_compose_description(self) -> None:
         """Once both the description and chapters are in, fold the chapter
@@ -413,31 +359,6 @@ class YouTubePanel(QWidget):
         )
         if full and full != self._description_text:
             self._desc_edit.setPlainText(full)
-
-    def _on_error(self, insight_type: str, msg: str):
-        if self._workers.get(insight_type) is not self.sender():
-            return
-        logger.warning("YouTube worker error (%s): %s", insight_type, msg)
-        self._pending = max(0, self._pending - 1)
-        self._any_error = True
-        edit = self._type_to_edit(insight_type)
-        if edit is not None:
-            edit.setPlainText(f"{tr('youtube_error')}: {msg}")
-        if self._pending == 0:
-            self._finish_run()
-
-    def _finish_run(self) -> None:
-        """Called once all workers for a generation run have settled."""
-        self._reset_button()
-        if self._any_success:
-            # At least one tab has usable content — let the user copy/save
-            # it even if a sibling insight type failed.
-            self._copy_btn.setEnabled(True)
-            self._save_btn.setEnabled(True)
-        if self._any_error:
-            show_toast(self, tr("youtube_generate_error"), kind="error")
-            self._show_retry(tr("youtube_generate_error"))
-        self.generation_finished.emit(self._any_success)
 
     def _reset_button(self):
         self._gen_btn.setEnabled(bool(self._segments))
@@ -459,12 +380,6 @@ class YouTubePanel(QWidget):
         if 0 <= idx < len(_TAB_SPECS):
             return getattr(self, _TAB_SPECS[idx].edit_attr)
         return self._chapters_edit
-
-    def _type_to_edit(self, insight_type: str) -> QPlainTextEdit | None:
-        for spec in _TAB_SPECS:
-            if spec.insight_type == insight_type:
-                return getattr(self, spec.edit_attr)
-        return None
 
     def _copy_to_clipboard(self):
         """Copy the content of the currently-visible inner tab."""

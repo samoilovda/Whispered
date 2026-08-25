@@ -1,120 +1,19 @@
-"""Real-Qt regressions for cancellation of long-running insight workers."""
+"""Real-Qt regressions for WorkerRegistry's cancel/retain/dispose mechanics.
+
+Used to also cover this through InsightsPanel/YouTubePanel directly (each
+owned a WorkerRegistry and a queue of InsightsWorkers) — B5c and B5d (see
+docs/UI_REDESIGN_PLAN_2026-09.ru.md) moved that ownership to MainWindow's
+own _insights_job/_youtube_job (application/steps.py's steps run via
+JobRunner), so neither panel creates or registers a worker anymore. The
+mechanics themselves are still exercised below, directly against
+WorkerRegistry, without needing any panel at all.
+"""
 
 from __future__ import annotations
 
 import threading
 
-import pytest
-from PyQt6.QtCore import QThread, pyqtSignal
-
-
-class _SlowWorker(QThread):
-    """Network-free worker whose bounded ``wait`` deliberately times out."""
-
-    finished = pyqtSignal(str, object)
-    error_occurred = pyqtSignal(str, str)
-
-    def __init__(self, delete_calls: list[object], parent=None):
-        super().__init__(parent)
-        self.started_event = threading.Event()
-        self.release_event = threading.Event()
-        self.cancelled = False
-        self.wait_timeouts: list[int] = []
-        self._delete_calls = delete_calls
-
-    def run(self) -> None:
-        # Queue a business result before cancellation.  Qt may still deliver
-        # an already-posted queued call after disconnect(), so the panels
-        # also have to reject results whose sender is no longer current.
-        self.finished.emit("chapters", [])
-        self.started_event.set()
-        self.release_event.wait(5)
-
-    def cancel(self) -> None:
-        self.cancelled = True
-
-    def wait(self, timeout: int = 0) -> bool:
-        self.wait_timeouts.append(timeout)
-        return False
-
-    def deleteLater(self) -> None:  # noqa: N802 - Qt API spelling
-        self._delete_calls.append(self)
-        super().deleteLater()
-
-
-@pytest.mark.parametrize("panel_kind", ["youtube"])
-def test_running_worker_is_retained_until_qthread_finished(
-    panel_kind, process_events
-):
-    # InsightsPanel used to be parametrized in here too, but B5c (see
-    # docs/UI_REDESIGN_PLAN_2026-09.ru.md) moved its worker/registry
-    # ownership to MainWindow's own _insights_job (application/steps.py's
-    # "insights" step run via JobRunner) — the panel itself no longer
-    # creates or registers a worker, so this specific WorkerRegistry
-    # mechanics test no longer applies to it. YouTubePanel is unchanged
-    # (still B5d) and keeps this coverage until its own migration.
-    from ui.youtube_panel import YouTubePanel
-
-    panel = YouTubePanel()
-
-    delete_calls: list[object] = []
-    worker = _SlowWorker(delete_calls, parent=panel)
-    worker.finished.connect(panel._on_finished)
-    worker.error_occurred.connect(panel._on_error)
-    panel._workers["chapters"] = worker
-    # Production code (_generate/_start_next_worker) registers each worker
-    # with the panel's WorkerRegistry at creation time; this test injects
-    # the worker directly to control its timing, so it has to do the same.
-    panel._registry.register(worker, name="chapters")
-    panel._pending = 1
-
-    worker.start()
-    assert worker.started_event.wait(1)
-    try:
-        panel.clear()
-
-        assert worker.cancelled is True
-        # WorkerRegistry.shutdown_all() computes the wait from a global
-        # deadline (deadline - now()), not a fixed constant like the old
-        # per-worker wait(timeout) call — allow for wall-clock jitter
-        # between starting the deadline and reaching wait().
-        assert len(worker.wait_timeouts) == 1
-        assert 1900 <= worker.wait_timeouts[0] <= 2000
-        assert delete_calls == []
-        assert panel._workers == {}
-        assert panel._registry.retired_count == 1
-
-        # Neither the already-queued result nor signals emitted after
-        # disconnect may decrement a replacement run's count.
-        panel._pending = 7
-        worker.finished.emit("chapters", [])
-        worker.error_occurred.emit("chapters", "late")
-        process_events()
-        assert panel._pending == 7
-
-        worker.release_event.set()
-        assert QThread.wait(worker, 1000)
-        process_events()
-
-        assert panel._registry.retired_count == 0
-        assert delete_calls == [worker]
-    finally:
-        # A failed assertion must never leave a real QThread running in the
-        # test process (Qt aborts when such an object is destroyed).
-        worker.release_event.set()
-        try:
-            if worker.isRunning():
-                QThread.wait(worker, 1000)
-        except RuntimeError:
-            # The success path has already processed deleteLater().
-            pass
-        panel.close()
-        process_events()
-
-
-# ─── WorkerRegistry tests ─────────────────────────────────────────────────────
-
-from PyQt6.QtCore import pyqtSignal as _pyqtSignal  # noqa: E402 (after class defs)
+from PyQt6.QtCore import QThread, pyqtSignal as _pyqtSignal
 
 
 class _SimpleWorker(QThread):

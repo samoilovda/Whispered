@@ -202,12 +202,14 @@ class MainWindow(QMainWindow):
         self._clean_job: JobRunner | None = None
         self._article_job: JobRunner | None = None
         self._insights_job: JobRunner | None = None
+        self._youtube_job: JobRunner | None = None
         self._gpu_worker: GPUDetectionWorker | None = None
         self._draft_worker: DraftAssemblyWorker | None = None
         self._shutdownables.append(_WorkerShutdown(self, "_ai_worker"))
         self._shutdownables.append(_WorkerShutdown(self, "_clean_job"))
         self._shutdownables.append(_WorkerShutdown(self, "_article_job"))
         self._shutdownables.append(_WorkerShutdown(self, "_insights_job"))
+        self._shutdownables.append(_WorkerShutdown(self, "_youtube_job"))
         self._shutdownables.append(_WorkerShutdown(self, "_gpu_worker", wait_ms=1500))
         # Cancellation stops ffmpeg via SIGTERM (falling back to SIGKILL
         # after 5s) — bound generously above that worst case so close()
@@ -476,7 +478,8 @@ class MainWindow(QMainWindow):
         self.cut_view.video_panel.mark_pauses_requested.connect(self._mark_pauses)
         self.cut_view.video_panel.assemble_requested.connect(self._assemble_draft)
 
-        self.youtube_panel = YouTubePanel(insights_cache=self._insights_cache)
+        self.youtube_panel = YouTubePanel()
+        self.youtube_panel.generate_requested.connect(self._start_youtube_job)
         self.youtube_panel.generation_finished.connect(self._on_chain_youtube_done)
         self._shutdownables.append(self.youtube_panel)
         self.record_view.set_content_widgets(self.player, self.main_tabs)
@@ -1094,6 +1097,7 @@ class MainWindow(QMainWindow):
         self.chat_panel.clear_transcript()
         self._cancel_insights_job()
         self.insights_panel.clear()
+        self._cancel_youtube_job()
         self.youtube_panel.clear()
         self.cut_view.clear()
         self._cleaned_text = None
@@ -1174,7 +1178,7 @@ class MainWindow(QMainWindow):
 
         if self._preset_chain.is_active():
             self._preset_chain.cancel()
-            self.youtube_panel._cancel_workers(timeout=1000)
+            self._cancel_youtube_job()
             self._cancel_ai_worker()
             self._cancel_clean_job()
             self._cancel_article_job()
@@ -1191,6 +1195,9 @@ class MainWindow(QMainWindow):
             self.status_label.setText(tr("status_ai_cancelled"))
         elif self._insights_job is not None and self._insights_job.isRunning():
             self._cancel_insights_job()
+            self.status_label.setText(tr("status_ai_cancelled"))
+        elif self._youtube_job is not None and self._youtube_job.isRunning():
+            self._cancel_youtube_job()
             self.status_label.setText(tr("status_ai_cancelled"))
         elif self._ai_worker and self._ai_worker.isRunning():
             self._cancel_ai_worker()
@@ -1909,6 +1916,116 @@ class MainWindow(QMainWindow):
         # matching comment), so the only other case reaching here is a
         # real failure.
         self.insights_panel.set_error(outcome.error if outcome is not None else "")
+
+    def _start_youtube_job(self) -> None:
+        """Start the YouTube package (chapters/titles/description/tags/
+        questions) — routed through application/steps.py's
+        "youtube_package" step via JobRunner (see
+        docs/UI_REDESIGN_PLAN_2026-09.ru.md, B5d), the same migration
+        B5a/B5b/B5c did for clean/article/insights. YouTubePanel no longer
+        creates any worker itself; this is what both its own "Generate"
+        button (via generate_requested) and the preset chain's youtube
+        step (see _start_preset_chain) now call, same as generate()
+        already did before B5d.
+
+        The panel's language/provider combos stay put for now (moving
+        them into a real recipe editor is B6's job) — this just reads
+        their current selection instead of the panel resolving and
+        starting workers with it itself."""
+        if not self._current_result:
+            return
+
+        from core.ai_provider import provider_from_config
+
+        cfg = get_config()
+        # cfg.yt_provider already reflects the panel's combo — it's
+        # persisted eagerly on every change by
+        # YouTubePanel._on_provider_changed(), the same as before B5d.
+        provider = provider_from_config(cfg)
+
+        if provider.kind != "lmstudio" and not provider.api_key:
+            self.youtube_panel.set_error(tr("youtube_no_api_key"))
+            return
+        if provider.kind == "lmstudio" and not cfg.lm_studio_url:
+            self.youtube_panel.set_error(tr("youtube_no_lm"))
+            return
+
+        self.youtube_panel.begin_generating()
+        self.cancel_btn.setVisible(True)
+
+        from core.paths import artifact_dir
+        from utils import language_name_for_code
+
+        record_id = self._last_record_id if self._last_record_id is not None else "unsaved"
+        stem = Path(self._source_filepath).stem if self._source_filepath else "recording"
+        out_dir = artifact_dir(record_id, self._source_filepath or stem)
+
+        # "Auto" (None) falls back to the transcript's own detected
+        # language rather than sending no directive at all — an empty
+        # directive left the model free to answer in whatever language it
+        # defaulted to (usually English), even for a Russian transcript.
+        lang = self.youtube_panel.selected_language() or language_name_for_code(
+            self._current_result.language
+        )
+
+        spec = build_job_spec("youtube-only", ("youtube_package",))
+        self._youtube_job = JobRunner(spec)
+        context = StepContext(
+            source_path=self._source_filepath or "",
+            result=self._current_result,
+            record_id=record_id,
+            artifact_dir=out_dir,
+            params={
+                "lm_url": cfg.lm_studio_url,
+                "language": lang,
+                "provider": None if provider.kind == "lmstudio" else provider,
+                # Shared with InsightsPanel so a type both generate (e.g.
+                # "chapters") isn't recomputed — see core/insights_cache.py.
+                "insights_cache": self._insights_cache,
+            },
+            is_cancelled=self._youtube_job.run_state.is_cancelled,
+        )
+        runners = build_runners(
+            context, ("youtube_package",),
+            progress_factory=self._youtube_job.make_progress_callback,
+        )
+        self._youtube_job.set_runners(runners)
+        self._youtube_job.step_progress.connect(self._on_youtube_progress)
+        self._youtube_job.job_finished.connect(self._on_youtube_job_finished)
+        self._youtube_job.start()
+
+    def _cancel_youtube_job(self) -> None:
+        """Cancel the running "youtube_package" JobRunner — see
+        _cancel_clean_job()'s docstring for the retire-through-the-
+        registry pattern this mirrors."""
+        if self._youtube_job is not None and self._youtube_job.isRunning():
+            self._registry.retire(self._youtube_job)
+            self._youtube_job = None
+
+    def _on_youtube_progress(self, _name: str, percentage: int, message: str) -> None:
+        """JobRunner.step_progress for the single-step "youtube_package" job."""
+        self.status_label.setText(message)
+
+    def _on_youtube_job_finished(self, run: JobRun) -> None:
+        """JobRunner.job_finished for the single-step "youtube_package"
+        job started by _start_youtube_job(). YouTubePanel.set_result()/
+        set_error() both emit generation_finished themselves — the signal
+        _on_chain_youtube_done() already listens to — so this only needs
+        to hand the outcome to the panel."""
+        self._youtube_job = None
+        outcome = run.outcomes.get("youtube_package")
+
+        if outcome is not None and outcome.status is StepStatus.SUCCEEDED and isinstance(
+            outcome.result, dict
+        ):
+            self.youtube_panel.set_result(outcome.result)
+            return
+
+        # _cancel_youtube_job() disconnects this very signal before the
+        # run can reach a CANCELLED outcome (see _on_clean_job_finished's
+        # matching comment), so the only other case reaching here is a
+        # real failure.
+        self.youtube_panel.set_error(outcome.error if outcome is not None else "")
 
     def _on_ai_progress(self, percentage: int, message: str):
         """Handle AI processing progress."""
