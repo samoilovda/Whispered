@@ -1364,6 +1364,10 @@ class MainWindow(QMainWindow):
                 "do_unwrap": self.book_panel.chk_unwrap.isChecked(),
                 "do_custom": self.book_panel.chk_custom.isChecked(),
                 "custom_prompt_path": self.book_panel.custom_prompt_edit.text().strip(),
+                # The "YouTube video" recipe includes the cover step, so it
+                # has to render what the Cover workspace is actually set to
+                # rather than _cover_runner's own fallback defaults.
+                **self.cover_view.render_params(),
             },
             get_result=lambda name: (
                 run.outcomes[name].result if name in run.outcomes else None
@@ -1426,8 +1430,41 @@ class MainWindow(QMainWindow):
             return
         if self._recipe_job is not None and self._recipe_job.isRunning():
             return
+        if self._recipe_run.is_cancelled():
+            self._recipe_run = self._run_after_cancel()
         self._save_recipe_run("running")
         self._launch_recipe_job()
+
+    def _run_after_cancel(self) -> JobRun:
+        """A fresh JobRun carrying the cancelled one's outcomes forward.
+
+        ``JobRun.cancel()`` latches a threading.Event that nothing clears,
+        and every step resolves through it (``JobEngine._resolve_step``
+        marks a step CANCELLED before running it, and each runner's
+        ``StepContext.is_cancelled`` is bound to it) — so retrying a step
+        on a run that was ever cancelled would immediately re-resolve it
+        CANCELLED without running anything at all.
+
+        Clearing the flag in place is not the fix: ``_cancel_recipe_job()``
+        retires the JobRunner rather than blocking on it (see its
+        docstring), so the cancelled worker may still be inside a step
+        that is watching this very flag, and un-cancelling underneath it
+        would let it resume and race the retry. A new JobRun leaves that
+        worker with the old, still-cancelled one it already holds.
+        """
+        import dataclasses
+
+        fresh = JobRun(spec=self._recipe_spec)
+        fresh.outcomes.update(self._recipe_run.outcomes)
+        self._recipe_context = dataclasses.replace(
+            self._recipe_context,
+            get_result=lambda name: (
+                fresh.outcomes[name].result if name in fresh.outcomes else None
+            ),
+            is_cancelled=fresh.is_cancelled,
+        )
+        self.run_view.bind_run(fresh)
+        return fresh
 
     def _on_recipe_step_finished(self, name: str, outcome: StepOutcome) -> None:
         """Feed a just-finished recipe step's result to whichever tab

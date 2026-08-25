@@ -139,6 +139,37 @@ def test_recipe_filter_shows_only_matching_records(monkeypatch, tmp_path, proces
     view.close()
 
 
+def test_one_refresh_reads_runs_in_a_single_query(monkeypatch, tmp_path, process_events):
+    """Regression: reading each card's run with its own load_latest_run()
+    opened one SQLite connection per record, on the GUI thread, for every
+    refresh / filter click / debounced search keystroke."""
+    import sqlite3
+
+    store = _make_store(tmp_path)
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+    for index in range(40):
+        _add_record(store, f"rec{index}.mp3")
+
+    view = LibraryView()
+    view.refresh()
+    process_events()
+
+    connections = []
+    real_connect = sqlite3.connect
+    monkeypatch.setattr(
+        sqlite3, "connect",
+        lambda *a, **k: connections.append(1) or real_connect(*a, **k),
+    )
+    view.refresh()
+    process_events()
+
+    assert len(view._records) == 40
+    # one for HistoryStore.list(), one for the batched job_runs lookup
+    assert len(connections) <= 2, f"{len(connections)} connections for 40 records"
+
+    view.close()
+
+
 def test_recipe_filter_chips_exist_for_every_builtin_recipe(process_events):
     view = LibraryView()
     process_events()

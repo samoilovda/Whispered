@@ -168,6 +168,40 @@ def load_runs_for_record(
     return [_row_to_stored_run(row) for row in rows]
 
 
+def load_latest_runs(
+    record_ids: "list[int | str]", *, db_path: Optional[Path] = None
+) -> "dict[str, StoredRun]":
+    """Latest run per record for *record_ids*, in one query, keyed by
+    ``str(record_id)``. Records with no run at all are simply absent.
+
+    The Library renders a whole page of cards at once (B8) — calling
+    ``load_latest_run`` per row opened one SQLite connection per record
+    on the GUI thread, for every refresh, filter click and (debounced)
+    search keystroke. Batching keeps that at one.
+    """
+    if not record_ids:
+        return {}
+    keys = [str(record_id) for record_id in record_ids]
+    found: "dict[str, StoredRun]" = {}
+    with _connect(db_path) as conn:
+        # SQLITE_MAX_VARIABLE_NUMBER is 999 on older builds; chunk well
+        # under it rather than depending on the runtime's limit.
+        for start in range(0, len(keys), 400):
+            chunk = keys[start:start + 400]
+            placeholders = ",".join("?" * len(chunk))
+            rows = conn.execute(
+                "SELECT id, record_id, recipe, started_at, finished_at, status, "
+                "outcomes_json FROM job_runs WHERE id IN ("
+                f"  SELECT MAX(id) FROM job_runs WHERE record_id IN ({placeholders}) "
+                "  GROUP BY record_id)",
+                chunk,
+            ).fetchall()
+            for row in rows:
+                stored = _row_to_stored_run(row)
+                found[str(stored.record_id)] = stored
+    return found
+
+
 def load_latest_run(
     record_id: "int | str", *, db_path: Optional[Path] = None
 ) -> Optional[StoredRun]:

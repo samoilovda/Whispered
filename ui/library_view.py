@@ -326,18 +326,18 @@ class LibraryView(QWidget):
             self._records = []
         self._populate()
 
-    def _latest_run_for(self, record_id: int):
-        """The record's latest job_runs row (B8, see
-        application/run_store.py), or ``None`` for a record with no run
-        at all — never lets a missing/corrupt job_runs table break the
-        list."""
+    def _latest_runs_for(self, records) -> dict:
+        """Latest job_runs row per record (B8, see application/run_store.py),
+        keyed by ``str(record.id)`` and fetched in one query for the whole
+        page. Records with no run are simply absent; a missing/corrupt
+        job_runs table degrades to "no runs" rather than breaking the list."""
         try:
-            from application.run_store import load_latest_run
+            from application.run_store import load_latest_runs
 
-            return load_latest_run(record_id)
+            return load_latest_runs([record.id for record in records])
         except Exception as exc:
-            logger.warning("Failed to load run for record %s: %s", record_id, exc)
-            return None
+            logger.warning("Failed to load runs for the Library: %s", exc)
+            return {}
 
     def _populate(self):
         self._list.clear()
@@ -347,9 +347,10 @@ class LibraryView(QWidget):
             for record in self._records
             if self._active_filter == "all" or _record_kind(record) == self._active_filter
         ]
+        runs = self._latest_runs_for(source_filtered)
         visible_records = []
         for record in source_filtered:
-            run = self._latest_run_for(record.id)
+            run = runs.get(str(record.id))
             if self._active_recipe_filter != "all" and (
                 run is None or run.recipe != self._active_recipe_filter
             ):

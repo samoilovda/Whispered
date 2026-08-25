@@ -13,6 +13,7 @@ from application.run_store import (
     StoredRun,
     apply_stored_outcomes,
     load_latest_run,
+    load_latest_runs,
     load_run,
     load_runs_for_record,
     save_run,
@@ -121,6 +122,56 @@ def test_load_latest_run_returns_the_newest_row(db_path):
 
 def test_load_latest_run_returns_none_for_a_record_with_no_run(db_path):
     assert load_latest_run(999, db_path=db_path) is None
+
+
+def test_load_latest_runs_batches_one_row_per_record(db_path):
+    """The Library reads a whole page at once (B8) — one query, newest
+    run per record, absent for records that never had one."""
+    run = JobRun(spec=_spec(steps=(StepSpec("a"),)))
+    run.outcomes["a"] = StepOutcome("a", StepStatus.SUCCEEDED)
+
+    save_run(1, "youtube_video", run, status="done", db_path=db_path)
+    newest_for_1 = save_run(1, "book", run, status="done", db_path=db_path)
+    newest_for_2 = save_run(2, "meeting_notes", run, status="failed", db_path=db_path)
+
+    found = load_latest_runs([1, 2, 3], db_path=db_path)
+
+    assert set(found) == {"1", "2"}          # 3 has no run at all
+    assert found["1"].id == newest_for_1
+    assert found["1"].recipe == "book"       # the newer of record 1's two
+    assert found["2"].id == newest_for_2
+    assert found["2"].status == "failed"
+
+
+def test_load_latest_runs_matches_load_latest_run_per_record(db_path):
+    run = JobRun(spec=_spec(steps=(StepSpec("a"),)))
+    run.outcomes["a"] = StepOutcome("a", StepStatus.FAILED, error="boom")
+    for record_id in (10, 11, 12):
+        save_run(record_id, "transcript_only", run, status="failed", db_path=db_path)
+
+    batched = load_latest_runs([10, 11, 12], db_path=db_path)
+
+    for record_id in (10, 11, 12):
+        one = load_latest_run(record_id, db_path=db_path)
+        assert batched[str(record_id)] == one
+
+
+def test_load_latest_runs_with_no_record_ids_touches_no_database(db_path):
+    assert load_latest_runs([], db_path=db_path) == {}
+
+
+def test_load_latest_runs_handles_more_records_than_one_sql_chunk(db_path):
+    """Chunked under SQLITE_MAX_VARIABLE_NUMBER — a page bigger than one
+    chunk must still come back complete."""
+    run = JobRun(spec=_spec(steps=(StepSpec("a"),)))
+    run.outcomes["a"] = StepOutcome("a", StepStatus.SUCCEEDED)
+    ids = list(range(100, 100 + 950))
+    for record_id in ids:
+        save_run(record_id, "transcript_only", run, status="done", db_path=db_path)
+
+    found = load_latest_runs(ids, db_path=db_path)
+
+    assert len(found) == len(ids)
 
 
 # ------------------------------------------------------------------ apply_stored_outcomes

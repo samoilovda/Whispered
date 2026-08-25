@@ -131,6 +131,25 @@ class CoverView(QWidget):
             self.inspector.title_edit.setPlainText(suggestions[0].text)
             self.warning.setText(" · ".join(suggestions[0].warnings))
 
+    def render_params(self) -> dict:
+        """This workspace's current selections as ``application/steps.py``'s
+        ``cover_*`` StepContext params.
+
+        A recipe that includes the "cover" step (e.g. the built-in
+        "YouTube video" one) renders through the same template/layout/
+        variant/slots the user set up here — without this, the step's
+        runner falls back to its own hardcoded defaults and silently
+        ignores what they chose.
+        """
+        layout, variant, slots = self.inspector.state()
+        slots.update(self.photos)
+        return {
+            "cover_template": self.template.id,
+            "cover_layout": layout,
+            "cover_variant": variant,
+            "cover_slots": slots,
+        }
+
     def render_preview(self) -> None:
         layout, variant, slots = self.inspector.state()
         slots.update(self.photos)
