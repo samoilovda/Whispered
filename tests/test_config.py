@@ -130,24 +130,27 @@ class TestConfigRoundTrip:
         assert loaded.live_transcription_enabled is False
 
     @pytest.mark.parametrize(
-        ("preset", "steps"),
+        ("preset", "expected_recipe"),
         [
-            ("transcribe_only", ["transcript"]),
-            ("youtube", ["transcript", "youtube"]),
-            ("article", ["transcript", "article"]),
-            ("full", ["transcript", "youtube", "article", "insights"]),
+            ("transcribe_only", "transcript_only"),
+            ("youtube", "youtube_video"),
+            ("article", "podcast_article"),
+            ("full", "youtube_video"),
         ],
     )
-    def test_legacy_launch_preset_migrates_to_chain_steps(self, preset, steps):
+    def test_legacy_launch_preset_migrates_to_last_recipe(self, preset, expected_recipe):
+        """launch_preset and chain_steps are both retired as Config
+        fields (B9) — the loader still infers last_recipe from either
+        one's raw JSON key on an old config (see config.py's load())."""
         config_module.CONFIG_FILE.write_text(
             json.dumps({"launch_preset": preset}), encoding="utf-8"
         )
 
         loaded = Config.load()
 
-        assert loaded.chain_steps == steps
+        assert loaded.last_recipe == expected_recipe
 
-    def test_explicit_chain_steps_are_not_overwritten_by_legacy_preset(self):
+    def test_explicit_legacy_chain_steps_win_over_launch_preset_for_last_recipe(self):
         config_module.CONFIG_FILE.write_text(
             json.dumps(
                 {
@@ -160,7 +163,7 @@ class TestConfigRoundTrip:
 
         loaded = Config.load()
 
-        assert loaded.chain_steps == ["transcript", "book"]
+        assert loaded.last_recipe == "book"
 
     @pytest.mark.parametrize(
         ("chain_steps", "expected_recipe"),
@@ -174,8 +177,9 @@ class TestConfigRoundTrip:
         ],
     )
     def test_legacy_chain_steps_migrate_to_last_recipe(self, chain_steps, expected_recipe):
-        """See docs/UI_REDESIGN_PLAN_2026-09.ru.md, B2 — same seeding
-        pattern as launch_preset -> chain_steps, one layer further."""
+        """A config saved with an explicit chain_steps (the pre-B2
+        StepChecklist) but no last_recipe yet — see
+        docs/UI_REDESIGN_PLAN_2026-09.ru.md, B2/B9."""
         config_module.CONFIG_FILE.write_text(
             json.dumps({"chain_steps": chain_steps}), encoding="utf-8"
         )
@@ -183,18 +187,6 @@ class TestConfigRoundTrip:
         loaded = Config.load()
 
         assert loaded.last_recipe == expected_recipe
-
-    def test_legacy_launch_preset_migrates_all_the_way_to_last_recipe(self):
-        """launch_preset -> chain_steps -> last_recipe, chained through
-        both migrations from a config saved before either existed."""
-        config_module.CONFIG_FILE.write_text(
-            json.dumps({"launch_preset": "youtube"}), encoding="utf-8"
-        )
-
-        loaded = Config.load()
-
-        assert loaded.chain_steps == ["transcript", "youtube"]
-        assert loaded.last_recipe == "youtube_video"
 
     def test_explicit_last_recipe_is_not_overwritten(self):
         config_module.CONFIG_FILE.write_text(

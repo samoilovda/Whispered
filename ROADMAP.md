@@ -8,17 +8,30 @@ The original long-form development plan (2026-07) is preserved in
 
 - **Core pipeline** — whisper.cpp transcription in a cancellable child
   process, pyannote speaker diarization, ffmpeg format conversion.
-- **Workspace shell redesign** — three permanent columns (Library / document
-  / Inspector rail with Materials, Insights, Cut, Chat, Settings sections),
-  `Ctrl+K` command palette over the existing FTS index, a single status bar
-  for operation/progress/cancel/queue/LLM status, and a new-record source
-  picker (file / folder / recorder / Live) replacing the old sidebar screens.
+- **Workspace shell redesign** — a two-column shell (Library / center):
+  one start screen (source chips, a five-recipe picker plus a step-level
+  recipe editor, a single Launch button) replaces the old inspector rail
+  and its Materials/Insights/Cut/Chat/Settings pages, which are now tabs
+  on the record view itself. Launching runs the selected recipe as one
+  `JobRunner`-driven job through a dedicated run screen (per-step status,
+  point-in-place retry, cancel) instead of the old one-click-per-step
+  preset chain. `Ctrl+K` covers records, recipes ("Run: <recipe>"), the
+  open run's failed/cancelled steps ("Restart: <step>"), and the existing
+  six actions; the Library's record cards show a run's failed steps
+  without opening them, filterable by recipe. A single status bar covers
+  operation/progress/cancel/queue/LLM status. Live capture is a start-
+  screen source rather than a parallel screen, feeding the same
+  `JobRunner` with its transcribe step marked skipped (already streamed).
+  (docs/UI_REDESIGN_PLAN_2026-09.ru.md, Track B.)
 - **Library** — transcription history with SQLite FTS5 full-text search,
   built-in audio player synced to the transcript, editable transcript with
   speaker renaming.
-- **Checklist presets** — an Inspector checklist runs a whole chain in one
-  go: transcribe → any combination of YouTube package, article, insights, and
-  book generation, with artifacts auto-saved.
+- **Recipes** — five built-in step sets (transcript-only, YouTube video,
+  podcast article, meeting notes, book) plus one user-editable custom
+  slot, replacing the old Inspector checklist/preset chain: transcribe →
+  any combination of clean, article, insights, YouTube package, book, and
+  cover generation, each a `JobEngine` step with cache-skip and
+  provenance, artifacts auto-saved.
 - **YouTube package** — titles, hook+summary description, viewer-oriented
   chapter timecodes (≤7.5-minute gaps), key-question timecodes, tags;
   local LLM by default, optional user-keyed cloud provider.
@@ -46,11 +59,10 @@ P0 (worker lifecycle, model integrity, Recorder backpressure, system-audio
 IPC auth, output-path collisions) and P2 (Config validation, Cover template
 path containment, structured export/batch errors, FTS rebuild policy) are
 closed as of 2026-08-18. P1 structural work is partial: `DocumentSession`
-and an `export_controller` are extracted from `main_window.py`; a Job/
-Pipeline engine exists but isn't wired into the preset chain yet (the one
-concrete bug it was meant to fix — "chapters" computed twice when both
-YouTube and Insights are enabled — is closed separately via a shared
-`InsightsCache`, not via the engine itself); the `Artifact` provenance
+and an `export_controller` are extracted from `main_window.py`; the Job/
+Pipeline engine is now the actual launch path (docs/UI_REDESIGN_PLAN_2026-09.ru.md,
+Track B — see "Workspace shell redesign" above), superseding the old
+preset chain this paragraph originally tracked; the `Artifact` provenance
 model is now wired into every generator that writes a file — Cover,
 article, YouTube, book, and Insights (which gained a "Save to file"
 button — one .txt per section — since it previously had no export
@@ -70,10 +82,12 @@ environment to validate and are not attempted from here.*
   failed generations from being saved as results.
 - **Structural cleanup** — Qt-free domain types (`domain/transcription.py`,
   `domain/artifact.py`, `domain/job.py`) are split out of `transcriber.py`;
-  `main_window.py` (still 1800+ lines) has `DocumentSession`/
-  `export_controller` extracted but transcription/pipeline orchestration
-  is intentionally still inline — it turned out to be mostly direct widget
-  calls with no further logic worth pulling into a separate file.
+  `main_window.py` (2300+ lines — Track B's real, tested `JobRunner`/recipe
+  wiring grew it past the pre-Track-B line count, not shrank it) has
+  `DocumentSession`/`export_controller` extracted but transcription/
+  pipeline orchestration is intentionally still inline — it turned out to
+  be mostly direct widget calls with no further logic worth pulling into
+  a separate file.
 
 ## Next
 

@@ -25,22 +25,28 @@ explicitly selected in the YouTube tab.
 
 ## Interface
 
-The window is a three-column workspace: a Library pane on the left, the
-current document (a new-record picker or the player/transcript view) in the
-center, and a collapsible Inspector rail on the right with five sections —
-Materials, Insights, Cut, Chat, and Settings. The Library pane stays on
-screen instead of being swapped out, and both side columns can be collapsed
-or auto-collapse on narrow windows; the layout is remembered between runs.
+The window is a two-column workspace: a Library pane on the left (collapsible
+or auto-collapsing on narrow windows) and the current document on the right —
+a start screen, the record view, the cover workspace, or a run screen,
+depending on what you're doing. The layout is remembered between runs.
 
-- `Ctrl+K` opens a command palette that searches transcript history and
-  exposes quick actions (new record, YouTube package, export, Live, queue,
-  settings).
-- A new record starts from a picker (file, folder, microphone, or Live)
-  rather than a separate screen; the same view turns into the player and
-  transcript once a recording exists.
-- Which artifacts a run produces — YouTube package, Article, Insights, Book,
-  or any combination — is chosen with checkboxes in the Inspector's
-  Parameters area instead of a separate launch bar.
+- The start screen picks a source (file, folder, microphone, or Live) and a
+  recipe — one of five built-in step sets (transcript only, YouTube video,
+  podcast article, meeting notes, book) or a custom one edited via
+  "Configure…" — then launches with a single button; parameters stay out of
+  the way behind a one-line summary and an "Change" link.
+- Launching runs the recipe as one job through a run screen: one row per
+  step (transcribe, clean, article, insights, YouTube package, book, cover),
+  live progress, and per-step retry/cancel without re-running what already
+  succeeded. Once transcription finishes, its generator panels — Articles,
+  YouTube, Book, Insights, Cut, Chat — live as tabs on the record view.
+- `Ctrl+K` opens a command palette that searches transcript history, lists
+  every recipe ("Run: <recipe>") and the open run's failed/cancelled steps
+  ("Restart: <step>"), and exposes quick actions (new record, YouTube
+  package, export, Live, queue, settings).
+- The Library's record cards show a run's failed steps directly, without
+  opening the record, and can be filtered by recipe alongside the existing
+  source-kind filter.
 - A single status bar at the bottom shows the current operation, progress,
   cancel control, a popover queue for batch jobs, and LM Studio/GPU status.
 
@@ -90,7 +96,7 @@ renamed or merged in the UI; names are saved in history and used by exporters.
 - file drag-and-drop and Russian / English UI localization.
 
 History stores transcripts, but it does not restore the content of previously
-generated AI artifacts. Preset output is saved as separate files in the
+generated AI artifacts. A recipe's output is saved as separate files in the
 application data directory.
 
 ### Transcript workspace
@@ -132,12 +138,15 @@ Keychain, Windows Credential Manager, or a Linux Secret Service. Otherwise
 Whispered falls back to its owner-only local configuration file. Use a
 dedicated, least-privilege key and protect the user account accordingly.
 
-### Processing checklist
+### Recipes
 
-Transcription and the history save always run. The Parameters checklist can
-then add YouTube package, Article, Insights, and Book steps in any combination.
-YouTube and Article use the existing preset controller; Insights and Book are
-continued sequentially after those steps. Editing operations remain manual.
+Transcription and the history save always run. The selected recipe then
+runs its remaining steps — any combination of clean, article, insights,
+YouTube package, book, and cover — as one job (per-resource concurrency,
+cache-skip on an unchanged model/prompt/transcript, point-in-place retry).
+Five built-in recipes cover the common cases; "Configure…" opens a step-level
+editor for a one-off combination, saved as a single custom recipe. Editing
+operations remain manual.
 
 ### Editing
 

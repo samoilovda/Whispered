@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 import tempfile
@@ -35,10 +34,13 @@ SECTIONS = ("library", "recorder", "live", "queue")
 
 # A widget that elides its own text (QFontMetrics.elidedText + a tooltip
 # carrying the full text) is not a defect — see ui/theme.py's ``mark_elides``
-# helper. Only such a widget is allowed to be narrower than its sizeHint.
+# helper. A QLabel with setWordWrap(True) isn't either: the check below
+# compares actual width against sizeHint()'s *unwrapped* single-line
+# width, which a wrapped label is expected to be narrower than — Qt
+# reflows it across more lines instead of cutting anything off, so 100%
+# of the text stays visible either way. Narrower still than either of
+# those and the text really is cut off.
 _TEXT_WIDGET_CLASSES = (QLabel, QPushButton, QToolButton, QCheckBox, QComboBox)
-
-BASELINE_PATH = ROOT / "tools" / "ui_clip_baseline.json"
 
 
 def _parse_args() -> argparse.Namespace:
@@ -65,7 +67,10 @@ def clipped_text_widgets(window) -> list[tuple[str, int, int]]:
 
     A widget that elides its text on purpose (see ``mark_elides`` in
     ui/theme.py) is excluded — it has already chosen to be narrower than
-    its full text and shows the full text via tooltip instead.
+    its full text and shows the full text via tooltip instead. So is a
+    QLabel with setWordWrap(True): its full text also stays visible,
+    reflowed across more lines instead of cut off (see the module-level
+    comment on _TEXT_WIDGET_CLASSES).
     """
     bad: list[tuple[str, int, int]] = []
     for cls in _TEXT_WIDGET_CLASSES:
@@ -73,6 +78,8 @@ def clipped_text_widgets(window) -> list[tuple[str, int, int]]:
             if not widget.isVisible():
                 continue
             if bool(widget.property("_elides")):
+                continue
+            if isinstance(widget, QLabel) and widget.wordWrap():
                 continue
             text = _widget_text(widget)
             if len(text.strip()) < 3:
@@ -83,20 +90,15 @@ def clipped_text_widgets(window) -> list[tuple[str, int, int]]:
     return bad
 
 
-def _load_baseline() -> dict[str, int]:
-    if not BASELINE_PATH.exists():
-        return {}
-    return json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
-
-
-def _check_clipping(window, state_key: str, baseline: dict[str, int]) -> None:
+def _check_clipping(window, state_key: str) -> None:
+    """Zero tolerance (docs/UI_REDESIGN_PLAN_2026-09.ru.md, B9 — the
+    per-state ui_clip_baseline.json this used to compare against is
+    retired now that every state genuinely renders with none)."""
     bad = clipped_text_widgets(window)
-    allowed = baseline.get(state_key, 0)
-    if len(bad) > allowed:
+    if bad:
         sample = "; ".join(f"{t!r} ({w}<{need})" for t, w, need in bad[:8])
         raise AssertionError(
-            f"Clipped text regressed at {state_key}: {len(bad)} widgets "
-            f"(baseline allows {allowed}). Examples: {sample}"
+            f"Clipped text at {state_key}: {len(bad)} widgets. Examples: {sample}"
         )
 
 
@@ -127,7 +129,6 @@ def render(output: Path, check: bool = False) -> list[Path]:
     history._store = history.HistoryStore(output / "history.sqlite3")
     app = QApplication.instance() or QApplication(sys.argv)
     rendered: list[Path] = []
-    baseline = _load_baseline() if check else {}
 
     for language in ("ru", "en"):
         for theme in ("dark", "light"):
@@ -167,7 +168,7 @@ def render(output: Path, check: bool = False) -> list[Path]:
                             raise AssertionError(
                                 f"File browse action is clipped at {width}x{height}"
                             )
-                        _check_clipping(window, state_key, baseline)
+                        _check_clipping(window, state_key)
                 window._stack.setCurrentIndex(window._record_index)
                 window.status_bar.show_queue(False)
                 app.processEvents()
@@ -176,7 +177,7 @@ def render(output: Path, check: bool = False) -> list[Path]:
                 window.grab().save(str(path))
                 rendered.append(path)
                 if check:
-                    _check_clipping(window, record_key, baseline)
+                    _check_clipping(window, record_key)
 
                 _bind_demo_run(window)
                 window._stack.setCurrentIndex(window._run_index)
@@ -186,7 +187,7 @@ def render(output: Path, check: bool = False) -> list[Path]:
                 window.grab().save(str(path))
                 rendered.append(path)
                 if check:
-                    _check_clipping(window, run_key, baseline)
+                    _check_clipping(window, run_key)
 
                 window.command_palette.open_palette()
                 app.processEvents()
@@ -208,7 +209,7 @@ def render(output: Path, check: bool = False) -> list[Path]:
             ):
                 raise AssertionError("Settings content is outside its viewport")
             if check:
-                _check_clipping(settings, f"{language}-{theme}-settings", baseline)
+                _check_clipping(settings, f"{language}-{theme}-settings")
             settings.close()
             window.close()
             app.processEvents()

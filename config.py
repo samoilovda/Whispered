@@ -71,11 +71,7 @@ class Config:
     show_timestamps: bool = True
     show_speaker_labels: bool = True
     sidebar_collapsed: bool = False
-    record_tools_width: int = 360
     live_diagnostics_expanded: bool = False
-    inspector_section: str = "materials"
-    inspector_collapsed: bool = False
-    chain_steps: list = field(default_factory=lambda: ["transcript"])
     library_collapsed: bool = False
 
     # UI language
@@ -109,17 +105,15 @@ class Config:
     # (see ui/record_view.py). Persisted so the choice survives restarts.
     export_formats: list = field(default_factory=lambda: ["txt"])
 
-    # Last-selected preset in the Library's launch bar (see ui/launch_bar.py).
-    # Superseded by recipes/last_recipe below (see
-    # docs/UI_REDESIGN_PLAN_2026-09.ru.md, B2) — kept only so an
-    # already-saved config keeps loading; retired in B9.
-    launch_preset: str = "transcribe_only"
-
-    # Recipes (domain/recipe.py): named step sets replacing chain_steps/
-    # launch_preset above. `recipes` holds user-authored Recipe.to_dict()
-    # entries; built-ins (domain.recipe.BUILTIN_RECIPES) aren't stored
-    # here. `last_recipe` is a Recipe.name — either a built-in's or one
-    # from `recipes`.
+    # Recipes (domain/recipe.py): named step sets. `recipes` holds
+    # user-authored Recipe.to_dict() entries; built-ins
+    # (domain.recipe.BUILTIN_RECIPES) aren't stored here. `last_recipe` is
+    # a Recipe.name — either a built-in's or one from `recipes`. Replaces
+    # the pre-redesign launch_preset/chain_steps fields (see
+    # docs/UI_REDESIGN_PLAN_2026-09.ru.md, B2/B9) — the loader still
+    # migrates an old config's launch_preset/chain_steps JSON keys into
+    # last_recipe (see load() below) even though neither is a field here
+    # any more.
     recipes: list = field(default_factory=list)
     last_recipe: str = "transcript_only"
 
@@ -272,28 +266,26 @@ class Config:
                         # Missing from keyring (entry deleted externally)
                         filtered_data[name] = ""
 
-            # The redesigned workspace exposes the old launch preset as an
-            # explicit checklist.  Keep launch_preset for backwards
-            # compatibility, but only use it to seed chain_steps when a
-            # pre-redesign config has no checklist of its own.
-            if "chain_steps" not in data:
-                preset_steps = {
-                    "transcribe_only": ["transcript"],
-                    "youtube": ["transcript", "youtube"],
-                    "article": ["transcript", "article"],
-                    "full": ["transcript", "youtube", "article", "insights"],
-                }
-                filtered_data["chain_steps"] = preset_steps.get(
-                    data.get("launch_preset", "transcribe_only"), ["transcript"]
-                )
-
-            # Same seeding pattern as chain_steps above, one layer further:
-            # a config saved before recipes existed gets last_recipe
-            # inferred from whatever chain_steps ended up as (freshly
-            # migrated from launch_preset just above, or already present).
-            # See docs/UI_REDESIGN_PLAN_2026-09.ru.md, B2.
+            # A config saved before recipes existed (docs/UI_REDESIGN_PLAN_2026-09.ru.md,
+            # B2) gets last_recipe inferred from whatever legacy step list
+            # it has: an explicit chain_steps (the old StepChecklist) if
+            # present, else one derived from the older launch_preset.
+            # Neither chain_steps nor launch_preset is a Config field any
+            # more (B9) — this reads them straight from the raw JSON
+            # instead of round-tripping through filtered_data.
             if "last_recipe" not in data:
-                steps = set(filtered_data.get("chain_steps") or [])
+                raw_steps = data.get("chain_steps")
+                if not raw_steps:
+                    preset_steps = {
+                        "transcribe_only": ["transcript"],
+                        "youtube": ["transcript", "youtube"],
+                        "article": ["transcript", "article"],
+                        "full": ["transcript", "youtube", "article", "insights"],
+                    }
+                    raw_steps = preset_steps.get(
+                        data.get("launch_preset", "transcribe_only"), ["transcript"]
+                    )
+                steps = set(raw_steps)
                 if "youtube" in steps:
                     filtered_data["last_recipe"] = "youtube_video"
                 elif "article" in steps:
