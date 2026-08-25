@@ -48,6 +48,7 @@ from ui.animated_button import AnimatedButton
 from ui.live_checkpoint_tracker import LiveCheckpointTracker
 from ui.preset_chain_controller import PresetChainController
 from ui.shutdownable import Shutdownable
+from ui.run_view import RunView
 from transcriber import Transcriber, TranscriptionResult
 from exporters import EXPORT_FORMATS
 from application import export_controller
@@ -60,6 +61,10 @@ from utils import (
     is_supported_format,
 )
 from application.document_session import DocumentSession
+from application.job_engine import JobRun
+from application.steps import STEP_DEFINITIONS, build_job_spec
+from domain.job import StepOutcome, StepStatus
+from domain.recipe import BUILTIN_RECIPES_BY_KEY, TRANSCRIPT_ONLY
 from config import get_config
 from core.ai_worker import AIProcessingWorker
 from core.insights_cache import InsightsCache
@@ -525,12 +530,26 @@ class MainWindow(QMainWindow):
         self.cover_view = CoverView(insights_cache=self._insights_cache)
         self._shutdownables.append(self.cover_view)
         self._cover_index = self._stack.addWidget(self.cover_view)
+        # Run view (docs/UI_REDESIGN_PLAN_2026-09.ru.md, B4): one row per
+        # step in the whole registry, fixed order — a JobRun only ever
+        # populates the subset the active recipe actually includes, so an
+        # out-of-recipe row simply stays "waiting" forever. No viewer is
+        # wired to any row yet: each generator's panel still lives inside
+        # the inspector rail and can't be reparented into a row without
+        # pulling it out of there for good (see ui/run_view.py's module
+        # docstring) — that move happens per-generator in B5.
+        self.run_view = RunView(
+            step_order=[d.name for d in STEP_DEFINITIONS],
+            labels={d.name: tr(d.label_key) for d in STEP_DEFINITIONS},
+        )
+        self._run_index = self._stack.addWidget(self.run_view)
         self._section_index = {
             "library": self._draft_index,
             "queue": self._draft_index,
             "recorder": self._draft_index,
             "live": self._draft_index,
             "cover": self._cover_index,
+            "run": self._run_index,
         }
 
         self.workspace_shell = WorkspaceShell(
@@ -1269,8 +1288,30 @@ class MainWindow(QMainWindow):
             self._stack.setCurrentIndex(self._record_index)
             self.inspector.set_section("materials")
         self.inspector.set_artifacts(["transcript"])
+        self._sync_run_view(result)
 
         self._start_preset_chain()
+
+    def _sync_run_view(self, result: TranscriptionResult) -> None:
+        """Populate the run screen (B4) with a JobRun for the selected
+        recipe, marking the step(s) already resolved by the transcription
+        that just finished. Nothing else here actually runs: the rest of
+        the recipe's steps are still triggered the old way, one panel
+        button at a time, until each is migrated onto the job engine in
+        B5 — this is a display sync, not a second execution path."""
+        recipe = BUILTIN_RECIPES_BY_KEY.get(get_config().last_recipe, TRANSCRIPT_ONLY)
+        spec = recipe.to_job_spec(build_job_spec)
+        step_names = {step.name for step in spec.steps}
+        run = JobRun(spec=spec)
+        if "transcribe" in step_names:
+            run.outcomes["transcribe"] = StepOutcome(
+                "transcribe", StepStatus.SUCCEEDED, result=result
+            )
+        if "diarize" in step_names and any(seg.speaker for seg in result.segments):
+            run.outcomes["diarize"] = StepOutcome(
+                "diarize", StepStatus.SUCCEEDED, result=result
+            )
+        self.run_view.bind_run(run)
 
     def _start_preset_chain(self) -> None:
         """After a fresh transcription, automatically run whatever extra

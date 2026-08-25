@@ -100,6 +100,26 @@ def _check_clipping(window, state_key: str, baseline: dict[str, int]) -> None:
         )
 
 
+def _bind_demo_run(window) -> None:
+    """Populate the run screen (B4) with a fixture JobRun exercising every
+    status the feed can show — deterministic, touches no real engine."""
+    from application.job_engine import JobRun
+    from application.steps import STEP_DEFINITIONS, build_job_spec
+    from domain.job import StepOutcome, StepStatus
+
+    names = [d.name for d in STEP_DEFINITIONS]
+    spec = build_job_spec("gallery-demo", names)
+    run = JobRun(spec=spec)
+    run.outcomes["transcribe"] = StepOutcome("transcribe", StepStatus.SUCCEEDED)
+    run.outcomes["diarize"] = StepOutcome("diarize", StepStatus.SKIPPED)
+    run.outcomes["clean"] = StepOutcome("clean", StepStatus.SUCCEEDED)
+    run.outcomes["article"] = StepOutcome("article", StepStatus.SUCCEEDED)
+    run.outcomes["insights"] = StepOutcome("insights", StepStatus.FAILED, error="LM Studio timed out")
+    run.outcomes["book"] = StepOutcome("book", StepStatus.CANCELLED)
+    # "youtube_package" and "cover" are left unresolved -> "waiting".
+    window.run_view.bind_run(run)
+
+
 def render(output: Path, check: bool = False) -> list[Path]:
     output.mkdir(parents=True, exist_ok=True)
     config.CONFIG_DIR = output
@@ -157,6 +177,16 @@ def render(output: Path, check: bool = False) -> list[Path]:
                 rendered.append(path)
                 if check:
                     _check_clipping(window, record_key, baseline)
+
+                _bind_demo_run(window)
+                window._stack.setCurrentIndex(window._run_index)
+                app.processEvents()
+                run_key = f"{language}-{theme}-{width}x{height}-run"
+                path = output / f"{run_key}.png"
+                window.grab().save(str(path))
+                rendered.append(path)
+                if check:
+                    _check_clipping(window, run_key, baseline)
 
                 window.command_palette.open_palette()
                 app.processEvents()
