@@ -110,7 +110,18 @@ class Config:
     export_formats: list = field(default_factory=lambda: ["txt"])
 
     # Last-selected preset in the Library's launch bar (see ui/launch_bar.py).
+    # Superseded by recipes/last_recipe below (see
+    # docs/UI_REDESIGN_PLAN_2026-09.ru.md, B2) — kept only so an
+    # already-saved config keeps loading; retired in B9.
     launch_preset: str = "transcribe_only"
+
+    # Recipes (domain/recipe.py): named step sets replacing chain_steps/
+    # launch_preset above. `recipes` holds user-authored Recipe.to_dict()
+    # entries; built-ins (domain.recipe.BUILTIN_RECIPES) aren't stored
+    # here. `last_recipe` is a Recipe.name — either a built-in's or one
+    # from `recipes`.
+    recipes: list = field(default_factory=list)
+    last_recipe: str = "transcript_only"
 
     # YouTube AI provider (feature-scoped; local LM Studio stays the default)
     yt_provider: str = "lmstudio"                       # "lmstudio" | "openai" | "anthropic"
@@ -275,6 +286,24 @@ class Config:
                 filtered_data["chain_steps"] = preset_steps.get(
                     data.get("launch_preset", "transcribe_only"), ["transcript"]
                 )
+
+            # Same seeding pattern as chain_steps above, one layer further:
+            # a config saved before recipes existed gets last_recipe
+            # inferred from whatever chain_steps ended up as (freshly
+            # migrated from launch_preset just above, or already present).
+            # See docs/UI_REDESIGN_PLAN_2026-09.ru.md, B2.
+            if "last_recipe" not in data:
+                steps = set(filtered_data.get("chain_steps") or [])
+                if "youtube" in steps:
+                    filtered_data["last_recipe"] = "youtube_video"
+                elif "article" in steps:
+                    filtered_data["last_recipe"] = "podcast_article"
+                elif "book" in steps:
+                    filtered_data["last_recipe"] = "book"
+                elif "insights" in steps:
+                    filtered_data["last_recipe"] = "meeting_notes"
+                else:
+                    filtered_data["last_recipe"] = "transcript_only"
 
             instance = cls(**filtered_data)
             warnings = instance.validate()

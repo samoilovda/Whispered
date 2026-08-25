@@ -162,6 +162,63 @@ class TestConfigRoundTrip:
 
         assert loaded.chain_steps == ["transcript", "book"]
 
+    @pytest.mark.parametrize(
+        ("chain_steps", "expected_recipe"),
+        [
+            (["transcript"], "transcript_only"),
+            (["transcript", "youtube"], "youtube_video"),
+            (["transcript", "article"], "podcast_article"),
+            (["transcript", "book"], "book"),
+            (["transcript", "insights"], "meeting_notes"),
+            (["transcript", "youtube", "article", "insights"], "youtube_video"),
+        ],
+    )
+    def test_legacy_chain_steps_migrate_to_last_recipe(self, chain_steps, expected_recipe):
+        """See docs/UI_REDESIGN_PLAN_2026-09.ru.md, B2 — same seeding
+        pattern as launch_preset -> chain_steps, one layer further."""
+        config_module.CONFIG_FILE.write_text(
+            json.dumps({"chain_steps": chain_steps}), encoding="utf-8"
+        )
+
+        loaded = Config.load()
+
+        assert loaded.last_recipe == expected_recipe
+
+    def test_legacy_launch_preset_migrates_all_the_way_to_last_recipe(self):
+        """launch_preset -> chain_steps -> last_recipe, chained through
+        both migrations from a config saved before either existed."""
+        config_module.CONFIG_FILE.write_text(
+            json.dumps({"launch_preset": "youtube"}), encoding="utf-8"
+        )
+
+        loaded = Config.load()
+
+        assert loaded.chain_steps == ["transcript", "youtube"]
+        assert loaded.last_recipe == "youtube_video"
+
+    def test_explicit_last_recipe_is_not_overwritten(self):
+        config_module.CONFIG_FILE.write_text(
+            json.dumps(
+                {"chain_steps": ["transcript", "youtube"], "last_recipe": "book"}
+            ),
+            encoding="utf-8",
+        )
+
+        loaded = Config.load()
+
+        assert loaded.last_recipe == "book"
+
+    def test_recipes_field_defaults_empty_and_round_trips(self):
+        assert Config().recipes == []
+        config_module.CONFIG_FILE.write_text(
+            json.dumps({"recipes": [{"name": "my recipe", "steps": ["transcribe"]}]}),
+            encoding="utf-8",
+        )
+
+        loaded = Config.load()
+
+        assert loaded.recipes == [{"name": "my recipe", "steps": ["transcribe"]}]
+
     def test_load_missing_file_returns_defaults(self):
         loaded = Config.load()
         assert loaded.theme == "dark"
