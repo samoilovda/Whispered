@@ -203,6 +203,7 @@ class MainWindow(QMainWindow):
         self._article_job: JobRunner | None = None
         self._insights_job: JobRunner | None = None
         self._youtube_job: JobRunner | None = None
+        self._book_job: JobRunner | None = None
         self._gpu_worker: GPUDetectionWorker | None = None
         self._draft_worker: DraftAssemblyWorker | None = None
         self._shutdownables.append(_WorkerShutdown(self, "_ai_worker"))
@@ -210,6 +211,7 @@ class MainWindow(QMainWindow):
         self._shutdownables.append(_WorkerShutdown(self, "_article_job"))
         self._shutdownables.append(_WorkerShutdown(self, "_insights_job"))
         self._shutdownables.append(_WorkerShutdown(self, "_youtube_job"))
+        self._shutdownables.append(_WorkerShutdown(self, "_book_job"))
         self._shutdownables.append(_WorkerShutdown(self, "_gpu_worker", wait_ms=1500))
         # Cancellation stops ffmpeg via SIGTERM (falling back to SIGKILL
         # after 5s) — bound generously above that worst case so close()
@@ -404,7 +406,7 @@ class MainWindow(QMainWindow):
         # connection-check timers start with the rest of setup; it's shown
         # as its own tab on the Record view (see content_tabs below).
         self.book_panel = BookPanel()
-        self.book_panel.run_single_requested.connect(self._on_book_run)
+        self.book_panel.run_single_requested.connect(self._start_book_job)
         self.book_panel.cancel_requested.connect(self._cancel_operation)
         self._shutdownables.append(self.book_panel)
 
@@ -1099,6 +1101,7 @@ class MainWindow(QMainWindow):
         self.insights_panel.clear()
         self._cancel_youtube_job()
         self.youtube_panel.clear()
+        self._cancel_book_job()
         self.cut_view.clear()
         self._cleaned_text = None
 
@@ -1171,7 +1174,7 @@ class MainWindow(QMainWindow):
             self._chain_extra_active = ""
             self._cancel_insights_job()
             self.insights_panel.clear()
-            self._cancel_ai_worker()
+            self._cancel_book_job()
             self.status_label.setText(tr("status_chain_cancelled"))
             self._reset_ui()
             return
@@ -1198,6 +1201,9 @@ class MainWindow(QMainWindow):
             self.status_label.setText(tr("status_ai_cancelled"))
         elif self._youtube_job is not None and self._youtube_job.isRunning():
             self._cancel_youtube_job()
+            self.status_label.setText(tr("status_ai_cancelled"))
+        elif self._book_job is not None and self._book_job.isRunning():
+            self._cancel_book_job()
             self.status_label.setText(tr("status_ai_cancelled"))
         elif self._ai_worker and self._ai_worker.isRunning():
             self._cancel_ai_worker()
@@ -1385,7 +1391,7 @@ class MainWindow(QMainWindow):
         elif step == "book":
             self.inspector.set_section("materials")
             self.material_selector.setCurrentIndex(2)
-            self._on_book_run(
+            self._start_book_job(
                 self.book_panel.chk_unwrap.isChecked(),
                 self.book_panel.chk_custom.isChecked(),
                 self.book_panel.custom_prompt_edit.text().strip(),
@@ -2259,73 +2265,133 @@ class MainWindow(QMainWindow):
 
     # ===== Book Pipeline Methods =====
 
-    def _on_book_run(self, do_unwrap: bool, do_custom: bool, custom_prompt_path: str):
-        """Start book pipeline processing for the current transcript."""
+    def _start_book_job(self, do_unwrap: bool, do_custom: bool, custom_prompt_path: str):
+        """Start book pipeline processing for the current transcript —
+        routed through application/steps.py's "book" step via JobRunner
+        (see docs/UI_REDESIGN_PLAN_2026-09.ru.md, B5e), the same migration
+        B5a did for clean. BookPanel never created its own worker for a
+        single-file run (only its now-hidden folder-batch section did,
+        untouched here) — run_single_requested already just asked
+        MainWindow to do it, so this replaces _on_book_run() itself
+        one-for-one, called from the same two places: the panel's Run
+        button and the preset chain's book step
+        (_start_next_extra_chain_step).
+
+        Stage output moves from next to the source file (BookPipeline's
+        own default when no output_dir is given, which the legacy
+        AIProcessingWorker path relied on) to this record's artifact_dir
+        — matches every other already-migrated generator's convention
+        (application/steps.py's _book_runner passes output_dir itself).
+        Per-stage provenance manifests (with an incomplete provider/model/
+        prompt_version) stop being written; only the one wrapper book.md
+        file gets a complete manifest now — already true since B0, this
+        phase just starts actually exercising it.
+        """
         if not self._current_result:
             self.status_label.setText(tr("status_no_transcript_for_book"))
             return
-
-        text = self._current_result.full_text
-        source_path = self._source_filepath or "transcript"
 
         self.book_panel.set_processing(True)
         self.cancel_btn.setVisible(True)
         self.transcribe_btn.setVisible(False)
 
-        from application.artifact_provenance import source_fingerprint, transcript_revision
+        from core.paths import artifact_dir
 
-        self._ai_worker = AIProcessingWorker(
-            "book_unwrap", text,
-            do_unwrap=do_unwrap,
-            do_custom=do_custom,
-            custom_prompt_path=custom_prompt_path,
-            source_path=source_path,
-            record_id=self._last_record_id if self._last_record_id is not None else "unsaved",
-            source_hash=source_fingerprint(self._source_filepath),
-            transcript_revision=transcript_revision(
-                self._current_result.segments, self._current_result.language
-            ),
+        record_id = self._last_record_id if self._last_record_id is not None else "unsaved"
+        stem = Path(self._source_filepath).stem if self._source_filepath else "recording"
+        out_dir = artifact_dir(record_id, self._source_filepath or stem)
+
+        spec = build_job_spec("book-only", ("book",))
+        self._book_job = JobRunner(spec)
+        context = StepContext(
+            source_path=self._source_filepath or "transcript",
+            result=self._current_result,
+            record_id=record_id,
+            artifact_dir=out_dir,
+            params={
+                "do_unwrap": do_unwrap,
+                "do_custom": do_custom,
+                "custom_prompt_path": custom_prompt_path,
+            },
+            is_cancelled=self._book_job.run_state.is_cancelled,
         )
-        self._ai_worker.progress.connect(self._on_book_progress)
-        self._ai_worker.finished.connect(self._on_book_finished)
-        self._ai_worker.error.connect(self._on_book_error)
-        self._ai_worker.start()
+        runners = build_runners(
+            context, ("book",), progress_factory=self._book_job.make_progress_callback
+        )
+        self._book_job.set_runners(runners)
+        self._book_job.step_progress.connect(self._on_book_progress)
+        self._book_job.job_finished.connect(self._on_book_job_finished)
+        self._book_job.start()
 
-    def _on_book_progress(self, percentage: int, message: str):
-        """Handle book pipeline progress."""
+    def _cancel_book_job(self) -> None:
+        """Cancel the running "book" JobRunner — see _cancel_clean_job()'s
+        docstring for the retire-through-the-registry pattern this
+        mirrors."""
+        if self._book_job is not None and self._book_job.isRunning():
+            self._registry.retire(self._book_job)
+            self._book_job = None
+
+    def _on_book_progress(self, _name: str, percentage: int, message: str) -> None:
+        """JobRunner.step_progress for the single-step "book" job."""
         self.book_panel.update_progress(percentage, message)
         self.status_label.setText(message)
 
-    def _on_book_finished(self, result):
-        """Handle book pipeline completion."""
+    def _on_book_job_finished(self, run: JobRun) -> None:
+        """JobRunner.job_finished for the single-step "book" job started
+        by _start_book_job() — mirrors the success/error split the old
+        AIProcessingWorker.finished/.error signals drove, including the
+        preset chain's own book-step bookkeeping."""
         from book_pipeline import BookResult
 
         self.book_panel.set_processing(False)
         self._reset_ui()
-        self._ai_worker = None
+        self._book_job = None
+        outcome = run.outcomes.get("book")
 
         book_succeeded = False
-        if isinstance(result, BookResult) and result.stages:
-            saved_paths = [s.output_path for s in result.stages if s.success and s.output_path]
-            if saved_paths:
-                book_succeeded = True
-                files = ", ".join(os.path.basename(p) for p in saved_paths)
-                self.status_label.setText(tr("status_book_saved", files=files))
-                # Show result in Cleaned tab
-                if result.final_text:
-                    self.cleaned_view.set_text(
-                        result.final_text,
-                        original_length=len(self._current_result.full_text) if self._current_result else 0,
-                        removed_fillers=0,
-                        paragraphs=result.final_text.count('\n\n') + 1,
-                    )
-                    self.main_tabs.setCurrentIndex(1)
+        if outcome is not None and outcome.status is StepStatus.SUCCEEDED and isinstance(
+            outcome.result, BookResult
+        ):
+            result = outcome.result
+            if result.stages:
+                saved_paths = [s.output_path for s in result.stages if s.success and s.output_path]
+                if saved_paths:
+                    book_succeeded = True
+                    files = ", ".join(os.path.basename(p) for p in saved_paths)
+                    self.status_label.setText(tr("status_book_saved", files=files))
+                    # Show result in Cleaned tab
+                    if result.final_text:
+                        self.cleaned_view.set_text(
+                            result.final_text,
+                            original_length=len(self._current_result.full_text) if self._current_result else 0,
+                            removed_fillers=0,
+                            paragraphs=result.final_text.count('\n\n') + 1,
+                        )
+                        self.main_tabs.setCurrentIndex(1)
+                else:
+                    # A stage failed internally (caught by BookPipeline
+                    # itself, not an exception) — status text only, same
+                    # as a fully successful run; no popup either way.
+                    failed = [s.error for s in result.stages if not s.success]
+                    error = failed[0] if failed else tr("error_unknown")
+                    self.status_label.setText(tr("status_book_error", error=error))
             else:
-                failed = [s.error for s in result.stages if not s.success]
-                error = failed[0] if failed else tr("error_unknown")
-                self.status_label.setText(tr("status_book_error", error=error))
+                self.status_label.setText(tr("status_book_pipeline_done"))
         else:
-            self.status_label.setText(tr("status_book_pipeline_done"))
+            # _cancel_book_job() disconnects this very signal before the
+            # run can reach a CANCELLED outcome (see
+            # _on_clean_job_finished's matching comment), so the only
+            # other case reaching here is the pipeline itself raising
+            # (not a per-stage failure — that's the "succeeded" branch
+            # above, since BookPipeline catches those itself).
+            error_message = outcome.error if outcome is not None else ""
+            self.status_label.setText(tr("status_book_error", error=error_message[:60]))
+            if self._chain_extra_active != "book":
+                QMessageBox.warning(
+                    self,
+                    tr("error_book_pipeline_title"),
+                    tr("error_occurred", detail=error_message),
+                )
 
         if self._chain_extra_active == "book":
             if book_succeeded:
@@ -2334,21 +2400,3 @@ class MainWindow(QMainWindow):
                 self._chain_extra_had_error = True
             self._chain_extra_active = ""
             self._start_next_extra_chain_step()
-
-    def _on_book_error(self, error_message: str):
-        """Handle book pipeline error."""
-        self.book_panel.set_processing(False)
-        self._reset_ui()
-        self._ai_worker = None
-
-        self.status_label.setText(tr("status_book_error", error=error_message[:60]))
-        if self._chain_extra_active == "book":
-            self._chain_extra_had_error = True
-            self._chain_extra_active = ""
-            self._start_next_extra_chain_step()
-        else:
-            QMessageBox.warning(
-                self,
-                tr("error_book_pipeline_title"),
-                tr("error_occurred", detail=error_message),
-            )
