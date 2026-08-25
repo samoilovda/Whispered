@@ -154,6 +154,12 @@ class FlowLayout(QLayout):
         x, y = effective.x(), effective.y()
         line_height = 0
         for item in self._items:
+            # A QBoxLayout skips a hidden widget's QWidgetItem
+            # (isEmpty() is True for one) instead of reserving its space —
+            # match that, or a conditionally-hidden widget (e.g. the
+            # system-audio meter when unsupported) leaves a permanent gap.
+            if item.isEmpty():
+                continue
             hint = item.sizeHint()
             next_x = x + hint.width() + self._spacing
             if next_x - self._spacing > effective.right() and line_height > 0:
@@ -169,27 +175,35 @@ class FlowLayout(QLayout):
 
 
 class PageHeader(QWidget):
-    """Consistent page title, optional subtitle and contextual actions."""
+    """Consistent page title, optional subtitle and contextual actions.
+
+    Title, subtitle and actions stack in their own rows rather than
+    sharing one row (title/actions side by side, as before) — in a narrow
+    column, a QHBoxLayout shrinks *every* item below its size hint once
+    their combined width doesn't fit, which clipped both the title and
+    its action badges simultaneously with no visible separation between
+    them (see docs/UI_REDESIGN_PLAN_2026-09.ru.md, A4, the Live screen's
+    header). Stacking removes the width contention: each row gets the
+    header's full width to itself.
+    """
 
     def __init__(self, title: str, subtitle: str = "", parent=None) -> None:
         super().__init__(parent)
-        layout = QHBoxLayout(self)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(SPACE_4)
+        layout.setSpacing(SPACE_1)
 
-        copy = QVBoxLayout()
-        copy.setContentsMargins(0, 0, 0, 0)
-        copy.setSpacing(SPACE_1)
         self.title_label = QLabel(title)
         self.title_label.setProperty("role", "page-title")
         self.title_label.setAccessibleName(title)
-        copy.addWidget(self.title_label)
+        self.title_label.setWordWrap(True)
+        layout.addWidget(self.title_label)
+
         self.subtitle_label = QLabel(subtitle)
         self.subtitle_label.setProperty("role", "muted")
         self.subtitle_label.setWordWrap(True)
         self.subtitle_label.setVisible(bool(subtitle))
-        copy.addWidget(self.subtitle_label)
-        layout.addLayout(copy, stretch=1)
+        layout.addWidget(self.subtitle_label)
 
         self.actions = QHBoxLayout()
         self.actions.setContentsMargins(0, 0, 0, 0)

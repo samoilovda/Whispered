@@ -22,7 +22,7 @@ from core.live.preflight import default_helper_path
 from core.live.target_discovery import DiscoveredTarget, discover_targets
 from core.platform_support import live_system_audio_unavailable_message, supports_live_system_audio
 from core.worker_registry import WorkerRegistry
-from ui.components import FormSection
+from ui.components import ElidingComboBox, FlowLayout, FormSection
 from ui.option_labels import whisper_language_options, whisper_model_options
 
 
@@ -53,7 +53,12 @@ class LiveSetupPanel(FormSection):
         self._build()
 
     def _build(self) -> None:
-        sources = QHBoxLayout()
+        # A plain QHBoxLayout squeezes both checkboxes below their label's
+        # own width once the column is narrow (same bug as the Library
+        # filter chips — see docs/UI_REDESIGN_PLAN_2026-09.ru.md, A2/A4);
+        # FlowLayout wraps to a second row at full size instead.
+        sources_widget = QWidget()
+        sources = FlowLayout(sources_widget, spacing=12)
         self.mic_check = QCheckBox(tr("live_source_mic"))
         self.mic_check.setChecked(True)
         self.system_check = QCheckBox(tr("live_source_system"))
@@ -64,37 +69,54 @@ class LiveSetupPanel(FormSection):
             self.system_check.setToolTip(live_system_audio_unavailable_message())
         sources.addWidget(self.mic_check)
         sources.addWidget(self.system_check)
-        sources.addStretch()
-        self.layout.addLayout(sources)
+        self.layout.addWidget(sources_widget)
+
+        # QFormLayout's own row-label QLabels (from addRow(str, ...)) get
+        # compressed below their own sizeHint in a narrow column just like
+        # any other unwrapped QLabel — "Приложение встречи" clipped to
+        # "Прилож" (see docs/UI_REDESIGN_PLAN_2026-09.ru.md, A4). Build the
+        # label explicitly so it can wrap instead of hard-clipping.
+        def _row_label(text: str) -> QLabel:
+            label = QLabel(text)
+            label.setWordWrap(True)
+            return label
 
         form = QFormLayout()
-        self.mic_combo = QComboBox()
+        # This panel is a permanently narrow (~250px) sidebar column, not a
+        # resizable form — QFormLayout's default side-by-side label/field
+        # columns squeeze a row-label QLabel like "Приложение встречи"
+        # below its own sizeHint here even after word-wrap is enabled
+        # (see docs/UI_REDESIGN_PLAN_2026-09.ru.md, A4). WrapLongRows is
+        # Qt's own answer to exactly this: a row that doesn't fit side by
+        # side stacks its label above its field instead.
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        self.mic_combo = ElidingComboBox()
         self.mic_combo.addItem(tr("live_default_microphone"), get_config().mic_device_index)
-        form.addRow(tr("live_mic_device"), self.mic_combo)
+        form.addRow(_row_label(tr("live_mic_device")), self.mic_combo)
 
         target_row = QWidget()
         target_layout = QHBoxLayout(target_row)
         target_layout.setContentsMargins(0, 0, 0, 0)
-        self.target_combo = QComboBox()
+        self.target_combo = ElidingComboBox()
         self.target_combo.addItem(tr("live_zoom_missing"), None)
         self.refresh_btn = QPushButton(tr("live_refresh_targets"))
         self.refresh_btn.clicked.connect(self.refresh_targets)
         target_layout.addWidget(self.target_combo, 1)
         target_layout.addWidget(self.refresh_btn)
         self._target_row = target_row
-        form.addRow(tr("live_meeting_target"), target_row)
+        form.addRow(_row_label(tr("live_meeting_target")), target_row)
 
-        self.model_combo = QComboBox()
+        self.model_combo = ElidingComboBox()
         for key, label in whisper_model_options():
             self.model_combo.addItem(label.split(" - ", 1)[0], key)
         self._select(self.model_combo, get_config().default_model)
-        form.addRow(tr("live_model"), self.model_combo)
+        form.addRow(_row_label(tr("live_model")), self.model_combo)
 
-        self.language_combo = QComboBox()
+        self.language_combo = ElidingComboBox()
         for key, label in whisper_language_options():
             self.language_combo.addItem(label, key)
         self._select(self.language_combo, get_config().default_language)
-        form.addRow(tr("live_language"), self.language_combo)
+        form.addRow(_row_label(tr("live_language")), self.language_combo)
         self.layout.addLayout(form)
 
         for control in (
@@ -111,6 +133,7 @@ class LiveSetupPanel(FormSection):
             else live_system_audio_unavailable_message()
         )
         self.target_status.setProperty("role", "muted")
+        self.target_status.setWordWrap(True)
         self.layout.addWidget(self.target_status)
 
         for control in (

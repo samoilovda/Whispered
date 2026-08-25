@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
 
 from core.i18n import tr
 from core.live.preflight import LivePreflight
-from ui.components import InlineBanner, PageHeader, StatusBadge
+from ui.components import FlowLayout, InlineBanner, PageHeader, StatusBadge
 from ui.live_diagnostics_panel import LiveDiagnosticsPanel
 from ui.live_preflight_panel import LivePreflightPanel
 from ui.live_setup_panel import LiveSetupPanel
@@ -53,6 +53,12 @@ class LiveView(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        # The session row below wraps via FlowLayout instead of overflowing
+        # horizontally, so this scroll area only ever needs to scroll
+        # vertically — a horizontal bar here previously covered the Start/
+        # Pause/Stop row it could never actually reach past (see
+        # docs/UI_REDESIGN_PLAN_2026-09.ru.md, A4).
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         body = QWidget()
         content = QVBoxLayout(body)
         # Right margin so row content (Start/Pause/Stop, the last widget in
@@ -99,7 +105,15 @@ class LiveView(QWidget):
         self.banner = InlineBanner()
         content.addWidget(self.banner)
 
-        session = QHBoxLayout()
+        # A fixed-width meter can't shrink and a QHBoxLayout won't wrap, so
+        # a narrow center column previously forced this whole row wider
+        # than the scroll area's viewport — the actual cause of the
+        # horizontal scrollbar above, and it could push Pause/Stop/Open
+        # out of view since nothing here ever wrapped or elided (see
+        # docs/UI_REDESIGN_PLAN_2026-09.ru.md, A4). FlowLayout wraps
+        # instead, so every control stays fully visible.
+        session_widget = QWidget()
+        session = FlowLayout(session_widget, spacing=10)
         self.elapsed_label = QLabel("00:00")
         session.addWidget(self.elapsed_label)
         self.mic_state = QLabel(tr("live_source_idle").format(source=tr("live_source_mic")))
@@ -112,7 +126,6 @@ class LiveView(QWidget):
         self.system_meter = self._meter()
         self.system_meter.setVisible(supports_live_system_audio())
         session.addWidget(self.system_meter)
-        session.addStretch()
         self.pause_btn = QPushButton(tr("live_pause"))
         self.pause_btn.setCheckable(True)
         self.pause_btn.setEnabled(False)
@@ -127,7 +140,7 @@ class LiveView(QWidget):
         self.open_btn.setVisible(False)
         self.open_btn.clicked.connect(self.open_record_requested.emit)
         session.addWidget(self.open_btn)
-        content.addLayout(session)
+        content.addWidget(session_widget)
 
         self.transcript = LiveTranscriptView()
         self.transcript.setMinimumHeight(180)
