@@ -186,9 +186,12 @@ def test_article_runner_reads_clean_step_output(tmp_path, monkeypatch):
 
     seen_text = {}
 
+    class _FakeLMClient:
+        is_cancelled = None
+
     class _FakeArticleGenerator:
         def __init__(self, *_args, **_kwargs):
-            pass
+            self.lm_client = _FakeLMClient()
 
         def generate_all_formats(self, text, formats=None, on_progress=None):
             seen_text["text"] = text
@@ -230,9 +233,12 @@ def test_article_runner_falls_back_to_full_text_without_a_clean_result(tmp_path,
 
     seen_text = {}
 
+    class _FakeLMClient:
+        is_cancelled = None
+
     class _FakeArticleGenerator:
         def __init__(self, *_args, **_kwargs):
-            pass
+            self.lm_client = _FakeLMClient()
 
         def generate_all_formats(self, text, formats=None, on_progress=None):
             seen_text["text"] = text

@@ -243,6 +243,7 @@ def _article_runner(context: StepContext) -> StepRunner:
         lm_url = context.params.get("lm_url")
         client = LMStudioClient(lm_url) if lm_url else LMStudioClient()
         generator = ArticleGenerator(client)
+        generator.lm_client.is_cancelled = context.is_cancelled
         formats = context.params.get("article_formats") or list(ArticleFormat)
         result = generator.generate_all_formats(
             text, formats=formats, on_progress=context.on_progress
