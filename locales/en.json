@@ -31,6 +31,8 @@
   "queue_kind_transcribe": "Transcription",
   "queue_kind_book": "Book",
   "queue_book_file_filter": "Markdown (*.md);;All files (*)",
+  "queue_tab_files": "Files",
+  "queue_tab_course": "Course",
   "status_llm_model": "LLM: {model}",
   "status_llm_unavailable": "LM Studio is unavailable. Check its URL and loaded model in Settings.",
   "command_palette_title": "Commands",

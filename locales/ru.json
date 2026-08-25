@@ -31,6 +31,8 @@
   "queue_kind_transcribe": "Транскрипция",
   "queue_kind_book": "Книга",
   "queue_book_file_filter": "Markdown (*.md);;Все файлы (*)",
+  "queue_tab_files": "Файлы",
+  "queue_tab_course": "Курс",
   "status_llm_model": "LLM: {model}",
   "status_llm_unavailable": "LM Studio недоступен. Проверьте адрес и загруженную модель в настройках.",
   "command_palette_title": "Команды",
