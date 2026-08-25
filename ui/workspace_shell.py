@@ -1,4 +1,11 @@
-"""Three-column workspace shell with persistent Library and Inspector."""
+"""Two-column workspace shell with a persistent Library.
+
+Was three columns (Library | Document | Inspector) — the inspector rail
+is retired in B6 (see docs/UI_REDESIGN_PLAN_2026-09.ru.md): every
+destination it used to host is now either a StartView/RunView screen or
+a tab on RecordView's own content widget, so there's nothing left for a
+third column to hold.
+"""
 
 from __future__ import annotations
 
@@ -21,20 +28,22 @@ from ui.icons import IconColors, get_icon
 
 LIBRARY_COMPACT_WIDTH = 54
 LIBRARY_WIDTH = 280
-INSPECTOR_WIDTH = 360
-FORCE_COMPACT_WIDTH = 1040
+# MainWindow.setMinimumSize(900, 550) means the window itself can never
+# get narrower than 900 — keep this comfortably above that floor so the
+# forced-compact rule stays reachable at the window's own minimum size,
+# instead of being dead code below a width nothing can actually resize to.
+FORCE_COMPACT_WIDTH = 960
 
 
 class WorkspaceShell(QWidget):
-    """Own the Library | Document | Inspector geometry and resize rules."""
+    """Own the Library | center geometry and resize rules."""
 
     new_requested = pyqtSignal()
 
-    def __init__(self, library: QWidget, center: QWidget, inspector: QWidget, parent=None) -> None:
+    def __init__(self, library: QWidget, center: QWidget, parent=None) -> None:
         super().__init__(parent)
         self.library = library
         self.center = center
-        self.inspector = inspector
         self._forced_compact = False
         self._setup_ui()
 
@@ -65,22 +74,14 @@ class WorkspaceShell(QWidget):
 
         self.splitter.addWidget(self.library_pane)
         self.splitter.addWidget(self.center)
-        self.splitter.addWidget(self.inspector)
         self.center.setSizePolicy(
-            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding
-        )
-        self.inspector.setSizePolicy(
-            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
         self.center.setMinimumWidth(360)
-        self.inspector.setMinimumWidth(52)
-        self.inspector.setMaximumWidth(420)
         self.splitter.setCollapsible(0, False)
         self.splitter.setCollapsible(1, False)
-        self.splitter.setCollapsible(2, False)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
-        self.splitter.setStretchFactor(2, 0)
         root.addWidget(self.splitter)
 
     def showEvent(self, event) -> None:
@@ -112,15 +113,10 @@ class WorkspaceShell(QWidget):
         self.library_pane.setMaximumWidth(
             LIBRARY_COMPACT_WIDTH if compact_library else 420
         )
-        if hasattr(self.inspector, "set_collapsed"):
-            self.inspector.set_collapsed(
-                forced or getattr(cfg, "inspector_collapsed", False), emit=False
-            )
         if self.width() > 0:
-            inspector_width = 52 if forced else min(INSPECTOR_WIDTH, self.width() // 3)
             library_width = LIBRARY_COMPACT_WIDTH if compact_library else LIBRARY_WIDTH
             self.splitter.setSizes(
-                [library_width, max(360, self.width() - library_width - inspector_width), inspector_width]
+                [library_width, max(360, self.width() - library_width)]
             )
 
     def _on_header_action(self) -> None:
@@ -129,7 +125,7 @@ class WorkspaceShell(QWidget):
             self.library_title.setVisible(True)
             self.library_pane.setMinimumWidth(220)
             self.library_pane.setMaximumWidth(420)
-            self.splitter.setSizes([280, max(360, self.width() - 332), 52])
+            self.splitter.setSizes([280, max(360, self.width() - 280)])
             return
         self.new_requested.emit()
 

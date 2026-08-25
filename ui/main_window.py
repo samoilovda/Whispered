@@ -10,8 +10,8 @@ import time
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout,
-    QLabel, QFileDialog, QMessageBox,
-    QApplication, QTabWidget, QComboBox,
+    QLabel, QFileDialog, QMessageBox, QDialog,
+    QApplication, QTabWidget,
     QTextEdit, QLineEdit, QPlainTextEdit, QStackedWidget,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -20,16 +20,13 @@ from PyQt6.QtGui import QKeySequence, QShortcut, QDragEnterEvent, QDropEvent
 from ui.toast import show_toast
 from ui.library_view import LibraryView
 from ui.record_view import RecordView
-from ui.inspector_rail import InspectorRail
 from ui.workspace_shell import WorkspaceShell
-from ui.draft_record import DraftRecord
+from ui.start_view import StartView
 from ui.status_bar import StatusBar
-from ui.step_checklist import StepChecklist
 from ui.transcribe_options import TranscribeOptionsPopover
 from ui.command_palette import CommandPalette
 from ui.file_selector import FileSelector
 from ui.transcript_view import TranscriptView
-from ui.ai_panel import AIProcessingPanel
 from ui.article_view import ArticleView, CleanedTextView
 from ui.batch_panel import BatchPanel
 from ui.course_capture_panel import CourseCapturePanel
@@ -46,9 +43,9 @@ from ui.live_preflight_panel import LivePreflightWorker
 from ui.progress_timeline import ProgressTimeline
 from ui.animated_button import AnimatedButton
 from ui.live_checkpoint_tracker import LiveCheckpointTracker
-from ui.preset_chain_controller import PresetChainController
 from ui.shutdownable import Shutdownable
 from ui.run_view import RunView
+from ui.recipe_editor import RecipeEditorDialog
 from transcriber import Transcriber, TranscriptionResult
 from exporters import EXPORT_FORMATS
 from application import export_controller
@@ -63,10 +60,9 @@ from utils import (
 from application.document_session import DocumentSession
 from application.job_engine import JobRun
 from application.steps import STEP_DEFINITIONS, StepContext, build_job_spec, build_runners
-from domain.job import StepOutcome, StepStatus
-from domain.recipe import BUILTIN_RECIPES_BY_KEY, TRANSCRIPT_ONLY
-from config import get_config
-from core.ai_worker import AIProcessingWorker
+from domain.job import JobSpec, StepOutcome, StepStatus
+from domain.recipe import BUILTIN_RECIPES_BY_KEY, Recipe, TRANSCRIPT_ONLY
+from config import get_config, save_config
 from core.insights_cache import InsightsCache
 from core.base_worker import BaseWorker
 from core.job_runner import JobRunner
@@ -143,9 +139,10 @@ class _WorkerShutdown:
     """Adapts an ``Optional[QThread]`` attribute to the Shutdownable
     protocol (ui/shutdownable.py).
 
-    ``_ai_worker``, ``_gpu_worker`` and ``_live_preflight_worker`` are not
-    persistent objects like the panels — they are created per-operation,
-    set back to ``None`` when idle, and sometimes replaced while running.
+    ``_recipe_job``, ``_gpu_worker`` and ``_live_preflight_worker`` (along
+    with the five single-step ``_*_job`` attributes) are not persistent
+    objects like the panels — they are created per-operation, set back to
+    ``None`` when idle, and sometimes replaced while running.
     A registration built once at construction time therefore looks the
     attribute up by name at shutdown time rather than holding the worker
     itself, so it always sees whatever is current when the window closes.
@@ -198,20 +195,31 @@ class MainWindow(QMainWindow):
         self._shutdownables.append(self.transcriber)
         self._current_result: TranscriptionResult | None = None
         self._cleaned_text: str | None = None
-        self._ai_worker: AIProcessingWorker | None = None
         self._clean_job: JobRunner | None = None
         self._article_job: JobRunner | None = None
         self._insights_job: JobRunner | None = None
         self._youtube_job: JobRunner | None = None
         self._book_job: JobRunner | None = None
+        # A recipe-driven launch (see _run_recipe, B6) runs the rest of the
+        # selected recipe's steps as one JobRunner once transcription
+        # finishes — separate from the five single-step _*_job attributes
+        # above, which stay as each panel's own direct re-run/retry path.
+        self._recipe_job: JobRunner | None = None
+        # The current recipe run's spec/state/context, kept around so a
+        # RunView retry (_on_recipe_retry) can rebuild a fresh JobRunner
+        # against the same JobRun instead of starting the whole run over.
+        self._recipe_run: JobRun | None = None
+        self._recipe_spec: JobSpec | None = None
+        self._recipe_step_names: tuple = ()
+        self._recipe_context: StepContext | None = None
         self._gpu_worker: GPUDetectionWorker | None = None
         self._draft_worker: DraftAssemblyWorker | None = None
-        self._shutdownables.append(_WorkerShutdown(self, "_ai_worker"))
         self._shutdownables.append(_WorkerShutdown(self, "_clean_job"))
         self._shutdownables.append(_WorkerShutdown(self, "_article_job"))
         self._shutdownables.append(_WorkerShutdown(self, "_insights_job"))
         self._shutdownables.append(_WorkerShutdown(self, "_youtube_job"))
         self._shutdownables.append(_WorkerShutdown(self, "_book_job"))
+        self._shutdownables.append(_WorkerShutdown(self, "_recipe_job"))
         self._shutdownables.append(_WorkerShutdown(self, "_gpu_worker", wait_ms=1500))
         # Cancellation stops ffmpeg via SIGTERM (falling back to SIGKILL
         # after 5s) — bound generously above that worst case so close()
@@ -223,14 +231,6 @@ class MainWindow(QMainWindow):
         self._gpu_type, self._gpu_name = self.transcriber.gpu_type, self.transcriber.gpu_name
         # ETA tracking
         self._transcription_start: float = 0.0
-        # Preset chain state machine (see _start_preset_chain / Phase C.3
-        # and ui/preset_chain_controller.py).
-        self._preset_chain = PresetChainController(self)
-        self._preset_chain.finished.connect(self._finish_preset_chain)
-        self._chain_extra_steps: list[str] = []
-        self._chain_extra_ran: set[str] = set()
-        self._chain_extra_had_error = False
-        self._chain_extra_active = ""
         self._last_record_id: int | None = None
         self._live_checkpoint = LiveCheckpointTracker()
         self._setup_ui()
@@ -369,7 +369,6 @@ class MainWindow(QMainWindow):
         self.translate_checkbox = self.transcribe_options.translate_checkbox
         self.perf_combo = self.transcribe_options.perf_combo
         self.diarization_checkbox = self.transcribe_options.diarization_checkbox
-        self.step_checklist = StepChecklist()
 
         # Recorder widget lives on its own sidebar section now; still
         # created here so _connect_signals/_apply_config_defaults and the
@@ -382,12 +381,6 @@ class MainWindow(QMainWindow):
         self.file_selector = FileSelector()
         self._shutdownables.append(self.file_selector)
         self.file_selector.set_compact(self.height() < 650)
-
-        # AIProcessingPanel remains the existing worker-facing controller,
-        # but its disabled actions no longer clutter an empty Library page.
-        self.ai_panel = AIProcessingPanel()
-        self.ai_panel.setVisible(False)
-        self._shutdownables.append(self.ai_panel)
 
         # Batch Processing Panel lives on its own sidebar section (Queue);
         # still created here so signal wiring stays with the rest of setup.
@@ -418,10 +411,10 @@ class MainWindow(QMainWindow):
         """Queue is mounted in the persistent status surface later."""
 
     def _build_recorder_section(self) -> None:
-        """Recorder is mounted as a DraftRecord source later."""
+        """Recorder is mounted as a StartView source later."""
 
     def _build_live_section(self) -> None:
-        """Create Live once; DraftRecord owns its visible placement."""
+        """Create Live once; StartView owns its visible placement."""
         self.live_view = LiveView()
         self.live_runtime = LiveRuntime(self)
         self._live_preflight_worker = None
@@ -470,9 +463,6 @@ class MainWindow(QMainWindow):
 
         self.insights_panel = InsightsPanel()
         self.insights_panel.generate_requested.connect(self._start_insights_job)
-        self.insights_panel.generation_finished.connect(
-            self._on_chain_insights_done
-        )
         self._shutdownables.append(self.insights_panel)
 
         self.cut_view = CutView()
@@ -482,41 +472,19 @@ class MainWindow(QMainWindow):
 
         self.youtube_panel = YouTubePanel()
         self.youtube_panel.generate_requested.connect(self._start_youtube_job)
-        self.youtube_panel.generation_finished.connect(self._on_chain_youtube_done)
         self._shutdownables.append(self.youtube_panel)
+
+        # The five generator panels plus Cut/Chat used to live as inspector
+        # rail pages; the inspector is retired in B6, so they become plain
+        # tabs on the same main_tabs widget the transcript/cleaned-text tabs
+        # already use — one content surface, no second navigation column.
+        self.main_tabs.addTab(self.article_view, tr("tab_articles"))
+        self.main_tabs.addTab(self.youtube_panel, tr("tab_youtube"))
+        self.main_tabs.addTab(self.book_panel, tr("tab_book"))
+        self.main_tabs.addTab(self.insights_panel, tr("tab_insights"))
+        self.main_tabs.addTab(self.cut_view, tr("tab_cut"))
+        self.main_tabs.addTab(self.chat_panel, tr("tab_chat"))
         self.record_view.set_content_widgets(self.player, self.main_tabs)
-
-        self.inspector = InspectorRail()
-
-        materials = QWidget()
-        materials_layout = QVBoxLayout(materials)
-        materials_layout.setContentsMargins(0, 0, 0, 0)
-        self.material_selector = QComboBox()
-        self.material_selector.addItems(
-            [tr("tab_articles"), tr("tab_youtube"), tr("tab_book")]
-        )
-        materials_layout.addWidget(self.material_selector)
-        self.material_stack = QStackedWidget()
-        for panel in (self.article_view, self.youtube_panel, self.book_panel):
-            self.material_stack.addWidget(panel)
-        self.material_selector.currentIndexChanged.connect(
-            self.material_stack.setCurrentIndex
-        )
-        materials_layout.addWidget(self.material_stack, stretch=1)
-        settings_page = QWidget()
-        settings_layout = QVBoxLayout(settings_page)
-        settings_layout.setContentsMargins(0, 0, 0, 0)
-        settings_layout.addWidget(self.transcribe_options)
-        settings_layout.addWidget(self.step_checklist, stretch=1)
-        self.inspector.set_page("materials", materials)
-        self.inspector.set_page("insights", self.insights_panel)
-        self.inspector.set_page("cut", self.cut_view)
-        self.inspector.set_page("chat", self.chat_panel)
-        self.settings_stack = QStackedWidget()
-        self.settings_stack.addWidget(settings_page)
-        self.settings_stack.addWidget(self.live_view.options_panel)
-        self.inspector.set_page("settings", self.settings_stack)
-        self.tools_tabs = self.inspector
 
         self._stack = QStackedWidget()
         folder_source = QWidget()
@@ -530,15 +498,17 @@ class MainWindow(QMainWindow):
         queue_button.clicked.connect(lambda: self.status_bar._toggle_queue())
         folder_layout.addWidget(queue_button)
         folder_layout.addStretch()
-        self.draft_record = DraftRecord(
+        self.start_view = StartView(
             self.file_selector,
             self.recorder_widget,
             self.live_view,
+            self.live_view.options_panel,
             folder_source,
+            self.transcribe_options,
         )
-        self.draft_record.process_requested.connect(self._start_transcription)
-        self.draft_record.source_changed.connect(self._on_draft_source_changed)
-        self._draft_index = self._stack.addWidget(self.draft_record)
+        self.start_view.process_requested.connect(self._start_transcription)
+        self.start_view.configure_recipe_requested.connect(self._open_recipe_editor)
+        self._start_index = self._stack.addWidget(self.start_view)
         self._record_index = self._stack.addWidget(self.record_view)
         self.cover_view = CoverView(insights_cache=self._insights_cache)
         self._shutdownables.append(self.cover_view)
@@ -546,30 +516,21 @@ class MainWindow(QMainWindow):
         # Run view (docs/UI_REDESIGN_PLAN_2026-09.ru.md, B4): one row per
         # step in the whole registry, fixed order — a JobRun only ever
         # populates the subset the active recipe actually includes, so an
-        # out-of-recipe row simply stays "waiting" forever. No viewer is
-        # wired to any row yet: each generator's panel still lives inside
-        # the inspector rail and can't be reparented into a row without
-        # pulling it out of there for good (see ui/run_view.py's module
-        # docstring) — that move happens per-generator in B5.
+        # out-of-recipe row simply stays "waiting" forever. It stays a pure
+        # status/retry feed (no per-row viewer, see ui/run_view.py's module
+        # docstring): a step's content is shown on its own main_tabs tab
+        # instead, since a widget already tabbed into RecordView can't also
+        # be reparented into a RunView row.
         self.run_view = RunView(
             step_order=[d.name for d in STEP_DEFINITIONS],
             labels={d.name: tr(d.label_key) for d in STEP_DEFINITIONS},
         )
+        self.run_view.retry_requested.connect(self._on_recipe_retry)
+        self.run_view.cancel_requested.connect(self._cancel_recipe_job)
         self._run_index = self._stack.addWidget(self.run_view)
-        self._section_index = {
-            "library": self._draft_index,
-            "queue": self._draft_index,
-            "recorder": self._draft_index,
-            "live": self._draft_index,
-            "cover": self._cover_index,
-            "run": self._run_index,
-        }
 
-        self.workspace_shell = WorkspaceShell(
-            self.library_view, self._stack, self.inspector
-        )
+        self.workspace_shell = WorkspaceShell(self.library_view, self._stack)
         self.workspace_shell.new_requested.connect(self._show_new_draft)
-        self.inspector.settings_requested.connect(self._open_settings)
         self._workspace_layout.addWidget(self.workspace_shell, stretch=1)
 
         self.status_bar = StatusBar()
@@ -598,42 +559,34 @@ class MainWindow(QMainWindow):
         self.progress_timeline.setVisible(False)
         self.status_bar.add_detail_widget(self.progress_timeline)
         self._workspace_layout.addWidget(self.status_bar)
-        self.transcribe_btn = self.draft_record.process_button
+        self.transcribe_btn = self.start_view.process_button
         self._update_device_badge()
 
     def _on_section_changed(self, key: str) -> None:
-        """Compatibility entry point: top-level destinations are draft sources."""
-        idx = self._section_index.get(key)
-        if idx is not None:
-            self._stack.setCurrentIndex(idx)
-            self.status_bar.show_queue(key == "queue")
-            if key in {"recorder", "live"}:
-                self.draft_record.set_source(key)
-            elif key == "queue":
-                self.draft_record.set_source("folder")
-            elif key != "cover":
-                self.draft_record.set_source("file")
-            if key == "live" and os.environ.get("WHISPERED_UI_GALLERY") != "1":
-                self.live_view.setup.refresh_targets()
-
-    def _on_sidebar_collapsed(self, collapsed: bool) -> None:
-        self.workspace_shell.set_library_collapsed(collapsed)
+        """Compatibility entry point: top-level destinations are start sources."""
+        if key == "cover":
+            self._stack.setCurrentIndex(self._cover_index)
+            self.status_bar.show_queue(False)
+            return
+        self._stack.setCurrentIndex(self._start_index)
+        self.status_bar.show_queue(key == "queue")
+        if key in {"recorder", "live"}:
+            self.start_view.set_source(key)
+        elif key == "queue":
+            self.start_view.set_source("folder")
+        else:
+            self.start_view.set_source("file")
+        if key == "live" and os.environ.get("WHISPERED_UI_GALLERY") != "1":
+            self.live_view.setup.refresh_targets()
 
     def _show_new_draft(self) -> None:
-        self._stack.setCurrentIndex(self._draft_index)
-        self.draft_record.set_source("file")
-        self.inspector.set_section("settings")
-
-    def _on_draft_source_changed(self, source: str) -> None:
-        is_live = source == "live"
-        self.settings_stack.setCurrentIndex(1 if is_live else 0)
-        if is_live:
-            self.inspector.set_section("settings")
+        self._stack.setCurrentIndex(self._start_index)
+        self.start_view.set_source("file")
 
     def _show_library(self) -> None:
         """Navigate back to the Library page (from the Record view) and
         refresh the list in case anything changed while a record was open."""
-        self._stack.setCurrentIndex(self._draft_index)
+        self._stack.setCurrentIndex(self._start_index)
         self.library_view.refresh()
 
     def _open_record_view(self, record_id: int) -> None:
@@ -799,9 +752,6 @@ class MainWindow(QMainWindow):
             lambda result: self.cut_view.set_result(result)
         )
         self._document_session.register_consumer(
-            lambda result: self.ai_panel.set_has_transcription(True)
-        )
-        self._document_session.register_consumer(
             lambda result: self.book_panel.set_has_transcript(True)
         )
 
@@ -811,11 +761,6 @@ class MainWindow(QMainWindow):
         self.file_selector.file_cleared.connect(self._on_file_cleared)
         self.transcript_view.copy_requested.connect(self._copy_to_clipboard)
         self.transcript_view.result_changed.connect(self._on_transcript_changed)
-
-        # AI Panel signals
-        self.ai_panel.clean_requested.connect(self._start_text_cleaning)
-        self.ai_panel.generate_requested.connect(self._start_article_generation)
-        self.ai_panel.generate_all_requested.connect(self._start_generate_all)
 
         # Article view signals
         self.article_view.copy_done.connect(lambda: show_toast(self, tr("toast_copied"), kind="success"))
@@ -848,8 +793,8 @@ class MainWindow(QMainWindow):
         _sc("Ctrl+R",       self.recorder_widget._toggle_recording)
         _sc("Ctrl+K",       self.command_palette.open_palette)
         _sc("Ctrl+1",       self.library_view._search_edit.setFocus)
-        _sc("Ctrl+2",       lambda: self.inspector.set_section("materials"))
-        _sc("Ctrl+3",       lambda: self.inspector.set_section("settings"))
+        _sc("Ctrl+2",       lambda: self.main_tabs.setCurrentWidget(self.article_view))
+        _sc("Ctrl+3",       self._open_recipe_editor)
         # Space: play/pause only when focus is not inside a text input
         _sc("Space",        self._space_play_pause)
 
@@ -859,7 +804,7 @@ class MainWindow(QMainWindow):
             "youtube": self.youtube_panel.generate,
             "export": self._export_result,
             "live": lambda: self._on_section_changed("live"),
-            "queue": lambda: self._on_section_changed("queue"),
+            "queue": lambda: self.status_bar.show_queue(True),
             "settings": self._open_settings,
         }
         handler = handlers.get(action)
@@ -939,7 +884,7 @@ class MainWindow(QMainWindow):
         self.transcript_view.apply_display_settings()
         cfg = get_config()
         self.recorder_widget.set_device(getattr(cfg, "mic_device_index", None))
-        self.draft_record._source_buttons["live"].setEnabled(
+        self.start_view._source_buttons["live"].setEnabled(
             cfg.live_transcription_enabled
         )
         self.status_bar.set_course_available(cfg.live_transcription_enabled)
@@ -1034,7 +979,7 @@ class MainWindow(QMainWindow):
         """Handle file selection."""
         self._source_kind = "file"
         self._source_filepath = filepath
-        self.draft_record.set_process_enabled(True)
+        self.start_view.set_process_enabled(True)
         self.status_label.setText(tr("status_ready_file", name=os.path.basename(filepath)))
         self.player.load(filepath)
 
@@ -1043,7 +988,7 @@ class MainWindow(QMainWindow):
         self._source_filepath = None
         self._source_kind = "file"
         self.player.load("")
-        self.draft_record.set_process_enabled(False)
+        self.start_view.set_process_enabled(False)
         # Transcript-only records can still be exported, but cannot be cut.
         self.cut_view.video_panel.set_has_transcript(False)
 
@@ -1072,12 +1017,12 @@ class MainWindow(QMainWindow):
 
     def _start_transcription(self):
         """Start the transcription process."""
-        # The Process button is disabled while a preset chain runs, but
+        # The Process button is disabled while a recipe run is active, but
         # the Ctrl+T / Ctrl+Return shortcuts call this directly — without
-        # this guard they'd start a second transcription mid-chain (and
-        # the youtube_panel.clear() below would kill the chain's workers
-        # while it still waits on them, hanging the UI).
-        if self._preset_chain.is_active():
+        # this guard they'd start a second transcription mid-run (and the
+        # youtube_panel.clear() below would kill the run's workers while it
+        # still waits on them, hanging the UI).
+        if self._recipe_job is not None and self._recipe_job.isRunning():
             return
         filepath = self.file_selector.get_file()
         if not filepath:
@@ -1104,9 +1049,6 @@ class MainWindow(QMainWindow):
         self._cancel_book_job()
         self.cut_view.clear()
         self._cleaned_text = None
-
-        # Disable AI panel during transcription
-        self.ai_panel.set_has_transcription(False)
 
         # Get settings from header controls
         model = self.model_combo.currentData()
@@ -1146,46 +1088,29 @@ class MainWindow(QMainWindow):
             on_error=self._on_error
         )
 
-    def _cancel_ai_worker(self) -> None:
-        """Cancel the current AI worker without blocking the GUI thread.
+    def _cancel_recipe_job(self) -> None:
+        """Cancel the current recipe run without blocking the GUI thread.
 
-        This runs on a button click, not window close — a blocking
-        ``wait(5000)`` here would freeze the whole UI for up to 5 seconds
-        if the worker doesn't stop quickly. ``retire()`` disconnects its
-        business signals immediately (so a late finished/error can't reach
-        UI state that already believes the operation was cancelled) and
+        Mirrors the five single-step ``_cancel_*_job`` methods: disconnects
+        business signals immediately (so a late step/job-finished can't
+        reach UI state that already believes the run was cancelled) and
         hands it to WorkerRegistry, which deletes it once its QThread
         actually finishes.
         """
-        if self._ai_worker is not None and self._ai_worker.isRunning():
-            self._registry.retire(self._ai_worker)
-            self._ai_worker = None
+        if self._recipe_job is not None and self._recipe_job.isRunning():
+            self._registry.retire(self._recipe_job)
+            self._recipe_job = None
 
     def _cancel_operation(self):
-        """Cancel the current operation (transcription, AI processing, or
-        an in-progress preset chain — see _start_preset_chain)."""
+        """Cancel the current operation (transcription, a recipe run, or
+        one of the five single-step re-run/retry jobs)."""
         if self.batch_panel._is_processing():
             self.batch_panel.cancel_processing()
             self.status_label.setText(tr("status_cancelled"))
             return
 
-        if self._chain_extra_active or self._chain_extra_steps:
-            self._chain_extra_steps.clear()
-            self._chain_extra_active = ""
-            self._cancel_insights_job()
-            self.insights_panel.clear()
-            self._cancel_book_job()
-            self.status_label.setText(tr("status_chain_cancelled"))
-            self._reset_ui()
-            return
-
-        if self._preset_chain.is_active():
-            self._preset_chain.cancel()
-            self._cancel_youtube_job()
-            self._cancel_ai_worker()
-            self._cancel_clean_job()
-            self._cancel_article_job()
-            self.ai_panel.set_processing(False)
+        if self._recipe_job is not None and self._recipe_job.isRunning():
+            self._cancel_recipe_job()
             self.status_label.setText(tr("status_chain_cancelled"))
             self._reset_ui()
             return
@@ -1204,10 +1129,6 @@ class MainWindow(QMainWindow):
             self.status_label.setText(tr("status_ai_cancelled"))
         elif self._book_job is not None and self._book_job.isRunning():
             self._cancel_book_job()
-            self.status_label.setText(tr("status_ai_cancelled"))
-        elif self._ai_worker and self._ai_worker.isRunning():
-            self._cancel_ai_worker()
-            self.ai_panel.set_processing(False)
             self.status_label.setText(tr("status_ai_cancelled"))
         else:
             self.transcriber.cancel()
@@ -1318,24 +1239,68 @@ class MainWindow(QMainWindow):
         )
         self.record_view.set_title(title)
         self.record_view.set_has_result(True)
-        if open_record:
-            self._stack.setCurrentIndex(self._record_index)
-            self.inspector.set_section("materials")
-        self.inspector.set_artifacts(["transcript"])
-        self._sync_run_view(result)
 
-        self._start_preset_chain()
+        self._run_recipe(result, show_run_screen=open_record)
 
-    def _sync_run_view(self, result: TranscriptionResult) -> None:
-        """Populate the run screen (B4) with a JobRun for the selected
-        recipe, marking the step(s) already resolved by the transcription
-        that just finished. Nothing else here actually runs: the rest of
-        the recipe's steps are still triggered the old way, one panel
-        button at a time, until each is migrated onto the job engine in
-        B5 — this is a display sync, not a second execution path."""
-        recipe = BUILTIN_RECIPES_BY_KEY.get(get_config().last_recipe, TRANSCRIPT_ONLY)
+    _STEP_TO_ARTIFACT_TYPE = {
+        "article": "article",
+        "insights": "insights",
+        "youtube_package": "youtube",
+        "book": "book",
+    }
+
+    def _resolve_recipe(self, key: str) -> Recipe:
+        """Look up *key* among the five built-ins first, then the one
+        custom recipe slot (Config.recipes — see ui/recipe_editor.py);
+        falls back to transcript-only for an unknown/missing key so a
+        stale Config.last_recipe never breaks a launch."""
+        builtin = BUILTIN_RECIPES_BY_KEY.get(key)
+        if builtin is not None:
+            return builtin
+        for entry in get_config().recipes:
+            recipe = Recipe.from_dict(entry)
+            if key == "custom" or recipe.name == key:
+                return recipe
+        return TRANSCRIPT_ONLY
+
+    def _open_recipe_editor(self) -> None:
+        """"Настроить…"/"Изменить" on the start screen (see
+        ui/recipe_editor.py). transcribe_options is borrowed by the
+        dialog for the duration of exec() and must be reparented back out
+        before the dialog is discarded, or Qt would destroy it along with
+        the dialog's other children."""
+        recipe = self._resolve_recipe(self.start_view.current_recipe_key())
+        dialog = RecipeEditorDialog(self.transcribe_options, recipe, self)
+        accepted = dialog.exec() == QDialog.DialogCode.Accepted
+        steps = dialog.selected_steps() if accepted else None
+        self.transcribe_options.setParent(None)
+        dialog.deleteLater()
+        if steps is not None:
+            custom = Recipe(name="custom", steps=steps, builtin_key="")
+            cfg = get_config()
+            cfg.recipes = [custom.to_dict()]
+            cfg.last_recipe = "custom"
+            save_config()
+            self.start_view.set_recipe("custom")
+        self.start_view.refresh_summary()
+
+    def _run_recipe(self, result: TranscriptionResult, show_run_screen: bool = True) -> None:
+        """After a fresh transcription, run the rest of the selected
+        recipe's steps as one JobRunner (see
+        docs/UI_REDESIGN_PLAN_2026-09.ru.md, B6) — replaces the old
+        preset chain's one-button-click-per-step orchestration now that
+        every generator is a job-engine step (B5). *show_run_screen* is
+        False for a live-finished/batch result (_on_finished's own
+        open_record=False callers): the run still executes, it just
+        doesn't yank the view away from wherever the user already is."""
+        from core.ai_provider import provider_from_config
+        from core.paths import artifact_dir
+        from utils import language_name_for_code
+
+        recipe = self._resolve_recipe(self.start_view.current_recipe_key())
         spec = recipe.to_job_spec(build_job_spec)
-        step_names = {step.name for step in spec.steps}
+        step_names = tuple(step.name for step in spec.steps)
+
         run = JobRun(spec=spec)
         if "transcribe" in step_names:
             run.outcomes["transcribe"] = StepOutcome(
@@ -1345,152 +1310,150 @@ class MainWindow(QMainWindow):
             run.outcomes["diarize"] = StepOutcome(
                 "diarize", StepStatus.SUCCEEDED, result=result
             )
+
+        cfg = get_config()
+        provider = provider_from_config(cfg)
+        record_id = self._last_record_id if self._last_record_id is not None else "unsaved"
+        stem = Path(self._source_filepath).stem if self._source_filepath else "recording"
+
+        self._recipe_run = run
+        self._recipe_spec = spec
+        self._recipe_step_names = step_names
+        self._recipe_context = StepContext(
+            source_path=self._source_filepath or "",
+            result=result,
+            record_id=record_id,
+            artifact_dir=artifact_dir(record_id, self._source_filepath or stem),
+            params={
+                "lm_url": cfg.lm_studio_url,
+                "language": language_name_for_code(result.language),
+                "provider": None if provider.kind == "lmstudio" else provider,
+                # Shared with InsightsPanel/YouTubePanel so a type more
+                # than one step generates (e.g. "chapters") isn't
+                # recomputed — see core/insights_cache.py.
+                "insights_cache": self._insights_cache,
+                "do_unwrap": self.book_panel.chk_unwrap.isChecked(),
+                "do_custom": self.book_panel.chk_custom.isChecked(),
+                "custom_prompt_path": self.book_panel.custom_prompt_edit.text().strip(),
+            },
+            get_result=lambda name: (
+                run.outcomes[name].result if name in run.outcomes else None
+            ),
+            is_cancelled=run.is_cancelled,
+        )
+
         self.run_view.bind_run(run)
+        if show_run_screen:
+            self._stack.setCurrentIndex(self._run_index)
+        self._launch_recipe_job()
 
-    def _start_preset_chain(self) -> None:
-        """After a fresh transcription, automatically run whatever extra
-        generation steps the selected checklist calls for
-        (Phase C.3). "transcribe_only" does nothing here — the transcript
-        itself is already saved to history above."""
-        selected = self.step_checklist.selected_steps()
-        self._chain_extra_steps = [
-            step for step in selected if step in {"insights", "book"}
-        ]
-        self._chain_extra_ran = set()
-        self._chain_extra_had_error = False
-        self._chain_extra_active = ""
-        steps = self._preset_chain.start(self.step_checklist.legacy_preset())
-        if not steps:
-            self._start_next_extra_chain_step()
-            return
-
+    def _launch_recipe_job(self) -> None:
+        """(Re)start the current recipe run's JobRunner against whatever
+        steps ``self._recipe_run`` doesn't already have an outcome for —
+        used both by _run_recipe() and by _on_recipe_retry() below, since
+        JobEngine.run() only (re)runs steps missing from run_state.outcomes
+        (see application/job_engine.py)."""
+        self._recipe_job = JobRunner(self._recipe_spec, run_state=self._recipe_run)
+        runners = build_runners(
+            self._recipe_context, self._recipe_step_names,
+            progress_factory=self._recipe_job.make_progress_callback,
+        )
+        self._recipe_job.set_runners(runners)
+        self._recipe_job.step_started.connect(self.run_view.on_step_started)
+        self._recipe_job.step_progress.connect(self.run_view.on_step_progress)
+        self._recipe_job.step_finished.connect(self.run_view.on_step_finished)
+        self._recipe_job.step_finished.connect(self._on_recipe_step_finished)
+        self._recipe_job.job_finished.connect(self._on_recipe_job_finished)
         self.cancel_btn.setVisible(True)
         self.transcribe_btn.setEnabled(False)
         self.status_label.setText(tr("status_chain_running"))
+        self._recipe_job.start()
 
-        if "youtube" in steps:
-            self.youtube_panel.generate()
-        if "article" in steps:
-            self._start_text_cleaning()
-
-    def _on_chain_youtube_done(self, success: bool) -> None:
-        self._preset_chain.on_youtube_done(success)
-
-    def _start_next_extra_chain_step(self) -> None:
-        if not self._chain_extra_steps:
-            self._finish_extra_chain()
+    def _on_recipe_retry(self, name: str) -> None:
+        """RunView.retry_requested: it has already reset *name* (and any
+        dependent step only CANCELLED because of it) on the same JobRun
+        we're about to reuse — see RunView._on_retry."""
+        if self._recipe_context is None or self._recipe_run is None:
             return
-        step = self._chain_extra_steps.pop(0)
-        self._chain_extra_active = step
-        self.cancel_btn.setVisible(True)
-        self.transcribe_btn.setEnabled(False)
-        self.status_label.setText(tr("status_chain_running"))
-        if step == "insights":
-            self.inspector.set_section("insights")
-            self._start_insights_job()
-        elif step == "book":
-            self.inspector.set_section("materials")
-            self.material_selector.setCurrentIndex(2)
-            self._start_book_job(
-                self.book_panel.chk_unwrap.isChecked(),
-                self.book_panel.chk_custom.isChecked(),
-                self.book_panel.custom_prompt_edit.text().strip(),
-            )
-
-    def _on_chain_insights_done(self, success: bool) -> None:
-        if self._chain_extra_active != "insights":
+        if self._recipe_job is not None and self._recipe_job.isRunning():
             return
-        if success:
-            self._chain_extra_ran.add("insights")
-        else:
-            self._chain_extra_had_error = True
-        self._chain_extra_active = ""
-        self._start_next_extra_chain_step()
+        self._launch_recipe_job()
 
-    def _finish_extra_chain(self) -> None:
-        if not self._chain_extra_ran and not self._chain_extra_had_error:
+    def _on_recipe_step_finished(self, name: str, outcome: StepOutcome) -> None:
+        """Feed a just-finished recipe step's result to whichever tab
+        shows it. Mirrors the success branch of each single-step
+        _on_*_job_finished (this recipe run and those five buttons' own
+        jobs share application/steps.py's runners; only where the result
+        lands differs) — transcribe/diarize/cover have no tab to push
+        into, so they're left to the run screen's own row status."""
+        if outcome.status is not StepStatus.SUCCEEDED:
             return
-        artifacts = {"transcript", *self._chain_extra_ran}
-        if self._last_record_id is not None:
+        if name == "clean":
+            from text_processor import ProcessingResult
+            if isinstance(outcome.result, ProcessingResult):
+                result = outcome.result
+                self._cleaned_text = result.coherent.text
+                self.cleaned_view.set_text(
+                    result.coherent.text,
+                    original_length=len(result.original),
+                    removed_fillers=result.cleaned.removed_fillers,
+                    paragraphs=len(result.coherent.paragraphs),
+                )
+        elif name == "article":
+            from article_generator import GenerationResult
+            if isinstance(outcome.result, GenerationResult):
+                self.article_view.set_articles(outcome.result.articles)
+        elif name == "insights":
+            if isinstance(outcome.result, dict):
+                self.insights_panel.set_result(outcome.result)
+        elif name == "youtube_package":
+            if isinstance(outcome.result, dict):
+                self.youtube_panel.set_result(outcome.result)
+        elif name == "book":
+            from book_pipeline import BookResult
+            if isinstance(outcome.result, BookResult) and outcome.result.final_text:
+                self.cleaned_view.set_text(
+                    outcome.result.final_text,
+                    original_length=len(self._current_result.full_text) if self._current_result else 0,
+                    removed_fillers=0,
+                    paragraphs=outcome.result.final_text.count("\n\n") + 1,
+                )
+
+    def _on_recipe_job_finished(self, run: JobRun) -> None:
+        """Persist whichever steps actually produced an artifact to this
+        record's history badges (mirroring the old preset chain's own
+        bookkeeping) and report how many came out of it."""
+        self._recipe_job = None
+        self._reset_ui()
+
+        succeeded = {
+            name for name, outcome in run.outcomes.items()
+            if outcome.status in (StepStatus.SUCCEEDED, StepStatus.SKIPPED)
+        }
+        had_error = any(
+            outcome.status is StepStatus.FAILED for outcome in run.outcomes.values()
+        )
+        artifact_types = {
+            self._STEP_TO_ARTIFACT_TYPE[name]
+            for name in succeeded if name in self._STEP_TO_ARTIFACT_TYPE
+        }
+        if self._last_record_id is not None and artifact_types:
             try:
                 from core.history import get_history_store
-                current = get_history_store().get_record(self._last_record_id) or {}
-                artifacts.update(current.get("artifacts", []))
-                get_history_store().set_artifacts(
-                    self._last_record_id, sorted(artifacts)
-                )
+                store = get_history_store()
+                current = store.get_record(self._last_record_id) or {}
+                artifacts = {"transcript", *artifact_types, *current.get("artifacts", [])}
+                store.set_artifacts(self._last_record_id, sorted(artifacts))
                 self.library_view.refresh()
             except Exception as exc:
-                logger.warning("Failed to persist extra chain artifacts: %s", exc)
-        self.inspector.set_artifacts(artifacts)
-        self._reset_ui()
-        if self._chain_extra_had_error:
+                logger.warning("Failed to persist recipe run artifacts: %s", exc)
+
+        if had_error:
             show_toast(self, tr("toast_chain_error"), kind="error")
-        elif self._chain_extra_ran:
+        elif artifact_types:
             show_toast(
-                self,
-                tr("toast_chain_done", count=len(self._chain_extra_ran)),
-                kind="success",
+                self, tr("toast_chain_done", count=len(artifact_types)), kind="success"
             )
-
-    def _finish_preset_chain(self, had_error: bool, ran: set[str]) -> None:
-        """Auto-save whatever the chain produced to data_dir()/output/<stem>/
-        and report how many files came out of it — the plan's "Готово: N
-        артефактов" toast. Connected to PresetChainController.finished."""
-        from core.paths import artifact_dir, output_dir
-        from article_generator import export_all_articles
-        from application.artifact_provenance import source_fingerprint, transcript_revision
-
-        stem = Path(self._source_filepath).stem if self._source_filepath else "recording"
-        if self._last_record_id is not None:
-            out_dir = artifact_dir(self._last_record_id, self._source_filepath or stem)
-        else:
-            out_dir = output_dir() / stem
-
-        saved: list[Path] = []
-        if "youtube" in ran:
-            saved.extend(self.youtube_panel.save_all(out_dir))
-        if "article" in ran:
-            articles = self.article_view.get_articles()
-            if articles:
-                try:
-                    revision = (
-                        transcript_revision(self._current_result.segments, self._current_result.language)
-                        if self._current_result else ""
-                    )
-                    saved.extend(Path(p) for p in export_all_articles(
-                        list(articles), str(out_dir),
-                        record_id=self._last_record_id if self._last_record_id is not None else "unsaved",
-                        source_path=self._source_filepath,
-                        source_hash=source_fingerprint(self._source_filepath),
-                        transcript_revision=revision,
-                    ))
-                except OSError as e:
-                    logger.warning("Failed to export chain articles to %s: %s", out_dir, e)
-                    had_error = True
-
-        if saved and self._last_record_id is not None:
-            artifact_types = ["transcript", *sorted(ran)]
-            try:
-                from core.history import get_history_store
-                get_history_store().set_artifacts(self._last_record_id, artifact_types)
-                self.library_view.refresh()
-            except Exception as e:
-                logger.warning("Failed to persist chain artifacts to history: %s", e)
-
-        self._chain_extra_had_error = self._chain_extra_had_error or had_error
-        self._chain_extra_ran.update(ran)
-        if self._chain_extra_steps:
-            self._start_next_extra_chain_step()
-            return
-
-        self._reset_ui()
-
-        if saved:
-            show_toast(self, tr("toast_chain_done", count=len(saved)), kind="success")
-            self.status_label.setText(tr("toast_chain_done", count=len(saved)))
-        elif had_error:
-            show_toast(self, tr("toast_chain_error"), kind="error")
 
     def _save_to_history(self, result: TranscriptionResult, source_path: str,
                          model: str, speaker_names: dict,
@@ -1596,7 +1559,6 @@ class MainWindow(QMainWindow):
             self.main_tabs.setCurrentIndex(0)
             self.record_view.set_title(Path(source_name).stem if source_name else tr("app_title"))
             self.record_view.set_has_result(True)
-            self.inspector.set_artifacts(record.get("artifacts", ["transcript"]))
             return True
         except Exception as e:
             logger.warning("Failed to load history record %d: %s", record_id, e)
@@ -1614,24 +1576,19 @@ class MainWindow(QMainWindow):
         )
 
     def _reset_ui(self):
-        """Reset UI to ready state — unless a preset chain is still
-        running a later step (e.g. clean finished, article generation
-        about to start), in which case Cancel must stay reachable and
+        """Reset UI to ready state — unless a recipe run is still going
+        (see _run_recipe), in which case Cancel must stay reachable and
         Process must stay disabled so the user can't start a second
-        transcription mid-chain."""
-        chain_active = bool(
-            self._preset_chain.is_active()
-            or self._chain_extra_active
-            or self._chain_extra_steps
-        )
-        self.draft_record.set_process_enabled(
-            not chain_active and self.file_selector.get_file() is not None
+        transcription mid-run."""
+        run_active = bool(self._recipe_job is not None and self._recipe_job.isRunning())
+        self.start_view.set_process_enabled(
+            not run_active and self.file_selector.get_file() is not None
         )
         self.transcribe_btn.setVisible(True)
-        self.cancel_btn.setVisible(chain_active)
+        self.cancel_btn.setVisible(run_active)
         self.progress_bar.setVisible(False)
         self.progress_timeline.setVisible(False)
-        self.operation_bar.setVisible(chain_active)
+        self.operation_bar.setVisible(run_active)
 
     def _copy_to_clipboard(self):
         """Copy transcription to clipboard."""
@@ -1746,30 +1703,11 @@ class MainWindow(QMainWindow):
 
     def _cancel_clean_job(self) -> None:
         """Cancel the running "clean" JobRunner, mirroring
-        _cancel_ai_worker()'s non-blocking retire-through-the-registry
+        _cancel_recipe_job()'s non-blocking retire-through-the-registry
         pattern (see its docstring)."""
         if self._clean_job is not None and self._clean_job.isRunning():
             self._registry.retire(self._clean_job)
             self._clean_job = None
-
-    def _start_article_generation(self, format_key: str):
-        """Start single article generation."""
-        text = self._get_text_for_ai()
-        if not text:
-            self.status_label.setText(tr("status_no_text_to_process"))
-            return
-
-        self.ai_panel.set_processing(True)
-        self.cancel_btn.setVisible(True)
-        self.transcribe_btn.setVisible(False)
-        self.progress_timeline.setVisible(True)
-        self.progress_timeline.set_stage(5, 0)   # Generate
-
-        self._ai_worker = AIProcessingWorker("generate", text, format=format_key)
-        self._ai_worker.progress.connect(self._on_ai_progress)
-        self._ai_worker.finished.connect(self._on_generate_finished)
-        self._ai_worker.error.connect(self._on_ai_error)
-        self._ai_worker.start()
 
     def _start_generate_all(self):
         """Start generation of all article formats — routed through
@@ -1904,10 +1842,7 @@ class MainWindow(QMainWindow):
 
     def _on_insights_job_finished(self, run: JobRun) -> None:
         """JobRunner.job_finished for the single-step "insights" job
-        started by _start_insights_job(). InsightsPanel.set_result()/
-        set_error() both emit generation_finished themselves — the signal
-        _on_chain_insights_done() already listens to — so this only needs
-        to hand the outcome to the panel."""
+        started by _start_insights_job() — hands the outcome to the panel."""
         self._insights_job = None
         outcome = run.outcomes.get("insights")
 
@@ -2014,10 +1949,7 @@ class MainWindow(QMainWindow):
 
     def _on_youtube_job_finished(self, run: JobRun) -> None:
         """JobRunner.job_finished for the single-step "youtube_package"
-        job started by _start_youtube_job(). YouTubePanel.set_result()/
-        set_error() both emit generation_finished themselves — the signal
-        _on_chain_youtube_done() already listens to — so this only needs
-        to hand the outcome to the panel."""
+        job started by _start_youtube_job() — hands the outcome to the panel."""
         self._youtube_job = None
         outcome = run.outcomes.get("youtube_package")
 
@@ -2032,12 +1964,6 @@ class MainWindow(QMainWindow):
         # matching comment), so the only other case reaching here is a
         # real failure.
         self.youtube_panel.set_error(outcome.error if outcome is not None else "")
-
-    def _on_ai_progress(self, percentage: int, message: str):
-        """Handle AI processing progress."""
-        self.ai_panel.update_progress(percentage, message)
-        self.progress_timeline.set_progress(percentage)
-        self.status_label.setText(message)
 
     def _on_clean_progress(self, _name: str, percentage: int, message: str) -> None:
         """JobRunner.step_progress for the single-step "clean" job."""
@@ -2077,47 +2003,19 @@ class MainWindow(QMainWindow):
                 f"Cleaned in {result.processing_time:.1f}s - "
                 f"removed {result.cleaned.removed_fillers} fillers"
             )
-
-            if self._preset_chain.consume_auto_article():
-                self._start_generate_all()
             return
 
         # _cancel_clean_job() disconnects this very signal before the run
         # can reach a CANCELLED outcome, so the only other case reaching
         # here is a real failure.
         error = outcome.error if outcome is not None else ""
-        if self._preset_chain.on_ai_error():
-            self._reset_ui()
-        else:
-            self._reset_ui()
-            self.status_label.setText(
-                tr("status_ai_error", error=f"{error[:50]}...")
-            )
-            QMessageBox.warning(
-                self, tr("error_ai"), tr("error_occurred", detail=error),
-            )
-
-    def _on_generate_finished(self, result):
-        """Handle single article generation completion."""
-        from article_generator import Article
-
-        self.ai_panel.set_processing(False)
         self._reset_ui()
-        self._ai_worker = None
-
-        if isinstance(result, Article):
-            self.article_view.set_article(result)
-
-            # Switch to articles tab
-            self.tools_tabs.setCurrentIndex(0)
-
-            self.status_label.setText(
-                tr(
-                    "status_article_generated",
-                    title=result.title,
-                    words=result.word_count,
-                )
-            )
+        self.status_label.setText(
+            tr("status_ai_error", error=f"{error[:50]}...")
+        )
+        QMessageBox.warning(
+            self, tr("error_ai"), tr("error_occurred", detail=error),
+        )
 
     def _on_article_progress(self, _name: str, percentage: int, message: str) -> None:
         """JobRunner.step_progress for the single-step "article" job."""
@@ -2145,14 +2043,13 @@ class MainWindow(QMainWindow):
             self.article_view.set_articles(result.articles)
 
             # Switch to articles tab
-            self.tools_tabs.setCurrentIndex(0)
+            self.main_tabs.setCurrentWidget(self.article_view)
 
             self.status_label.setText(tr(
                 "status_articles_generated",
                 count=len(result.articles),
                 seconds=f"{result.generation_time:.1f}",
             ))
-            self._preset_chain.on_generate_all_finished()
             return
 
         # _cancel_article_job() disconnects this very signal before the
@@ -2160,34 +2057,13 @@ class MainWindow(QMainWindow):
         # matching comment), so the only other case reaching here is a
         # real failure.
         error = outcome.error if outcome is not None else ""
-        if self._preset_chain.on_ai_error():
-            self._reset_ui()
-        else:
-            self._reset_ui()
-            self.status_label.setText(
-                tr("status_ai_error", error=f"{error[:50]}...")
-            )
-            QMessageBox.warning(
-                self, tr("error_ai"), tr("error_occurred", detail=error),
-            )
-
-    def _on_ai_error(self, error_message: str):
-        """Handle AI processing error."""
-        self.ai_panel.set_processing(False)
-        self._ai_worker = None
-
-        if self._preset_chain.on_ai_error():
-            self._reset_ui()
-        else:
-            self._reset_ui()
-            self.status_label.setText(
-                tr("status_ai_error", error=f"{error_message[:50]}...")
-            )
-            QMessageBox.warning(
-                self,
-                tr("error_ai"),
-                tr("error_occurred", detail=error_message),
-            )
+        self._reset_ui()
+        self.status_label.setText(
+            tr("status_ai_error", error=f"{error[:50]}...")
+        )
+        QMessageBox.warning(
+            self, tr("error_ai"), tr("error_occurred", detail=error),
+        )
 
     # ===== Video Pipeline Methods =====
 
@@ -2339,8 +2215,7 @@ class MainWindow(QMainWindow):
     def _on_book_job_finished(self, run: JobRun) -> None:
         """JobRunner.job_finished for the single-step "book" job started
         by _start_book_job() — mirrors the success/error split the old
-        AIProcessingWorker.finished/.error signals drove, including the
-        preset chain's own book-step bookkeeping."""
+        AIProcessingWorker.finished/.error signals drove."""
         from book_pipeline import BookResult
 
         self.book_panel.set_processing(False)
@@ -2348,7 +2223,6 @@ class MainWindow(QMainWindow):
         self._book_job = None
         outcome = run.outcomes.get("book")
 
-        book_succeeded = False
         if outcome is not None and outcome.status is StepStatus.SUCCEEDED and isinstance(
             outcome.result, BookResult
         ):
@@ -2356,7 +2230,6 @@ class MainWindow(QMainWindow):
             if result.stages:
                 saved_paths = [s.output_path for s in result.stages if s.success and s.output_path]
                 if saved_paths:
-                    book_succeeded = True
                     files = ", ".join(os.path.basename(p) for p in saved_paths)
                     self.status_label.setText(tr("status_book_saved", files=files))
                     # Show result in Cleaned tab
@@ -2386,17 +2259,8 @@ class MainWindow(QMainWindow):
             # above, since BookPipeline catches those itself).
             error_message = outcome.error if outcome is not None else ""
             self.status_label.setText(tr("status_book_error", error=error_message[:60]))
-            if self._chain_extra_active != "book":
-                QMessageBox.warning(
-                    self,
-                    tr("error_book_pipeline_title"),
-                    tr("error_occurred", detail=error_message),
-                )
-
-        if self._chain_extra_active == "book":
-            if book_succeeded:
-                self._chain_extra_ran.add("book")
-            else:
-                self._chain_extra_had_error = True
-            self._chain_extra_active = ""
-            self._start_next_extra_chain_step()
+            QMessageBox.warning(
+                self,
+                tr("error_book_pipeline_title"),
+                tr("error_occurred", detail=error_message),
+            )

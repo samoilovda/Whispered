@@ -1,0 +1,223 @@
+"""The single entry point for starting new work (see
+docs/UI_REDESIGN_PLAN_2026-09.ru.md, B6): one task, one column — pick a
+source, pick a recipe, launch. Replaces ui/draft_record.py, which this
+absorbs (the source switcher below is that same structure) plus the
+recipe picker the plan calls for.
+
+Live's own internal layout (its setup/preflight controls living apart
+from its timer/transcript, split across what used to be two different
+columns) is untouched here — that's B7's job specifically. This phase
+just gives live_view.options_panel a place to live in the new shell,
+stacked above live_view itself.
+"""
+
+from __future__ import annotations
+
+from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtWidgets import (
+    QButtonGroup,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
+
+from config import get_config, save_config
+from core.i18n import tr
+from domain.recipe import BUILTIN_RECIPES, TRANSCRIPT_ONLY
+from ui.animated_button import AnimatedButton
+from ui.components import FlowLayout
+
+
+class StartView(QWidget):
+    """Choose a source, choose a recipe, launch.
+
+    ``file_selector``/``recorder``/``live``/``folder`` are the same four
+    source widgets ui/draft_record.py used to own — built once by
+    MainWindow and handed in here, not constructed by this view, so a
+    single instance of each keeps working across every navigation back
+    to this screen.
+    """
+
+    process_requested = pyqtSignal()
+    source_changed = pyqtSignal(str)
+    recipe_changed = pyqtSignal(str)  # a BUILTIN_RECIPES_BY_KEY key
+    configure_recipe_requested = pyqtSignal()
+
+    def __init__(
+        self,
+        file_selector: QWidget,
+        recorder: QWidget,
+        live: QWidget,
+        live_options: QWidget,
+        folder: QWidget,
+        transcribe_options_summary_source: QWidget,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._source_keys = ("file", "recorder", "live", "folder")
+        self._transcribe_options = transcribe_options_summary_source
+        self._recipe_key = get_config().last_recipe or TRANSCRIPT_ONLY.builtin_key
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(20, 16, 20, 20)
+        root.setSpacing(16)
+
+        title = QLabel(tr("draft_title"))
+        title.setProperty("role", "page-title")
+        root.addWidget(title)
+        subtitle = QLabel(tr("draft_subtitle"))
+        subtitle.setProperty("role", "muted")
+        subtitle.setWordWrap(True)
+        root.addWidget(subtitle)
+
+        switcher = QHBoxLayout()
+        self._source_group = QButtonGroup(self)
+        self._source_group.setExclusive(True)
+        self._source_buttons: dict[str, QPushButton] = {}
+        for index, key in enumerate(self._source_keys):
+            button = QPushButton(tr(f"draft_source_{key}"))
+            button.setCheckable(True)
+            button.setProperty("role", "quick-chip")
+            button.clicked.connect(lambda _checked, i=index, name=key: self.set_source(name, i))
+            self._source_group.addButton(button)
+            self._source_buttons[key] = button
+            switcher.addWidget(button)
+        root.addLayout(switcher)
+
+        self.stack = QStackedWidget()
+        live_page = QWidget()
+        live_layout = QVBoxLayout(live_page)
+        live_layout.setContentsMargins(0, 0, 0, 0)
+        live_layout.setSpacing(8)
+        live_layout.addWidget(live_options)
+        live_layout.addWidget(live, stretch=1)
+        for widget in (file_selector, recorder, live_page, folder):
+            page = QWidget()
+            page_layout = QVBoxLayout(page)
+            page_layout.setContentsMargins(0, 0, 0, 0)
+            page_layout.addWidget(widget)
+            if widget is not live_page:
+                page_layout.addStretch()
+            self.stack.addWidget(page)
+        root.addWidget(self.stack, stretch=1)
+
+        recipe_label = QLabel(tr("start_recipe_label"))
+        recipe_label.setProperty("role", "muted")
+        root.addWidget(recipe_label)
+
+        # A plain QHBoxLayout would squeeze these chips narrower than
+        # their own label at 900px width — FlowLayout wraps to a second
+        # row instead (see docs/UI_REDESIGN_PLAN_2026-09.ru.md, A2, the
+        # same fix Library's filter chips needed).
+        recipe_row_widget = QWidget()
+        recipe_row = FlowLayout(recipe_row_widget, spacing=6)
+        self._recipe_group = QButtonGroup(self)
+        self._recipe_group.setExclusive(True)
+        self._recipe_buttons: dict[str, QPushButton] = {}
+        for recipe in BUILTIN_RECIPES:
+            button = QPushButton(tr(f"recipe_{recipe.builtin_key}"))
+            button.setCheckable(True)
+            button.setProperty("role", "quick-chip")
+            button.setChecked(recipe.builtin_key == self._recipe_key)
+            button.clicked.connect(
+                lambda _checked, key=recipe.builtin_key: self._select_recipe(key)
+            )
+            self._recipe_group.addButton(button)
+            self._recipe_buttons[recipe.builtin_key] = button
+            recipe_row.addWidget(button)
+        configure_btn = QPushButton(tr("start_recipe_configure"))
+        configure_btn.setProperty("role", "quick-chip")
+        configure_btn.clicked.connect(self.configure_recipe_requested.emit)
+        recipe_row.addWidget(configure_btn)
+        root.addWidget(recipe_row_widget)
+
+        self.process_button = AnimatedButton(tr("start_launch"))
+        self.process_button.setProperty("variant", "primary")
+        self.process_button.setEnabled(False)
+        self.process_button.setToolTip(tr("tooltip_process_disabled"))
+        self.process_button.clicked.connect(self.process_requested.emit)
+        root.addWidget(self.process_button)
+
+        summary_row = QHBoxLayout()
+        summary_row.setSpacing(6)
+        self._summary_label = QLabel("")
+        self._summary_label.setProperty("role", "muted")
+        summary_row.addWidget(self._summary_label, stretch=1)
+        change_link = QPushButton(tr("start_recipe_change"))
+        change_link.setProperty("variant", "ghost")
+        change_link.clicked.connect(self.configure_recipe_requested.emit)
+        summary_row.addWidget(change_link)
+        root.addLayout(summary_row)
+
+        self.set_source("file", 0)
+        self.refresh_summary()
+
+    # ── source ───────────────────────────────────────────────────────
+
+    def set_source(self, key: str, index: int | None = None) -> None:
+        if key not in self._source_keys:
+            return
+        index = self._source_keys.index(key) if index is None else index
+        self._source_buttons[key].setChecked(True)
+        self.stack.setCurrentIndex(index)
+        self.process_button.setVisible(key == "file")
+        self.source_changed.emit(key)
+
+    def set_process_enabled(self, enabled: bool) -> None:
+        self.process_button.setEnabled(enabled)
+        self.process_button.setToolTip(
+            tr("tooltip_process") if enabled else tr("tooltip_process_disabled")
+        )
+
+    def current_source(self) -> str:
+        return self._source_keys[self.stack.currentIndex()]
+
+    # ── recipe ───────────────────────────────────────────────────────
+
+    def current_recipe_key(self) -> str:
+        return self._recipe_key
+
+    def set_recipe(self, key: str) -> None:
+        """Select *key* programmatically (e.g. after the recipe editor
+        saves a change) without re-persisting it — _select_recipe() does
+        that when the change originates from a button click.
+
+        *key* may be "custom" (the recipe editor's one saved custom slot,
+        see ui/recipe_editor.py) — it has no matching chip, so every chip
+        is simply left unchecked rather than the call being ignored.
+        """
+        self._recipe_key = key
+        button = self._recipe_buttons.get(key)
+        if button is not None:
+            button.setChecked(True)
+        else:
+            checked = self._recipe_group.checkedButton()
+            if checked is not None:
+                self._recipe_group.setExclusive(False)
+                checked.setChecked(False)
+                self._recipe_group.setExclusive(True)
+        self.refresh_summary()
+
+    def _select_recipe(self, key: str) -> None:
+        self._recipe_key = key
+        cfg = get_config()
+        cfg.last_recipe = key
+        save_config()
+        self.refresh_summary()
+        self.recipe_changed.emit(key)
+
+    def refresh_summary(self) -> None:
+        """Re-read the transcription options widget's current selections
+        into the muted summary line under the launch button — called after
+        recipe_editor.py's dialog closes, since that's where those combos
+        actually live now."""
+        opts = self._transcribe_options
+        model = opts.model_combo.currentText() if hasattr(opts, "model_combo") else ""
+        language = opts.language_combo.currentText() if hasattr(opts, "language_combo") else ""
+        mode = opts.perf_combo.currentText() if hasattr(opts, "perf_combo") else ""
+        self._summary_label.setText(
+            tr("start_recipe_summary", model=model, language=language, mode=mode)
+        )

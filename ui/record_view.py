@@ -77,8 +77,8 @@ class RecordView(QWidget):
 
         self._layout.addLayout(header)
 
-        # The inspector is owned by WorkspaceShell and stays visible while
-        # records change. RecordView owns document content only.
+        # RecordView owns document content only — every generator's panel
+        # is one more tab on main_tabs (see MainWindow._build_record_section).
         self._left_widget = QWidget()
         self._left_layout = QVBoxLayout(self._left_widget)
         self._left_layout.setContentsMargins(0, 0, 0, 0)
@@ -116,10 +116,8 @@ class RecordView(QWidget):
         cfg.export_formats = formats
         save_config()
 
-    def set_content_widgets(
-        self, player: QWidget, main_tabs: QWidget, tools_tabs: QWidget | None = None
-    ) -> None:
-        """Set document widgets; tools live in the persistent inspector."""
+    def set_content_widgets(self, player: QWidget, main_tabs: QWidget) -> None:
+        """Set the player and the tabbed document/generator content."""
         self._left_layout.addWidget(main_tabs, stretch=1)
 
         from ui.components import apply_soft_shadow

@@ -23,8 +23,10 @@ def test_workspace_has_no_internal_top_header(process_events):
     process_events()
 
 
-def test_inspector_settings_button_opens_settings_dialog(monkeypatch, process_events):
-    """Settings remain reachable after removing the internal top header."""
+def test_settings_shortcut_opens_settings_dialog(monkeypatch, process_events):
+    """Settings remain reachable after retiring the inspector rail (B6) —
+    now via the Ctrl+, shortcut / File menu / command palette, all of
+    which call MainWindow._open_settings()."""
     from ui.main_window import MainWindow
     from ui.settings_dialog import SettingsDialog
 
@@ -39,7 +41,7 @@ def test_inspector_settings_button_opens_settings_dialog(monkeypatch, process_ev
     window.show()
     process_events()
 
-    window.inspector.settings_button.click()
+    window._open_settings()
     process_events()
 
     assert len(opened) == 1

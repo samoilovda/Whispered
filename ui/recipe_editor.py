@@ -1,0 +1,95 @@
+""""Настроить…"/"Изменить" — the escape hatch from StartView's five
+built-in recipe chips (see docs/UI_REDESIGN_PLAN_2026-09.ru.md, B6).
+
+Deliberately narrow: edits step selection (with dependency edges kept
+consistent — checking "article" pulls in "clean", unchecking "clean"
+drops anything that needed it) plus the existing transcription options
+widget (model/language/mode/diarization), and saves the result as the
+single custom recipe slot (``Config.recipes``, one entry) rather than a
+full named-recipe library. A richer custom-recipe manager (multiple
+saved recipes, renaming, deleting) is out of scope here — nothing in the
+plan's B6 acceptance criteria calls for one, and Config.recipes was
+already shaped as a list in B2 for exactly this kind of narrow start.
+
+The caller (MainWindow) owns ``transcribe_options`` — this dialog only
+borrows it for the duration of ``exec()``. The caller must reparent it
+back out (``transcribe_options.setParent(None)``) before discarding the
+dialog: a QDialog owns its child widgets, and letting the dialog get
+garbage-collected with transcribe_options still parented to it would
+destroy that shared, otherwise-persistent widget along with it.
+"""
+
+from __future__ import annotations
+
+from PyQt6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QLabel, QVBoxLayout, QWidget
+
+from application.steps import STEP_DEFINITIONS
+from core.i18n import tr
+from domain.recipe import Recipe
+
+_STEP_BY_NAME = {step.name: step for step in STEP_DEFINITIONS}
+
+# name -> the other step names that depend on it, i.e. must also be
+# unchecked if this one is. Built once from the same registry
+# application/steps.py already exposes, not duplicated by hand.
+_DEPENDENTS: dict[str, tuple[str, ...]] = {
+    step.name: tuple(
+        other.name for other in STEP_DEFINITIONS if step.name in other.depends_on
+    )
+    for step in STEP_DEFINITIONS
+}
+
+
+class RecipeEditorDialog(QDialog):
+    def __init__(self, transcribe_options: QWidget, recipe: Recipe, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(tr("recipe_editor_title"))
+        self.resize(420, 560)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(20, 20, 20, 20)
+        root.setSpacing(12)
+
+        transcription_label = QLabel(tr("recipe_editor_transcription_label"))
+        transcription_label.setProperty("role", "section-title")
+        root.addWidget(transcription_label)
+        root.addWidget(transcribe_options)
+
+        steps_label = QLabel(tr("recipe_editor_steps_label"))
+        steps_label.setProperty("role", "section-title")
+        root.addWidget(steps_label)
+
+        selected = set(recipe.steps) | {"transcribe"}
+        self._checks: dict[str, QCheckBox] = {}
+        for step in STEP_DEFINITIONS:
+            check = QCheckBox(tr(step.label_key))
+            check.setChecked(step.name in selected)
+            if step.name == "transcribe":
+                check.setEnabled(False)
+            check.toggled.connect(lambda checked, name=step.name: self._on_toggled(name, checked))
+            self._checks[step.name] = check
+            root.addWidget(check)
+
+        root.addStretch()
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+    def _on_toggled(self, name: str, checked: bool) -> None:
+        if checked:
+            for dep_name in _STEP_BY_NAME[name].depends_on:
+                self._checks[dep_name].setChecked(True)
+        else:
+            for dependent in _DEPENDENTS.get(name, ()):
+                self._checks[dependent].setChecked(False)
+
+    def selected_steps(self) -> "tuple[str, ...]":
+        """Steps in registry order, so a saved recipe's step order stays
+        deterministic across edits."""
+        return tuple(
+            step.name for step in STEP_DEFINITIONS if self._checks[step.name].isChecked()
+        )
