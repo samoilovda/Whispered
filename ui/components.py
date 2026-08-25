@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QPoint, QRect, QSize, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -15,14 +16,66 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSizePolicy,
+    QStyle,
+    QStyleOptionComboBox,
+    QStylePainter,
     QToolButton,
     QVBoxLayout,
     QWidget,
     QGraphicsDropShadowEffect,
 )
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QFontMetrics
 
-from ui.theme import SPACE_1, SPACE_2, SPACE_3, SPACE_4, SPACE_6, set_role
+from ui.theme import SPACE_1, SPACE_2, SPACE_3, SPACE_4, SPACE_6, mark_elides, set_role
+
+
+class ElidingComboBox(QComboBox):
+    """QComboBox whose closed-state label elides with an ellipsis instead
+    of being hard-clipped when the box is narrower than its current item's
+    text (Qt's own style-level eliding does not survive this project's QSS
+    styling — see docs/UI_REDESIGN_PLAN_2026-09.ru.md, A3). Dropdown items
+    and ``currentText()``/``currentData()`` are unaffected; only what gets
+    painted in the closed box is shortened. Always opts itself out of the
+    UI gallery's clipped-text check via ``ui.theme.mark_elides``; when
+    *sync_tooltip* is true (the default) it also keeps the tooltip in sync
+    with the full current text — pass false for a combo box that already
+    carries its own more useful static tooltip (e.g. one explaining what
+    each choice means, not just repeating its label).
+    """
+
+    def __init__(self, parent: QWidget | None = None, *, sync_tooltip: bool = True) -> None:
+        super().__init__(parent)
+        self.setProperty("_elides", True)
+        self._sync_tooltip_enabled = sync_tooltip
+        if sync_tooltip:
+            self.currentIndexChanged.connect(self._sync_tooltip)
+
+    def _sync_tooltip(self, _index: int = -1) -> None:
+        mark_elides(self, self.currentText())
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._sync_tooltip_enabled:
+            self._sync_tooltip()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        painter = QStylePainter(self)
+        painter.setPen(self.palette().color(self.foregroundRole()))
+        opt = QStyleOptionComboBox()
+        self.initStyleOption(opt)
+        painter.drawComplexControl(QStyle.ComplexControl.CC_ComboBox, opt)
+
+        text_rect = self.style().subControlRect(
+            QStyle.ComplexControl.CC_ComboBox,
+            opt,
+            QStyle.SubControl.SC_ComboBoxEditField,
+            self,
+        )
+        metrics = QFontMetrics(self.font())
+        opt.currentText = metrics.elidedText(
+            opt.currentText, Qt.TextElideMode.ElideRight, text_rect.width()
+        )
+        painter.drawControl(QStyle.ControlElement.CE_ComboBoxLabel, opt)
 
 
 class FlowLayout(QLayout):
