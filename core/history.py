@@ -58,6 +58,28 @@ def _v3_add_source_kind_column(conn: sqlite3.Connection) -> None:
     )
 
 
+def _v4_add_job_runs_table(conn: sqlite3.Connection) -> None:
+    """Persisted JobRun state (see docs/UI_REDESIGN_PLAN_2026-09.ru.md,
+    B3, and application/run_store.py) — which steps of a recipe run
+    succeeded/failed for a given history record, so "retry one step"
+    survives an app restart and the Library can show a run's composition
+    without the JobRun object still being held in memory. Read/written
+    exclusively through application/run_store.py; this migration only
+    creates the table."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS job_runs (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            record_id     INTEGER NOT NULL,
+            recipe        TEXT    NOT NULL,
+            started_at    TEXT    NOT NULL,
+            finished_at   TEXT,
+            status        TEXT    NOT NULL DEFAULT 'running',
+            outcomes_json TEXT    NOT NULL DEFAULT '{}'
+        );
+        CREATE INDEX IF NOT EXISTS idx_job_runs_record ON job_runs(record_id);
+    """)
+
+
 # Applied in order, tracked via SQLite's built-in `PRAGMA user_version`
 # (see HistoryStore._migrate). Append new migrations here — never edit or
 # reorder an existing one, since a database's user_version records exactly
@@ -66,6 +88,7 @@ _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _v1_initial_schema,
     _v2_add_artifacts_column,
     _v3_add_source_kind_column,
+    _v4_add_job_runs_table,
 )
 
 # FTS5 schema — created separately so failures (no FTS5 compile) are handled gracefully.
