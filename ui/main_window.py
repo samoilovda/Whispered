@@ -1301,14 +1301,21 @@ class MainWindow(QMainWindow):
         spec = recipe.to_job_spec(build_job_spec)
         step_names = tuple(step.name for step in spec.steps)
 
+        # A live session (B7, docs/UI_REDESIGN_PLAN_2026-09.ru.md) already
+        # produced this result by streaming, not by running the job-engine
+        # "transcribe"/"diarize" steps — SKIPPED (not SUCCEEDED) is the
+        # honest status for a step this run never actually executed, and
+        # matches how a real cache-skip renders on the run screen.
+        already_streamed = self._source_kind == "live"
+        transcribe_status = StepStatus.SKIPPED if already_streamed else StepStatus.SUCCEEDED
         run = JobRun(spec=spec)
         if "transcribe" in step_names:
             run.outcomes["transcribe"] = StepOutcome(
-                "transcribe", StepStatus.SUCCEEDED, result=result
+                "transcribe", transcribe_status, result=result
             )
         if "diarize" in step_names and any(seg.speaker for seg in result.segments):
             run.outcomes["diarize"] = StepOutcome(
-                "diarize", StepStatus.SUCCEEDED, result=result
+                "diarize", transcribe_status, result=result
             )
 
         cfg = get_config()

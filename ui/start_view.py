@@ -4,11 +4,12 @@ source, pick a recipe, launch. Replaces ui/draft_record.py, which this
 absorbs (the source switcher below is that same structure) plus the
 recipe picker the plan calls for.
 
-Live's own internal layout (its setup/preflight controls living apart
-from its timer/transcript, split across what used to be two different
-columns) is untouched here — that's B7's job specifically. This phase
-just gives live_view.options_panel a place to live in the new shell,
-stacked above live_view itself.
+live_view.options_panel (setup/preflight/diagnostics) stacks above
+live_view itself (session controls/transcript) on the "live" source
+page, giving both halves of what used to be two different columns
+(right-column inspector vs. center draft) one shared column here. B7
+finishes the job on LiveView's own side: dropping its nested page
+header, since StartView's title above already covers it.
 """
 
 from __future__ import annotations

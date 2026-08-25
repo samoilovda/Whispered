@@ -16,11 +16,12 @@ from PyQt6.QtWidgets import (
 
 from core.i18n import tr
 from core.live.preflight import LivePreflight
-from ui.components import FlowLayout, InlineBanner, PageHeader, StatusBadge
+from ui.components import FlowLayout, InlineBanner, StatusBadge
 from ui.live_diagnostics_panel import LiveDiagnosticsPanel
 from ui.live_preflight_panel import LivePreflightPanel
 from ui.live_setup_panel import LiveSetupPanel
 from ui.live_transcript_view import LiveTranscriptView
+from ui.theme import SPACE_2
 from utils import format_duration
 from core.platform_support import supports_live_system_audio
 
@@ -42,13 +43,21 @@ class LiveView(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 16, 20, 20)
         root.setSpacing(12)
-        header = PageHeader(tr("draft_live_center_title"), tr("page_live_subtitle"))
+        # No PageHeader/page-title here: LiveView is one source page inside
+        # StartView's own single column (docs/UI_REDESIGN_PLAN_2026-09.ru.md,
+        # B7) — a second "page-title" nested under StartView's title read as
+        # two stacked screens rather than one. Just the two live session
+        # badges, which are genuinely dynamic status this column needs.
+        status_row = QHBoxLayout()
+        status_row.setContentsMargins(0, 0, 0, 0)
+        status_row.setSpacing(SPACE_2)
         self.state_badge = StatusBadge(tr("live_health_idle"))
-        header.add_action(self.state_badge)
+        status_row.addWidget(self.state_badge)
         self.privacy_badge = StatusBadge(tr("live_audio_not_saved"))
         self.privacy_badge.set_status(tr("live_audio_not_saved"), "success")
-        header.add_action(self.privacy_badge)
-        root.addWidget(header)
+        status_row.addWidget(self.privacy_badge)
+        status_row.addStretch()
+        root.addLayout(status_row)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
