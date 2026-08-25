@@ -77,7 +77,6 @@ class TranscriptView(QWidget):
     """Widget to display, edit and search transcription results."""
 
     copy_requested = pyqtSignal()
-    export_requested = pyqtSignal()
     seek_requested = pyqtSignal(float)  # user clicked a segment → seek to its start time
     result_changed = pyqtSignal(str)  # text / speakers / structure
 
@@ -164,20 +163,11 @@ class TranscriptView(QWidget):
         self.copy_btn.clicked.connect(self.copy_requested.emit)
         header_layout.addWidget(self.copy_btn)
 
-        # Export
-        self.export_btn = QPushButton(tr("btn_export"))
-        self.export_btn.setIcon(get_icon('save', IconColors.WHITE, 14))
-        self.export_btn.setProperty("variant", "primary")
-        self.export_btn.setToolTip(tr("tooltip_export"))
-        self.export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.export_btn.clicked.connect(self.export_requested.emit)
-        header_layout.addWidget(self.export_btn)
-
         # Icon-bearing buttons whose text can drop under _set_header_compact;
         # edit_btn/rename_btn have no icon of their own (ui/icons.py has none
         # to reuse) so they keep their short labels in both modes.
         self._icon_only_capable = (
-            self.timestamps_btn, self.speakers_btn, self.copy_btn, self.export_btn,
+            self.timestamps_btn, self.speakers_btn, self.copy_btn,
         )
         self._button_labels = {btn: btn.text() for btn in self._icon_only_capable}
 
@@ -345,7 +335,6 @@ class TranscriptView(QWidget):
 
     def _set_buttons_enabled(self, enabled: bool):
         self.copy_btn.setEnabled(enabled)
-        self.export_btn.setEnabled(enabled)
         self.timestamps_btn.setEnabled(enabled)
         self.edit_btn.setEnabled(enabled)
 

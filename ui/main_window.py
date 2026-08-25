@@ -778,7 +778,6 @@ class MainWindow(QMainWindow):
         self.file_selector.file_selected.connect(self._on_file_selected)
         self.file_selector.file_cleared.connect(self._on_file_cleared)
         self.transcript_view.copy_requested.connect(self._copy_to_clipboard)
-        self.transcript_view.export_requested.connect(self._export_result)
         self.transcript_view.result_changed.connect(self._on_transcript_changed)
 
         # AI Panel signals
