@@ -151,9 +151,12 @@ def test_clean_runner_calls_text_processor_and_writes_output(tmp_path, monkeypat
 
     calls = {}
 
+    class _FakeLMClient:
+        is_cancelled = None
+
     class _FakeTextProcessor:
         def __init__(self, *_args, **_kwargs):
-            pass
+            self.lm_client = _FakeLMClient()
 
         def process(self, raw_text, use_ai=True, on_progress=None):
             calls["raw_text"] = raw_text
@@ -362,9 +365,12 @@ def test_build_runners_and_cache_checks_work_with_job_engine(tmp_path, monkeypat
     application/job_runner.py (Track B, B1) will do off a QThread."""
     from text_processor import CleanedText, CoherentText, ProcessingResult
 
+    class _FakeLMClient:
+        is_cancelled = None
+
     class _FakeTextProcessor:
         def __init__(self, *_args, **_kwargs):
-            pass
+            self.lm_client = _FakeLMClient()
 
         def process(self, raw_text, use_ai=True, on_progress=None):
             return ProcessingResult(

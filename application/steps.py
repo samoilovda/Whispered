@@ -202,6 +202,7 @@ def _clean_runner(context: StepContext) -> StepRunner:
 
         lm_url = context.params.get("lm_url")
         processor = TextProcessor(lm_url) if lm_url else TextProcessor()
+        processor.lm_client.is_cancelled = context.is_cancelled
         use_ai = bool(context.params.get("use_ai", True))
         result = processor.process(
             context.result.full_text, use_ai=use_ai, on_progress=context.on_progress,

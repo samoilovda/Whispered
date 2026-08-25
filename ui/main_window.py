@@ -62,13 +62,14 @@ from utils import (
 )
 from application.document_session import DocumentSession
 from application.job_engine import JobRun
-from application.steps import STEP_DEFINITIONS, build_job_spec
+from application.steps import STEP_DEFINITIONS, StepContext, build_job_spec, build_runners
 from domain.job import StepOutcome, StepStatus
 from domain.recipe import BUILTIN_RECIPES_BY_KEY, TRANSCRIPT_ONLY
 from config import get_config
 from core.ai_worker import AIProcessingWorker
 from core.insights_cache import InsightsCache
 from core.base_worker import BaseWorker
+from core.job_runner import JobRunner
 from core.logger import get_logger
 from core.i18n import tr
 from core.worker_registry import WorkerRegistry
@@ -198,9 +199,11 @@ class MainWindow(QMainWindow):
         self._current_result: TranscriptionResult | None = None
         self._cleaned_text: str | None = None
         self._ai_worker: AIProcessingWorker | None = None
+        self._clean_job: JobRunner | None = None
         self._gpu_worker: GPUDetectionWorker | None = None
         self._draft_worker: DraftAssemblyWorker | None = None
         self._shutdownables.append(_WorkerShutdown(self, "_ai_worker"))
+        self._shutdownables.append(_WorkerShutdown(self, "_clean_job"))
         self._shutdownables.append(_WorkerShutdown(self, "_gpu_worker", wait_ms=1500))
         # Cancellation stops ffmpeg via SIGTERM (falling back to SIGKILL
         # after 5s) — bound generously above that worst case so close()
@@ -1166,12 +1169,16 @@ class MainWindow(QMainWindow):
             self._preset_chain.cancel()
             self.youtube_panel._cancel_workers(timeout=1000)
             self._cancel_ai_worker()
+            self._cancel_clean_job()
             self.ai_panel.set_processing(False)
             self.status_label.setText(tr("status_chain_cancelled"))
             self._reset_ui()
             return
 
-        if self._ai_worker and self._ai_worker.isRunning():
+        if self._clean_job is not None and self._clean_job.isRunning():
+            self._cancel_clean_job()
+            self.status_label.setText(tr("status_ai_cancelled"))
+        elif self._ai_worker and self._ai_worker.isRunning():
             self._cancel_ai_worker()
             self.ai_panel.set_processing(False)
             self.status_label.setText(tr("status_ai_cancelled"))
@@ -1670,22 +1677,53 @@ class MainWindow(QMainWindow):
         return None
 
     def _start_text_cleaning(self):
-        """Start text cleaning with AI."""
+        """Start text cleaning — routed through application/steps.py's
+        "clean" step via JobRunner (see docs/UI_REDESIGN_PLAN_2026-09.ru.md,
+        B5a) instead of the generic AIProcessingWorker, so its output gets
+        full provenance the same way every other job-engine step does, and
+        the run screen's "clean" row (when a JobRun is bound there)
+        reflects this very run rather than a second, disconnected
+        progress source."""
         if not self._current_result:
             self.status_label.setText(tr("status_no_transcription_to_clean"))
             return
 
-        self.ai_panel.set_processing(True)
         self.cancel_btn.setVisible(True)
         self.transcribe_btn.setVisible(False)
         self.progress_timeline.setVisible(True)
         self.progress_timeline.set_stage(4, 0)   # Clean
 
-        self._ai_worker = AIProcessingWorker("clean", self._current_result.full_text)
-        self._ai_worker.progress.connect(self._on_ai_progress)
-        self._ai_worker.finished.connect(self._on_clean_finished)
-        self._ai_worker.error.connect(self._on_ai_error)
-        self._ai_worker.start()
+        from core.paths import artifact_dir
+
+        record_id = self._last_record_id if self._last_record_id is not None else "unsaved"
+        stem = Path(self._source_filepath).stem if self._source_filepath else "recording"
+        out_dir = artifact_dir(record_id, self._source_filepath or stem)
+
+        spec = build_job_spec("clean-only", ("clean",))
+        self._clean_job = JobRunner(spec)
+        context = StepContext(
+            source_path=self._source_filepath or "",
+            result=self._current_result,
+            record_id=record_id,
+            artifact_dir=out_dir,
+            params={"lm_url": get_config().lm_studio_url},
+            is_cancelled=self._clean_job.run_state.is_cancelled,
+        )
+        runners = build_runners(
+            context, ("clean",), progress_factory=self._clean_job.make_progress_callback
+        )
+        self._clean_job.set_runners(runners)
+        self._clean_job.step_progress.connect(self._on_clean_progress)
+        self._clean_job.job_finished.connect(self._on_clean_job_finished)
+        self._clean_job.start()
+
+    def _cancel_clean_job(self) -> None:
+        """Cancel the running "clean" JobRunner, mirroring
+        _cancel_ai_worker()'s non-blocking retire-through-the-registry
+        pattern (see its docstring)."""
+        if self._clean_job is not None and self._clean_job.isRunning():
+            self._registry.retire(self._clean_job)
+            self._clean_job = None
 
     def _start_article_generation(self, format_key: str):
         """Start single article generation."""
@@ -1731,15 +1769,28 @@ class MainWindow(QMainWindow):
         self.progress_timeline.set_progress(percentage)
         self.status_label.setText(message)
 
-    def _on_clean_finished(self, result):
-        """Handle text cleaning completion."""
+    def _on_clean_progress(self, _name: str, percentage: int, message: str) -> None:
+        """JobRunner.step_progress for the single-step "clean" job."""
+        self.progress_timeline.set_progress(percentage)
+        self.status_label.setText(message)
+
+    def _on_clean_job_finished(self, run: JobRun) -> None:
+        """JobRunner.job_finished for the single-step "clean" job started
+        by _start_text_cleaning() — mirrors the success/error split the
+        old AIProcessingWorker.finished/.error signals drove, including
+        both preset-chain hooks (consume_auto_article/on_ai_error)."""
         from text_processor import ProcessingResult
 
-        self.ai_panel.set_processing(False)
-        self._reset_ui()
-        self._ai_worker = None
+        self._clean_job = None
+        outcome = run.outcomes.get("clean")
 
-        if isinstance(result, ProcessingResult):
+        if (
+            outcome is not None
+            and outcome.status is StepStatus.SUCCEEDED
+            and isinstance(outcome.result, ProcessingResult)
+        ):
+            result = outcome.result
+            self._reset_ui()
             self._cleaned_text = result.coherent.text
 
             self.cleaned_view.set_text(
@@ -1757,8 +1808,24 @@ class MainWindow(QMainWindow):
                 f"removed {result.cleaned.removed_fillers} fillers"
             )
 
-        if self._preset_chain.consume_auto_article():
-            self._start_generate_all()
+            if self._preset_chain.consume_auto_article():
+                self._start_generate_all()
+            return
+
+        # _cancel_clean_job() disconnects this very signal before the run
+        # can reach a CANCELLED outcome, so the only other case reaching
+        # here is a real failure.
+        error = outcome.error if outcome is not None else ""
+        if self._preset_chain.on_ai_error():
+            self._reset_ui()
+        else:
+            self._reset_ui()
+            self.status_label.setText(
+                tr("status_ai_error", error=f"{error[:50]}...")
+            )
+            QMessageBox.warning(
+                self, tr("error_ai"), tr("error_occurred", detail=error),
+            )
 
     def _on_generate_finished(self, result):
         """Handle single article generation completion."""
