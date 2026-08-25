@@ -42,18 +42,20 @@ class _SlowWorker(QThread):
         super().deleteLater()
 
 
-@pytest.mark.parametrize("panel_kind", ["youtube", "insights"])
+@pytest.mark.parametrize("panel_kind", ["youtube"])
 def test_running_worker_is_retained_until_qthread_finished(
     panel_kind, process_events
 ):
-    if panel_kind == "youtube":
-        from ui.youtube_panel import YouTubePanel
+    # InsightsPanel used to be parametrized in here too, but B5c (see
+    # docs/UI_REDESIGN_PLAN_2026-09.ru.md) moved its worker/registry
+    # ownership to MainWindow's own _insights_job (application/steps.py's
+    # "insights" step run via JobRunner) — the panel itself no longer
+    # creates or registers a worker, so this specific WorkerRegistry
+    # mechanics test no longer applies to it. YouTubePanel is unchanged
+    # (still B5d) and keeps this coverage until its own migration.
+    from ui.youtube_panel import YouTubePanel
 
-        panel = YouTubePanel()
-    else:
-        from ui.insights_panel import InsightsPanel
-
-        panel = InsightsPanel()
+    panel = YouTubePanel()
 
     delete_calls: list[object] = []
     worker = _SlowWorker(delete_calls, parent=panel)

@@ -16,8 +16,10 @@ def _panel_with_results(record_id=None, source_path=None):
     if record_id is not None or source_path is not None:
         panel.set_provenance(record_id, source_path)
     panel.set_source_name("talk")
-    panel._on_finished("chapters", [{"start": 0, "title": "Intro"}])
-    panel._on_finished("action_items", [{"task": "Follow up", "owner": "Alice"}])
+    panel.set_result({
+        "chapters": [{"start": 0, "title": "Intro"}],
+        "action_items": [{"task": "Follow up", "owner": "Alice"}],
+    })
     return panel
 
 
@@ -27,7 +29,7 @@ def test_save_button_disabled_until_something_is_generated():
     panel = InsightsPanel()
     assert panel._save_btn.isEnabled() is False
 
-    panel._on_finished("chapters", [{"start": 0, "title": "Intro"}])
+    panel.set_result({"chapters": [{"start": 0, "title": "Intro"}]})
     assert panel._save_btn.isEnabled() is True
 
     panel.close()

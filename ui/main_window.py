@@ -201,11 +201,13 @@ class MainWindow(QMainWindow):
         self._ai_worker: AIProcessingWorker | None = None
         self._clean_job: JobRunner | None = None
         self._article_job: JobRunner | None = None
+        self._insights_job: JobRunner | None = None
         self._gpu_worker: GPUDetectionWorker | None = None
         self._draft_worker: DraftAssemblyWorker | None = None
         self._shutdownables.append(_WorkerShutdown(self, "_ai_worker"))
         self._shutdownables.append(_WorkerShutdown(self, "_clean_job"))
         self._shutdownables.append(_WorkerShutdown(self, "_article_job"))
+        self._shutdownables.append(_WorkerShutdown(self, "_insights_job"))
         self._shutdownables.append(_WorkerShutdown(self, "_gpu_worker", wait_ms=1500))
         # Cancellation stops ffmpeg via SIGTERM (falling back to SIGKILL
         # after 5s) — bound generously above that worst case so close()
@@ -462,7 +464,8 @@ class MainWindow(QMainWindow):
         self.chat_panel = ChatPanel()
         self._shutdownables.append(self.chat_panel)
 
-        self.insights_panel = InsightsPanel(insights_cache=self._insights_cache)
+        self.insights_panel = InsightsPanel()
+        self.insights_panel.generate_requested.connect(self._start_insights_job)
         self.insights_panel.generation_finished.connect(
             self._on_chain_insights_done
         )
@@ -1089,6 +1092,7 @@ class MainWindow(QMainWindow):
         self.cleaned_view.clear()
         self.article_view.clear()
         self.chat_panel.clear_transcript()
+        self._cancel_insights_job()
         self.insights_panel.clear()
         self.youtube_panel.clear()
         self.cut_view.clear()
@@ -1161,6 +1165,7 @@ class MainWindow(QMainWindow):
         if self._chain_extra_active or self._chain_extra_steps:
             self._chain_extra_steps.clear()
             self._chain_extra_active = ""
+            self._cancel_insights_job()
             self.insights_panel.clear()
             self._cancel_ai_worker()
             self.status_label.setText(tr("status_chain_cancelled"))
@@ -1183,6 +1188,9 @@ class MainWindow(QMainWindow):
             self.status_label.setText(tr("status_ai_cancelled"))
         elif self._article_job is not None and self._article_job.isRunning():
             self._cancel_article_job()
+            self.status_label.setText(tr("status_ai_cancelled"))
+        elif self._insights_job is not None and self._insights_job.isRunning():
+            self._cancel_insights_job()
             self.status_label.setText(tr("status_ai_cancelled"))
         elif self._ai_worker and self._ai_worker.isRunning():
             self._cancel_ai_worker()
@@ -1366,7 +1374,7 @@ class MainWindow(QMainWindow):
         self.status_label.setText(tr("status_chain_running"))
         if step == "insights":
             self.inspector.set_section("insights")
-            self.insights_panel._generate_all()
+            self._start_insights_job()
         elif step == "book":
             self.inspector.set_section("materials")
             self.material_selector.setCurrentIndex(2)
@@ -1810,6 +1818,97 @@ class MainWindow(QMainWindow):
         if self._article_job is not None and self._article_job.isRunning():
             self._registry.retire(self._article_job)
             self._article_job = None
+
+    def _start_insights_job(self) -> None:
+        """Start chapters/action items/key moments — routed through
+        application/steps.py's "insights" step via JobRunner (see
+        docs/UI_REDESIGN_PLAN_2026-09.ru.md, B5c), the same migration B5a
+        did for clean. InsightsPanel no longer creates any worker itself;
+        this is what both its own "Generate" button (via
+        generate_requested) and the preset chain's insights step (see
+        _start_next_extra_chain_step) now call.
+
+        One behavior change from the three-separate-InsightsWorker path
+        this replaces: the three insight types used to fail independently
+        (one type's LM error left the other two displayed); the step
+        generates all three in one pass, so a failure now fails the whole
+        run. Matches every other already-migrated step's all-or-nothing
+        shape (B5a/B5b) — see application/steps.py's _insights_runner.
+        """
+        if not self._current_result:
+            return
+
+        cfg = get_config()
+        if not cfg.lm_studio_url:
+            self.insights_panel.set_error(tr("insights_no_lm"))
+            return
+
+        self.insights_panel.begin_generating()
+        self.cancel_btn.setVisible(True)
+
+        from core.paths import artifact_dir
+        from utils import language_name_for_code
+
+        record_id = self._last_record_id if self._last_record_id is not None else "unsaved"
+        stem = Path(self._source_filepath).stem if self._source_filepath else "recording"
+        out_dir = artifact_dir(record_id, self._source_filepath or stem)
+
+        spec = build_job_spec("insights-only", ("insights",))
+        self._insights_job = JobRunner(spec)
+        context = StepContext(
+            source_path=self._source_filepath or "",
+            result=self._current_result,
+            record_id=record_id,
+            artifact_dir=out_dir,
+            params={
+                "lm_url": cfg.lm_studio_url,
+                "language": language_name_for_code(self._current_result.language),
+                # Shared with YouTubePanel so a type both generate (e.g.
+                # "chapters") isn't recomputed — see core/insights_cache.py.
+                "insights_cache": self._insights_cache,
+            },
+            is_cancelled=self._insights_job.run_state.is_cancelled,
+        )
+        runners = build_runners(
+            context, ("insights",), progress_factory=self._insights_job.make_progress_callback
+        )
+        self._insights_job.set_runners(runners)
+        self._insights_job.step_progress.connect(self._on_insights_progress)
+        self._insights_job.job_finished.connect(self._on_insights_job_finished)
+        self._insights_job.start()
+
+    def _cancel_insights_job(self) -> None:
+        """Cancel the running "insights" JobRunner — see
+        _cancel_clean_job()'s docstring for the retire-through-the-
+        registry pattern this mirrors."""
+        if self._insights_job is not None and self._insights_job.isRunning():
+            self._registry.retire(self._insights_job)
+            self._insights_job = None
+
+    def _on_insights_progress(self, _name: str, percentage: int, message: str) -> None:
+        """JobRunner.step_progress for the single-step "insights" job."""
+        self.status_label.setText(message)
+
+    def _on_insights_job_finished(self, run: JobRun) -> None:
+        """JobRunner.job_finished for the single-step "insights" job
+        started by _start_insights_job(). InsightsPanel.set_result()/
+        set_error() both emit generation_finished themselves — the signal
+        _on_chain_insights_done() already listens to — so this only needs
+        to hand the outcome to the panel."""
+        self._insights_job = None
+        outcome = run.outcomes.get("insights")
+
+        if outcome is not None and outcome.status is StepStatus.SUCCEEDED and isinstance(
+            outcome.result, dict
+        ):
+            self.insights_panel.set_result(outcome.result)
+            return
+
+        # _cancel_insights_job() disconnects this very signal before the
+        # run can reach a CANCELLED outcome (see _on_clean_job_finished's
+        # matching comment), so the only other case reaching here is a
+        # real failure.
+        self.insights_panel.set_error(outcome.error if outcome is not None else "")
 
     def _on_ai_progress(self, percentage: int, message: str):
         """Handle AI processing progress."""

@@ -17,9 +17,8 @@ from core.insights_export import format_insight_text
 from core.logger import get_logger
 from core.i18n import tr
 from core.paths import output_dir
-from core.worker_registry import WorkerRegistry
 from ui.toast import show_toast
-from utils import format_duration, language_name_for_code
+from utils import format_duration
 
 logger = get_logger(__name__)
 
@@ -105,21 +104,13 @@ class InsightsPanel(QWidget):
     """Insights tab — chapters, action items, key moments."""
 
     seek_requested = pyqtSignal(int)
+    generate_requested = pyqtSignal()
     generation_finished = pyqtSignal(bool)
 
-    def __init__(self, parent=None, insights_cache=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
         self._segments = []
         self._transcript_language: str | None = None
-        self._workers: dict[str, object] = {}
-        self._registry = WorkerRegistry(parent=self)
-        # Shared with YouTubePanel by MainWindow so a type both panels
-        # generate (e.g. "chapters") isn't computed twice — see
-        # core/insights_cache.py.
-        self._insights_cache = insights_cache
-        self._pending = 0
-        self._insight_queue: list[str] = []
-        self._any_error = False
         # Raw (unrendered) result per generated type — needed to save to
         # disk later, since _render_*() only ever builds display widgets
         # from it and doesn't keep the data itself.
@@ -150,7 +141,7 @@ class InsightsPanel(QWidget):
         self._gen_btn = QPushButton(tr("insights_generate"))
         self._gen_btn.setProperty("variant", "primary")
         self._gen_btn.setEnabled(False)
-        self._gen_btn.clicked.connect(self._generate_all)
+        self._gen_btn.clicked.connect(self.generate_requested.emit)
         gen_row.addWidget(self._gen_btn)
 
         self._save_btn = QPushButton(tr("insights_save"))
@@ -230,138 +221,62 @@ class InsightsPanel(QWidget):
         self._source_name = name or ""
 
     def shutdown(self) -> None:
-        """Part of the Shutdownable protocol (ui/shutdownable.py). clear()
-        already cancels in-flight workers with a bounded timeout, which is
-        exactly what window close needs too."""
+        """Part of the Shutdownable protocol (ui/shutdownable.py). This
+        panel no longer owns any worker — the "insights" JobRunner it
+        triggers via generate_requested lives on MainWindow now (see
+        docs/UI_REDESIGN_PLAN_2026-09.ru.md, B5c) and is shut down there,
+        the same way _clean_job/_article_job already are."""
         self.clear()
 
     def clear(self) -> None:
         self._segments = []
         self._transcript_language = None
         self._gen_btn.setEnabled(False)
+        self._gen_btn.setText(tr("insights_generate"))
         self._save_btn.setEnabled(False)
         self._results.clear()
         for layout in (self._ch_layout, self._ai_layout, self._km_layout):
             self._clear_section(layout)
-        self._cancel_workers(timeout=2000)
-        self._pending = 0
-        self._insight_queue.clear()
         self._placeholder.setText(tr("insights_placeholder"))
         self._placeholder.show()
 
-    def _cancel_workers(self, timeout: int) -> None:
-        """Cancel workers via WorkerRegistry and retain any that outlive the
-        bounded wait until their QThread actually finishes."""
-        self._workers.clear()
-        self._registry.shutdown_all(timeout_ms=timeout)
-
     # ── Generation ──────────────────────────────────────────────────
+    # This panel no longer runs anything itself — generate_requested asks
+    # MainWindow to run the "insights" step via JobRunner (application/
+    # steps.py), and begin_generating()/set_result()/set_error() below are
+    # its side of that: busy-state before the job starts, and the two ways
+    # it can end. Kept as three separate calls (rather than one signal
+    # payload) so the preset chain's own direct calls to begin_generating()
+    # read the same as a real button click — see
+    # MainWindow._start_next_extra_chain_step().
 
-    def _generate_all(self):
-        from config import get_config
-        cfg = get_config()
-        if not cfg.lm_studio_url:
-            self._placeholder.setText(tr("insights_no_lm"))
-            self._placeholder.show()
-            self.generation_finished.emit(False)
-            return
-
-        # Normally the prior run is done when the button is re-enabled, but
-        # programmatic callers can start a replacement run sooner.  Reuse the
-        # safe bounded-cancellation path instead of deleting blindly.
-        self._cancel_workers(timeout=1000)
-
+    def begin_generating(self) -> None:
         self._gen_btn.setEnabled(False)
         self._gen_btn.setText(tr("insights_generating"))
         self._placeholder.hide()
-        self._pending = 3
-        self._any_error = False
-        self._results.clear()
         self._save_btn.setEnabled(False)
 
-        self._insight_queue = ["chapters", "action_items", "key_moments"]
-        self._start_next_worker()
+    def set_result(self, payload: dict) -> None:
+        """*payload* is application/steps.py's "insights" step output:
+        ``{"chapters": [...], "action_items": [...], "key_moments": [...]}``."""
+        self._results = dict(payload)
+        self._gen_btn.setEnabled(True)
+        self._gen_btn.setText(tr("insights_generate"))
+        self._save_btn.setEnabled(bool(self._results))
+        self._clear_section(self._ch_layout)
+        self._render_chapters(list(payload.get("chapters") or []))
+        self._clear_section(self._ai_layout)
+        self._render_action_items(list(payload.get("action_items") or []))
+        self._clear_section(self._km_layout)
+        self._render_key_moments(list(payload.get("key_moments") or []))
+        self.generation_finished.emit(True)
 
-    def _start_next_worker(self) -> None:
-        if not self._insight_queue:
-            return
-        from config import get_config
-        from core.insights_worker import InsightsWorker
-
-        insight_type = self._insight_queue.pop(0)
-        lang = language_name_for_code(self._transcript_language)
-        worker = InsightsWorker(
-            insight_type,
-            self._segments,
-            get_config().lm_studio_url,
-            language=lang,
-            parent=self,
-            cache=self._insights_cache,
-        )
-        worker.finished.connect(self._on_finished)
-        worker.error_occurred.connect(self._on_error)
-        self._workers[insight_type] = worker
-        self._registry.register(worker, name=f"insights_{insight_type}")
-        worker.start()
-
-    def _decrement_pending(self):
-        self._pending -= 1
-        if self._pending <= 0:
-            self._pending = 0
-            self._gen_btn.setEnabled(True)
-            self._gen_btn.setText(tr("insights_generate"))
-            self.generation_finished.emit(not self._any_error)
-        else:
-            self._start_next_worker()
-
-    def _on_finished(self, insight_type: str, data):
-        if self._workers.get(insight_type) is not self.sender():
-            return
-        layout_map = {
-            "chapters": self._ch_layout,
-            "action_items": self._ai_layout,
-            "key_moments": self._km_layout,
-        }
-        layout = layout_map.get(insight_type)
-        if layout is not None:
-            self._clear_section(layout)
-            if isinstance(data, list):
-                if insight_type == "chapters":
-                    self._render_chapters(data)
-                elif insight_type == "action_items":
-                    self._render_action_items(data)
-                elif insight_type == "key_moments":
-                    self._render_key_moments(data)
-                # Keep the raw data for _save_to_files() — rendering only
-                # ever builds display widgets from it, never stores it.
-                self._results[insight_type] = data
-                self._save_btn.setEnabled(True)
-            else:
-                lbl = QLabel(str(data)[:500])
-                lbl.setWordWrap(True)
-                lbl.setProperty("role", "muted")
-                lbl.setStyleSheet("font-size: 11px;")
-                layout.addWidget(lbl)
-        self._decrement_pending()
-
-    def _on_error(self, insight_type: str, msg: str):
-        if self._workers.get(insight_type) is not self.sender():
-            return
-        self._any_error = True
-        layout_map = {
-            "chapters": self._ch_layout,
-            "action_items": self._ai_layout,
-            "key_moments": self._km_layout,
-        }
-        layout = layout_map.get(insight_type)
-        if layout is not None:
-            self._clear_section(layout)
-            lbl = QLabel(f"{tr('insights_error')} {msg}")
-            lbl.setWordWrap(True)
-            lbl.setProperty("role", "danger-text")
-            lbl.setStyleSheet("font-size: 11px;")
-            layout.addWidget(lbl)
-        self._decrement_pending()
+    def set_error(self, message: str) -> None:
+        self._gen_btn.setEnabled(True)
+        self._gen_btn.setText(tr("insights_generate"))
+        self._placeholder.setText(f"{tr('insights_error')} {message}")
+        self._placeholder.show()
+        self.generation_finished.emit(False)
 
     # ── Export ──────────────────────────────────────────────────────
 
