@@ -55,9 +55,25 @@ class JobRun:
     and the cooperative cancellation flag every step's runner should
     honour if it can. Passing the same JobRun back into JobEngine.run()
     resumes — steps that already have an outcome are not re-run.
+
+    ``on_step_started``/``on_outcome`` are optional observer callbacks —
+    ``application/job_runner.py`` (a QThread wrapper around
+    ``JobEngine.run()``) uses them to turn "a step began resolving" / "a
+    step got an outcome" into Qt signals as they happen, rather than only
+    learning about any of it once the whole run has finished. ``run()``
+    itself stays a single blocking call either way; these don't change
+    that or anything about how steps are scheduled. Excluded from the
+    generated ``__eq__``/``__repr__`` since comparing two JobRuns by
+    callback identity isn't meaningful.
     """
     spec: JobSpec
     outcomes: Dict[str, StepOutcome] = field(default_factory=dict)
+    on_step_started: Optional[Callable[[str], None]] = field(
+        default=None, compare=False, repr=False
+    )
+    on_outcome: Optional[Callable[[StepOutcome], None]] = field(
+        default=None, compare=False, repr=False
+    )
     _cancelled: threading.Event = field(default_factory=threading.Event)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -70,6 +86,8 @@ class JobRun:
     def _record(self, outcome: StepOutcome) -> None:
         with self._lock:
             self.outcomes[outcome.name] = outcome
+        if self.on_outcome is not None:
+            self.on_outcome(outcome)
 
     def reset_step(self, name: str) -> None:
         """Discard *name*'s outcome so the next run() call retries it —
@@ -169,6 +187,8 @@ class JobEngine:
         cache_check: Optional[CacheCheck],
         run_state: JobRun,
     ) -> None:
+        if run_state.on_step_started is not None:
+            run_state.on_step_started(step.name)
         if run_state.is_cancelled():
             run_state._record(StepOutcome(step.name, StepStatus.CANCELLED))
             return

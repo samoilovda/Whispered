@@ -555,8 +555,31 @@ def build_job_spec(name: str, step_names: "tuple[str, ...] | list") -> JobSpec:
     return JobSpec(name=name, steps=steps)
 
 
-def build_runners(context: StepContext, step_names: "tuple[str, ...] | list") -> dict:
-    return {name: STEP_REGISTRY[name].make_runner(context) for name in step_names}
+def build_runners(
+    context: StepContext,
+    step_names: "tuple[str, ...] | list",
+    *,
+    progress_factory: "Optional[Callable[[str], Callable[[int, str], None]]]" = None,
+) -> dict:
+    """Build the ``name -> StepRunner`` mapping ``JobEngine.run()`` needs.
+
+    *progress_factory*, when given, is called once per step name to get
+    that step's own ``on_progress`` callback — a fresh :class:`StepContext`
+    with it wired in is used for that step's runner instead of *context*
+    unchanged. ``application/job_runner.py`` (Track B, B1) passes its
+    ``make_progress_callback`` here so each step's progress reports
+    arrive tagged with the right step name, without every step's runner
+    otherwise needing to know its own name.
+    """
+    import dataclasses
+
+    runners = {}
+    for name in step_names:
+        step_context = context
+        if progress_factory is not None:
+            step_context = dataclasses.replace(context, on_progress=progress_factory(name))
+        runners[name] = STEP_REGISTRY[name].make_runner(step_context)
+    return runners
 
 
 def build_cache_checks(context: StepContext, step_names: "tuple[str, ...] | list") -> dict:
