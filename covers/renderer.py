@@ -213,21 +213,26 @@ def render(
                 transform.translate(-bounds.x(), -bounds.y())
             painter.fillPath(transform.map(path), _color(layer.get("fill")))
         elif kind in {"photo", "image"}:
-            value = (
+            # A distinct name from the `value: str` inferred a few
+            # branches up (the decor-path case) — reusing `value` here
+            # unified the two branches' types under mypy and flagged this
+            # assignment as incompatible even though the branches never
+            # actually run in the same iteration.
+            photo_value = (
                 slots.get(layer.get("slot")) if kind == "photo" else layer.get("source")
             )
-            if value:
-                if isinstance(value, QImage):
-                    picture = value
-                elif isinstance(value, QPixmap):
-                    picture = value.toImage()
-                elif isinstance(value, dict):
-                    picture = QImage(str(value.get("file", "")))
+            if photo_value:
+                if isinstance(photo_value, QImage):
+                    picture = photo_value
+                elif isinstance(photo_value, QPixmap):
+                    picture = photo_value.toImage()
+                elif isinstance(photo_value, dict):
+                    picture = QImage(str(photo_value.get("file", "")))
                 else:
                     path = (
-                        Path(str(value))
+                        Path(str(photo_value))
                         if kind == "photo"
-                        else _asset(template, "logo", str(value))
+                        else _asset(template, "logo", str(photo_value))
                     )
                     picture = QImage(str(path))
                 rect = box(layer)
