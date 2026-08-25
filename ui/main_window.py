@@ -212,6 +212,10 @@ class MainWindow(QMainWindow):
         self._recipe_spec: JobSpec | None = None
         self._recipe_step_names: tuple = ()
         self._recipe_context: StepContext | None = None
+        # The job_runs row id for the run above, once persisted (B8, see
+        # application/run_store.py) — None until there's a real history
+        # record to attach it to.
+        self._recipe_run_id: int | None = None
         self._gpu_worker: GPUDetectionWorker | None = None
         self._draft_worker: DraftAssemblyWorker | None = None
         self._shutdownables.append(_WorkerShutdown(self, "_clean_job"))
@@ -237,8 +241,11 @@ class MainWindow(QMainWindow):
         self._document_session = DocumentSession()
         self._register_document_session_consumers()
         self.command_palette = CommandPalette(self)
+        self.command_palette.bind_run_view(self.run_view)
         self.command_palette.record_requested.connect(self._open_record_view)
         self.command_palette.action_requested.connect(self._run_palette_action)
+        self.command_palette.recipe_requested.connect(self._select_recipe_from_palette)
+        self.command_palette.retry_step_requested.connect(self._retry_recipe_step_from_palette)
         self._connect_signals()
         self.setAcceptDrops(True)
         # Apply saved mic device
@@ -811,6 +818,19 @@ class MainWindow(QMainWindow):
         if handler is not None:
             handler()
 
+    def _select_recipe_from_palette(self, key: str) -> None:
+        """Command palette "Run: <recipe>" (B8): pick the recipe and land
+        on the start screen — a source still has to be chosen/confirmed
+        before Launch, same as picking a chip there directly."""
+        self.start_view.select_recipe(key)
+        self._show_new_draft()
+
+    def _retry_recipe_step_from_palette(self, name: str) -> None:
+        """Command palette "Restart: <step>" (B8) — retry it and jump to
+        the run screen so its progress is visible."""
+        self.run_view.retry_step(name)
+        self._stack.setCurrentIndex(self._run_index)
+
     def _toggle_device(self):
         """Toggle between GPU and CPU mode."""
         if self._gpu_type == 'cpu':
@@ -1100,6 +1120,8 @@ class MainWindow(QMainWindow):
         if self._recipe_job is not None and self._recipe_job.isRunning():
             self._registry.retire(self._recipe_job)
             self._recipe_job = None
+            self._save_recipe_run("cancelled")
+            self.library_view.refresh()
 
     def _cancel_operation(self):
         """Cancel the current operation (transcription, a recipe run, or
@@ -1349,10 +1371,30 @@ class MainWindow(QMainWindow):
             is_cancelled=run.is_cancelled,
         )
 
+        self._recipe_run_id = None
         self.run_view.bind_run(run)
         if show_run_screen:
             self._stack.setCurrentIndex(self._run_index)
+        self._save_recipe_run("running")
         self._launch_recipe_job()
+
+    def _save_recipe_run(self, status: str) -> None:
+        """Persist self._recipe_run's current outcomes to job_runs (B8,
+        see application/run_store.py) — a no-op until there's a real
+        history record to attach the run to. Reuses self._recipe_run_id
+        across calls so this updates one row instead of inserting a new
+        one for every step/retry."""
+        if self._last_record_id is None or self._recipe_run is None or self._recipe_spec is None:
+            return
+        from application import run_store
+
+        try:
+            self._recipe_run_id = run_store.save_run(
+                self._last_record_id, self._recipe_spec.name, self._recipe_run,
+                run_id=self._recipe_run_id, status=status,
+            )
+        except Exception as exc:
+            logger.warning("Failed to persist recipe run: %s", exc)
 
     def _launch_recipe_job(self) -> None:
         """(Re)start the current recipe run's JobRunner against whatever
@@ -1384,6 +1426,7 @@ class MainWindow(QMainWindow):
             return
         if self._recipe_job is not None and self._recipe_job.isRunning():
             return
+        self._save_recipe_run("running")
         self._launch_recipe_job()
 
     def _on_recipe_step_finished(self, name: str, outcome: StepOutcome) -> None:
@@ -1393,6 +1436,7 @@ class MainWindow(QMainWindow):
         jobs share application/steps.py's runners; only where the result
         lands differs) — transcribe/diarize/cover have no tab to push
         into, so they're left to the run screen's own row status."""
+        self._save_recipe_run("running")
         if outcome.status is not StepStatus.SUCCEEDED:
             return
         if name == "clean":
@@ -1427,9 +1471,10 @@ class MainWindow(QMainWindow):
                 )
 
     def _on_recipe_job_finished(self, run: JobRun) -> None:
-        """Persist whichever steps actually produced an artifact to this
-        record's history badges (mirroring the old preset chain's own
-        bookkeeping) and report how many came out of it."""
+        """Persist the finished run (B8, job_runs — the Library card's run
+        composition) and whichever steps actually produced an artifact to
+        this record's history badges (mirroring the old preset chain's
+        own bookkeeping), and report how many came out of it."""
         self._recipe_job = None
         self._reset_ui()
 
@@ -1440,6 +1485,8 @@ class MainWindow(QMainWindow):
         had_error = any(
             outcome.status is StepStatus.FAILED for outcome in run.outcomes.values()
         )
+        self._save_recipe_run("failed" if had_error else "done")
+        self.library_view.refresh()
         artifact_types = {
             self._STEP_TO_ARTIFACT_TYPE[name]
             for name in succeeded if name in self._STEP_TO_ARTIFACT_TYPE
@@ -1451,7 +1498,6 @@ class MainWindow(QMainWindow):
                 current = store.get_record(self._last_record_id) or {}
                 artifacts = {"transcript", *artifact_types, *current.get("artifacts", [])}
                 store.set_artifacts(self._last_record_id, sorted(artifacts))
-                self.library_view.refresh()
             except Exception as exc:
                 logger.warning("Failed to persist recipe run artifacts: %s", exc)
 

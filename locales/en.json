@@ -72,6 +72,8 @@
   "command_queue": "Open queue",
   "command_settings": "Open settings",
   "command_record": "Record: {name}",
+  "command_run_recipe": "Run: {name}",
+  "command_retry_step": "Restart: {name}",
   "btn_browse": "Browse Files",
   "btn_transcribe": "Transcribe",
   "btn_cancel": "Cancel",

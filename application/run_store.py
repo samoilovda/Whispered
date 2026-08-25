@@ -168,6 +168,24 @@ def load_runs_for_record(
     return [_row_to_stored_run(row) for row in rows]
 
 
+def load_latest_run(
+    record_id: "int | str", *, db_path: Optional[Path] = None
+) -> Optional[StoredRun]:
+    """The most recently started run for *record_id*, or ``None`` for a
+    record with no job_runs row at all (pre-B3 history, or a record that
+    was never the target of a recipe run) — what the Library card (B8,
+    ui/library_view.py) reads to show run composition and a recipe
+    filter without a caller having to know load_runs_for_record()'s
+    ordering."""
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT id, record_id, recipe, started_at, finished_at, status, outcomes_json "
+            "FROM job_runs WHERE record_id = ? ORDER BY id DESC LIMIT 1",
+            (str(record_id),),
+        ).fetchone()
+    return _row_to_stored_run(row) if row is not None else None
+
+
 def apply_stored_outcomes(run: JobRun, stored: StoredRun) -> None:
     """Populate *run*.outcomes from *stored*'s serialized snapshot — how a
     JobRun resumes across a restart. Every restored StepOutcome.result is

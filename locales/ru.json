@@ -72,6 +72,8 @@
   "command_queue": "Открыть очередь",
   "command_settings": "Открыть настройки",
   "command_record": "Запись: {name}",
+  "command_run_recipe": "Запустить: {name}",
+  "command_retry_step": "Перезапустить: {name}",
   "btn_browse": "Выбрать файл",
   "btn_transcribe": "Транскрибировать",
   "btn_cancel": "Отмена",

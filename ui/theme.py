@@ -950,6 +950,14 @@ def build_stylesheet(t: Theme) -> str:
         font-size: {t.font_xs};
         font-weight: bold;
     }}
+    QLabel[role="badge-pill-error"] {{
+        background-color: {rgba(t.error, 0.15)};
+        color: {t.error};
+        border-radius: 9px;
+        padding: 2px 8px;
+        font-size: {t.font_xs};
+        font-weight: bold;
+    }}
 
     /* ── Message boxes ── */
     QMessageBox {{

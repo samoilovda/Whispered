@@ -12,6 +12,7 @@ from application.job_engine import JobRun
 from application.run_store import (
     StoredRun,
     apply_stored_outcomes,
+    load_latest_run,
     load_run,
     load_runs_for_record,
     save_run,
@@ -102,6 +103,24 @@ def test_load_runs_for_record_ignores_other_records(db_path):
 
     assert len(load_runs_for_record(1, db_path=db_path)) == 1
     assert len(load_runs_for_record(2, db_path=db_path)) == 1
+
+
+# ------------------------------------------------------------------ load_latest_run
+
+def test_load_latest_run_returns_the_newest_row(db_path):
+    run = JobRun(spec=_spec(steps=(StepSpec("a"),)))
+    run.outcomes["a"] = StepOutcome("a", StepStatus.SUCCEEDED)
+
+    save_run(3, "youtube_video", run, status="done", db_path=db_path)
+    second_id = save_run(3, "youtube_video", run, status="done", db_path=db_path)
+
+    latest = load_latest_run(3, db_path=db_path)
+    assert latest is not None
+    assert latest.id == second_id
+
+
+def test_load_latest_run_returns_none_for_a_record_with_no_run(db_path):
+    assert load_latest_run(999, db_path=db_path) is None
 
 
 # ------------------------------------------------------------------ apply_stored_outcomes

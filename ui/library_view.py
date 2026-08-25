@@ -30,6 +30,8 @@ from PyQt6.QtCore import QPoint, Qt, QTimer, pyqtSignal
 
 from core.logger import get_logger
 from core.i18n import tr
+from domain.job import StepStatus
+from domain.recipe import BUILTIN_RECIPES
 from utils import format_duration
 from ui.empty_state import EmptyStateWidget
 from ui.icons import get_icon, IconColors
@@ -69,8 +71,18 @@ _ARTIFACT_LABEL_KEYS = {
 }
 
 
+def _step_label(name: str) -> str:
+    from application.steps import STEP_REGISTRY
+
+    step = STEP_REGISTRY.get(name)
+    return tr(step.label_key) if step is not None else name
+
+
 class RecordItemWidget(QWidget):
-    """Custom rich widget for library items, replacing plain multi-line text."""
+    """Custom rich widget for library items, replacing plain multi-line
+    text. *failed_steps* (B8, docs/UI_REDESIGN_PLAN_2026-09.ru.md) shows
+    a record's latest run composition — which steps failed — without
+    opening it."""
 
     open_requested = pyqtSignal()
 
@@ -81,6 +93,7 @@ class RecordItemWidget(QWidget):
         artifacts: list[str],
         snippet: str = "",
         kind: str = "file",
+        failed_steps: "list[str] | None" = None,
         parent=None,
     ):
         super().__init__(parent)
@@ -122,6 +135,11 @@ class RecordItemWidget(QWidget):
             badge.setProperty("role", f"badge-pill-{art}")
             badges_layout.addWidget(badge)
 
+        for step_name in failed_steps or ():
+            badge = QLabel(f"✗ {_step_label(step_name)}")
+            badge.setProperty("role", "badge-pill-error")
+            badges_layout.addWidget(badge)
+
         badges_layout.addStretch()
         main_layout.addLayout(badges_layout)
 
@@ -148,6 +166,7 @@ class LibraryView(QWidget):
         self._store = None   # lazy: avoid import at startup if history_enabled=False
         self._records: list = []
         self._active_filter = "all"
+        self._active_recipe_filter = "all"
         self._open_record_id: int | None = None
         self._setup_ui()
 
@@ -219,6 +238,32 @@ class LibraryView(QWidget):
                 button.setChecked(True)
         layout.addWidget(filters_widget)
 
+        # Recipe filter (B8, docs/UI_REDESIGN_PLAN_2026-09.ru.md) — a
+        # second, independent chip row: source kind and recipe are
+        # orthogonal properties of a record, so this isn't merged into
+        # the group above.
+        recipe_filters_widget = QWidget()
+        recipe_filters = FlowLayout(recipe_filters_widget, spacing=6)
+        self._recipe_filter_group = QButtonGroup(self)
+        self._recipe_filter_group.setExclusive(True)
+        all_recipes_button = QPushButton(tr("library_filter_all"))
+        all_recipes_button.setCheckable(True)
+        all_recipes_button.setChecked(True)
+        all_recipes_button.setProperty("role", "quick-chip")
+        all_recipes_button.clicked.connect(lambda: self._set_recipe_filter("all"))
+        self._recipe_filter_group.addButton(all_recipes_button)
+        recipe_filters.addWidget(all_recipes_button)
+        for recipe in BUILTIN_RECIPES:
+            button = QPushButton(tr(f"recipe_{recipe.builtin_key}"))
+            button.setCheckable(True)
+            button.setProperty("role", "quick-chip")
+            button.clicked.connect(
+                lambda _checked, key=recipe.builtin_key: self._set_recipe_filter(key)
+            )
+            self._recipe_filter_group.addButton(button)
+            recipe_filters.addWidget(button)
+        layout.addWidget(recipe_filters_widget)
+
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
         self._search_timer.setInterval(220)
@@ -281,15 +326,37 @@ class LibraryView(QWidget):
             self._records = []
         self._populate()
 
+    def _latest_run_for(self, record_id: int):
+        """The record's latest job_runs row (B8, see
+        application/run_store.py), or ``None`` for a record with no run
+        at all — never lets a missing/corrupt job_runs table break the
+        list."""
+        try:
+            from application.run_store import load_latest_run
+
+            return load_latest_run(record_id)
+        except Exception as exc:
+            logger.warning("Failed to load run for record %s: %s", record_id, exc)
+            return None
+
     def _populate(self):
         self._list.clear()
         is_search = bool(self._search_edit.text().strip())
-        visible_records = [
+        source_filtered = [
             record
             for record in self._records
             if self._active_filter == "all" or _record_kind(record) == self._active_filter
         ]
-        for rec in visible_records:
+        visible_records = []
+        for record in source_filtered:
+            run = self._latest_run_for(record.id)
+            if self._active_recipe_filter != "all" and (
+                run is None or run.recipe != self._active_recipe_filter
+            ):
+                continue
+            visible_records.append((record, run))
+
+        for rec, run in visible_records:
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, rec.id)
 
@@ -303,9 +370,14 @@ class LibraryView(QWidget):
             snippet = ""
             if is_search and rec.preview:
                 snippet = _clean_snippet(rec.preview)
+            failed_steps = [
+                step_name for step_name, outcome in (run.outcomes if run else {}).items()
+                if outcome.get("status") == StepStatus.FAILED.value
+            ]
 
             widget = RecordItemWidget(
-                name, meta, artifacts, snippet, kind=_record_kind(rec)
+                name, meta, artifacts, snippet, kind=_record_kind(rec),
+                failed_steps=failed_steps,
             )
             widget.open_requested.connect(
                 lambda record_id=rec.id: self.open_record.emit(record_id)
@@ -324,7 +396,10 @@ class LibraryView(QWidget):
         # The friendly empty state is for "no records exist at all", not
         # "this search has no matches" — the latter already reads clearly
         # from the "0 records" status line above an empty list.
-        show_empty_state = total == 0 and not is_search and self._active_filter == "all"
+        show_empty_state = (
+            total == 0 and not is_search
+            and self._active_filter == "all" and self._active_recipe_filter == "all"
+        )
         show_no_results = total == 0 and not show_empty_state
         self._empty_state.setVisible(show_empty_state)
         self._no_results_state.setVisible(show_no_results)
@@ -348,6 +423,10 @@ class LibraryView(QWidget):
 
     def _set_filter(self, filter_key: str) -> None:
         self._active_filter = filter_key
+        self._populate()
+
+    def _set_recipe_filter(self, recipe_key: str) -> None:
+        self._active_recipe_filter = recipe_key
         self._populate()
 
     def _open_selected(self, item: QListWidgetItem):

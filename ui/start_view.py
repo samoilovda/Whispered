@@ -203,12 +203,18 @@ class StartView(QWidget):
         self.refresh_summary()
 
     def _select_recipe(self, key: str) -> None:
-        self._recipe_key = key
+        self.set_recipe(key)
         cfg = get_config()
         cfg.last_recipe = key
         save_config()
-        self.refresh_summary()
         self.recipe_changed.emit(key)
+
+    def select_recipe(self, key: str) -> None:
+        """Pick recipe *key* as if its chip were clicked: checks the
+        chip, persists it as Config.last_recipe and emits recipe_changed
+        — the command palette's "Run: <recipe>" (B8) uses this same path
+        rather than duplicating _select_recipe's persistence."""
+        self._select_recipe(key)
 
     def refresh_summary(self) -> None:
         """Re-read the transcription options widget's current selections

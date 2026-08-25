@@ -215,6 +215,7 @@ class RunView(QWidget):
         self._order = tuple(step_order)
         self._run: Optional[JobRun] = None
         self._rows: "dict[str, RunStepRow]" = {}
+        self._labels = dict(labels)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -244,6 +245,31 @@ class RunView(QWidget):
 
     def rows(self) -> "dict[str, RunStepRow]":
         return dict(self._rows)
+
+    def retriable_steps(self) -> "list[tuple[str, str]]":
+        """(name, label) pairs for steps currently eligible for retry
+        (FAILED/CANCELLED in the bound JobRun) — what the command palette
+        offers as "Restart: <step>" (B8, docs/UI_REDESIGN_PLAN_2026-09.ru.md).
+        Reads outcome status directly rather than a row's retry-button
+        visibility, so it works whether or not this widget is actually
+        shown (a hidden/never-shown QWidget's isVisible() is always
+        False, regardless of what setVisible() was called with)."""
+        if self._run is None:
+            return []
+        retriable = (StepStatus.FAILED, StepStatus.CANCELLED)
+        return [
+            (name, self._labels.get(name, name))
+            for name in self._order
+            if (outcome := self._run.outcomes.get(name)) is not None
+            and outcome.status in retriable
+        ]
+
+    def retry_step(self, name: str) -> None:
+        """Public entry point equivalent to clicking that row's retry
+        button — same reset+emit _on_retry does. Used by the command
+        palette (B8); a row's own retry_clicked already calls _on_retry
+        directly."""
+        self._on_retry(name)
 
     def bind_run(self, run: JobRun) -> None:
         """Sync every row from *run*.outcomes — the entry point a fixture
