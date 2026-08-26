@@ -829,10 +829,16 @@ def build_stylesheet(t: Theme) -> str:
         background-color: {t.bg_pressed};
         color: {t.text_primary};
     }}
+    /* No font-weight here on purpose: Qt sizes a QPushButton from the
+       font it resolves outside pseudo-states, so a bolder :checked font
+       is painted wider than the widget the layout reserved for it and
+       the label gets clipped at both ends ("Только расшифровка" ->
+       "олько расшифровк" on the start screen's selected recipe chip).
+       The filled pill plus the accent colour already carry the selected
+       state, and the fill is a non-colour signal on its own. */
     QPushButton[role="quick-chip"]:checked {{
         background-color: {rgba(t.accent, 0.15)};
         color: {t.accent};
-        font-weight: bold;
     }}
     QPushButton[role="quick-chip"]:checked:hover {{
         background-color: {rgba(t.accent, 0.24)};
