@@ -69,7 +69,7 @@ class LiveSetupPanel(FormSection):
             self.system_check.setToolTip(live_system_audio_unavailable_message())
         sources.addWidget(self.mic_check)
         sources.addWidget(self.system_check)
-        self.layout.addWidget(sources_widget)
+        self.body_layout.addWidget(sources_widget)
 
         # QFormLayout's own row-label QLabels (from addRow(str, ...)) get
         # compressed below their own sizeHint in a narrow column just like
@@ -117,7 +117,7 @@ class LiveSetupPanel(FormSection):
             self.language_combo.addItem(label, key)
         self._select(self.language_combo, get_config().default_language)
         form.addRow(_row_label(tr("live_language")), self.language_combo)
-        self.layout.addLayout(form)
+        self.body_layout.addLayout(form)
 
         for control in (
             self.mic_combo,
@@ -134,7 +134,7 @@ class LiveSetupPanel(FormSection):
         )
         self.target_status.setProperty("role", "muted")
         self.target_status.setWordWrap(True)
-        self.layout.addWidget(self.target_status)
+        self.body_layout.addWidget(self.target_status)
 
         for control in (
             self.mic_check,

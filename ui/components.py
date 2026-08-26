@@ -205,13 +205,16 @@ class PageHeader(QWidget):
         self.subtitle_label.setVisible(bool(subtitle))
         layout.addWidget(self.subtitle_label)
 
-        self.actions = QHBoxLayout()
-        self.actions.setContentsMargins(0, 0, 0, 0)
-        self.actions.setSpacing(SPACE_2)
-        layout.addLayout(self.actions)
+        # Not ``self.actions``: QWidget already has an actions() method,
+        # and shadowing it with a layout makes every Python-side call to
+        # it raise "QHBoxLayout object is not callable".
+        self._actions_layout = QHBoxLayout()
+        self._actions_layout.setContentsMargins(0, 0, 0, 0)
+        self._actions_layout.setSpacing(SPACE_2)
+        layout.addLayout(self._actions_layout)
 
     def add_action(self, widget: QWidget) -> None:
-        self.actions.addWidget(widget)
+        self._actions_layout.addWidget(widget)
 
     def set_title(self, title: str) -> None:
         self.title_label.setText(title)
@@ -356,24 +359,28 @@ class FormSection(QWidget):
     def __init__(self, title: str = "", description: str = "", parent=None) -> None:
         super().__init__(parent)
         self.setProperty("role", "form-section")
-        self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(SPACE_4, SPACE_4, SPACE_4, SPACE_4)
-        self.layout.setSpacing(SPACE_3)
+        # ``body_layout``, not ``self.layout``: QWidget.layout() is a
+        # method, and rebinding it to the layout object breaks every
+        # Python-side ``widget.layout()`` call (Qt's own C++ callers keep
+        # working, which is what made this survive unnoticed).
+        self.body_layout = QVBoxLayout(self)
+        self.body_layout.setContentsMargins(SPACE_4, SPACE_4, SPACE_4, SPACE_4)
+        self.body_layout.setSpacing(SPACE_3)
         if title:
             label = QLabel(title)
             label.setProperty("role", "section-title")
-            self.layout.addWidget(label)
+            self.body_layout.addWidget(label)
         if description:
             label = QLabel(description)
             label.setProperty("role", "muted")
             label.setWordWrap(True)
-            self.layout.addWidget(label)
+            self.body_layout.addWidget(label)
 
     def add_widget(self, widget: QWidget) -> None:
-        self.layout.addWidget(widget)
+        self.body_layout.addWidget(widget)
 
     def add_layout(self, layout) -> None:
-        self.layout.addLayout(layout)
+        self.body_layout.addLayout(layout)
 
 
 class OperationBar(QFrame):

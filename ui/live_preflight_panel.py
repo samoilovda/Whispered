@@ -37,8 +37,8 @@ class LivePreflightPanel(FormSection):
         self.setVisible(False)
 
     def show_checks(self, checks: tuple[PreflightCheck, ...]) -> None:
-        while self.layout.count() > 2:
-            item = self.layout.takeAt(2)
+        while self.body_layout.count() > 2:
+            item = self.body_layout.takeAt(2)
             widget = item.widget()
             if widget:
                 widget.deleteLater()
@@ -60,7 +60,7 @@ class LivePreflightPanel(FormSection):
             message = QLabel(self._localized_message(check))
             message.setWordWrap(True)
             layout.addWidget(message, 1)
-            self.layout.addWidget(row)
+            self.body_layout.addWidget(row)
         self.setVisible(True)
 
     @staticmethod
