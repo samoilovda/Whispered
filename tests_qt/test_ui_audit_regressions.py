@@ -291,6 +291,43 @@ def test_live_setup_panel_is_never_squeezed_below_its_own_minimum(process_events
     process_events()
 
 
+def test_a_finished_recording_can_actually_be_launched(process_events, tmp_path):
+    """Regression: the Launch button was shown for the "file" source only,
+    so after recording something the start screen armed the clip, enabled
+    the button — and kept it hidden. The recorder page has no transcribe
+    button of its own, leaving no way to transcribe what was just
+    recorded short of guessing that switching back to "File" would keep
+    the clip."""
+    from ui.main_window import MainWindow
+
+    clip = tmp_path / "REC.wav"
+    clip.write_bytes(b"RIFF0000WAVE" + b"\0" * 64)
+
+    window = MainWindow()
+    window.show()
+    window.resize(1200, 800)
+    window.start_view.set_source("recorder")
+    process_events()
+
+    window._on_recording_ready(str(clip))
+    process_events()
+
+    assert window.file_selector.get_file() == str(clip)
+    assert window.transcribe_btn.isEnabled()
+    assert window.transcribe_btn.isVisible()
+
+    # Live and the folder queue still drive themselves.
+    window.start_view.set_source("live")
+    process_events()
+    assert not window.transcribe_btn.isVisible()
+    window.start_view.set_source("folder")
+    process_events()
+    assert not window.transcribe_btn.isVisible()
+
+    window.close()
+    process_events()
+
+
 def _live_setup_panel_type():
     from ui.live_setup_panel import LiveSetupPanel
 

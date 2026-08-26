@@ -61,6 +61,12 @@ class StartView(QWidget):
     ) -> None:
         super().__init__(parent)
         self._source_keys = ("file", "recorder", "live", "folder")
+        # Sources whose result is launched by the button below. "live" runs
+        # its own session controls and "folder" hands off to the queue, so
+        # both keep it hidden; a finished recording, on the other hand, is
+        # just a file, and hiding Launch on the recorder page left it with
+        # no way at all to transcribe what had just been recorded.
+        self._launchable_sources = ("file", "recorder")
         self._transcribe_options = transcribe_options_summary_source
         self._recipe_key = get_config().last_recipe or TRANSCRIPT_ONLY.builtin_key
 
@@ -178,7 +184,7 @@ class StartView(QWidget):
         index = self._source_keys.index(key) if index is None else index
         self._source_buttons[key].setChecked(True)
         self.stack.setCurrentIndex(index)
-        self.process_button.setVisible(key == "file")
+        self.process_button.setVisible(key in self._launchable_sources)
         self.source_changed.emit(key)
 
     def set_process_enabled(self, enabled: bool) -> None:
