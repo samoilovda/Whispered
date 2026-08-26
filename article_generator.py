@@ -374,11 +374,12 @@ class ArticleGenerator:
 
                 data = json.loads(clean_response)
                 if not isinstance(data, dict):
-                    # Valid JSON of the wrong shape — a model answering the
+                    # Valid JSON of the wrong shape: a model answering the
                     # topics prompt with a bare array parses fine and then
-                    # blew up on .get() with an AttributeError this except
-                    # clause never caught, failing the whole article step
-                    # instead of degrading to the fallback below.
+                    # hit .get() with an AttributeError the old
+                    # JSONDecodeError-only handler never caught, failing
+                    # the whole article step instead of degrading to the
+                    # basic analysis below.
                     raise ValueError("topic analysis was not a JSON object")
                 return TopicAnalysis(
                     main_topics=data.get("topics", []),
@@ -386,8 +387,9 @@ class ArticleGenerator:
                     notable_quotes=data.get("quotes", []),
                     suggested_titles=data.get("titles", [])
                 )
-            except (json.JSONDecodeError, ValueError):
-                # Return basic analysis if parsing fails
+            except ValueError:
+                # Return basic analysis if parsing fails (JSONDecodeError
+                # is a ValueError, so this still covers malformed JSON).
                 pass
 
         return TopicAnalysis(
