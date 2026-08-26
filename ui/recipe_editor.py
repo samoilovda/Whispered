@@ -11,6 +11,15 @@ saved recipes, renaming, deleting) is out of scope here — nothing in the
 plan's B6 acceptance criteria calls for one, and Config.recipes was
 already shaped as a list in B2 for exactly this kind of narrow start.
 
+The name field (docs/IMPROVEMENT_PLAN_2026-08.ru.md, A4) exists even
+within that one-slot scope: without it, saving from this dialog silently
+discarded whichever built-in the user started from — "Сохранить" on
+"Article from podcast" with no actual change made replaced
+Config.last_recipe with an unnamed "custom" and unchecked every chip.
+The caller (MainWindow._open_recipe_editor) now compares selected_steps()
+against the recipe's original steps and only writes Config.recipes when
+they actually differ.
+
 The caller (MainWindow) owns ``transcribe_options`` — this dialog only
 borrows it for the duration of ``exec()``. The caller must reparent it
 back out (``transcribe_options.setParent(None)``) before discarding the
@@ -21,7 +30,15 @@ destroy that shared, otherwise-persistent widget along with it.
 
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QLabel, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QDialog,
+    QDialogButtonBox,
+    QLabel,
+    QLineEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from application.steps import STEP_DEFINITIONS
 from core.i18n import tr
@@ -44,11 +61,23 @@ class RecipeEditorDialog(QDialog):
     def __init__(self, transcribe_options: QWidget, recipe: Recipe, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle(tr("recipe_editor_title"))
-        self.resize(420, 560)
+        self.resize(420, 620)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 20, 20, 20)
         root.setSpacing(12)
+
+        name_label = QLabel(tr("recipe_editor_name_label"))
+        name_label.setProperty("role", "section-title")
+        root.addWidget(name_label)
+        self._default_recipe_name = self._default_name(recipe)
+        self._name_edit = QLineEdit()
+        self._name_edit.setText(self._default_recipe_name)
+        root.addWidget(self._name_edit)
+        save_hint = QLabel(tr("recipe_editor_saves_as_copy"))
+        save_hint.setProperty("role", "muted")
+        save_hint.setWordWrap(True)
+        root.addWidget(save_hint)
 
         transcription_label = QLabel(tr("recipe_editor_transcription_label"))
         transcription_label.setProperty("role", "section-title")
@@ -79,6 +108,15 @@ class RecipeEditorDialog(QDialog):
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
 
+    @staticmethod
+    def _default_name(recipe: Recipe) -> str:
+        """Pre-filled name field: for a built-in, "<display name>
+        (edited)" — nudging toward keeping the built-in itself untouched;
+        for a recipe that's already a saved custom one, its own name."""
+        if recipe.builtin_key:
+            return tr("recipe_editor_default_name", base=tr(f"recipe_{recipe.builtin_key}"))
+        return recipe.name
+
     def _on_toggled(self, name: str, checked: bool) -> None:
         if checked:
             for dep_name in _STEP_BY_NAME[name].depends_on:
@@ -93,3 +131,8 @@ class RecipeEditorDialog(QDialog):
         return tuple(
             step.name for step in STEP_DEFINITIONS if self._checks[step.name].isChecked()
         )
+
+    def recipe_name(self) -> str:
+        """The name field's current value, falling back to the default it
+        was pre-filled with if the user cleared it entirely."""
+        return self._name_edit.text().strip() or self._default_recipe_name

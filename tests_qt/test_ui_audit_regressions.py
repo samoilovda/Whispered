@@ -142,6 +142,106 @@ def test_recipe_editor_keeps_transcribe_mandatory(process_events):
     dialog.close()
 
 
+def test_recipe_editor_default_name_nudges_toward_a_copy(process_events):
+    """Regression basis for docs/IMPROVEMENT_PLAN_2026-08.ru.md, A4: the
+    name field must default to something other than the built-in's own
+    display name, so saving unchanged doesn't read as overwriting it."""
+    from core.i18n import load_locale, tr
+    from domain.recipe import PODCAST_ARTICLE
+    from ui.recipe_editor import RecipeEditorDialog
+    from ui.transcribe_options import TranscribeOptionsPopover
+
+    load_locale("en")
+    options = TranscribeOptionsPopover(embedded=True)
+    dialog = RecipeEditorDialog(options, PODCAST_ARTICLE)
+    process_events()
+
+    assert dialog.recipe_name() != tr("recipe_podcast_article")
+    assert tr("recipe_podcast_article") in dialog.recipe_name()
+
+    options.setParent(None)
+    dialog.close()
+
+
+def test_recipe_editor_save_without_changes_does_not_touch_config(
+    monkeypatch, tmp_path, process_events,
+):
+    """Regression: "Save" with no actual change used to overwrite
+    Config.recipes with an unnamed "custom" slot and switch
+    Config.last_recipe to it, silently discarding the built-in the editor
+    was opened on and unchecking every start-screen chip."""
+    import config
+    from PyQt6.QtWidgets import QDialog
+    from ui.main_window import MainWindow
+    from ui.recipe_editor import RecipeEditorDialog
+
+    monkeypatch.setattr(config, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "config.json")
+    monkeypatch.setattr(config, "_config", config.Config(last_recipe="podcast_article"))
+
+    def fake_exec(_dialog):
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(RecipeEditorDialog, "exec", fake_exec)
+
+    window = MainWindow()
+    window.show()
+    window.start_view.select_recipe("podcast_article")
+    process_events()
+
+    window._open_recipe_editor()
+    process_events()
+
+    assert config.get_config().recipes == []
+    assert config.get_config().last_recipe == "podcast_article"
+    assert window.start_view.current_recipe_key() == "podcast_article"
+    assert window.start_view._recipe_buttons["podcast_article"].isChecked()
+
+    window.close()
+    process_events()
+
+
+def test_recipe_editor_save_with_changes_names_the_new_recipe(
+    monkeypatch, tmp_path, process_events,
+):
+    """A real step-selection change is saved as a named custom recipe —
+    the name field's value ends up on Config.recipes, not a hardcoded
+    "custom" label."""
+    import config
+    from PyQt6.QtWidgets import QDialog
+    from ui.main_window import MainWindow
+    from ui.recipe_editor import RecipeEditorDialog
+
+    monkeypatch.setattr(config, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "config.json")
+    monkeypatch.setattr(config, "_config", config.Config(last_recipe="podcast_article"))
+
+    def fake_exec(dialog):
+        dialog._checks["article"].setChecked(False)
+        dialog._name_edit.setText("My trimmed recipe")
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(RecipeEditorDialog, "exec", fake_exec)
+
+    window = MainWindow()
+    window.show()
+    window.start_view.select_recipe("podcast_article")
+    process_events()
+
+    window._open_recipe_editor()
+    process_events()
+
+    assert len(config.get_config().recipes) == 1
+    saved = config.get_config().recipes[0]
+    assert saved["name"] == "My trimmed recipe"
+    assert saved["steps"] == ["transcribe", "clean"]
+    assert config.get_config().last_recipe == "custom"
+    assert window.start_view.current_recipe_key() == "custom"
+
+    window.close()
+    process_events()
+
+
 def test_library_filter_chips_not_narrower_than_their_text(process_events):
     """Regression for docs/UI_UX_AUDIT_2026-08.md P1 item 8 / the clipped
     filter chips found in the 2026-09 gallery review ("Диктофон" -> "iктоф"

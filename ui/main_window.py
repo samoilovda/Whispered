@@ -1454,20 +1454,35 @@ class MainWindow(QMainWindow):
         ui/recipe_editor.py). transcribe_options is borrowed by the
         dialog for the duration of exec() and must be reparented back out
         before the dialog is discarded, or Qt would destroy it along with
-        the dialog's other children."""
-        recipe = self._resolve_recipe(self.start_view.current_recipe_key())
+        the dialog's other children.
+
+        "Save" with no actual change used to overwrite Config.recipes and
+        switch last_recipe to the unnamed "custom" slot regardless —
+        opening the editor on a built-in and immediately saving silently
+        discarded it and unchecked every chip (docs/IMPROVEMENT_PLAN_2026-08.ru.md,
+        A4). Only write anything when the selected steps actually differ
+        from what the dialog was opened with.
+        """
+        original_key = self.start_view.current_recipe_key()
+        recipe = self._resolve_recipe(original_key)
         dialog = RecipeEditorDialog(self.transcribe_options, recipe, self)
         accepted = dialog.exec() == QDialog.DialogCode.Accepted
         steps = dialog.selected_steps() if accepted else None
+        name = dialog.recipe_name() if accepted else None
         self.transcribe_options.setParent(None)
         dialog.deleteLater()
-        if steps is not None:
-            custom = Recipe(name="custom", steps=steps, builtin_key="")
+        if steps is not None and tuple(steps) != tuple(recipe.steps):
+            custom = Recipe(name=name or "custom", steps=steps, builtin_key="")
             cfg = get_config()
             cfg.recipes = [custom.to_dict()]
             cfg.last_recipe = "custom"
             save_config()
             self.start_view.set_recipe("custom")
+        elif steps is not None:
+            # Accepted, but nothing about the step selection changed —
+            # leave Config.recipes untouched and the original chip
+            # checked rather than silently replacing it.
+            self.start_view.set_recipe(original_key)
         self.start_view.refresh_summary()
 
     def _run_recipe(self, result: TranscriptionResult, show_run_screen: bool = True) -> None:
