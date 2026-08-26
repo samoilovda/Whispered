@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLayout,
+    QMenu,
     QProgressBar,
     QPushButton,
     QSizePolicy,
@@ -330,6 +331,26 @@ class FormSection(QWidget):
 
     def add_layout(self, layout) -> None:
         self.body_layout.addLayout(layout)
+
+
+class KeepOpenMenu(QMenu):
+    """A QMenu that stays open when a checkable action inside it is
+    toggled, instead of the default one-click-closes-the-menu behavior.
+
+    Picking several export formats (see ui/record_view.py's Export menu)
+    used to mean reopening the menu once per format — three formats,
+    three separate clicks on the button (see
+    docs/IMPROVEMENT_PLAN_2026-08.ru.md, A9(b)). A non-checkable action
+    (e.g. the trailing "Export" item) still closes the menu as usual: only
+    the checkable-action branch is intercepted.
+    """
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        action = self.activeAction()
+        if action is not None and action.isCheckable() and action.isEnabled():
+            action.trigger()
+            return
+        super().mouseReleaseEvent(event)
 
 
 class OperationBar(QFrame):

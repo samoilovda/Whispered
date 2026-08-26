@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QDialog,
@@ -97,7 +98,18 @@ class _QueueOverlay(QDialog):
 
     def show_above(self, anchor: QWidget) -> None:
         pos = anchor.mapToGlobal(anchor.rect().topLeft())
-        self.move(pos.x(), pos.y() - self.height() - 6)
+        x = pos.x()
+        y = pos.y() - self.height() - 6
+        # Unclamped, this card (420x460) can land off-screen: near the
+        # left/right edge in a maximized window, or above the very top of
+        # the screen when the status bar itself sits close to it. Keep it
+        # fully inside whichever screen the anchor is actually on.
+        screen = QGuiApplication.screenAt(pos) or QGuiApplication.primaryScreen()
+        if screen is not None:
+            available = screen.availableGeometry()
+            x = max(available.left(), min(x, available.right() - self.width()))
+            y = max(available.top(), min(y, available.bottom() - self.height()))
+        self.move(x, y)
         self.show()
         self.raise_()
         self.activateWindow()
@@ -193,8 +205,11 @@ class StatusBar(QFrame):
         else:
             self.progress.setRange(0, 100)
             self.progress.setValue(max(0, min(100, progress)))
-        if cancel_text:
-            self.cancel_button.setText(cancel_text)
+        # Always resolved, not "only when given": a caller that starts a
+        # new operation without cancel_text used to inherit whatever
+        # custom label an earlier operation left on the button, since the
+        # old `if cancel_text:` guard only ever set it, never restored it.
+        self.cancel_button.setText(cancel_text or tr("btn_cancel"))
         self.cancel_button.setVisible(cancellable)
 
     def set_llm_status(self, connected: bool, detail: str = "") -> None:

@@ -9,7 +9,6 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
-    QMenu,
     QVBoxLayout,
     QWidget,
 )
@@ -20,6 +19,7 @@ from core.i18n import tr
 from exporters import EXPORT_FORMATS
 from ui.icons import get_icon, IconColors
 from ui.animated_button import AnimatedButton
+from ui.components import KeepOpenMenu
 
 # Order the Export menu lists formats in.  Keep every implemented exporter
 # reachable from the workspace; the redesign previously hid timestamped TXT
@@ -102,7 +102,7 @@ class RecordView(QWidget):
         cfg = get_config()
         selected = set(getattr(cfg, "export_formats", None) or ["txt"])
 
-        menu = QMenu(self.export_btn)
+        menu = KeepOpenMenu(self.export_btn)
         self._format_actions = {}
         for key in _FORMAT_KEYS:
             name, _ = EXPORT_FORMATS[key]

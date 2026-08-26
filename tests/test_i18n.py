@@ -89,3 +89,20 @@ class TestLocaleFiles:
         data = json.loads((self._base / "ru.json").read_text(encoding="utf-8"))
         for key, val in data.items():
             assert isinstance(val, str) and len(val) > 0, f"Empty value: {key}"
+
+    def test_tab_labels_carry_no_emoji(self):
+        """Regression basis for docs/IMPROVEMENT_PLAN_2026-08.ru.md, A9(a):
+        tab_* used to mix emoji-prefixed labels ("📝 Transcript") with
+        plain ones ("YouTube") — emoji don't localize, break alignment
+        against the plain labels sitting right next to them, and were
+        already inconsistent about which tabs got one."""
+        import re
+
+        emoji_pattern = re.compile(
+            "[\U0001F300-\U0001FAFF\U00002190-\U000027BF\U00002600-\U000026FF]"
+        )
+        for loc in ("en", "ru"):
+            data = json.loads((self._base / f"{loc}.json").read_text(encoding="utf-8"))
+            for key, val in data.items():
+                if key.startswith("tab_"):
+                    assert not emoji_pattern.search(val), f"{loc}.json {key}: {val!r}"
