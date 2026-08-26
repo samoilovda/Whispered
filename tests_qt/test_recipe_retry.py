@@ -258,3 +258,153 @@ def test_recipe_run_renders_the_cover_the_workspace_is_set_to(window, monkeypatc
     assert seen["cover_template"] == window.cover_view.template.id
     assert seen["cover_slots"]["title"] == "A title"
     assert seen["cover_slots"]["names"] == "Two hosts"
+
+
+# ---------------------------------------------------------------- B1 cache-skip
+
+def test_second_recipe_run_on_the_same_record_skips_and_populates_panels(
+    window, monkeypatch, process_events,
+):
+    """B1 acceptance criterion: run "podcast_article" (transcribe, clean,
+    article) twice on the same record — the second run's clean/article
+    steps must come back SKIPPED without calling the real generators
+    again, and still fill the Cleaned/Articles tabs from what B1's
+    load_artifact() round-trips off disk."""
+    from domain.job import StepStatus
+
+    class _FakeTextProcessor:
+        def __init__(self, *_a, **_k) -> None:
+            self.lm_client = type("C", (), {"is_cancelled": None})()
+
+        def process(self, text, use_ai=True, on_progress=None):
+            from text_processor import CleanedText, CoherentText, ProcessingResult
+
+            return ProcessingResult(
+                original=text,
+                cleaned=CleanedText(text, text, 0, 0, 0),
+                coherent=CoherentText("Cleaned and coherent text."),
+            )
+
+    class _FakeArticleGenerator:
+        def __init__(self, *_a, **_k) -> None:
+            self.lm_client = type("C", (), {"is_cancelled": None})()
+
+        def generate_all_formats(self, text, formats=None, on_progress=None):
+            from article_generator import Article, ArticleFormat, GenerationResult, TopicAnalysis
+
+            articles = [
+                Article(title=f"Title {fmt.value}", format=fmt, content=f"Body {fmt.value}")
+                for fmt in (formats or list(ArticleFormat))
+            ]
+            return GenerationResult(
+                source_text=text, topic_analysis=TopicAnalysis(), articles=articles,
+            )
+
+    monkeypatch.setattr("text_processor.TextProcessor", _FakeTextProcessor)
+    monkeypatch.setattr("article_generator.ArticleGenerator", _FakeArticleGenerator)
+
+    window._run_recipe(_result())
+    assert window._recipe_job.wait(5000)
+    process_events()
+    assert window._cleaned_text == "Cleaned and coherent text."
+    assert window.article_view.has_articles()
+
+    class _ExplodingTextProcessor(_FakeTextProcessor):
+        def process(self, text, use_ai=True, on_progress=None):
+            raise AssertionError("cache hit should never call TextProcessor.process()")
+
+    class _ExplodingArticleGenerator(_FakeArticleGenerator):
+        def generate_all_formats(self, text, formats=None, on_progress=None):
+            raise AssertionError("cache hit should never call generate_all_formats()")
+
+    monkeypatch.setattr("text_processor.TextProcessor", _ExplodingTextProcessor)
+    monkeypatch.setattr("article_generator.ArticleGenerator", _ExplodingArticleGenerator)
+    window._cleaned_text = None
+    window.cleaned_view.set_text("")
+    window.article_view.set_articles([])
+
+    window._run_recipe(_result())
+    assert window._recipe_job.wait(5000)
+    process_events()
+
+    run = window._recipe_run
+    assert run.outcomes["clean"].status is StepStatus.SKIPPED
+    assert run.outcomes["article"].status is StepStatus.SKIPPED
+    assert window._cleaned_text == "Cleaned and coherent text."
+    assert window.article_view.has_articles()
+
+
+def test_regenerate_deletes_the_manifest_and_actually_reruns_the_step(
+    window, monkeypatch, process_events,
+):
+    """B1 acceptance criterion: "Generate again" on a SKIPPED row must
+    delete that step's manifest and actually call the real generator
+    again, rather than reusing the still-cache-valid result — unlike a
+    second plain run, which must stay SKIPPED and call nothing."""
+    from domain.job import StepStatus
+
+    clean_calls = []
+    article_calls = []
+
+    class _CountingTextProcessor:
+        def __init__(self, *_a, **_k) -> None:
+            self.lm_client = type("C", (), {"is_cancelled": None})()
+
+        def process(self, text, use_ai=True, on_progress=None):
+            from text_processor import CleanedText, CoherentText, ProcessingResult
+
+            clean_calls.append(text)
+            return ProcessingResult(
+                original=text,
+                cleaned=CleanedText(text, text, 0, 0, 0),
+                coherent=CoherentText(f"Cleaned attempt {len(clean_calls)}."),
+            )
+
+    class _CountingArticleGenerator:
+        def __init__(self, *_a, **_k) -> None:
+            self.lm_client = type("C", (), {"is_cancelled": None})()
+
+        def generate_all_formats(self, text, formats=None, on_progress=None):
+            from article_generator import Article, ArticleFormat, GenerationResult, TopicAnalysis
+
+            article_calls.append(text)
+            articles = [
+                Article(title=f"Title {fmt.value}", format=fmt, content=f"Body {fmt.value}")
+                for fmt in (formats or list(ArticleFormat))
+            ]
+            return GenerationResult(
+                source_text=text, topic_analysis=TopicAnalysis(), articles=articles,
+            )
+
+    monkeypatch.setattr("text_processor.TextProcessor", _CountingTextProcessor)
+    monkeypatch.setattr("article_generator.ArticleGenerator", _CountingArticleGenerator)
+
+    window._run_recipe(_result())
+    assert window._recipe_job.wait(5000)
+    process_events()
+    assert len(clean_calls) == 1
+    assert len(article_calls) == 1
+    first_text = window._cleaned_text
+
+    # Re-run with the same inputs: both steps must SKIP (cache hit).
+    window._run_recipe(_result())
+    assert window._recipe_job.wait(5000)
+    process_events()
+    assert window._recipe_run.outcomes["clean"].status is StepStatus.SKIPPED
+    assert len(clean_calls) == 1, "cache hit must not call TextProcessor.process() again"
+    assert len(article_calls) == 1, "cache hit must not call generate_all_formats() again"
+
+    # Force regeneration of "clean" only, via the run screen's context menu
+    # ("Generate again" — regenerate_step() is its public equivalent, same
+    # relationship retry_step() has to a row's own retry button).
+    window.run_view.regenerate_step("clean")
+    process_events()
+    assert window._recipe_job is not None
+    assert window._recipe_job.wait(5000)
+    process_events()
+
+    assert len(clean_calls) == 2, "regenerate must actually rerun the step"
+    assert len(article_calls) == 1, "article wasn't reset — it must stay cached"
+    assert window._recipe_run.outcomes["clean"].status is StepStatus.SUCCEEDED
+    assert window._cleaned_text == "Cleaned attempt 2."
+    assert window._cleaned_text != first_text

@@ -8,6 +8,7 @@ project virtualenv and ``QT_QPA_PLATFORM=offscreen``.
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -55,3 +56,24 @@ def process_events(qt_application):
     def _process() -> None:
         qt_application.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 100)
     return _process
+
+
+@pytest.fixture(autouse=True)
+def _isolated_artifact_output_dir():
+    """Wipe ``core.paths.output_dir()`` before every test.
+
+    ``_TEST_HOME`` above is set once per session, so every test in this
+    suite shares one on-disk ``output/`` tree. Most tests use the same
+    default ``record_id="unsaved"``/stem "recording" (or similar) inputs,
+    and B1's cache-skip (``application/steps.py::build_cache_checks``)
+    treats an unchanged transcript/params pair as a hit regardless of
+    which test wrote it — without this, a later test's step gets silently
+    SKIPPED and fed an earlier test's stale artifact instead of exercising
+    the fake/failing generator it just installed.
+    """
+    from core.paths import output_dir
+
+    path = output_dir()
+    if path.exists():
+        shutil.rmtree(path)
+    path.mkdir(parents=True, exist_ok=True)

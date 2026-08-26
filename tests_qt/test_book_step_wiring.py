@@ -73,6 +73,47 @@ def test_run_button_runs_through_job_runner_and_writes_provenance(
     window.close()
 
 
+def test_second_run_click_on_the_same_input_skips_and_reuses_the_artifact(
+    monkeypatch, process_events,
+):
+    """B1 cache-skip: a second "Run" click with an unchanged transcript
+    and params must not call BookPipeline.process() at all — it should
+    read book.md straight off disk via application/steps.py::_book_load()."""
+    from domain.job import StepStatus
+
+    monkeypatch.setattr("book_pipeline.BookPipeline", _FakeBookPipeline)
+    from ui.main_window import MainWindow
+
+    window = MainWindow()
+    window._document_session.apply_result(_result())
+    window._last_record_id = None
+    window._source_filepath = None
+
+    window.book_panel.run_single_requested.emit(True, False, "")
+    assert window._book_job.wait(2000)
+    process_events()
+    assert "Final book text." in window.cleaned_view._cleaned_text
+
+    class _ExplodingBookPipeline(_FakeBookPipeline):
+        def process(self, transcript_text, source_path, **kwargs):
+            raise AssertionError("cache hit should never call BookPipeline.process()")
+
+    monkeypatch.setattr("book_pipeline.BookPipeline", _ExplodingBookPipeline)
+    window.cleaned_view.set_text("")
+
+    window.book_panel.run_single_requested.emit(True, False, "")
+    runner = window._book_job
+    assert runner is not None
+    assert runner.wait(2000)
+    process_events()
+
+    assert window._book_job is None
+    assert runner.run_state.outcomes["book"].status is StepStatus.SKIPPED
+    assert "Final book text." in window.cleaned_view._cleaned_text
+
+    window.close()
+
+
 def test_book_job_failure_reports_the_error_without_crashing(
     monkeypatch, process_events,
 ):

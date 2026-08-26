@@ -100,6 +100,47 @@ def test_articles_use_the_cleaned_text_when_available(monkeypatch, process_event
     window.close()
 
 
+def test_second_articles_click_on_the_same_input_skips_and_reuses_the_artifact(
+    monkeypatch, process_events,
+):
+    """B1 cache-skip: a second "Articles" click with an unchanged
+    transcript and params must not call generate_all_formats() at all —
+    it should read articles.json straight off disk via
+    application/steps.py::_article_load()."""
+    from domain.job import StepStatus
+
+    monkeypatch.setattr("article_generator.ArticleGenerator", _FakeArticleGenerator)
+    from ui.main_window import MainWindow
+
+    window = MainWindow()
+    window._document_session.apply_result(_result())
+    window._last_record_id = None
+    window._source_filepath = None
+
+    window._start_generate_all()
+    assert window._article_job.wait(2000)
+    process_events()
+    assert window.article_view.has_articles()
+
+    class _ExplodingArticleGenerator(_FakeArticleGenerator):
+        def generate_all_formats(self, text, formats=None, on_progress=None):
+            raise AssertionError("cache hit should never call generate_all_formats()")
+
+    monkeypatch.setattr("article_generator.ArticleGenerator", _ExplodingArticleGenerator)
+
+    window._start_generate_all()
+    runner = window._article_job
+    assert runner is not None
+    assert runner.wait(2000)
+    process_events()
+
+    assert window._article_job is None
+    assert runner.run_state.outcomes["article"].status is StepStatus.SKIPPED
+    assert window.article_view.has_articles()
+
+    window.close()
+
+
 def test_article_job_failure_reports_the_error_without_crashing(
     monkeypatch, process_events,
 ):

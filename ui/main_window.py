@@ -59,7 +59,15 @@ from utils import (
 )
 from application.document_session import DocumentSession
 from application.job_engine import JobRun
-from application.steps import STEP_DEFINITIONS, StepContext, build_job_spec, build_runners
+from application.steps import (
+    STEP_DEFINITIONS,
+    StepContext,
+    build_cache_checks,
+    build_job_spec,
+    build_runners,
+    load_step_result,
+    manifest_path_for_step,
+)
 from domain.job import JobSpec, StepOutcome, StepStatus
 from domain.recipe import BUILTIN_RECIPES_BY_KEY, Recipe, TRANSCRIPT_ONLY
 from config import get_config, save_config
@@ -199,6 +207,16 @@ class MainWindow(QMainWindow):
         self._insights_job: JobRunner | None = None
         self._youtube_job: JobRunner | None = None
         self._book_job: JobRunner | None = None
+        # StepContext of whichever job is currently running, kept around
+        # so its _on_*_job_finished handler can reload a SKIPPED (cache
+        # hit — B1) outcome's result from disk via load_step_result(),
+        # the same way _recipe_get_result()/_on_recipe_step_finished() do
+        # for the recipe path.
+        self._clean_job_context: StepContext | None = None
+        self._article_job_context: StepContext | None = None
+        self._insights_job_context: StepContext | None = None
+        self._youtube_job_context: StepContext | None = None
+        self._book_job_context: StepContext | None = None
         # A recipe-driven launch (see _run_recipe, B6) runs the rest of the
         # selected recipe's steps as one JobRunner once transcription
         # finishes — separate from the five single-step _*_job attributes
@@ -699,6 +717,7 @@ class MainWindow(QMainWindow):
             labels={d.name: tr(d.label_key) for d in STEP_DEFINITIONS},
         )
         self.run_view.retry_requested.connect(self._on_recipe_retry)
+        self.run_view.regenerate_requested.connect(self._on_recipe_regenerate)
         self.run_view.cancel_requested.connect(self._cancel_recipe_job)
         self.run_view.open_record_requested.connect(
             lambda: self._stack.setCurrentIndex(self._record_index)
@@ -1459,6 +1478,25 @@ class MainWindow(QMainWindow):
                 return recipe
         return TRANSCRIPT_ONLY
 
+    def _recipe_get_result(self, run: JobRun, name: str):
+        """``StepContext.get_result`` for the recipe run: a finished
+        step's real return value, or — for a step JobEngine resolved via
+        cache-skip (``StepOutcome.result`` is ``None`` on a SKIPPED
+        outcome, since the runner that would have produced it never ran)
+        — its artifact reloaded from disk (see
+        application/steps.py::load_step_result and
+        docs/IMPROVEMENT_PLAN_2026-08.ru.md, B1). Without this, a step
+        that reads a cache-skipped dependency (e.g. "article" reading
+        "clean") would see None and treat it as though that dependency
+        had never run at all.
+        """
+        outcome = run.outcomes.get(name)
+        if outcome is None:
+            return None
+        if outcome.result is not None:
+            return outcome.result
+        return load_step_result(self._recipe_context, name)
+
     def _open_recipe_editor(self) -> None:
         """"Настроить…"/"Изменить" on the start screen (see
         ui/recipe_editor.py). transcribe_options is borrowed by the
@@ -1558,9 +1596,7 @@ class MainWindow(QMainWindow):
                 # rather than _cover_runner's own fallback defaults.
                 **self.cover_view.render_params(),
             },
-            get_result=lambda name: (
-                run.outcomes[name].result if name in run.outcomes else None
-            ),
+            get_result=lambda name: self._recipe_get_result(run, name),
             is_cancelled=run.is_cancelled,
         )
 
@@ -1604,7 +1640,8 @@ class MainWindow(QMainWindow):
             self._recipe_context, self._recipe_step_names,
             progress_factory=self._recipe_job.make_progress_callback,
         )
-        self._recipe_job.set_runners(runners)
+        cache_checks = build_cache_checks(self._recipe_context, self._recipe_step_names)
+        self._recipe_job.set_runners(runners, cache_checks=cache_checks)
         self._recipe_job.step_started.connect(self.run_view.on_step_started)
         self._recipe_job.step_progress.connect(self.run_view.on_step_progress)
         self._recipe_job.step_finished.connect(self.run_view.on_step_finished)
@@ -1623,6 +1660,29 @@ class MainWindow(QMainWindow):
             return
         if self._recipe_job is not None and self._recipe_job.isRunning():
             return
+        if self._recipe_run.is_cancelled():
+            self._recipe_run = self._run_after_cancel()
+        self._save_recipe_run("running")
+        self._launch_recipe_job()
+
+    def _on_recipe_regenerate(self, name: str) -> None:
+        """RunView.regenerate_requested: same reused-run mechanics as
+        _on_recipe_retry, plus deleting *name*'s on-disk manifest first —
+        RunView already reset the step's outcome, but a still-valid cache
+        would otherwise just re-mark it SKIPPED with the same old result
+        (B1's "forced regeneration": revision/hash/prompt-version already
+        invalidate the cache on their own; wanting a different result from
+        unchanged inputs is the one case only this manual action covers)."""
+        if self._recipe_context is None or self._recipe_run is None:
+            return
+        if self._recipe_job is not None and self._recipe_job.isRunning():
+            return
+        manifest = manifest_path_for_step(self._recipe_context, name)
+        if manifest is not None and manifest.exists():
+            try:
+                manifest.unlink()
+            except OSError as exc:
+                logger.warning("Failed to delete manifest for regenerate (%s): %s", name, exc)
         if self._recipe_run.is_cancelled():
             self._recipe_run = self._run_after_cancel()
         self._save_recipe_run("running")
@@ -1651,9 +1711,7 @@ class MainWindow(QMainWindow):
         fresh.outcomes.update(self._recipe_run.outcomes)
         self._recipe_context = dataclasses.replace(
             self._recipe_context,
-            get_result=lambda name: (
-                fresh.outcomes[name].result if name in fresh.outcomes else None
-            ),
+            get_result=lambda name: self._recipe_get_result(fresh, name),
             is_cancelled=fresh.is_cancelled,
         )
         self.run_view.bind_run(fresh)
@@ -1665,14 +1723,22 @@ class MainWindow(QMainWindow):
         _on_*_job_finished (this recipe run and those five buttons' own
         jobs share application/steps.py's runners; only where the result
         lands differs) — transcribe/diarize/cover have no tab to push
-        into, so they're left to the run screen's own row status."""
+        into, so they're left to the run screen's own row status.
+
+        A SKIPPED step (cache hit — B1) never ran its runner, so
+        outcome.result is None; its tab still needs populating from the
+        artifact already on disk via load_step_result(), the same
+        reconstruction _recipe_get_result() uses to feed dependent steps.
+        """
         self._save_recipe_run("running")
-        if outcome.status is not StepStatus.SUCCEEDED:
+        if outcome.status not in (StepStatus.SUCCEEDED, StepStatus.SKIPPED):
             return
+        result = outcome.result
+        if result is None and outcome.status is StepStatus.SKIPPED:
+            result = load_step_result(self._recipe_context, name)
         if name == "clean":
             from text_processor import ProcessingResult
-            if isinstance(outcome.result, ProcessingResult):
-                result = outcome.result
+            if isinstance(result, ProcessingResult):
                 self._cleaned_text = result.coherent.text
                 self.cleaned_view.set_text(
                     result.coherent.text,
@@ -1682,22 +1748,22 @@ class MainWindow(QMainWindow):
                 )
         elif name == "article":
             from article_generator import GenerationResult
-            if isinstance(outcome.result, GenerationResult):
-                self.article_view.set_articles(outcome.result.articles)
+            if isinstance(result, GenerationResult):
+                self.article_view.set_articles(result.articles)
         elif name == "insights":
-            if isinstance(outcome.result, dict):
-                self.insights_panel.set_result(outcome.result)
+            if isinstance(result, dict):
+                self.insights_panel.set_result(result)
         elif name == "youtube_package":
-            if isinstance(outcome.result, dict):
-                self.youtube_panel.set_result(outcome.result)
+            if isinstance(result, dict):
+                self.youtube_panel.set_result(result)
         elif name == "book":
             from book_pipeline import BookResult
-            if isinstance(outcome.result, BookResult) and outcome.result.final_text:
+            if isinstance(result, BookResult) and result.final_text:
                 self.cleaned_view.set_text(
-                    outcome.result.final_text,
+                    result.final_text,
                     original_length=len(self._current_result.full_text) if self._current_result else 0,
                     removed_fillers=0,
-                    paragraphs=outcome.result.final_text.count("\n\n") + 1,
+                    paragraphs=result.final_text.count("\n\n") + 1,
                 )
 
     def _on_recipe_job_finished(self, run: JobRun) -> None:
@@ -1989,7 +2055,9 @@ class MainWindow(QMainWindow):
         runners = build_runners(
             context, ("clean",), progress_factory=self._clean_job.make_progress_callback
         )
-        self._clean_job.set_runners(runners)
+        self._clean_job_context = context
+        cache_checks = build_cache_checks(context, ("clean",))
+        self._clean_job.set_runners(runners, cache_checks=cache_checks)
         self._clean_job.step_progress.connect(self._on_clean_progress)
         self._clean_job.job_finished.connect(self._on_clean_job_finished)
         self._clean_job.start()
@@ -2050,7 +2118,9 @@ class MainWindow(QMainWindow):
         runners = build_runners(
             context, ("article",), progress_factory=self._article_job.make_progress_callback
         )
-        self._article_job.set_runners(runners)
+        self._article_job_context = context
+        cache_checks = build_cache_checks(context, ("article",))
+        self._article_job.set_runners(runners, cache_checks=cache_checks)
         self._article_job.step_progress.connect(self._on_article_progress)
         self._article_job.job_finished.connect(self._on_article_job_finished)
         self._article_job.start()
@@ -2116,7 +2186,9 @@ class MainWindow(QMainWindow):
         runners = build_runners(
             context, ("insights",), progress_factory=self._insights_job.make_progress_callback
         )
-        self._insights_job.set_runners(runners)
+        self._insights_job_context = context
+        cache_checks = build_cache_checks(context, ("insights",))
+        self._insights_job.set_runners(runners, cache_checks=cache_checks)
         self._insights_job.step_progress.connect(self._on_insights_progress)
         self._insights_job.job_finished.connect(self._on_insights_job_finished)
         self._insights_job.start()
@@ -2138,15 +2210,26 @@ class MainWindow(QMainWindow):
         started by _start_insights_job() — hands the outcome to the panel."""
         self._insights_job = None
         outcome = run.outcomes.get("insights")
+        context = self._insights_job_context
+        self._insights_job_context = None
         # _start_insights_job() showed the status bar's Cancel button;
         # nothing here used to hide it again, so it stayed on screen
         # offering to cancel a job that had already finished.
         self._reset_ui()
 
-        if outcome is not None and outcome.status is StepStatus.SUCCEEDED and isinstance(
-            outcome.result, dict
+        result = outcome.result if outcome is not None else None
+        if (
+            result is None
+            and outcome is not None
+            and outcome.status is StepStatus.SKIPPED
+            and context is not None
         ):
-            self.insights_panel.set_result(outcome.result)
+            result = load_step_result(context, "insights")
+
+        if outcome is not None and outcome.status in (
+            StepStatus.SUCCEEDED, StepStatus.SKIPPED
+        ) and isinstance(result, dict):
+            self.insights_panel.set_result(result)
             return
 
         # _cancel_insights_job() disconnects this very signal before the
@@ -2227,7 +2310,9 @@ class MainWindow(QMainWindow):
             context, ("youtube_package",),
             progress_factory=self._youtube_job.make_progress_callback,
         )
-        self._youtube_job.set_runners(runners)
+        self._youtube_job_context = context
+        cache_checks = build_cache_checks(context, ("youtube_package",))
+        self._youtube_job.set_runners(runners, cache_checks=cache_checks)
         self._youtube_job.step_progress.connect(self._on_youtube_progress)
         self._youtube_job.job_finished.connect(self._on_youtube_job_finished)
         self._youtube_job.start()
@@ -2249,14 +2334,25 @@ class MainWindow(QMainWindow):
         job started by _start_youtube_job() — hands the outcome to the panel."""
         self._youtube_job = None
         outcome = run.outcomes.get("youtube_package")
+        context = self._youtube_job_context
+        self._youtube_job_context = None
         # Same as the insights job above: _start_youtube_job() showed the
         # Cancel button and nothing here took it back down.
         self._reset_ui()
 
-        if outcome is not None and outcome.status is StepStatus.SUCCEEDED and isinstance(
-            outcome.result, dict
+        result = outcome.result if outcome is not None else None
+        if (
+            result is None
+            and outcome is not None
+            and outcome.status is StepStatus.SKIPPED
+            and context is not None
         ):
-            self.youtube_panel.set_result(outcome.result)
+            result = load_step_result(context, "youtube_package")
+
+        if outcome is not None and outcome.status in (
+            StepStatus.SUCCEEDED, StepStatus.SKIPPED
+        ) and isinstance(result, dict):
+            self.youtube_panel.set_result(result)
             return
 
         # _cancel_youtube_job() disconnects this very signal before the
@@ -2279,13 +2375,22 @@ class MainWindow(QMainWindow):
 
         self._clean_job = None
         outcome = run.outcomes.get("clean")
+        context = self._clean_job_context
+        self._clean_job_context = None
+        result = outcome.result if outcome is not None else None
+        if (
+            result is None
+            and outcome is not None
+            and outcome.status is StepStatus.SKIPPED
+            and context is not None
+        ):
+            result = load_step_result(context, "clean")
 
         if (
             outcome is not None
-            and outcome.status is StepStatus.SUCCEEDED
-            and isinstance(outcome.result, ProcessingResult)
+            and outcome.status in (StepStatus.SUCCEEDED, StepStatus.SKIPPED)
+            and isinstance(result, ProcessingResult)
         ):
-            result = outcome.result
             self._reset_ui()
             self._cleaned_text = result.coherent.text
 
@@ -2332,13 +2437,22 @@ class MainWindow(QMainWindow):
 
         self._article_job = None
         outcome = run.outcomes.get("article")
+        context = self._article_job_context
+        self._article_job_context = None
+        result = outcome.result if outcome is not None else None
+        if (
+            result is None
+            and outcome is not None
+            and outcome.status is StepStatus.SKIPPED
+            and context is not None
+        ):
+            result = load_step_result(context, "article")
 
         if (
             outcome is not None
-            and outcome.status is StepStatus.SUCCEEDED
-            and isinstance(outcome.result, GenerationResult)
+            and outcome.status in (StepStatus.SUCCEEDED, StepStatus.SKIPPED)
+            and isinstance(result, GenerationResult)
         ):
-            result = outcome.result
             self._reset_ui()
             self.article_view.set_articles(result.articles)
 
@@ -2494,7 +2608,9 @@ class MainWindow(QMainWindow):
         runners = build_runners(
             context, ("book",), progress_factory=self._book_job.make_progress_callback
         )
-        self._book_job.set_runners(runners)
+        self._book_job_context = context
+        cache_checks = build_cache_checks(context, ("book",))
+        self._book_job.set_runners(runners, cache_checks=cache_checks)
         self._book_job.step_progress.connect(self._on_book_progress)
         self._book_job.job_finished.connect(self._on_book_job_finished)
         self._book_job.start()
@@ -2522,11 +2638,21 @@ class MainWindow(QMainWindow):
         self._reset_ui()
         self._book_job = None
         outcome = run.outcomes.get("book")
+        context = self._book_job_context
+        self._book_job_context = None
 
-        if outcome is not None and outcome.status is StepStatus.SUCCEEDED and isinstance(
-            outcome.result, BookResult
+        result = outcome.result if outcome is not None else None
+        if (
+            result is None
+            and outcome is not None
+            and outcome.status is StepStatus.SKIPPED
+            and context is not None
         ):
-            result = outcome.result
+            result = load_step_result(context, "book")
+
+        if outcome is not None and outcome.status in (
+            StepStatus.SUCCEEDED, StepStatus.SKIPPED
+        ) and isinstance(result, BookResult):
             if result.stages:
                 saved_paths = [s.output_path for s in result.stages if s.success and s.output_path]
                 if saved_paths:

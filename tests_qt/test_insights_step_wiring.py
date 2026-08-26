@@ -61,6 +61,49 @@ def test_generate_button_runs_through_job_runner_and_writes_provenance(
     window.close()
 
 
+def test_second_generate_click_on_the_same_input_skips_and_reuses_the_artifact(
+    monkeypatch, process_events,
+):
+    """B1 cache-skip: a second "Generate" click with an unchanged
+    transcript and params must not call generate_insight() at all — it
+    should read insights.json straight off disk via
+    application/steps.py::_insights_load()."""
+    from domain.job import StepStatus
+
+    monkeypatch.setattr("core.insights.generate_insight", _fake_generate_insight)
+    from config import get_config
+    from ui.main_window import MainWindow
+
+    window = MainWindow()
+    get_config().lm_studio_url = "http://127.0.0.1:1234"
+    window._document_session.apply_result(_result())
+    window._last_record_id = None
+    window._source_filepath = None
+
+    window.insights_panel.generate_requested.emit()
+    assert window._insights_job.wait(2000)
+    process_events()
+    assert window.insights_panel._results == _PAYLOAD
+
+    def _exploding(insight_type, segments, **kwargs):
+        raise AssertionError("cache hit should never call generate_insight()")
+
+    monkeypatch.setattr("core.insights.generate_insight", _exploding)
+    window.insights_panel._results = {}
+
+    window.insights_panel.generate_requested.emit()
+    runner = window._insights_job
+    assert runner is not None
+    assert runner.wait(2000)
+    process_events()
+
+    assert window._insights_job is None
+    assert runner.run_state.outcomes["insights"].status is StepStatus.SKIPPED
+    assert window.insights_panel._results == _PAYLOAD
+
+    window.close()
+
+
 def test_no_lm_studio_url_reports_the_error_without_starting_a_job(
     monkeypatch, process_events,
 ):

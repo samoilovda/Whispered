@@ -95,7 +95,19 @@ class StepContext:
 
 @dataclass(frozen=True)
 class StepDefinition:
-    """One entry in the step registry."""
+    """One entry in the step registry.
+
+    ``load_artifact`` is ``make_artifact``'s inverse: given the same
+    context, read back whatever ``make_artifact()``'s path already holds
+    and reconstruct the value the runner would have returned. It exists
+    because a cache-skip (``JobEngine`` resolving a step SKIPPED via
+    ``build_cache_checks()``) never calls the runner at all, so
+    ``StepOutcome.result`` is ``None`` — nothing populates the tab that
+    shows this step's output, and nothing a later step's ``get_result()``
+    reads back is there either. Returns ``None`` when there's nothing on
+    disk (including transcribe/diarize, whose ``make_artifact`` also
+    returns ``None`` — they're never cache-checked in the first place).
+    """
 
     name: str
     label_key: str            # i18n key, not display text
@@ -104,6 +116,7 @@ class StepDefinition:
     viewer: str                 # which panel shows this step's result
     make_runner: Callable[[StepContext], StepRunner]
     make_artifact: Callable[[StepContext], Optional[Artifact]]
+    load_artifact: Callable[[StepContext], Optional[Any]]
 
 
 # ------------------------------------------------------------------ helpers
@@ -135,6 +148,26 @@ def _model_label(context: StepContext) -> str:
 def _write_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _read_json(path: Path) -> Optional[Any]:
+    """The read side of ``_write_json`` — used by ``load_artifact``
+    implementations. ``None`` (not an exception) for a missing or
+    corrupt file: a stale cache-check race (the file existed when
+    ``is_cache_valid()`` ran, gone or mid-write by the time this reads
+    it) must read as "nothing to load", the same as no cache hit at
+    all, not crash a step that JobEngine already resolved SKIPPED."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _read_text(path: Path) -> Optional[str]:
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return None
 
 
 def _save_artifact(context: StepContext, artifact: Artifact) -> None:
@@ -177,6 +210,13 @@ def _transcribe_artifact(context: StepContext) -> Optional[Artifact]:
     return None
 
 
+def _transcribe_load(context: StepContext) -> Optional[Any]:
+    # Never cache-checked (make_artifact returns None above), so this is
+    # never actually called by a SKIPPED outcome — present for registry
+    # uniformity, not because a real caller needs it.
+    return None
+
+
 # ---------------------------------------------------------------- diarize
 
 def _diarize_runner(context: StepContext) -> StepRunner:
@@ -191,6 +231,10 @@ def _diarize_runner(context: StepContext) -> StepRunner:
 
 
 def _diarize_artifact(context: StepContext) -> Optional[Artifact]:
+    return None
+
+
+def _diarize_load(context: StepContext) -> Optional[Any]:
     return None
 
 
@@ -227,6 +271,38 @@ def _clean_artifact(context: StepContext) -> Artifact:
         provider=_provider_label(context),
         model=_model_label(context),
         prompt_version=_composite_prompt_version("cleaning", "coherence"),
+    )
+
+
+def _clean_load(context: StepContext) -> Optional[Any]:
+    """Rebuild a real ``text_processor.ProcessingResult`` from
+    ``clean.md``.
+
+    ``clean.md`` only ever held ``result.coherent.text`` — the removed-
+    filler/sentences-fixed counts were never written anywhere, so a cache
+    hit reports them as 0 rather than guessing (the same honest-zero
+    already used below for a cached ``book`` result, and by the "book"
+    branch of ``MainWindow._on_recipe_step_finished`` for the same
+    reason). ``ProcessingResult.original`` *is* recoverable, though — the
+    pre-clean transcript text is still sitting on ``context.result``.
+    """
+    text = _read_text(context.artifact_dir / "clean.md")
+    if text is None:
+        return None
+    from text_processor import CleanedText, CoherentText, ProcessingResult
+
+    original = context.result.full_text
+    return ProcessingResult(
+        original=original,
+        cleaned=CleanedText(
+            original=original,
+            cleaned=text,
+            removed_fillers=0,
+            sentences_fixed=0,
+            paragraphs_created=0,
+        ),
+        coherent=CoherentText(text=text, paragraphs=text.split("\n\n")),
+        processing_time=0.0,
     )
 
 
@@ -278,6 +354,43 @@ def _article_artifact(context: StepContext) -> Artifact:
     )
 
 
+def _article_load(context: StepContext) -> Optional[Any]:
+    """Rebuild a real ``article_generator.GenerationResult`` from
+    ``articles.json``.
+
+    The payload the runner writes — ``{format.value: {title, content}}``
+    — carries everything ``Article`` needs except ``topics`` and
+    ``quality_score``; ``word_count`` recomputes itself from ``content``
+    in ``Article.__post_init__``. ``ArticleFormatTab.set_article()`` only
+    shows the quality score when it's above 0, so leaving it at the
+    dataclass default of 0.0 just hides that line rather than showing a
+    stale or fabricated number.
+    """
+    payload = _read_json(context.artifact_dir / "articles.json")
+    if not isinstance(payload, dict):
+        return None
+    from article_generator import Article, ArticleFormat, GenerationResult, TopicAnalysis
+
+    articles = []
+    for key, data in payload.items():
+        if not isinstance(data, dict):
+            continue
+        try:
+            fmt = ArticleFormat(key)
+        except ValueError:
+            continue
+        articles.append(
+            Article(title=str(data.get("title", "")), format=fmt, content=str(data.get("content", "")))
+        )
+    if not articles:
+        return None
+    return GenerationResult(
+        source_text=context.result.full_text,
+        topic_analysis=TopicAnalysis(),
+        articles=articles,
+    )
+
+
 # ---------------------------------------------------------------- insights
 
 _INSIGHTS_TYPES = ("chapters", "action_items", "key_moments")
@@ -320,6 +433,14 @@ def _insights_artifact(context: StepContext) -> Artifact:
     )
 
 
+def _insights_load(context: StepContext) -> Optional[Any]:
+    # Lossless: insights.json already holds exactly the dict the runner
+    # returns and InsightsPanel.set_result() consumes — no reconstruction
+    # needed, unlike clean/article/book's richer return types.
+    payload = _read_json(context.artifact_dir / "insights.json")
+    return payload if isinstance(payload, dict) else None
+
+
 # ---------------------------------------------------------------- youtube_package
 
 _YOUTUBE_TYPES = ("chapters", "yt_titles", "yt_description", "yt_tags", "yt_questions")
@@ -360,6 +481,12 @@ def _youtube_package_artifact(context: StepContext) -> Artifact:
         model=_model_label(context),
         prompt_version=_composite_prompt_version(*_YOUTUBE_TYPES),
     )
+
+
+def _youtube_package_load(context: StepContext) -> Optional[Any]:
+    # Same shape as insights: lossless round-trip, no reconstruction.
+    payload = _read_json(context.artifact_dir / "youtube_package.json")
+    return payload if isinstance(payload, dict) else None
 
 
 # ---------------------------------------------------------------- book
@@ -412,6 +539,32 @@ def _book_artifact(context: StepContext) -> Artifact:
     )
 
 
+def _book_load(context: StepContext) -> Optional[Any]:
+    """Rebuild a real ``book_pipeline.BookResult`` from ``book.md``.
+
+    ``BookResult.final_text`` is a computed property reading the last
+    successful stage, not a settable field — wrapping the saved text in
+    one synthetic ``BookStageResult`` gives back a genuine ``BookResult``
+    whose ``.final_text`` resolves to it, rather than a lookalike object
+    the ``isinstance(outcome.result, BookResult)`` check in
+    ``MainWindow._on_recipe_step_finished`` would reject.
+    """
+    text = _read_text(context.artifact_dir / "book.md")
+    if text is None:
+        return None
+    from book_pipeline import BookResult, BookStageResult
+
+    return BookResult(
+        source_path=context.source_path,
+        stages=[
+            BookStageResult(
+                stage="cache", output_text=text,
+                output_path=str(context.artifact_dir / "book.md"),
+            )
+        ],
+    )
+
+
 # ---------------------------------------------------------------- cover
 
 def _cover_runner(context: StepContext) -> StepRunner:
@@ -455,6 +608,17 @@ def _cover_artifact(context: StepContext) -> Artifact:
     )
 
 
+def _cover_load(context: StepContext) -> Optional[Any]:
+    # A path, not an object: the PNG bytes are the artifact, unlike every
+    # other step here. Render-time warnings aren't recorded anywhere on
+    # disk, so a cache hit reports none rather than a stale/fabricated
+    # list — same honest-empty posture as the other loaders above.
+    path = context.artifact_dir / "cover.png"
+    if not path.is_file():
+        return None
+    return {"path": str(path), "warnings": []}
+
+
 # ------------------------------------------------------------------ registry
 
 STEP_DEFINITIONS: tuple = (
@@ -466,6 +630,7 @@ STEP_DEFINITIONS: tuple = (
         viewer="transcript",
         make_runner=_transcribe_runner,
         make_artifact=_transcribe_artifact,
+        load_artifact=_transcribe_load,
     ),
     StepDefinition(
         name="diarize",
@@ -475,6 +640,7 @@ STEP_DEFINITIONS: tuple = (
         viewer="transcript",
         make_runner=_diarize_runner,
         make_artifact=_diarize_artifact,
+        load_artifact=_diarize_load,
     ),
     StepDefinition(
         name="clean",
@@ -484,6 +650,7 @@ STEP_DEFINITIONS: tuple = (
         viewer="cleaned_text",
         make_runner=_clean_runner,
         make_artifact=_clean_artifact,
+        load_artifact=_clean_load,
     ),
     StepDefinition(
         name="article",
@@ -493,6 +660,7 @@ STEP_DEFINITIONS: tuple = (
         viewer="article",
         make_runner=_article_runner,
         make_artifact=_article_artifact,
+        load_artifact=_article_load,
     ),
     StepDefinition(
         name="insights",
@@ -502,6 +670,7 @@ STEP_DEFINITIONS: tuple = (
         viewer="insights",
         make_runner=_insights_runner,
         make_artifact=_insights_artifact,
+        load_artifact=_insights_load,
     ),
     StepDefinition(
         name="youtube_package",
@@ -511,6 +680,7 @@ STEP_DEFINITIONS: tuple = (
         viewer="youtube",
         make_runner=_youtube_package_runner,
         make_artifact=_youtube_package_artifact,
+        load_artifact=_youtube_package_load,
     ),
     StepDefinition(
         name="book",
@@ -520,6 +690,7 @@ STEP_DEFINITIONS: tuple = (
         viewer="book",
         make_runner=_book_runner,
         make_artifact=_book_artifact,
+        load_artifact=_book_load,
     ),
     StepDefinition(
         name="cover",
@@ -529,6 +700,7 @@ STEP_DEFINITIONS: tuple = (
         viewer="cover",
         make_runner=_cover_runner,
         make_artifact=_cover_artifact,
+        load_artifact=_cover_load,
     ),
 )
 
@@ -600,3 +772,40 @@ def build_cache_checks(context: StepContext, step_names: "tuple[str, ...] | list
             expected.path, expected
         )
     return checks
+
+
+def load_step_result(context: StepContext, name: str) -> Optional[Any]:
+    """``STEP_REGISTRY[name].load_artifact(context)``, or ``None`` for an
+    unknown step name.
+
+    A SKIPPED outcome (cache-skip: see ``build_cache_checks()`` above)
+    never calls the runner, so ``StepOutcome.result`` is ``None`` — this
+    is what a caller reaches for instead, both to feed a dependent step's
+    ``get_result()`` and to populate the tab this step's own result would
+    normally have filled.
+    """
+    step = STEP_REGISTRY.get(name)
+    if step is None:
+        return None
+    return step.load_artifact(context)
+
+
+def manifest_path_for_step(context: StepContext, name: str) -> Optional[Path]:
+    """The provenance manifest ``build_cache_checks()`` would read for
+    *name*, or ``None`` for an unknown step or one with no real Artifact
+    (transcribe/diarize). Deleting this file is what forces a cache-skip
+    to actually rerun — see docs/IMPROVEMENT_PLAN_2026-08.ru.md, B1's
+    "forced regeneration": ``transcript_revision``/``source_hash``/
+    ``prompt_version`` already invalidate the cache on their own when the
+    transcript, source file, or prompt changes; wanting a different
+    result from the *same* inputs is the one case only a manual action
+    can express.
+    """
+    step = STEP_REGISTRY.get(name)
+    if step is None:
+        return None
+    artifact = step.make_artifact(context)
+    if artifact is None:
+        return None
+    from infrastructure.persistence import artifact_store
+    return artifact_store.manifest_path_for(artifact.path)

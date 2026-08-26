@@ -21,6 +21,8 @@ from application.steps import (
     build_cache_checks,
     build_job_spec,
     build_runners,
+    load_step_result,
+    manifest_path_for_step,
 )
 from application.job_engine import JobEngine
 from domain.job import StepStatus
@@ -364,6 +366,174 @@ def test_cover_runner_calls_renderer_and_saves_image(tmp_path, monkeypatch):
     assert written.exists()
 
 
+# ------------------------------------------------------------------ load_artifact round-trips
+#
+# What a cache-skip needs load_step_result() to recover — run the real
+# runner (writing the artifact to disk, same as any other test above),
+# then read it back and check the reconstructed value is usable the same
+# way MainWindow._on_recipe_step_finished uses a real (non-cached) one.
+
+def test_transcribe_and_diarize_have_nothing_to_load(tmp_path):
+    # Never cache-checked (make_artifact returns None) — confirms the
+    # registry uniformity claim in StepDefinition's own docstring rather
+    # than asserting behavior anything actually depends on.
+    context = _context(tmp_path)
+    assert load_step_result(context, "transcribe") is None
+    assert load_step_result(context, "diarize") is None
+
+
+def test_load_step_result_of_an_unknown_step_name(tmp_path):
+    assert load_step_result(_context(tmp_path), "not_a_real_step") is None
+
+
+def test_clean_load_recovers_a_processing_result(tmp_path, monkeypatch):
+    from text_processor import CleanedText, CoherentText, ProcessingResult
+
+    class _FakeLMClient:
+        is_cancelled = None
+
+    class _FakeTextProcessor:
+        def __init__(self, *_args, **_kwargs):
+            self.lm_client = _FakeLMClient()
+
+        def process(self, raw_text, use_ai=True, on_progress=None):
+            return ProcessingResult(
+                original=raw_text, cleaned=CleanedText(raw_text, raw_text, 3, 2, 1),
+                coherent=CoherentText("Para one.\n\nPara two."),
+            )
+
+    monkeypatch.setattr("text_processor.TextProcessor", _FakeTextProcessor)
+    context = _context(tmp_path, provider=None, model="m")
+    STEP_REGISTRY["clean"].make_runner(context)()
+
+    reloaded = load_step_result(context, "clean")
+    assert reloaded.coherent.text == "Para one.\n\nPara two."
+    # The pre-clean length is genuinely recoverable from context.result;
+    # the filler/sentence counts never made it to disk, so 0 is honest
+    # rather than a guess — same posture the "book" branch of
+    # MainWindow._on_recipe_step_finished already uses for its own
+    # unavailable counts.
+    assert len(reloaded.original) == len(context.result.full_text)
+    assert reloaded.cleaned.removed_fillers == 0
+    assert len(reloaded.coherent.paragraphs) == 2
+
+
+def test_clean_load_is_none_without_a_prior_run(tmp_path):
+    assert load_step_result(_context(tmp_path), "clean") is None
+
+
+def test_article_load_recovers_real_article_objects(tmp_path, monkeypatch):
+    from article_generator import Article, ArticleFormat, GenerationResult, TopicAnalysis
+
+    class _FakeLMClient:
+        is_cancelled = None
+
+    class _FakeArticleGenerator:
+        def __init__(self, *_args, **_kwargs):
+            self.lm_client = _FakeLMClient()
+
+        def generate_all_formats(self, text, formats=None, on_progress=None):
+            return GenerationResult(
+                source_text=text, topic_analysis=TopicAnalysis(),
+                articles=[
+                    Article(title="Blog title", format=ArticleFormat.BLOG_POST, content="Blog body."),
+                    Article(title="FAQ title", format=ArticleFormat.FAQ, content="FAQ body."),
+                ],
+            )
+
+    monkeypatch.setattr("article_generator.ArticleGenerator", _FakeArticleGenerator)
+    context = _context(
+        tmp_path, provider=None, model="m",
+        article_formats=[ArticleFormat.BLOG_POST, ArticleFormat.FAQ],
+    )
+    STEP_REGISTRY["article"].make_runner(context)()
+
+    reloaded = load_step_result(context, "article")
+    assert isinstance(reloaded, GenerationResult)
+    by_format = {a.format: a for a in reloaded.articles}
+    assert by_format[ArticleFormat.BLOG_POST].title == "Blog title"
+    assert by_format[ArticleFormat.BLOG_POST].content == "Blog body."
+    # word_count recomputes itself from content (Article.__post_init__) —
+    # a real Article, not a lookalike with the field left at 0.
+    assert by_format[ArticleFormat.FAQ].word_count == len("FAQ body.".split())
+
+
+def test_insights_load_is_the_exact_saved_payload(tmp_path, monkeypatch):
+    def _fake_generate_insight(insight_type, segments, **kwargs):
+        return [{"start": 0, "title": insight_type}]
+
+    monkeypatch.setattr("core.insights.generate_insight", _fake_generate_insight)
+    context = _context(tmp_path, provider=None, model="m", language="en")
+    original = STEP_REGISTRY["insights"].make_runner(context)()
+
+    reloaded = load_step_result(context, "insights")
+    assert reloaded == original
+
+
+def test_youtube_package_load_is_the_exact_saved_payload(tmp_path, monkeypatch):
+    def _fake_generate_insight(insight_type, segments, **kwargs):
+        return [{"title": insight_type}]
+
+    monkeypatch.setattr("core.insights.generate_insight", _fake_generate_insight)
+    context = _context(tmp_path, provider=None, model="m")
+    original = STEP_REGISTRY["youtube_package"].make_runner(context)()
+
+    reloaded = load_step_result(context, "youtube_package")
+    assert reloaded == original
+
+
+def test_book_load_recovers_a_book_result(tmp_path, monkeypatch):
+    from book_pipeline import BookResult, BookStageResult
+
+    class _FakeBookPipeline:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def process(self, transcript_text, source_path, **kwargs):
+            return BookResult(
+                source_path=source_path,
+                stages=[BookStageResult(stage="unwrap", output_text="Final book text.",
+                                         output_path=str(tmp_path / "book_unwrap.md"))],
+            )
+
+    monkeypatch.setattr("book_pipeline.BookPipeline", _FakeBookPipeline)
+    context = _context(tmp_path, provider=None, model="m")
+    STEP_REGISTRY["book"].make_runner(context)()
+
+    reloaded = load_step_result(context, "book")
+    assert isinstance(reloaded, BookResult)
+    assert reloaded.final_text == "Final book text."
+
+
+def test_cover_load_recovers_the_saved_path(tmp_path, monkeypatch):
+    class _FakeImage:
+        def save(self, path, fmt):
+            from pathlib import Path
+            Path(path).write_bytes(b"fake-png")
+            return True
+
+    def _fake_render(template, layout, variant, slots, size):
+        return _FakeImage(), ["a warning"]
+
+    renderer_stub = types.ModuleType("covers.renderer")
+    renderer_stub.render = _fake_render
+    monkeypatch.setitem(sys.modules, "covers.renderer", renderer_stub)
+    monkeypatch.setattr("covers.template.load_template", lambda name: object())
+
+    context = _context(tmp_path, provider=None, model="m", cover_layout="duo")
+    STEP_REGISTRY["cover"].make_runner(context)()
+
+    reloaded = load_step_result(context, "cover")
+    assert reloaded["path"] == str(context.artifact_dir / "cover.png")
+    # Render-time warnings aren't recorded to disk — honest-empty on a
+    # cache hit rather than a stale/fabricated list.
+    assert reloaded["warnings"] == []
+
+
+def test_cover_load_is_none_without_a_prior_run(tmp_path):
+    assert load_step_result(_context(tmp_path), "cover") is None
+
+
 # ------------------------------------------------------------------ end-to-end via JobEngine
 
 def test_build_runners_and_cache_checks_work_with_job_engine(tmp_path, monkeypatch):
@@ -402,3 +572,59 @@ def test_build_runners_and_cache_checks_work_with_job_engine(tmp_path, monkeypat
     run2 = engine.run(spec, build_runners(context, step_names),
                        cache_checks=build_cache_checks(context, step_names))
     assert run2.outcomes["clean"].status == StepStatus.SKIPPED
+    # A SKIPPED outcome carries no result (JobEngine never called the
+    # runner) — load_step_result() is what a caller reaches for instead.
+    assert run2.outcomes["clean"].result is None
+    reloaded = load_step_result(context, "clean")
+    assert reloaded.coherent.text == "Cleaned."
+
+    # B1's "forced regeneration": deleting the manifest is what a
+    # "Generate again" action does to make a cache-valid step actually
+    # rerun (see ui/run_view.py's RunView.regenerate_step /
+    # ui/main_window.py's MainWindow._on_recipe_regenerate).
+    manifest = manifest_path_for_step(context, "clean")
+    assert manifest is not None
+    assert manifest.exists()
+    manifest.unlink()
+
+    run3 = engine.run(spec, build_runners(context, step_names),
+                       cache_checks=build_cache_checks(context, step_names))
+    assert run3.outcomes["clean"].status == StepStatus.SUCCEEDED
+
+
+# ---------------------------------------------------------------- manifest_path_for_step
+
+def test_manifest_path_for_step_matches_what_the_step_actually_writes(tmp_path, monkeypatch):
+    from text_processor import CleanedText, CoherentText, ProcessingResult
+
+    class _FakeLMClient:
+        is_cancelled = None
+
+    class _FakeTextProcessor:
+        def __init__(self, *_args, **_kwargs):
+            self.lm_client = _FakeLMClient()
+
+        def process(self, raw_text, use_ai=True, on_progress=None):
+            return ProcessingResult(
+                original=raw_text, cleaned=CleanedText(raw_text, raw_text, 0, 0, 0),
+                coherent=CoherentText("Cleaned."),
+            )
+
+    monkeypatch.setattr("text_processor.TextProcessor", _FakeTextProcessor)
+
+    context = _context(tmp_path)
+    STEP_REGISTRY["clean"].make_runner(context)()
+
+    manifest = manifest_path_for_step(context, "clean")
+    assert manifest == context.artifact_dir / "clean.md.manifest.json"
+    assert manifest.exists()
+
+
+def test_manifest_path_for_step_of_transcribe_and_diarize_is_none(tmp_path):
+    context = _context(tmp_path)
+    assert manifest_path_for_step(context, "transcribe") is None
+    assert manifest_path_for_step(context, "diarize") is None
+
+
+def test_manifest_path_for_step_of_an_unknown_step_name_is_none(tmp_path):
+    assert manifest_path_for_step(_context(tmp_path), "not_a_real_step") is None

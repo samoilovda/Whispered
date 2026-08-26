@@ -69,6 +69,49 @@ def test_clean_button_runs_through_job_runner_and_writes_provenance(
     window.close()
 
 
+def test_second_clean_click_on_the_same_input_skips_and_reuses_the_artifact(
+    monkeypatch, process_events,
+):
+    """B1 cache-skip: a second "Clean" click with an unchanged transcript
+    and params must not re-run TextProcessor at all — it should read
+    clean.md straight off disk via application/steps.py::_clean_load()."""
+    from domain.job import StepStatus
+
+    monkeypatch.setattr("text_processor.TextProcessor", _FakeTextProcessor)
+    from ui.main_window import MainWindow
+
+    window = MainWindow()
+    window._document_session.apply_result(_result())
+    window._last_record_id = None
+    window._source_filepath = None
+
+    window._start_text_cleaning()
+    assert window._clean_job.wait(2000)
+    process_events()
+    assert window._cleaned_text == "Cleaned and coherent text."
+
+    class _ExplodingTextProcessor(_FakeTextProcessor):
+        def process(self, raw_text, use_ai=True, on_progress=None):
+            raise AssertionError("cache hit should never call TextProcessor.process()")
+
+    monkeypatch.setattr("text_processor.TextProcessor", _ExplodingTextProcessor)
+    window._cleaned_text = None
+    window.cleaned_view.set_text("")
+
+    window._start_text_cleaning()
+    runner = window._clean_job
+    assert runner is not None
+    assert runner.wait(2000)
+    process_events()
+
+    assert window._clean_job is None
+    assert runner.run_state.outcomes["clean"].status is StepStatus.SKIPPED
+    assert window._cleaned_text == "Cleaned and coherent text."
+    assert window.cleaned_view._cleaned_text == "Cleaned and coherent text."
+
+    window.close()
+
+
 def test_clean_job_failure_reports_the_error_without_crashing(
     monkeypatch, process_events,
 ):

@@ -33,6 +33,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -66,12 +67,22 @@ class RunStepRow(QWidget):
 
     retry_clicked = pyqtSignal()
     cancel_clicked = pyqtSignal()
+    regenerate_clicked = pyqtSignal()
 
     def __init__(self, name: str, label: str, viewer: Optional[QWidget] = None, parent=None) -> None:
         super().__init__(parent)
         self.name = name
         self._viewer = viewer
         self._started_at: Optional[float] = None
+        # SUCCEEDED/SKIPPED only — a completed step whose cache a user
+        # wants to force past (B1's "forced regeneration"). Offered via
+        # this row's context menu rather than a second header button: the
+        # header is already Cancel/Retry/chevron, and regenerating a
+        # cache-valid step is deliberately less discoverable than retrying
+        # a failed one.
+        self._can_regenerate = False
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_context_menu)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -163,12 +174,14 @@ class RunStepRow(QWidget):
             self._retry_button.setVisible(False)
             self._chevron.setVisible(False)
             self._chevron.setChecked(False)
+            self._can_regenerate = False
             self._status_badge.set_status(tr("run_status_waiting"), "neutral")
             return
 
         state = _STATUS_STATE[outcome.status]
         can_retry = outcome.status in (StepStatus.FAILED, StepStatus.CANCELLED)
         has_result = outcome.status in (StepStatus.SUCCEEDED, StepStatus.SKIPPED, StepStatus.FAILED)
+        self._can_regenerate = outcome.status in (StepStatus.SUCCEEDED, StepStatus.SKIPPED)
         self._retry_button.setVisible(can_retry)
         self._chevron.setVisible(has_result and self._viewer is not None)
         if not (has_result and self._viewer is not None):
@@ -191,6 +204,14 @@ class RunStepRow(QWidget):
         elapsed = max(0, int(time.monotonic() - self._started_at))
         return f"{elapsed // 60}:{elapsed % 60:02d}"
 
+    def _show_context_menu(self, pos) -> None:
+        if not self._can_regenerate:
+            return
+        menu = QMenu(self)
+        action = menu.addAction(tr("run_regenerate"))
+        action.triggered.connect(self.regenerate_clicked.emit)
+        menu.exec(self.mapToGlobal(pos))
+
 
 class RunView(QWidget):
     """Collapsed step feed for one job run — see module docstring.
@@ -204,6 +225,7 @@ class RunView(QWidget):
     retry_requested = pyqtSignal(str)
     cancel_requested = pyqtSignal()
     open_record_requested = pyqtSignal()
+    regenerate_requested = pyqtSignal(str)
 
     def __init__(
         self,
@@ -254,6 +276,7 @@ class RunView(QWidget):
             row = RunStepRow(name, label, viewer)
             row.retry_clicked.connect(lambda name=name: self._on_retry(name))
             row.cancel_clicked.connect(self.cancel_requested.emit)
+            row.regenerate_clicked.connect(lambda name=name: self._on_regenerate(name))
             self._rows[name] = row
             rows_layout.addWidget(row)
         rows_layout.addStretch(1)
@@ -309,6 +332,13 @@ class RunView(QWidget):
         directly."""
         self._on_retry(name)
 
+    def regenerate_step(self, name: str) -> None:
+        """Public entry point equivalent to picking "Generate again" from
+        that row's context menu — same reset+emit _on_regenerate does
+        (see its docstring for why this is a distinct signal from
+        retry_requested, not just retry_step() under another name)."""
+        self._on_regenerate(name)
+
     def bind_run(self, run: JobRun) -> None:
         """Sync every row from *run*.outcomes — the entry point a fixture
         (or a resumed, persisted run — see application/run_store.py) uses
@@ -357,3 +387,14 @@ class RunView(QWidget):
             self._run.reset_step(name)
             self.bind_run(self._run)
         self.retry_requested.emit(name)
+
+    def _on_regenerate(self, name: str) -> None:
+        """Context-menu "Generate again" on a SUCCEEDED/SKIPPED row (B1's
+        forced regeneration). Resets the same way _on_retry does, but
+        emits a distinct signal — the caller must delete that step's
+        on-disk manifest before relaunching, or a still-valid cache would
+        just mark it SKIPPED again."""
+        if self._run is not None:
+            self._run.reset_step(name)
+            self.bind_run(self._run)
+        self.regenerate_requested.emit(name)
