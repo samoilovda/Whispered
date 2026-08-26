@@ -393,6 +393,15 @@ class MainWindow(QMainWindow):
         go_recipe_editor_action.triggered.connect(self._open_recipe_editor)
         go_menu.addAction(go_recipe_editor_action)
 
+        # Cover workspace (docs/IMPROVEMENT_PLAN_2026-08.ru.md, A5): before
+        # this, the only entrance was one button in the Library panel — not
+        # in the menu bar, the command palette, or reachable from the
+        # record a cover is actually made for.
+        go_cover_action = QAction(tr("menu_go_cover"), self)
+        go_cover_action.setShortcut(QKeySequence("Ctrl+4"))
+        go_cover_action.triggered.connect(lambda: self._on_section_changed("cover"))
+        go_menu.addAction(go_cover_action)
+
         # --- Transcribe Menu ---
         transcribe_menu = menubar.addMenu(tr("menu_transcribe"))
 
@@ -603,6 +612,10 @@ class MainWindow(QMainWindow):
         self.record_view.export_requested.connect(self._export_result)
         self.record_view.clean_requested.connect(self._start_text_cleaning)
         self.record_view.articles_requested.connect(self._start_generate_all)
+        # cover_view.set_segments() is already a DocumentSession consumer
+        # (see _register_document_session_consumers) — the open record's
+        # segments are already loaded by the time this button is clickable.
+        self.record_view.cover_requested.connect(lambda: self._on_section_changed("cover"))
 
         # Audio player (hidden when multimedia backend unavailable)
         self.player = PlayerWidget()

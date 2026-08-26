@@ -217,3 +217,89 @@ def test_dropping_a_file_lands_on_the_screen_that_can_launch_it(
     window.close()
     process_events()
 
+
+def test_go_covers_menu_action_opens_the_cover_workspace(process_events):
+    """Regression basis for docs/IMPROVEMENT_PLAN_2026-08.ru.md, A5: the
+    Cover workspace used to have exactly one entrance, a button in the
+    Library panel — not the menu bar, not the command palette, not the
+    record screen a cover is actually made for."""
+    from PyQt6.QtGui import QAction, QKeySequence
+    from ui.main_window import MainWindow
+
+    window = MainWindow()
+    window.show()
+    window.resize(1200, 800)
+    process_events()
+
+    cover_action = next(
+        action for action in window.findChildren(QAction)
+        if action.shortcut() == QKeySequence("Ctrl+4")
+    )
+    cover_action.trigger()
+    process_events()
+
+    assert window._stack.currentIndex() == window._cover_index
+
+    window.close()
+    process_events()
+
+
+def test_record_cover_button_opens_the_cover_workspace(process_events):
+    """The record screen's own Cover button (A5's third entrance)."""
+    from transcriber import Segment, TranscriptionResult
+    from ui.main_window import MainWindow
+
+    window = MainWindow()
+    window.show()
+    window.resize(1200, 800)
+    process_events()
+
+    result = TranscriptionResult(
+        segments=[Segment(0.0, 1.0, "hello world")], language="en", duration=1.0,
+    )
+    window._document_session.apply_result(result)
+    window.record_view.set_has_result(True)
+    process_events()
+
+    assert window.record_view.cover_btn.isEnabled()
+    window.record_view.cover_btn.click()
+    process_events()
+
+    assert window._stack.currentIndex() == window._cover_index
+
+    window.close()
+    process_events()
+
+
+def test_record_cover_button_disabled_without_a_result(process_events):
+    from ui.main_window import MainWindow
+
+    window = MainWindow()
+    window.show()
+    process_events()
+
+    window.record_view.set_has_result(False)
+    process_events()
+    assert not window.record_view.cover_btn.isEnabled()
+
+    window.close()
+    process_events()
+
+
+def test_library_cover_button_is_icon_only(process_events):
+    """Regression: with two other entrances now (menu bar, record screen),
+    the Library panel's own Cover button is icon-only rather than the
+    widest thing in its toolbar."""
+    from ui.main_window import MainWindow
+
+    window = MainWindow()
+    window.show()
+    process_events()
+
+    btn = window.library_view._cover_btn
+    assert btn.text() == ""
+    assert btn.width() <= 32
+
+    window.close()
+    process_events()
+

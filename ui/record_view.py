@@ -40,6 +40,7 @@ class RecordView(QWidget):
     export_requested = pyqtSignal()
     clean_requested = pyqtSignal()
     articles_requested = pyqtSignal()
+    cover_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -69,6 +70,17 @@ class RecordView(QWidget):
         self.articles_btn.setToolTip(tr("tooltip_record_actions_disabled"))
         self.articles_btn.clicked.connect(self.articles_requested.emit)
         header.addWidget(self.articles_btn)
+
+        # Third entrance to the Cover workspace (docs/IMPROVEMENT_PLAN_2026-08.ru.md,
+        # A5) — the other two are the Library panel's own button and
+        # Go > Covers on the menu bar. This one opens it with the open
+        # record's segments already loaded, since Cover is made *for* a
+        # record rather than being its own destination.
+        self.cover_btn = AnimatedButton(tr("record_cover_action"))
+        self.cover_btn.setEnabled(False)
+        self.cover_btn.setToolTip(tr("tooltip_record_actions_disabled"))
+        self.cover_btn.clicked.connect(self.cover_requested.emit)
+        header.addWidget(self.cover_btn)
 
         self.export_btn = AnimatedButton(tr("record_export_menu"))
         self.export_btn.setIcon(get_icon('save', IconColors.default(), 14))
@@ -136,9 +148,11 @@ class RecordView(QWidget):
     def set_has_result(self, has_result: bool) -> None:
         self.clean_btn.setEnabled(has_result)
         self.articles_btn.setEnabled(has_result)
+        self.cover_btn.setEnabled(has_result)
         disabled_tip = "" if has_result else tr("tooltip_record_actions_disabled")
         self.clean_btn.setToolTip(disabled_tip)
         self.articles_btn.setToolTip(disabled_tip)
+        self.cover_btn.setToolTip(disabled_tip)
 
     def get_export_formats(self) -> list[str]:
         """Currently-checked formats, falling back to ['txt'] if none."""

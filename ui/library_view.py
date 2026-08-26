@@ -198,10 +198,18 @@ class LibraryView(QWidget):
 
         # ── Toolbar ──────────────────────────────────────────────
         toolbar = QHBoxLayout()
+        toolbar.addStretch(1)
 
-        self._cover_btn = QPushButton(tr("cover_workspace_title"))
+        # Icon-only now that it's no longer the only way into the Cover
+        # workspace — Go > Covers (Ctrl+4) and a button on the record
+        # screen reach it too (docs/IMPROVEMENT_PLAN_2026-08.ru.md, A5).
+        self._cover_btn = QPushButton()
+        self._cover_btn.setIcon(get_icon('layers', IconColors.default(), 14))
+        self._cover_btn.setFixedWidth(28)
+        self._cover_btn.setAccessibleName(tr("cover_workspace_title"))
+        self._cover_btn.setToolTip(tr("cover_workspace_title"))
         self._cover_btn.clicked.connect(self.open_cover.emit)
-        toolbar.addWidget(self._cover_btn, stretch=1)
+        toolbar.addWidget(self._cover_btn)
 
         self._refresh_btn = QPushButton()
         self._refresh_btn.setIcon(get_icon('refresh', IconColors.default(), 14))
