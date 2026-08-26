@@ -37,6 +37,8 @@
   "run_status_cancelled": "cancelled",
   "run_retry": "Retry",
   "run_regenerate": "Generate again",
+  "run_overall_progress": "{done} of {total} · elapsed {elapsed}",
+  "run_overall_eta": "≈ {eta} left",
   "run_heading": "Recipe: {name}",
   "run_open_record": "Open record",
   "run_toggle_details": "Details",

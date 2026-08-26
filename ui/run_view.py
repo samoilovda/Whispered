@@ -57,6 +57,11 @@ _STATUS_STATE = {
 }
 
 
+def _format_mmss(seconds: float) -> str:
+    total = max(0, int(seconds))
+    return f"{total // 60}:{total % 60:02d}"
+
+
 class RunStepRow(QWidget):
     """One step, collapsed to a single row by default.
 
@@ -74,6 +79,11 @@ class RunStepRow(QWidget):
         self.name = name
         self._viewer = viewer
         self._started_at: Optional[float] = None
+        # Frozen the moment this step resolves (apply_outcome), not
+        # updated afterward — RunView's ETA (B3) averages these across
+        # already-finished steps, so a value that kept changing after the
+        # step was done would skew it.
+        self._elapsed: Optional[float] = None
         # SUCCEEDED/SKIPPED only — a completed step whose cache a user
         # wants to force past (B1's "forced regeneration"). Offered via
         # this row's context menu rather than a second header button: the
@@ -171,12 +181,16 @@ class RunStepRow(QWidget):
         self._cancel_button.setVisible(False)
         if outcome is None:
             self._started_at = None
+            self._elapsed = None
             self._retry_button.setVisible(False)
             self._chevron.setVisible(False)
             self._chevron.setChecked(False)
             self._can_regenerate = False
             self._status_badge.set_status(tr("run_status_waiting"), "neutral")
             return
+
+        if self._started_at is not None:
+            self._elapsed = time.monotonic() - self._started_at
 
         state = _STATUS_STATE[outcome.status]
         can_retry = outcome.status in (StepStatus.FAILED, StepStatus.CANCELLED)
@@ -201,8 +215,13 @@ class RunStepRow(QWidget):
     def _elapsed_text(self) -> str:
         if self._started_at is None:
             return tr("run_status_done")
-        elapsed = max(0, int(time.monotonic() - self._started_at))
-        return f"{elapsed // 60}:{elapsed % 60:02d}"
+        return _format_mmss(time.monotonic() - self._started_at)
+
+    def elapsed_seconds(self) -> Optional[float]:
+        """How long this step took to resolve, frozen at apply_outcome() —
+        None before it has ever started/finished. What RunView's overall
+        ETA (B3) averages across already-finished steps."""
+        return self._elapsed
 
     def _show_context_menu(self, pos) -> None:
         if not self._can_regenerate:
@@ -226,6 +245,7 @@ class RunView(QWidget):
     cancel_requested = pyqtSignal()
     open_record_requested = pyqtSignal()
     regenerate_requested = pyqtSignal(str)
+    overall_progress_changed = pyqtSignal(int)
 
     def __init__(
         self,
@@ -239,6 +259,7 @@ class RunView(QWidget):
         self._run: Optional[JobRun] = None
         self._rows: "dict[str, RunStepRow]" = {}
         self._labels = dict(labels)
+        self._run_started_at: Optional[float] = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -261,6 +282,22 @@ class RunView(QWidget):
         self._open_button.clicked.connect(self.open_record_requested.emit)
         header.addWidget(self._open_button)
         root.addLayout(header)
+
+        # Overall progress (B3): the per-step percent inside a running row
+        # doesn't say how far the *recipe* is, and "Book" in particular
+        # runs for tens of minutes with no way to tell how much is left.
+        overall = QVBoxLayout()
+        overall.setContentsMargins(SPACE_4, 0, SPACE_4, SPACE_4)
+        overall.setSpacing(SPACE_2)
+        self._overall_progress = QProgressBar()
+        self._overall_progress.setTextVisible(False)
+        self._overall_progress.setVisible(False)
+        overall.addWidget(self._overall_progress)
+        self._overall_label = QLabel("")
+        self._overall_label.setProperty("role", "muted")
+        self._overall_label.setVisible(False)
+        overall.addWidget(self._overall_label)
+        root.addLayout(overall)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -350,11 +387,18 @@ class RunView(QWidget):
         contain is hidden rather than left sitting at "waiting" forever,
         which read as a finished run still having steps to go.
         """
+        # A run object reused across retry/regenerate (same identity,
+        # mutated outcomes) keeps its "time since the run started" clock;
+        # a genuinely new run (a fresh launch, or _run_after_cancel()'s
+        # replacement JobRun) resets it — see _recompute_overall().
+        if run is not self._run:
+            self._run_started_at = None
         self._run = run
         planned = {step.name for step in run.spec.steps}
         for name, row in self._rows.items():
             row.setVisible(name in planned)
             row.apply_outcome(run.outcomes.get(name))
+        self._recompute_overall()
 
     # ── JobRunner signal targets ────────────────────────────────────────
     # Connect these directly to a JobRunner's step_started/step_progress/
@@ -362,22 +406,70 @@ class RunView(QWidget):
     # (B6) — each is a plain slot, safe to call from Qt's own dispatch.
 
     def on_step_started(self, name: str) -> None:
+        if self._run_started_at is None:
+            self._run_started_at = time.monotonic()
         row = self._rows.get(name)
         if row is not None:
             row.set_running()
+        self._recompute_overall()
 
     def on_step_progress(self, name: str, percent: int, message: str) -> None:
         row = self._rows.get(name)
         if row is not None:
             row.set_progress(percent, message)
+        self._recompute_overall()
 
     def on_step_finished(self, name: str, outcome: StepOutcome) -> None:
         row = self._rows.get(name)
         if row is not None:
             row.apply_outcome(outcome)
+        self._recompute_overall()
 
     def on_job_finished(self, run: JobRun) -> None:
         self.bind_run(run)
+
+    def _recompute_overall(self) -> None:
+        """B3: N-of-M progress and an elapsed clock in the header, plus an
+        ETA once at least 2 steps have resolved (any fewer and an average
+        is just noise — steps vary too much in length to trust one data
+        point, so it's better to show nothing than a confidently wrong
+        estimate). Also emits overall_progress_changed so a caller can
+        mirror the same percent into a persistent status bar."""
+        if self._run is None:
+            self._overall_progress.setVisible(False)
+            self._overall_label.setVisible(False)
+            return
+        planned = tuple(step.name for step in self._run.spec.steps)
+        total = len(planned)
+        if total == 0:
+            self._overall_progress.setVisible(False)
+            self._overall_label.setVisible(False)
+            return
+
+        done = sum(1 for name in planned if name in self._run.outcomes)
+        self._overall_progress.setRange(0, total)
+        self._overall_progress.setValue(done)
+        self._overall_progress.setVisible(True)
+        self.overall_progress_changed.emit(int(done / total * 100))
+
+        elapsed = 0.0
+        if self._run_started_at is not None:
+            elapsed = time.monotonic() - self._run_started_at
+        text = tr("run_overall_progress", done=done, total=total, elapsed=_format_mmss(elapsed))
+
+        durations = []
+        for name in planned:
+            row = self._rows.get(name)
+            duration = row.elapsed_seconds() if row is not None else None
+            if duration is not None:
+                durations.append(duration)
+        if len(durations) >= 2 and done < total:
+            average = sum(durations) / len(durations)
+            eta = average * (total - done)
+            text = f"{text} · {tr('run_overall_eta', eta=_format_mmss(eta))}"
+
+        self._overall_label.setText(text)
+        self._overall_label.setVisible(True)
 
     def _on_retry(self, name: str) -> None:
         if self._run is not None:

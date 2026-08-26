@@ -718,6 +718,7 @@ class MainWindow(QMainWindow):
         )
         self.run_view.retry_requested.connect(self._on_recipe_retry)
         self.run_view.regenerate_requested.connect(self._on_recipe_regenerate)
+        self.run_view.overall_progress_changed.connect(self._on_recipe_overall_progress)
         self.run_view.cancel_requested.connect(self._cancel_recipe_job)
         self.run_view.open_record_requested.connect(
             lambda: self._stack.setCurrentIndex(self._record_index)
@@ -1664,6 +1665,17 @@ class MainWindow(QMainWindow):
             self._recipe_run = self._run_after_cancel()
         self._save_recipe_run("running")
         self._launch_recipe_job()
+
+    def _on_recipe_overall_progress(self, percent: int) -> None:
+        """RunView.overall_progress_changed (B3): mirrors the run screen's
+        own N-of-M bar into the persistent status bar, so the overall
+        percentage is visible without switching to the run screen. Guarded
+        on an actually-running recipe job so a RunView recompute from
+        something else (a fixture bind, a retried/regenerated step's
+        reset) never overwrites an unrelated status-bar operation."""
+        if self._recipe_job is None or not self._recipe_job.isRunning():
+            return
+        self.status_bar.set_operation(tr("status_chain_running"), progress=percent)
 
     def _on_recipe_regenerate(self, name: str) -> None:
         """RunView.regenerate_requested: same reused-run mechanics as

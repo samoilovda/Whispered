@@ -288,6 +288,110 @@ def test_eight_collapsed_steps_fit_900x550_without_scrolling(qt_application, pro
     view.close()
 
 
+# ------------------------------------------------------------------ overall progress and ETA (B3)
+
+def test_overall_progress_bar_and_label_after_two_of_four_steps(process_events):
+    """Acceptance criterion: after 2 of 4 steps, the bar reads 50% and the
+    label reads "2 of 4"."""
+    names = ("transcribe", "clean", "article", "insights")
+    view = RunView(names, LABELS)
+    run = _run({}, names=names)
+    view.bind_run(run)
+    process_events()
+
+    percents = []
+    view.overall_progress_changed.connect(percents.append)
+
+    for name in ("transcribe", "clean"):
+        view.on_step_started(name)
+        outcome = StepOutcome(name, StepStatus.SUCCEEDED)
+        run.outcomes[name] = outcome
+        view.on_step_finished(name, outcome)
+    process_events()
+
+    assert view._overall_progress.maximum() == 4
+    assert view._overall_progress.value() == 2
+    assert view._overall_progress.isVisibleTo(view)
+    assert f"{2} of {4}" in view._overall_label.text()
+    assert percents[-1] == 50
+
+
+def test_overall_progress_hides_with_no_bound_run(process_events):
+    view = RunView(("clean",), {"clean": "Clean"})
+    process_events()
+    assert not view._overall_progress.isVisibleTo(view)
+    assert not view._overall_label.isVisibleTo(view)
+
+
+def test_eta_is_absent_after_only_one_completed_step(process_events):
+    """Acceptance criterion: ETA must not appear before a second step has
+    finished — one data point isn't a trustworthy average given how much
+    step durations vary."""
+    names = ("clean", "article", "insights")
+    view = RunView(names, LABELS)
+    run = _run({}, names=names)
+    view.bind_run(run)
+    process_events()
+
+    view.on_step_started("clean")
+    outcome = StepOutcome("clean", StepStatus.SUCCEEDED)
+    run.outcomes["clean"] = outcome
+    view.on_step_finished("clean", outcome)
+    process_events()
+
+    assert "≈" not in view._overall_label.text()
+
+
+def test_eta_appears_once_a_second_step_has_completed(process_events):
+    names = ("clean", "article", "insights")
+    view = RunView(names, LABELS)
+    run = _run({}, names=names)
+    view.bind_run(run)
+    process_events()
+
+    for name in ("clean", "article"):
+        view.on_step_started(name)
+        outcome = StepOutcome(name, StepStatus.SUCCEEDED)
+        run.outcomes[name] = outcome
+        view.on_step_finished(name, outcome)
+    process_events()
+
+    assert "≈" in view._overall_label.text()
+
+
+def test_eta_disappears_once_the_run_is_fully_done(process_events):
+    names = ("clean", "article")
+    view = RunView(names, LABELS)
+    run = _run({}, names=names)
+    view.bind_run(run)
+    process_events()
+
+    for name in names:
+        view.on_step_started(name)
+        outcome = StepOutcome(name, StepStatus.SUCCEEDED)
+        run.outcomes[name] = outcome
+        view.on_step_finished(name, outcome)
+    process_events()
+
+    assert "≈" not in view._overall_label.text()
+    assert f"{2} of {2}" in view._overall_label.text()
+
+
+def test_binding_a_new_run_resets_the_elapsed_clock(process_events):
+    """A genuinely new run (different JobRun identity) must not inherit
+    the previous run's "time since started" — only reusing the same run
+    object (retry/regenerate) keeps that clock running."""
+    view = RunView(("clean",), {"clean": "Clean"})
+    view.bind_run(_run({}, names=("clean",)))
+    view.on_step_started("clean")
+    process_events()
+    assert view._run_started_at is not None
+
+    view.bind_run(_run({}, names=("clean",)))
+    process_events()
+    assert view._run_started_at is None
+
+
 # ------------------------------------------------------------------ heading and exit
 
 def test_heading_names_the_recipe_and_hides_while_unnamed(process_events):

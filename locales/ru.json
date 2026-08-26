@@ -37,6 +37,8 @@
   "run_status_cancelled": "отменено",
   "run_retry": "Повторить",
   "run_regenerate": "Сгенерировать заново",
+  "run_overall_progress": "{done} из {total} · прошло {elapsed}",
+  "run_overall_eta": "≈ {eta} осталось",
   "run_heading": "Рецепт: {name}",
   "run_open_record": "Открыть запись",
   "run_toggle_details": "Подробнее",
