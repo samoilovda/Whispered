@@ -299,7 +299,7 @@ class MainWindow(QMainWindow):
 
     def _init_menu_bar(self) -> None:
         """Initialize the global menu bar (native on macOS)."""
-        from PyQt6.QtGui import QAction
+        from PyQt6.QtGui import QAction, QKeySequence
         menubar = self.menuBar()
         menubar.setNativeMenuBar(True)
 
@@ -310,7 +310,20 @@ class MainWindow(QMainWindow):
         new_record_action.triggered.connect(self._show_new_draft)
         file_menu.addAction(new_record_action)
 
+        open_action = QAction(tr("menu_open"), self)
+        open_action.setShortcut(QKeySequence("Ctrl+O"))
+        open_action.triggered.connect(lambda: self.file_selector.browse_btn.click())
+        file_menu.addAction(open_action)
+
+        export_action = QAction(tr("menu_export"), self)
+        export_action.setShortcut(QKeySequence("Ctrl+E"))
+        export_action.triggered.connect(self._export_result)
+        file_menu.addAction(export_action)
+
+        file_menu.addSeparator()
+
         settings_action = QAction(tr("menu_settings"), self)
+        settings_action.setShortcut(QKeySequence("Ctrl+,"))
         settings_action.triggered.connect(self._open_settings)
         file_menu.addAction(settings_action)
 
@@ -325,20 +338,108 @@ class MainWindow(QMainWindow):
         find_action.triggered.connect(self._trigger_find)
         edit_menu.addAction(find_action)
 
+        edit_menu.addSeparator()
+
+        copy_transcript_action = QAction(tr("menu_copy_transcript"), self)
+        copy_transcript_action.setShortcut(QKeySequence("Ctrl+Shift+C"))
+        copy_transcript_action.triggered.connect(self._copy_to_clipboard)
+        edit_menu.addAction(copy_transcript_action)
+
+        # --- View Menu ---
+        view_menu = menubar.addMenu(tr("menu_view"))
+
+        toggle_theme_action = QAction(tr("menu_toggle_theme"), self)
+        toggle_theme_action.triggered.connect(self._toggle_theme)
+        view_menu.addAction(toggle_theme_action)
+
+        toggle_library_action = QAction(tr("menu_toggle_library"), self)
+        toggle_library_action.triggered.connect(self._toggle_library_sidebar)
+        view_menu.addAction(toggle_library_action)
+
+        show_queue_action = QAction(tr("menu_show_queue"), self)
+        show_queue_action.triggered.connect(lambda: self.status_bar.show_queue(True))
+        view_menu.addAction(show_queue_action)
+
+        # --- Go Menu ---
+        go_menu = menubar.addMenu(tr("menu_go"))
+
+        go_library_action = QAction(tr("menu_go_library"), self)
+        go_library_action.setShortcut(QKeySequence("Ctrl+1"))
+        go_library_action.triggered.connect(
+            lambda: self.library_view._search_edit.setFocus()
+        )
+        go_menu.addAction(go_library_action)
+
+        go_article_action = QAction(tr("menu_go_article"), self)
+        go_article_action.setShortcut(QKeySequence("Ctrl+2"))
+        go_article_action.triggered.connect(
+            lambda: self.main_tabs.setCurrentWidget(self.article_view)
+        )
+        go_menu.addAction(go_article_action)
+
+        go_live_action = QAction(tr("menu_go_live"), self)
+        go_live_action.triggered.connect(lambda: self._on_section_changed("live"))
+        go_menu.addAction(go_live_action)
+
+        go_recipe_editor_action = QAction(tr("menu_go_recipe_editor"), self)
+        go_recipe_editor_action.setShortcut(QKeySequence("Ctrl+3"))
+        go_recipe_editor_action.triggered.connect(self._open_recipe_editor)
+        go_menu.addAction(go_recipe_editor_action)
+
+        # --- Transcribe Menu ---
+        transcribe_menu = menubar.addMenu(tr("menu_transcribe"))
+
+        start_transcription_action = QAction(tr("menu_start_transcription"), self)
+        start_transcription_action.setShortcut(QKeySequence("Ctrl+T"))
+        start_transcription_action.triggered.connect(self._start_transcription)
+        transcribe_menu.addAction(start_transcription_action)
+
+        toggle_recording_action = QAction(tr("menu_toggle_recording"), self)
+        toggle_recording_action.setShortcut(QKeySequence("Ctrl+R"))
+        toggle_recording_action.triggered.connect(
+            lambda: self.recorder_widget._toggle_recording()
+        )
+        transcribe_menu.addAction(toggle_recording_action)
+
+        play_pause_action = QAction(tr("menu_play_pause"), self)
+        play_pause_action.setShortcut(QKeySequence("Space"))
+        play_pause_action.triggered.connect(self._space_play_pause)
+        transcribe_menu.addAction(play_pause_action)
+
         # --- Video / Actions Menu ---
         video_menu = menubar.addMenu(tr("menu_video"))
 
-        export_action = QAction(tr("cut_export"), self)
-        export_action.triggered.connect(self._trigger_export_edl)
-        video_menu.addAction(export_action)
+        export_edl_action = QAction(tr("video_export_edl"), self)
+        export_edl_action.triggered.connect(self._trigger_export_edl)
+        video_menu.addAction(export_edl_action)
 
-        mark_action = QAction(tr("cut_mark"), self)
+        mark_action = QAction(tr("video_mark_pauses"), self)
         mark_action.triggered.connect(self._trigger_mark_pauses)
         video_menu.addAction(mark_action)
 
-        assemble_action = QAction(tr("cut_assemble"), self)
+        assemble_action = QAction(tr("video_assemble_draft"), self)
         assemble_action.triggered.connect(self._trigger_assemble_mp4)
         video_menu.addAction(assemble_action)
+
+        # --- Library Menu ---
+        library_menu = menubar.addMenu(tr("menu_library"))
+
+        refresh_library_action = QAction(tr("menu_refresh_library"), self)
+        refresh_library_action.triggered.connect(lambda: self.library_view.refresh())
+        library_menu.addAction(refresh_library_action)
+
+        library_menu.addSeparator()
+
+        clear_history_action = QAction(tr("menu_clear_history"), self)
+        clear_history_action.triggered.connect(lambda: self.library_view.clear_all())
+        library_menu.addAction(clear_history_action)
+
+        # --- Help Menu ---
+        help_menu = menubar.addMenu(tr("menu_help"))
+
+        help_docs_action = QAction(tr("menu_help_docs"), self)
+        help_docs_action.triggered.connect(self._open_help_docs)
+        help_menu.addAction(help_docs_action)
 
     def _trigger_undo(self) -> None:
         """Trigger undo on the currently focused widget if supported."""
@@ -367,6 +468,26 @@ class MainWindow(QMainWindow):
     def _trigger_assemble_mp4(self) -> None:
         if hasattr(self, "cut_view"):
             self.cut_view.video_panel._assemble_btn.click()
+
+    def _toggle_theme(self) -> None:
+        """Flip dark/light theme immediately, mirroring what Settings' Apply does."""
+        from ui.theme import apply_theme
+        cfg = get_config()
+        new_theme = "light" if cfg.theme == "dark" else "dark"
+        cfg.theme = new_theme
+        save_config()
+        app = QApplication.instance()
+        if app:
+            apply_theme(app, new_theme)
+
+    def _toggle_library_sidebar(self) -> None:
+        collapsed = not getattr(get_config(), "library_collapsed", False)
+        self.workspace_shell.set_library_collapsed(collapsed)
+
+    def _open_help_docs(self) -> None:
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+        QDesktopServices.openUrl(QUrl("https://github.com/samoilovda/Whispered"))
 
     def _build_library_section(self) -> None:
         """Create the shared source widgets and persistent Library."""
@@ -790,20 +911,12 @@ class MainWindow(QMainWindow):
             s = QShortcut(QKeySequence(seq), self)
             s.activated.connect(slot)
 
-        _sc("Ctrl+,",       self._open_settings)
-        _sc("Ctrl+O",       self.file_selector.browse_btn.click)
-        _sc("Ctrl+T",       self._start_transcription)
+        # Ctrl+,/O/T/E/Shift+C/R/1/2/3/Space are QAction shortcuts on the
+        # menu bar (_init_menu_bar) — registering them again here as bare
+        # QShortcuts would make the key ambiguous between the two.
         _sc("Ctrl+Return",  self.transcribe_btn.click)
         _sc("Ctrl+Enter",   self.transcribe_btn.click)  # numpad Enter
-        _sc("Ctrl+E",       self._export_result)
-        _sc("Ctrl+Shift+C", self._copy_to_clipboard)
-        _sc("Ctrl+R",       self.recorder_widget._toggle_recording)
         _sc("Ctrl+K",       self.command_palette.open_palette)
-        _sc("Ctrl+1",       self.library_view._search_edit.setFocus)
-        _sc("Ctrl+2",       lambda: self.main_tabs.setCurrentWidget(self.article_view))
-        _sc("Ctrl+3",       self._open_recipe_editor)
-        # Space: play/pause only when focus is not inside a text input
-        _sc("Space",        self._space_play_pause)
 
     def _run_palette_action(self, action: str) -> None:
         handlers = {

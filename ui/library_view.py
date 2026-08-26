@@ -306,6 +306,10 @@ class LibraryView(QWidget):
         query = self._search_edit.text().strip()
         self._load(query)
 
+    def clear_all(self):
+        """Public entry point for the main menu bar; confirms then delegates."""
+        self._clear_all()
+
     # ------------------------------------------------------------------ internals
 
     def _get_store(self):
