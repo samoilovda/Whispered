@@ -43,7 +43,7 @@ class LiveView(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 16, 20, 20)
         root.setSpacing(12)
-        # No PageHeader/page-title here: LiveView is one source page inside
+        # No page-title heading here: LiveView is one source page inside
         # StartView's own single column (docs/UI_REDESIGN_PLAN_2026-09.ru.md,
         # B7) — a second "page-title" nested under StartView's title read as
         # two stacked screens rather than one. Just the two live session

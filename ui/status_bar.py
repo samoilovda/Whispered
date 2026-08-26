@@ -27,10 +27,11 @@ class _QueueOverlay(QDialog):
     status bar's own layout — the previous embedded popup grew the status
     bar's height whenever opened, shrinking the workspace above it (see
     docs/UI_REDESIGN_PLAN_2026-09.ru.md, A6). A non-modal QDialog rather
-    than a ``Qt.WindowType.Popup`` widget: the latter is this project's
-    documented pattern for a floating panel (TranscribeOptionsPopover) but
-    its non-embedded branch is never actually constructed anywhere, and it
-    turns out not to survive being shown-then-resized cleanly on the
+    than a ``Qt.WindowType.Popup`` widget: an early version of
+    ui/transcribe_options.py used exactly that pattern for a floating
+    panel, but its non-embedded branch was never actually constructed
+    anywhere (removed in docs/IMPROVEMENT_PLAN_2026-08.ru.md, A8) and it
+    turned out not to survive being shown-then-resized cleanly on the
     offscreen QPA platform this app's tests and gallery run under —
     CommandPalette's QDialog is the pattern the gallery already proves
     stable for exactly that sequence.

@@ -23,7 +23,7 @@ from ui.record_view import RecordView
 from ui.workspace_shell import WorkspaceShell
 from ui.start_view import StartView
 from ui.status_bar import StatusBar
-from ui.transcribe_options import TranscribeOptionsPopover
+from ui.transcribe_options import TranscribeOptions
 from ui.command_palette import CommandPalette
 from ui.file_selector import FileSelector
 from ui.transcript_view import TranscriptView
@@ -532,7 +532,7 @@ class MainWindow(QMainWindow):
 
     def _build_library_section(self) -> None:
         """Create the shared source widgets and persistent Library."""
-        self.transcribe_options = TranscribeOptionsPopover(embedded=True)
+        self.transcribe_options = TranscribeOptions()
         self.model_combo = self.transcribe_options.model_combo
         self.language_combo = self.transcribe_options.language_combo
         self.translate_checkbox = self.transcribe_options.translate_checkbox

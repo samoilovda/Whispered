@@ -15,7 +15,7 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (
     QWidget, QFrame, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QCheckBox,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 
 from config import get_config, save_config
 from core.i18n import tr
@@ -36,23 +36,24 @@ def _fill_combo(combo: QComboBox, items: list) -> None:
             combo.addItem(item)
 
 
-class TranscribeOptionsPopover(QFrame):
-    """Floating panel with the transcription settings.
+class TranscribeOptions(QFrame):
+    """Panel with the transcription settings (model/language/translate/
+    performance/diarization).
 
-    Shown/hidden by LaunchBar; owns the actual model/language/translate/
-    performance/diarization widgets so MainWindow can keep referring to
-    them under their historical attribute names (self.model_combo, etc.)
-    by aliasing to this popover's widgets after construction.
+    Embedded directly wherever it's used (currently: borrowed by
+    ui/recipe_editor.py's dialog for the duration of one edit) — it was
+    once also a floating popover anchored under a header gear button, but
+    that header (and the popover chrome for it) was retired along with
+    the pre-redesign layout, and every remaining construction site embeds
+    it. MainWindow keeps referring to its widgets under their historical
+    attribute names (self.model_combo, etc.) by aliasing to this panel's
+    widgets after construction.
     """
 
     changed = pyqtSignal()
 
-    def __init__(self, parent: QWidget | None = None, *, embedded: bool = False) -> None:
-        if embedded:
-            super().__init__(parent)
-        else:
-            super().__init__(parent, Qt.WindowType.Popup)
-        self._embedded = embedded
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
         self.setProperty("role", "card")
         self._setup_ui()
         self._load_config()
@@ -149,19 +150,3 @@ class TranscribeOptionsPopover(QFrame):
             cfg.performance_mode = mode
         cfg.diarization_enabled = self.diarization_checkbox.isChecked()
         save_config()
-
-    def summary_text(self) -> str:
-        """Compact one-line summary shown next to the gear button."""
-        parts = [self.model_combo.currentText(), self.language_combo.currentText()]
-        if self.translate_checkbox.isChecked():
-            parts.append("→EN")
-        parts.append(self.perf_combo.currentText())
-        if self.diarization_checkbox.isChecked():
-            parts.append(tr("label_speakers"))
-        return " · ".join(parts)
-
-    def show_below(self, anchor: QWidget) -> None:
-        """Position and show the popover just under the given widget."""
-        pos = anchor.mapToGlobal(anchor.rect().bottomLeft())
-        self.move(pos.x(), pos.y() + 4)
-        self.show()

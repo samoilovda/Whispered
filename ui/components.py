@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QColor, QFontMetrics
 
-from ui.theme import SPACE_1, SPACE_2, SPACE_3, SPACE_4, SPACE_6, mark_elides, set_role
+from ui.theme import SPACE_2, SPACE_3, SPACE_4, SPACE_6, mark_elides, set_role
 
 
 class ElidingComboBox(QComboBox):
@@ -172,57 +172,6 @@ class FlowLayout(QLayout):
             x = next_x
             line_height = max(line_height, hint.height())
         return y + line_height - rect.y() + margins.bottom()
-
-
-class PageHeader(QWidget):
-    """Consistent page title, optional subtitle and contextual actions.
-
-    Title, subtitle and actions stack in their own rows rather than
-    sharing one row (title/actions side by side, as before) — in a narrow
-    column, a QHBoxLayout shrinks *every* item below its size hint once
-    their combined width doesn't fit, which clipped both the title and
-    its action badges simultaneously with no visible separation between
-    them (see docs/UI_REDESIGN_PLAN_2026-09.ru.md, A4, the Live screen's
-    header). Stacking removes the width contention: each row gets the
-    header's full width to itself.
-    """
-
-    def __init__(self, title: str, subtitle: str = "", parent=None) -> None:
-        super().__init__(parent)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(SPACE_1)
-
-        self.title_label = QLabel(title)
-        self.title_label.setProperty("role", "page-title")
-        self.title_label.setAccessibleName(title)
-        self.title_label.setWordWrap(True)
-        layout.addWidget(self.title_label)
-
-        self.subtitle_label = QLabel(subtitle)
-        self.subtitle_label.setProperty("role", "muted")
-        self.subtitle_label.setWordWrap(True)
-        self.subtitle_label.setVisible(bool(subtitle))
-        layout.addWidget(self.subtitle_label)
-
-        # Not ``self.actions``: QWidget already has an actions() method,
-        # and shadowing it with a layout makes every Python-side call to
-        # it raise "QHBoxLayout object is not callable".
-        self._actions_layout = QHBoxLayout()
-        self._actions_layout.setContentsMargins(0, 0, 0, 0)
-        self._actions_layout.setSpacing(SPACE_2)
-        layout.addLayout(self._actions_layout)
-
-    def add_action(self, widget: QWidget) -> None:
-        self._actions_layout.addWidget(widget)
-
-    def set_title(self, title: str) -> None:
-        self.title_label.setText(title)
-        self.title_label.setAccessibleName(title)
-
-    def set_subtitle(self, subtitle: str) -> None:
-        self.subtitle_label.setText(subtitle)
-        self.subtitle_label.setVisible(bool(subtitle))
 
 
 class StatusBadge(QLabel):

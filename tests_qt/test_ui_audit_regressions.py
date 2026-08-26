@@ -98,13 +98,13 @@ def test_transcribe_options_persist_the_users_choice(process_events, tmp_path, m
     wrote the choice back to Config — every selection was lost on the
     next launch, silently reverting to Settings' defaults."""
     import config
-    from ui.transcribe_options import TranscribeOptionsPopover
+    from ui.transcribe_options import TranscribeOptions
 
     monkeypatch.setattr(config, "CONFIG_DIR", tmp_path)
     monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "config.json")
     monkeypatch.setattr(config, "_config", config.Config())
 
-    options = TranscribeOptionsPopover(embedded=True)
+    options = TranscribeOptions()
     process_events()
     # Seeding from Config must not itself write anything back out.
     assert not (tmp_path / "config.json").exists()
@@ -128,9 +128,9 @@ def test_transcribe_options_persist_the_users_choice(process_events, tmp_path, m
 def test_recipe_editor_keeps_transcribe_mandatory(process_events):
     from domain.recipe import TRANSCRIPT_ONLY
     from ui.recipe_editor import RecipeEditorDialog
-    from ui.transcribe_options import TranscribeOptionsPopover
+    from ui.transcribe_options import TranscribeOptions
 
-    options = TranscribeOptionsPopover(embedded=True)
+    options = TranscribeOptions()
     dialog = RecipeEditorDialog(options, TRANSCRIPT_ONLY)
     process_events()
 
@@ -149,10 +149,10 @@ def test_recipe_editor_default_name_nudges_toward_a_copy(process_events):
     from core.i18n import load_locale, tr
     from domain.recipe import PODCAST_ARTICLE
     from ui.recipe_editor import RecipeEditorDialog
-    from ui.transcribe_options import TranscribeOptionsPopover
+    from ui.transcribe_options import TranscribeOptions
 
     load_locale("en")
-    options = TranscribeOptionsPopover(embedded=True)
+    options = TranscribeOptions()
     dialog = RecipeEditorDialog(options, PODCAST_ARTICLE)
     process_events()
 
