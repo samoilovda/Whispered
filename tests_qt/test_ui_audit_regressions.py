@@ -177,3 +177,73 @@ def test_library_filter_chips_not_narrower_than_their_text(process_events):
         process_events()
 
     load_locale("ru")
+
+
+def test_library_search_field_is_wide_enough_to_use(process_events):
+    """Regression: the search field shared a row with three fixed-width
+    buttons, so in a 280px Library pane it collapsed to about 50px and
+    "Поиск по истории…" rendered as "Пои…". It has its own row now."""
+    from core.i18n import load_locale, tr
+    from PyQt6.QtGui import QFontMetrics
+    from ui.main_window import MainWindow
+
+    load_locale("ru")
+    window = MainWindow()
+    window.show()
+    window.resize(1100, 700)
+    process_events()
+    process_events()
+
+    field = window.library_view._search_edit
+    placeholder = tr("history_search_placeholder")
+    needed = QFontMetrics(field.font()).horizontalAdvance(placeholder)
+    assert field.width() >= needed, (
+        f"search field is {field.width()}px, placeholder needs {needed}px"
+    )
+
+    window.close()
+    process_events()
+
+
+def test_empty_state_hint_gets_the_height_its_wrapped_text_needs(process_events):
+    """Regression: the hint was added with an alignment flag (and inside a
+    layout with setAlignment), so it was given its sizeHint height —
+    computed at a width Qt guessed, not the narrower one it gets in a
+    280px Library pane — and the last line was cut off.
+
+    Built directly rather than through MainWindow: the Library's empty
+    state only shows while the shared history store happens to be empty.
+    """
+    from PyQt6.QtWidgets import QApplication
+
+    from core.i18n import load_locale, tr
+    from ui.empty_state import EmptyStateWidget
+    from ui.theme import apply_theme
+
+    load_locale("ru")
+    # The stylesheet is load-bearing here: role="dim" sets the hint's font
+    # size, and it is that font that pushes the text onto a third line the
+    # unstyled sizeHint never accounted for.
+    app = QApplication.instance()
+    previous_sheet = app.styleSheet()
+    apply_theme(app, "light")
+    widget = EmptyStateWidget(
+        "list", tr("library_empty_title"), tr("library_empty_hint")
+    )
+    # The Library pane's own width at its default 280px, less margins.
+    widget.resize(256, 453)
+    widget.show()
+    process_events()
+    process_events()
+
+    hint = widget.hint_label
+    assert hint is not None
+    assert hint.isVisible()
+    assert hint.height() >= hint.heightForWidth(hint.width()), (
+        f"hint is {hint.height()}px tall, its text needs "
+        f"{hint.heightForWidth(hint.width())}px at {hint.width()}px wide"
+    )
+
+    widget.close()
+    app.setStyleSheet(previous_sheet)
+    process_events()

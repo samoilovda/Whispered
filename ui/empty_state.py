@@ -27,14 +27,22 @@ class EmptyStateWidget(QWidget):
         super().__init__(parent)
         self._compact = False
 
+        # Centered with stretches rather than setAlignment/an alignment
+        # flag on addWidget: an aligned item (or a layout with
+        # setAlignment) is given exactly its sizeHint(), and a
+        # word-wrapped QLabel's sizeHint is computed at the width Qt
+        # guesses for it, not the narrower width it ends up with in a
+        # 280px Library pane — the hint's last line was cut off as a
+        # result. Stretches leave the container free to take the full
+        # width, so heightForWidth is honoured; each label centres its
+        # own text, so nothing looks different when it fits.
         layout = QVBoxLayout(self)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.addStretch(1)
 
         # Center container
         container = QWidget()
         self._container_layout = container_layout = QVBoxLayout(container)
-        container_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Icon
         self.icon_label = IconLabel(icon_name, IconColors.muted(), self._ICON_SIZE_FULL)
@@ -48,7 +56,7 @@ class EmptyStateWidget(QWidget):
         self.message_label.setProperty("role", "section-title")
         self.message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.message_label.setWordWrap(True)
-        container_layout.addWidget(self.message_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        container_layout.addWidget(self.message_label)
 
         self.hint_label = None
         if hint:
@@ -57,7 +65,9 @@ class EmptyStateWidget(QWidget):
             self.hint_label.setProperty("role", "dim")
             self.hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.hint_label.setWordWrap(True)
-            container_layout.addWidget(self.hint_label, alignment=Qt.AlignmentFlag.AlignCenter)
+            # No alignment flag for the wrapped labels either, for the same
+            # reason — each already centers its own text.
+            container_layout.addWidget(self.hint_label)
 
         self.action_button = QPushButton(action_text)
         self.action_button.setProperty("variant", "primary")
@@ -67,7 +77,8 @@ class EmptyStateWidget(QWidget):
             self.action_button, alignment=Qt.AlignmentFlag.AlignCenter
         )
 
-        layout.addWidget(container, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(container)
+        layout.addStretch(1)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)

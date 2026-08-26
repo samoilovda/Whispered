@@ -181,9 +181,11 @@ class LibraryView(QWidget):
         title.setProperty("role", "section-title")
         layout.addWidget(title)
 
-        # ── Toolbar ──────────────────────────────────────────────
-        toolbar = QHBoxLayout()
-
+        # ── Search ───────────────────────────────────────────────
+        # On its own row rather than sharing one with the buttons below:
+        # in a 280px Library pane the fixed-width buttons won every time
+        # and the field collapsed to about 50px, showing "Поиск…" as
+        # "Пои…" and leaving no room to read what you typed.
         self._search_edit = QLineEdit()
         self._search_edit.setPlaceholderText(tr("history_search_placeholder"))
         self._search_edit.setClearButtonEnabled(True)
@@ -192,11 +194,14 @@ class LibraryView(QWidget):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
         self._search_edit.textChanged.connect(self._schedule_search)
-        toolbar.addWidget(self._search_edit, stretch=1)
+        layout.addWidget(self._search_edit)
+
+        # ── Toolbar ──────────────────────────────────────────────
+        toolbar = QHBoxLayout()
 
         self._cover_btn = QPushButton(tr("cover_workspace_title"))
         self._cover_btn.clicked.connect(self.open_cover.emit)
-        toolbar.addWidget(self._cover_btn)
+        toolbar.addWidget(self._cover_btn, stretch=1)
 
         self._refresh_btn = QPushButton()
         self._refresh_btn.setIcon(get_icon('refresh', IconColors.default(), 14))
