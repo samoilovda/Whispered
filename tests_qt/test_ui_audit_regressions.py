@@ -247,3 +247,52 @@ def test_empty_state_hint_gets_the_height_its_wrapped_text_needs(process_events)
     widget.close()
     app.setStyleSheet(previous_sheet)
     process_events()
+
+
+def test_live_setup_panel_is_never_squeezed_below_its_own_minimum(process_events):
+    """Regression: the Live source page stacks session setup, preflight
+    and diagnostics above the session controls, and everything else on the
+    start screen took its share of the height first. The setup panel was
+    left about 114px for a layout whose own minimum is 274 — and a
+    QVBoxLayout given less than its minimum does not clip, it overlaps its
+    children, drawing the device combo straight over the
+    Microphone/Meeting-audio checkboxes. The page scrolls now.
+    """
+    from ui.main_window import MainWindow
+
+    window = MainWindow()
+    window.show()
+    window.resize(1100, 700)
+    process_events()
+
+    window.start_view.set_source("live")
+    process_events()
+    process_events()
+
+    panel = window.live_view.options_panel.findChild(_live_setup_panel_type())
+    assert panel is not None
+    assert panel.height() >= panel.body_layout.minimumSize().height(), (
+        f"setup panel is {panel.height()}px for a layout needing "
+        f"{panel.body_layout.minimumSize().height()}px — its rows overlap"
+    )
+    # And the rows really are laid out one under the next.
+    tops = [
+        widget.mapTo(panel, widget.rect().topLeft()).y()
+        for widget in (
+            panel.mic_check, panel.mic_combo, panel.model_combo, panel.language_combo,
+        )
+    ]
+    assert tops == sorted(tops)
+    assert panel.mic_combo.mapTo(panel, panel.mic_combo.rect().topLeft()).y() >= (
+        panel.mic_check.mapTo(panel, panel.mic_check.rect().bottomLeft()).y()
+    )
+
+    window.close()
+    process_events()
+
+
+def _live_setup_panel_type():
+    from ui.live_setup_panel import LiveSetupPanel
+
+    return LiveSetupPanel
+

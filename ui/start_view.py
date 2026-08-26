@@ -17,9 +17,11 @@ from __future__ import annotations
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QButtonGroup,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -89,12 +91,24 @@ class StartView(QWidget):
         root.addLayout(switcher)
 
         self.stack = QStackedWidget()
-        live_page = QWidget()
-        live_layout = QVBoxLayout(live_page)
+        live_body = QWidget()
+        live_layout = QVBoxLayout(live_body)
         live_layout.setContentsMargins(0, 0, 0, 0)
         live_layout.setSpacing(8)
         live_layout.addWidget(live_options)
         live_layout.addWidget(live, stretch=1)
+        # Live is by far the tallest source page (session setup + preflight
+        # + diagnostics stacked above the session controls and transcript).
+        # Everything else on this screen — title, source switcher, recipe
+        # chips, summary — takes its share first, which left the setup
+        # panel about 114px for a layout whose own minimum is 274: a
+        # QVBoxLayout given less than its minimum does not clip, it lets
+        # its children overlap, and the device combo was drawn straight
+        # over the "Microphone"/"Meeting audio" checkboxes. Scroll instead.
+        live_page = QScrollArea()
+        live_page.setWidgetResizable(True)
+        live_page.setFrameShape(QFrame.Shape.NoFrame)
+        live_page.setWidget(live_body)
         for widget in (file_selector, recorder, live_page, folder):
             page = QWidget()
             page_layout = QVBoxLayout(page)
