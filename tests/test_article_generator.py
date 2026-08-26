@@ -261,6 +261,32 @@ class TestCondenseForPrompt:
         assert len(result) <= 8000
 
 
+class TestTopicExtractionSurvivesWrongShapedJson:
+    def test_bare_array_falls_back_instead_of_raising(self):
+        """A model answering the topics prompt with a JSON array parses
+        fine, so data.get() raised AttributeError past the JSONDecodeError
+        handler and failed the whole article step. It must degrade to the
+        same fallback analysis a malformed response gets."""
+        fake = FakeLMClient(responses='["Time management", "Focus"]')
+        gen = ArticleGenerator(lm_client=fake)
+
+        topics = gen._extract_topics_single("some transcript")
+
+        assert topics.main_topics == ["General Discussion"]
+        assert topics.suggested_titles == ["Untitled Article"]
+
+    def test_object_response_is_still_read_normally(self):
+        fake = FakeLMClient(
+            responses='{"topics": ["Focus"], "titles": ["A title"]}'
+        )
+        gen = ArticleGenerator(lm_client=fake)
+
+        topics = gen._extract_topics_single("some transcript")
+
+        assert topics.main_topics == ["Focus"]
+        assert topics.suggested_titles == ["A title"]
+
+
 class TestGetFormatPromptUsesFullDocument:
     def test_summary_prompt_reflects_condensed_full_text(self):
         long_text = "Point about the meeting. " * 1500

@@ -34,6 +34,20 @@ class TestParseJsonResponse:
         raw = '```json\n[{"a":1}]\n```'
         assert _parse_json_response(raw) == [{"a": 1}]
 
+    def test_unwraps_an_object_wrapping_the_array(self):
+        """Models routinely answer an "return a JSON array" prompt with
+        {"chapters": [...]} instead. That parses fine, so the dict used to
+        be handed back as the insight list and the panel rendered its keys
+        as items."""
+        raw = '{"chapters": [{"time": "00:00", "title": "Intro"}]}'
+        assert _parse_json_response(raw) == [{"time": "00:00", "title": "Intro"}]
+
+    def test_object_with_no_list_inside_is_a_parse_failure(self):
+        """An object that carries no array at all is not guessable — it
+        routes into the caller's existing "ask again for just the JSON
+        array" retry instead of being returned as-is."""
+        assert _parse_json_response('{"a": 1, "b": 2}') is None
+
     def test_extracts_array_from_prose(self):
         raw = 'Here is the list: [{"x":2}] done.'
         assert _parse_json_response(raw) == [{"x": 2}]

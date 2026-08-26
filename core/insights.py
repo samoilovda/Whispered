@@ -86,6 +86,26 @@ def _salvage_truncated_array(raw: str) -> Optional[list]:
     return items or None
 
 
+def _as_list(value) -> Optional[list]:
+    """Coerce a parsed JSON value to the list of items callers expect.
+
+    Every insight prompt asks for a top-level array, but models routinely
+    wrap it in an object instead (``{"chapters": [...]}``). That parses
+    fine, so the old code handed the dict straight back as the result and
+    the panel rendered its *keys* as insights. Unwrap the single list this
+    kind of envelope carries; anything else is a parse failure, which
+    routes the caller into its existing "ask again for just the JSON
+    array" retry.
+    """
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        lists = [item for item in value.values() if isinstance(item, list)]
+        if len(lists) == 1:
+            return lists[0]
+    return None
+
+
 def _parse_json_response(raw: str, retry_hint: str = "") -> Optional[list]:
     """Try to parse a JSON array from a raw LLM response.
 
@@ -94,24 +114,30 @@ def _parse_json_response(raw: str, retry_hint: str = "") -> Optional[list]:
     Returns a list or None on failure.
     """
     try:
-        return json.loads(_strip_json_fences(raw))
+        parsed = _as_list(json.loads(_strip_json_fences(raw)))
+        if parsed is not None:
+            return parsed
     except json.JSONDecodeError:
-        # Try extracting the first [...] block
-        match = re.search(r'\[.*\]', raw, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group())
-            except json.JSONDecodeError:
-                pass
-        salvaged = _salvage_truncated_array(raw)
-        if salvaged is not None:
-            logger.warning(
-                "Insights JSON was cut off; salvaged %d complete item(s)",
-                len(salvaged),
-            )
-            return salvaged
-        logger.warning("Failed to parse insights JSON: %.80s", raw)
-        return None
+        pass
+
+    # Try extracting the first [...] block
+    match = re.search(r'\[.*\]', raw, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group())
+        except json.JSONDecodeError:
+            pass
+
+    salvaged = _salvage_truncated_array(raw)
+    if salvaged is not None:
+        logger.warning(
+            "Insights JSON was cut off; salvaged %d complete item(s)",
+            len(salvaged),
+        )
+        return salvaged
+
+    logger.warning("Failed to parse insights JSON: %.80s", raw)
+    return None
 
 
 def _build_prompt_text(
