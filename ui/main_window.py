@@ -1651,6 +1651,17 @@ class MainWindow(QMainWindow):
             except Exception as exc:
                 logger.warning("Failed to persist recipe run artifacts: %s", exc)
 
+        # _reset_ui() only hides the progress/cancel affordances — without
+        # this the one persistent status line would keep reading "Running
+        # the recipe…" long after the run ended, since no other call site
+        # writes to it until the next operation starts.
+        if had_error:
+            self.status_label.setText(tr("status_chain_failed"))
+        else:
+            self.status_label.setText(
+                tr("status_chain_done", count=len(artifact_types))
+            )
+
         if had_error:
             show_toast(self, tr("toast_chain_error"), kind="error")
         elif artifact_types:

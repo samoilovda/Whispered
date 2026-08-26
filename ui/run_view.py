@@ -274,9 +274,18 @@ class RunView(QWidget):
     def bind_run(self, run: JobRun) -> None:
         """Sync every row from *run*.outcomes — the entry point a fixture
         (or a resumed, persisted run — see application/run_store.py) uses
-        to render a snapshot without any live JobRunner signals at all."""
+        to render a snapshot without any live JobRunner signals at all.
+
+        Rows are built once for the whole step registry (MainWindow hands
+        this widget every ``STEP_DEFINITIONS`` name), but a recipe runs
+        only its own subset — so a row the bound run's spec doesn't
+        contain is hidden rather than left sitting at "waiting" forever,
+        which read as a finished run still having steps to go.
+        """
         self._run = run
+        planned = {step.name for step in run.spec.steps}
         for name, row in self._rows.items():
+            row.setVisible(name in planned)
             row.apply_outcome(run.outcomes.get(name))
 
     # ── JobRunner signal targets ────────────────────────────────────────

@@ -147,6 +147,28 @@ def test_retry_keeps_the_already_succeeded_steps(window, monkeypatch, process_ev
     assert window.run_view._run is window._recipe_run
 
 
+# ---------------------------------------------------------------- finished status
+
+def test_finished_run_clears_the_running_status_line(window, process_events):
+    """Regression: _reset_ui() only hides the progress/cancel widgets, so
+    the one persistent status line kept reading "Running the recipe…"
+    after the run had ended — nothing else writes to it until the next
+    operation starts."""
+    from core.i18n import tr
+
+    window._run_recipe(_result())
+    assert window._recipe_job.wait(10000)
+    process_events()
+
+    assert window._recipe_job is None
+    text = window.status_label.text()
+    assert tr("status_chain_running") not in text
+    assert text in (
+        tr("status_chain_failed"),
+        *(tr("status_chain_done", count=n) for n in range(0, 9)),
+    )
+
+
 # ---------------------------------------------------------------- cover params
 
 def test_recipe_run_renders_the_cover_the_workspace_is_set_to(window, monkeypatch, process_events):

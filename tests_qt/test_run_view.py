@@ -50,6 +50,41 @@ def test_bind_run_shows_waiting_for_every_step_with_no_outcome(process_events):
         assert tr("run_status_waiting") in row._status_badge.text()
 
 
+def test_bind_run_hides_rows_the_recipe_does_not_run(process_events):
+    """MainWindow builds one row per registered step, but a recipe runs a
+    subset — the rest used to sit at "waiting" forever after the run
+    finished, reading as a run that still had work left to do."""
+    view = RunView(STEP_NAMES, LABELS)
+    run = _run(
+        {"transcribe": StepOutcome("transcribe", StepStatus.SUCCEEDED)},
+        names=("transcribe",),
+    )
+    view.bind_run(run)
+    view.show()
+    process_events()
+
+    rows = view.rows()
+    assert rows["transcribe"].isVisible()
+    for name in STEP_NAMES[1:]:
+        assert not rows[name].isVisible(), name
+    view.close()
+
+
+def test_bind_run_reshows_a_row_a_later_recipe_does_run(process_events):
+    """Rows are hidden per bound run, not permanently — the same widget
+    is reused for the next recipe."""
+    view = RunView(STEP_NAMES, LABELS)
+    view.bind_run(_run({}, names=("transcribe",)))
+    view.show()
+    process_events()
+    assert not view.rows()["clean"].isVisible()
+
+    view.bind_run(_run({}, names=("transcribe", "clean")))
+    process_events()
+    assert view.rows()["clean"].isVisible()
+    view.close()
+
+
 def test_bind_run_reflects_mixed_outcomes(process_events):
     view = RunView(STEP_NAMES, LABELS)
     run = _run({

@@ -138,6 +138,8 @@
   "status_batch_starting": "Starting batch processing...",
   "status_chain_running": "Running the recipe…",
   "status_chain_cancelled": "Run cancelled",
+  "status_chain_done": "Recipe finished: {count} artifacts",
+  "status_chain_failed": "Recipe finished with errors",
   "toast_chain_done": "Done: {count} artifacts",
   "toast_chain_error": "Some pipeline steps failed",
   "status_no_transcription_to_clean": "No transcription to clean",

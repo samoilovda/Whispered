@@ -138,6 +138,8 @@
   "status_batch_starting": "Запуск пакетной обработки...",
   "status_chain_running": "Выполняется прогон рецепта…",
   "status_chain_cancelled": "Прогон отменён",
+  "status_chain_done": "Рецепт завершён: {count} материалов",
+  "status_chain_failed": "Рецепт завершён с ошибками",
   "toast_chain_done": "Готово: {count} артефактов",
   "toast_chain_error": "Некоторые шаги пайплайна завершились с ошибкой",
   "status_no_transcription_to_clean": "Нет транскрипта для очистки",
