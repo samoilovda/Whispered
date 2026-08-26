@@ -1259,12 +1259,23 @@ class MainWindow(QMainWindow):
         reach UI state that already believes the run was cancelled) and
         hands it to WorkerRegistry, which deletes it once its QThread
         actually finishes.
+
+        Reporting the cancellation lives here rather than in the status
+        bar's own handler: retiring the runner disconnects job_finished,
+        so _on_recipe_job_finished never runs and nothing else takes the
+        screen out of its "running" state. A run cancelled from a step
+        row's own Cancel button used to leave "Running the recipe…" on the
+        status bar, the Cancel button still offering to cancel it, and the
+        run screen with no way out.
         """
         if self._recipe_job is not None and self._recipe_job.isRunning():
             self._registry.retire(self._recipe_job)
             self._recipe_job = None
             self._save_recipe_run("cancelled")
             self.library_view.refresh()
+            self.status_label.setText(tr("status_chain_cancelled"))
+            self._reset_ui()
+            self.run_view.set_finished(True)
 
     def _cancel_operation(self):
         """Cancel the current operation (transcription, a recipe run, or
@@ -1275,9 +1286,10 @@ class MainWindow(QMainWindow):
             return
 
         if self._recipe_job is not None and self._recipe_job.isRunning():
+            # _cancel_recipe_job() reports and resets on its own — the run
+            # screen's per-step Cancel reaches it directly, without coming
+            # through here.
             self._cancel_recipe_job()
-            self.status_label.setText(tr("status_chain_cancelled"))
-            self._reset_ui()
             return
 
         if self._clean_job is not None and self._clean_job.isRunning():

@@ -188,6 +188,44 @@ def test_finished_run_offers_the_way_to_the_record(window, process_events):
     assert window._stack.currentIndex() == window._record_index
 
 
+def test_cancelling_from_a_step_row_reports_it_like_the_status_bar_does(
+    window, monkeypatch, process_events,
+):
+    """Regression: RunView's per-step Cancel goes straight to
+    _cancel_recipe_job, which retires the runner — so job_finished never
+    fires and nothing reset the screen. The status bar kept reading
+    "Running the recipe…", its Cancel button stayed up, and the run screen
+    offered no way out."""
+    import threading
+
+    from core.i18n import tr
+
+    started = threading.Event()
+    release = threading.Event()
+
+    class _BlockingProcessor:
+        def __init__(self, *_a, **_k):
+            self.lm_client = type("C", (), {"is_cancelled": None})()
+
+        def process(self, text, use_ai=True, on_progress=None):
+            started.set()
+            release.wait(5)
+            raise RuntimeError("cancelled")
+
+    monkeypatch.setattr("text_processor.TextProcessor", _BlockingProcessor)
+
+    window._run_recipe(_result())
+    assert started.wait(3)
+
+    window.run_view.cancel_requested.emit()
+    release.set()
+    process_events()
+
+    assert window.status_label.text() == tr("status_chain_cancelled")
+    assert not window.cancel_btn.isVisibleTo(window.status_bar)
+    assert window.run_view._open_button.isVisibleTo(window.run_view)
+
+
 # ---------------------------------------------------------------- cover params
 
 def test_recipe_run_renders_the_cover_the_workspace_is_set_to(window, monkeypatch, process_events):
