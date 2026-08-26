@@ -209,18 +209,29 @@ class Config:
             # Create the temporary file privately before any secret-bearing
             # bytes are written, then atomically replace the old config.
             fd, temporary = tempfile.mkstemp(prefix=".config-", dir=CONFIG_DIR)
+            fd_open = True
             try:
-                os.fchmod(fd, stat.S_IRUSR | stat.S_IWUSR)
+                # mkstemp already opens the file 0600; fchmod restates that
+                # intent but only exists on POSIX — on Windows the file is
+                # created inside the per-user profile and there is no
+                # equivalent bit to set.
+                if hasattr(os, "fchmod"):
+                    os.fchmod(fd, stat.S_IRUSR | stat.S_IWUSR)
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    # fdopen owns the descriptor from here on: closing it
+                    # again in the handler could hit an unrelated file that
+                    # reused the number.
+                    fd_open = False
                     json.dump(data, f, indent=2)
                     f.flush()
                     os.fsync(f.fileno())
                 os.replace(temporary, CONFIG_FILE)
             except Exception:
-                try:
-                    os.close(fd)
-                except OSError:
-                    pass
+                if fd_open:
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
                 try:
                     os.unlink(temporary)
                 except OSError:

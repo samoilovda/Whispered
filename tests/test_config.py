@@ -120,6 +120,20 @@ class TestConfigRoundTrip:
         assert loaded.yt_anthropic_api_key == "ak-test"
         assert loaded.yt_anthropic_model == "claude-sonnet-5"
 
+    def test_save_works_without_os_fchmod(self, tmp_path, monkeypatch):
+        """Windows' os module has no fchmod, and save() used it
+        unconditionally — every save failed there (config.json never
+        written, API keys never persisted) and the exception was swallowed
+        into a log warning."""
+        monkeypatch.delattr(config_module.os, "fchmod", raising=False)
+
+        cfg = Config(theme="light", lm_studio_url="http://x:1/v1")
+        assert cfg.save() is True
+        assert config_module.CONFIG_FILE.exists()
+        assert Config.load().theme == "light"
+        # No temp file left behind by the write.
+        assert not list(tmp_path.glob(".config-*"))
+
     def test_old_config_without_yt_fields_loads_on_defaults(self, tmp_path):
         cfg_file = config_module.CONFIG_FILE
         data = {"theme": "light", "lm_studio_url": "http://x/v1"}
