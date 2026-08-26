@@ -1084,6 +1084,12 @@ class MainWindow(QMainWindow):
             if url.isLocalFile():
                 filepath = url.toLocalFile()
                 if is_supported_format(filepath):
+                    # The drop is accepted window-wide, but the selector it
+                    # fills and the Launch button that acts on it both live
+                    # on the start screen. Dropping a file while a record
+                    # was open used to leave the user looking at that
+                    # record, with nothing on screen having changed.
+                    self._show_new_draft()
                     self.file_selector._set_file(filepath)
                     event.acceptProposedAction()
                     return

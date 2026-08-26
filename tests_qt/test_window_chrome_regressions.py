@@ -176,3 +176,44 @@ def test_open_file_action_lands_on_the_page_the_file_selector_is_on(
     window.close()
     process_events()
 
+
+def test_dropping_a_file_lands_on_the_screen_that_can_launch_it(
+    process_events, tmp_path,
+):
+    """Regression: the drop was accepted window-wide but filled a selector
+    on the start screen. Dropping while a record was open left the user
+    looking at that record with nothing visibly changed."""
+    from PyQt6.QtCore import QMimeData, QPointF, Qt, QUrl
+    from PyQt6.QtGui import QDropEvent
+    from ui.main_window import MainWindow
+
+    clip = tmp_path / "clip.mp3"
+    clip.write_bytes(b"\0" * 32)
+
+    window = MainWindow()
+    window.show()
+    window.resize(1200, 800)
+    window._stack.setCurrentIndex(window._record_index)
+    process_events()
+
+    payload = QMimeData()
+    payload.setUrls([QUrl.fromLocalFile(str(clip))])
+    window.dropEvent(
+        QDropEvent(
+            QPointF(10, 10),
+            Qt.DropAction.CopyAction,
+            payload,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    process_events()
+
+    assert window._stack.currentIndex() == window._start_index
+    assert window.start_view.current_source() == "file"
+    assert window.file_selector.get_file() == str(clip)
+    assert window.transcribe_btn.isEnabled()
+
+    window.close()
+    process_events()
+
