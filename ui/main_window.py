@@ -1111,7 +1111,7 @@ class MainWindow(QMainWindow):
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
-            if urls and urls[0].isLocalFile() and is_supported_format(urls[0].toLocalFile()):
+            if any(self._is_droppable(url) for url in urls):
                 event.acceptProposedAction()
                 self._show_drop_overlay(True)
                 return
@@ -1120,23 +1120,73 @@ class MainWindow(QMainWindow):
     def dragLeaveEvent(self, event):
         self._show_drop_overlay(False)
 
+    @staticmethod
+    def _is_droppable(url) -> bool:
+        """A url dragEnterEvent should accept: a supported file, or a
+        directory (expanded into its supported files on drop — see
+        _collect_dropped_paths)."""
+        if not url.isLocalFile():
+            return False
+        path = url.toLocalFile()
+        return is_supported_format(path) or os.path.isdir(path)
+
+    @staticmethod
+    def _collect_dropped_paths(urls) -> "tuple[list[str], int]":
+        """Every url reduced to actual, supported file paths (B5a).
+
+        A dropped folder is expanded one level deep only — not
+        recursively — so a user dragging a folder full of unrelated
+        subfolders doesn't silently pull in hundreds of files. Anything
+        local-but-unsupported (a loose file with the wrong extension, or
+        one found inside a dropped folder) is counted in *skipped*
+        instead of raising — see the caller's toast."""
+        paths: list[str] = []
+        skipped = 0
+        for url in urls:
+            if not url.isLocalFile():
+                continue
+            local_path = url.toLocalFile()
+            if os.path.isdir(local_path):
+                for entry in sorted(Path(local_path).iterdir()):
+                    if not entry.is_file():
+                        continue
+                    if is_supported_format(str(entry)):
+                        paths.append(str(entry))
+                    else:
+                        skipped += 1
+            elif is_supported_format(local_path):
+                paths.append(local_path)
+            else:
+                skipped += 1
+        return paths, skipped
+
     def dropEvent(self, event: QDropEvent):
         self._show_drop_overlay(False)
-        if event.mimeData().hasUrls():
-            url = event.mimeData().urls()[0]
-            if url.isLocalFile():
-                filepath = url.toLocalFile()
-                if is_supported_format(filepath):
-                    # The drop is accepted window-wide, but the selector it
-                    # fills and the Launch button that acts on it both live
-                    # on the start screen. Dropping a file while a record
-                    # was open used to leave the user looking at that
-                    # record, with nothing on screen having changed.
-                    self._show_new_draft()
-                    self.file_selector._set_file(filepath)
-                    event.acceptProposedAction()
-                    return
-        event.ignore()
+        if not event.mimeData().hasUrls():
+            event.ignore()
+            return
+        paths, skipped = self._collect_dropped_paths(event.mimeData().urls())
+        if not paths:
+            event.ignore()
+            return
+        event.acceptProposedAction()
+
+        if len(paths) == 1:
+            # The drop is accepted window-wide, but the selector it fills
+            # and the Launch button that acts on it both live on the
+            # start screen. Dropping a file while a record was open used
+            # to leave the user looking at that record, with nothing on
+            # screen having changed.
+            self._show_new_draft()
+            self.file_selector._set_file(paths[0])
+        else:
+            self.batch_panel.add_files(paths)
+            self.status_bar.show_queue(True)
+
+        if skipped:
+            show_toast(
+                self, tr("toast_drop_skipped_unsupported", count=skipped), kind="info"
+            )
 
     def _show_drop_overlay(self, visible: bool):
         if not hasattr(self, "_drop_overlay"):

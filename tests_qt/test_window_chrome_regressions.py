@@ -218,6 +218,144 @@ def test_dropping_a_file_lands_on_the_screen_that_can_launch_it(
     process_events()
 
 
+def _drop_event(paths, pos=(10, 10)):
+    """QDropEvent doesn't take ownership of its QMimeData — pin it to the
+    event itself so it outlives this function's own local, or the event
+    ends up holding a dangling pointer and segfaults on mimeData() access
+    the moment the caller actually reads it."""
+    from PyQt6.QtCore import QMimeData, QPointF, Qt, QUrl
+    from PyQt6.QtGui import QDropEvent
+
+    payload = QMimeData()
+    payload.setUrls([QUrl.fromLocalFile(str(p)) for p in paths])
+    event = QDropEvent(
+        QPointF(*pos),
+        Qt.DropAction.CopyAction,
+        payload,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    event._keep_alive_payload = payload
+    return event
+
+
+def test_dropping_three_files_queues_all_three(process_events, tmp_path):
+    """B5a acceptance criterion: dropping three audio files at once queues
+    all three and opens the queue overlay — the old dropEvent only ever
+    looked at urls[0] and silently lost the rest."""
+    from ui.main_window import MainWindow
+
+    clips = [tmp_path / f"clip{i}.mp3" for i in range(3)]
+    for clip in clips:
+        clip.write_bytes(b"\0" * 32)
+
+    window = MainWindow()
+    window.show()
+    process_events()
+
+    window.dropEvent(_drop_event(clips))
+    process_events()
+
+    assert window.batch_panel.processor.count == 3
+    assert {item.filepath for item in window.batch_panel.processor.items} == {
+        str(c) for c in clips
+    }
+    assert window.status_bar._overlay.isVisible()
+
+    window.close()
+    process_events()
+
+
+def test_dropping_a_mix_of_supported_and_unsupported_files_skips_and_toasts(
+    process_events, tmp_path, monkeypatch,
+):
+    """B5a acceptance criterion: two audio files + one .txt -> two queued
+    items and a toast naming the one skipped file."""
+    from ui.main_window import MainWindow
+
+    audio = [tmp_path / "a.mp3", tmp_path / "b.wav"]
+    for clip in audio:
+        clip.write_bytes(b"\0" * 32)
+    text_file = tmp_path / "notes.txt"
+    text_file.write_text("not audio")
+
+    toasts = []
+    monkeypatch.setattr(
+        "ui.main_window.show_toast",
+        lambda parent, message, **kwargs: toasts.append(message),
+    )
+
+    window = MainWindow()
+    window.show()
+    process_events()
+
+    window.dropEvent(_drop_event([*audio, text_file]))
+    process_events()
+
+    assert window.batch_panel.processor.count == 2
+    from core.i18n import tr
+    assert toasts == [tr("toast_drop_skipped_unsupported", count=1)]
+
+    window.close()
+    process_events()
+
+
+def test_dropping_a_folder_expands_its_top_level_supported_files(
+    process_events, tmp_path,
+):
+    """B5a: a dropped folder is expanded one level deep, non-recursively —
+    a nested subfolder's own files must not be pulled in."""
+    from ui.main_window import MainWindow
+
+    folder = tmp_path / "session"
+    folder.mkdir()
+    (folder / "one.mp3").write_bytes(b"\0" * 32)
+    (folder / "two.wav").write_bytes(b"\0" * 32)
+    (folder / "readme.txt").write_text("not audio")
+    nested = folder / "subfolder"
+    nested.mkdir()
+    (nested / "three.mp3").write_bytes(b"\0" * 32)
+
+    window = MainWindow()
+    window.show()
+    process_events()
+
+    window.dropEvent(_drop_event([folder]))
+    process_events()
+
+    assert window.batch_panel.processor.count == 2
+    assert {item.filepath for item in window.batch_panel.processor.items} == {
+        str(folder / "one.mp3"), str(folder / "two.wav"),
+    }
+
+    window.close()
+    process_events()
+
+
+def test_dropping_a_single_file_still_uses_the_start_screen_not_the_queue(
+    process_events, tmp_path,
+):
+    """A lone supported file must keep the pre-B5a behavior (start screen
+    + file selector), not go through the batch queue."""
+    from ui.main_window import MainWindow
+
+    clip = tmp_path / "solo.mp3"
+    clip.write_bytes(b"\0" * 32)
+
+    window = MainWindow()
+    window.show()
+    process_events()
+
+    window.dropEvent(_drop_event([clip]))
+    process_events()
+
+    assert window.batch_panel.processor.count == 0
+    assert window.file_selector.get_file() == str(clip)
+
+    window.close()
+    process_events()
+
+
 def test_go_covers_menu_action_opens_the_cover_workspace(process_events):
     """Regression basis for docs/IMPROVEMENT_PLAN_2026-08.ru.md, A5: the
     Cover workspace used to have exactly one entrance, a button in the

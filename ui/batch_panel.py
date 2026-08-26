@@ -217,6 +217,16 @@ class BatchPanel(QWidget):
 
         self._refresh_list()
 
+    def add_files(self, filepaths: "list[str]") -> int:
+        """Add already-resolved paths to the queue — what a multi-file
+        drop (B5a) or a watch folder (B5b) calls instead of opening the
+        file dialog _add_files() does; both need the same refresh
+        afterward. Returns the count actually added (skips duplicates
+        already in the queue, same as _add_files())."""
+        count = self.processor.add_files(filepaths)
+        self._refresh_list()
+        return count
+
     def _refresh_list(self):
         """Refresh the file list display."""
         self.file_list.clear()
