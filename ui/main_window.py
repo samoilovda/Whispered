@@ -710,7 +710,6 @@ class MainWindow(QMainWindow):
         self._workspace_layout.addWidget(self.workspace_shell, stretch=1)
 
         self.status_bar = StatusBar()
-        self.operation_bar = self.status_bar
         self.status_label = self.status_bar.status_label
         self.progress_bar = self.status_bar.progress
         self.cancel_btn = self.status_bar.cancel_button
@@ -1217,9 +1216,7 @@ class MainWindow(QMainWindow):
         # Update UI for transcription mode
         self.transcribe_btn.setEnabled(False)
         self.transcribe_btn.setVisible(False)
-        self.cancel_btn.setVisible(True)
-        self.progress_bar.setVisible(True)
-        self.operation_bar.setVisible(True)
+        self.status_bar.set_busy(True)
         self.progress_bar.setValue(0)
         # Select is done (file chosen); Extract is the first active stage
         self.progress_timeline.setVisible(True)
@@ -1353,7 +1350,7 @@ class MainWindow(QMainWindow):
             return
 
         self.status_label.setText(tr("status_batch_starting"))
-        self.operation_bar.set_operation(
+        self.status_bar.set_operation(
             tr("status_batch_starting"), cancel_text=tr("btn_cancel")
         )
 
@@ -1885,7 +1882,6 @@ class MainWindow(QMainWindow):
         self.cancel_btn.setVisible(run_active)
         self.progress_bar.setVisible(False)
         self.progress_timeline.setVisible(False)
-        self.operation_bar.setVisible(run_active)
 
     def _copy_to_clipboard(self):
         """Copy transcription to clipboard."""
@@ -2426,7 +2422,7 @@ class MainWindow(QMainWindow):
         if not out_path:
             return
         show_toast(self, tr("toast_assembling"), kind="info")
-        self.operation_bar.set_operation(tr("toast_assembling"))
+        self.status_bar.set_operation(tr("toast_assembling"))
         self._draft_worker = DraftAssemblyWorker(src, segs, out_path, self)
         self._draft_worker.progress.connect(self.status_label.setText)
         self._draft_worker.assembled.connect(self._on_draft_assembled)
@@ -2435,12 +2431,12 @@ class MainWindow(QMainWindow):
 
     def _on_draft_assembled(self, output_path: str) -> None:
         self._draft_worker = None
-        self.operation_bar.clear()
+        self.status_bar.clear()
         show_toast(self, tr("toast_assembled", name=os.path.basename(output_path)), kind="success")
 
     def _on_draft_assembly_error(self, error: str) -> None:
         self._draft_worker = None
-        self.operation_bar.clear()
+        self.status_bar.clear()
         show_toast(self, tr("toast_assemble_error", detail=error[:80]), kind="error")
 
     # ===== Book Pipeline Methods =====

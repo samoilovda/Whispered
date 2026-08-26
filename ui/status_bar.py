@@ -223,7 +223,18 @@ class StatusBar(QFrame):
         self.progress.setVisible(False)
         self.cancel_button.setVisible(False)
 
-    def setVisible(self, visible: bool) -> None:  # noqa: N802
-        # Infrastructure status is intentionally always present. Existing
-        # operation call sites may still try to hide the retired bar.
-        super().setVisible(True)
+    def set_busy(self, busy: bool) -> None:
+        """Show or hide the progress bar and Cancel button together, for
+        a caller that wants "an operation just started/ended" as one
+        call rather than setting each widget itself.
+
+        Does not touch the bar's own visibility — this frame is
+        infrastructure status and stays on screen regardless (see the
+        module docstring); a caller used to reach for
+        ``self.setVisible(...)`` for that, which a now-removed override
+        silently no-op'd into always-True. Nothing ever actually depended
+        on hiding the frame itself, only on the progress/cancel indicators
+        it hosts — this method names that real intent instead.
+        """
+        self.progress.setVisible(busy)
+        self.cancel_button.setVisible(busy)
