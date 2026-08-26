@@ -1,7 +1,13 @@
-"""Whispered - Transcribe Options Popover
-Model / language / translate / performance / diarization controls, moved
-out of the always-visible header into a popover reachable from the
-LaunchBar's gear button (see ui/launch_bar.py).
+"""Whispered - Transcribe Options
+Model / language / translate / performance / diarization controls.
+
+Since the workspace redesign these are only reachable through the recipe
+editor ("Настроить…" on the start screen, see ui/recipe_editor.py) — the
+header they used to live in, and the LaunchBar popover that replaced it,
+are both retired. That made persistence load-bearing: it is now the only
+place a user picks a Whisper model outside Settings, so a selection made
+here is written straight back to Config instead of living for the
+session and silently reverting to Settings' defaults on the next launch.
 """
 
 from __future__ import annotations
@@ -11,7 +17,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
-from config import get_config
+from config import get_config, save_config
 from core.i18n import tr
 from ui.components import ElidingComboBox
 from ui.option_labels import (
@@ -119,8 +125,30 @@ class TranscribeOptionsPopover(QFrame):
         )
         self.perf_combo.setCurrentIndex(perf_idx)
         self.diarization_checkbox.setChecked(cfg.diarization_enabled)
+        # Connected after the initial seeding above, so restoring the saved
+        # values doesn't immediately write them back out again.
+        self.changed.connect(self._persist)
 
+    def _persist(self) -> None:
+        """Write the current selection back to Config.
 
+        Guarded: a combo is empty (and currentData() is None) only while
+        the widget is being rebuilt, and Config.validate() rejects an
+        unknown performance_mode outright — never overwrite a good saved
+        value with a placeholder one.
+        """
+        cfg = get_config()
+        model = self.model_combo.currentData()
+        if model:
+            cfg.default_model = model
+        language = self.language_combo.currentData()
+        if language:
+            cfg.default_language = language
+        mode = self.perf_combo.currentData()
+        if mode:
+            cfg.performance_mode = mode
+        cfg.diarization_enabled = self.diarization_checkbox.isChecked()
+        save_config()
 
     def summary_text(self) -> str:
         """Compact one-line summary shown next to the gear button."""

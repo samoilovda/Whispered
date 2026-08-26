@@ -92,6 +92,39 @@ def test_batch_panel_shows_only_empty_state_on_cold_start(process_events):
     process_events()
 
 
+def test_transcribe_options_persist_the_users_choice(process_events, tmp_path, monkeypatch):
+    """Regression: since the redesign the recipe editor is the only place
+    outside Settings to pick a Whisper model/language/mode, and nothing
+    wrote the choice back to Config — every selection was lost on the
+    next launch, silently reverting to Settings' defaults."""
+    import config
+    from ui.transcribe_options import TranscribeOptionsPopover
+
+    monkeypatch.setattr(config, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "config.json")
+    monkeypatch.setattr(config, "_config", config.Config())
+
+    options = TranscribeOptionsPopover(embedded=True)
+    process_events()
+    # Seeding from Config must not itself write anything back out.
+    assert not (tmp_path / "config.json").exists()
+
+    target = next(
+        i for i in range(options.model_combo.count())
+        if options.model_combo.itemData(i) != config.get_config().default_model
+    )
+    options.model_combo.setCurrentIndex(target)
+    chosen = options.model_combo.itemData(target)
+    options.diarization_checkbox.setChecked(True)
+    process_events()
+
+    assert config.get_config().default_model == chosen
+    assert config.get_config().diarization_enabled is True
+    assert config.Config.load().default_model == chosen
+
+    options.close()
+
+
 def test_recipe_editor_keeps_transcribe_mandatory(process_events):
     from domain.recipe import TRANSCRIPT_ONLY
     from ui.recipe_editor import RecipeEditorDialog
