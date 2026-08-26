@@ -23,10 +23,17 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      # tests/ stubs PyQt6 (tests/conftest.py) but not the plain-Python
+      # dependencies the modules under test import for real: numpy
+      # (tests/test_cover_tiles.py), requests (core/model_repository.py)
+      # and python-docx (the DOCX exporter, otherwise silently skipped).
+      # Without them pytest fails at collection, which is what made this
+      # job red rather than any test actually failing.
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
           pip install pytest==9.1.1 pytest-cov ruff==0.15.20 mypy==1.17.1 types-requests
+          pip install numpy==2.4.6 requests==2.34.2 python-docx==1.2.0 lxml==6.1.1
 
       - name: Syntax check (compileall)
         run: |
@@ -36,10 +43,16 @@ jobs:
         run: |
           ruff check .
 
-      # Blocking: this set is clean and must stay clean.
+      # Blocking: this set is clean and must stay clean. Keep it in step
+      # with CLAUDE.md's "Pre-commit gate" / "Mypy blocking modules" — the
+      # two had drifted, so modules documented as enforced were not
+      # actually checked here.
       - name: Type check (core, blocking)
         run: |
-          mypy --ignore-missing-imports core/ transcriber.py diarizer.py exporters.py utils.py config.py
+          mypy --ignore-missing-imports core/ transcriber.py diarizer.py \
+            exporters.py utils.py config.py version.py domain/ application/ \
+            infrastructure/ lm_studio_manager.py batch_processor.py \
+            book_pipeline.py ui/transcript_view.py ui/live_transcript_view.py
 
       # Informational: ui/ is not typed yet. Surfaced so regressions are
       # visible; promote to blocking once the count reaches zero.
