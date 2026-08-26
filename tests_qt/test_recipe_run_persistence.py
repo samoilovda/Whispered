@@ -26,7 +26,7 @@ def test_a_finished_recipe_run_is_persisted_to_job_runs(monkeypatch, tmp_path, p
     from ui.main_window import MainWindow
 
     window = MainWindow()
-    window._current_result = _result()
+    window._document_session.apply_result(_result())
     window._last_record_id = store.add(_result(), source_path="", model="")
 
     window._run_recipe(_result())

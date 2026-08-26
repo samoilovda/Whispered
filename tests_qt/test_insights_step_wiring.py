@@ -39,7 +39,7 @@ def test_generate_button_runs_through_job_runner_and_writes_provenance(
 
     window = MainWindow()
     get_config().lm_studio_url = "http://127.0.0.1:1234"
-    window._current_result = _result()
+    window._document_session.apply_result(_result())
     window._last_record_id = None
     window._source_filepath = None
 
@@ -69,7 +69,7 @@ def test_no_lm_studio_url_reports_the_error_without_starting_a_job(
 
     window = MainWindow()
     get_config().lm_studio_url = ""
-    window._current_result = _result()
+    window._document_session.apply_result(_result())
 
     window.insights_panel.generate_requested.emit()
     process_events()
@@ -91,7 +91,7 @@ def test_insights_job_failure_reports_the_error_without_crashing(
 
     window = MainWindow()
     get_config().lm_studio_url = "http://127.0.0.1:1234"
-    window._current_result = _result()
+    window._document_session.apply_result(_result())
     window._last_record_id = None
     window._source_filepath = None
 
@@ -129,7 +129,7 @@ def test_cancel_insights_job_stops_the_worker_without_reporting_a_result(
 
     window = MainWindow()
     get_config().lm_studio_url = "http://127.0.0.1:1234"
-    window._current_result = _result()
+    window._document_session.apply_result(_result())
     window._last_record_id = None
     window._source_filepath = None
 
@@ -163,7 +163,7 @@ def test_finished_insights_job_takes_the_cancel_button_back_down(
     window = MainWindow()
     window.show()
     get_config().lm_studio_url = "http://127.0.0.1:1234"
-    window._current_result = _result()
+    window._document_session.apply_result(_result())
     window._last_record_id = None
     window._source_filepath = None
     process_events()

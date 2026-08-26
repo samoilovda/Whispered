@@ -13,7 +13,7 @@ covered on every path that produces or loads a result.
 
 from __future__ import annotations
 
-from typing import Callable, List
+from typing import Callable, List, Optional
 
 from domain.transcription import TranscriptionResult
 
@@ -21,8 +21,9 @@ ResultConsumer = Callable[[TranscriptionResult], None]
 
 
 class DocumentSession:
-    """Owns the list of consumers that must see every new transcription
-    result and applies a result to all of them in one call.
+    """Owns *the* current transcription result plus the list of consumers
+    that must see every new one, and applies a result to all of them in
+    one call.
 
     Consumers are registered as plain callables rather than requiring
     panels to implement a shared interface — most panels expose slightly
@@ -30,19 +31,39 @@ class DocumentSession:
     ``set_transcript(text)``, ``set_result(result)``), so the owner
     registers a small adapter per panel instead of DocumentSession knowing
     about panel classes.
+
+    Owning ``current_result`` here (not just the fan-out) closes the gap
+    that let it drift: three call sites in ``MainWindow`` used to assign
+    ``self._current_result = result`` by hand, once each, right before
+    calling ``apply_result()`` — a fourth path that forgot the assignment
+    would silently read a stale or ``None`` result. ``apply_result()`` now
+    sets it itself, in the same place the fan-out happens, so there is
+    nowhere left to forget it.
     """
 
     def __init__(self) -> None:
         self._consumers: List[ResultConsumer] = []
+        self._result: Optional[TranscriptionResult] = None
+
+    @property
+    def current_result(self) -> Optional[TranscriptionResult]:
+        return self._result
 
     def register_consumer(self, consumer: ResultConsumer) -> None:
         """Add a callable invoked with the result on every apply_result()."""
         self._consumers.append(consumer)
 
     def apply_result(self, result: TranscriptionResult) -> None:
-        """Distribute *result* to every registered consumer, in
-        registration order. Matches the previous per-call-site behavior of
-        calling each panel in sequence — a consumer that raises still
-        propagates, same as before this existed."""
+        """Record *result* as the current one, then distribute it to every
+        registered consumer, in registration order. Matches the previous
+        per-call-site behavior of calling each panel in sequence — a
+        consumer that raises still propagates, same as before this
+        existed."""
+        self._result = result
         for consumer in self._consumers:
             consumer(result)
+
+    def clear(self) -> None:
+        """Drop the current result without notifying consumers — for a
+        window reset (new draft) rather than a new result to apply."""
+        self._result = None

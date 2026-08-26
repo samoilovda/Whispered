@@ -193,7 +193,6 @@ class MainWindow(QMainWindow):
         self._insights_cache = InsightsCache()
         self.transcriber = Transcriber()
         self._shutdownables.append(self.transcriber)
-        self._current_result: TranscriptionResult | None = None
         self._cleaned_text: str | None = None
         self._clean_job: JobRunner | None = None
         self._article_job: JobRunner | None = None
@@ -258,6 +257,18 @@ class MainWindow(QMainWindow):
         self.library_view.refresh()
         if os.environ.get("WHISPERED_UI_GALLERY") != "1":
             self._start_gpu_detection()
+
+    @property
+    def _current_result(self) -> TranscriptionResult | None:
+        """The transcription result every panel is currently showing.
+
+        Read-only and delegates to DocumentSession, which is the single
+        place that sets it (see DocumentSession.apply_result()) — a stray
+        ``self._current_result = ...`` anywhere in this file would raise
+        AttributeError immediately rather than silently going out of sync
+        with what the panels actually display.
+        """
+        return self._document_session.current_result
 
     def closeEvent(self, event):
         """Handle window close - cleanup resources.
@@ -1160,7 +1171,6 @@ class MainWindow(QMainWindow):
         result = self.transcript_view.get_result()
         if result is None:
             return
-        self._current_result = result
         self._cleaned_text = None
         self.cleaned_view.clear()
         self.article_view.clear()
@@ -1364,7 +1374,6 @@ class MainWindow(QMainWindow):
         save_history: bool = True,
     ):
         """Handle transcription completion."""
-        self._current_result = result
         self.transcript_view.set_result(result)
         self._reset_ui()
 
@@ -1787,7 +1796,6 @@ class MainWindow(QMainWindow):
                 duration=payload.get("duration", 0.0),
                 speaker_names=payload.get("speaker_names") or {},
             )
-            self._current_result = result
             self._last_record_id = record_id
             self._source_kind = record.get("source_kind", "file")
             # set_result honours result.speaker_names, restoring renames.

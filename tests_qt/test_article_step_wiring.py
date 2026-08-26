@@ -50,7 +50,7 @@ def test_articles_button_runs_through_job_runner_and_writes_provenance(
     from ui.main_window import MainWindow
 
     window = MainWindow()
-    window._current_result = _result()
+    window._document_session.apply_result(_result())
     window._last_record_id = None
     window._source_filepath = None
 
@@ -84,7 +84,7 @@ def test_articles_use_the_cleaned_text_when_available(monkeypatch, process_event
     from ui.main_window import MainWindow
 
     window = MainWindow()
-    window._current_result = _result()
+    window._document_session.apply_result(_result())
     window._last_record_id = None
     window._source_filepath = None
     window._cleaned_text = "Already cleaned text."
@@ -118,7 +118,7 @@ def test_article_job_failure_reports_the_error_without_crashing(
     )
 
     window = MainWindow()
-    window._current_result = _result()
+    window._document_session.apply_result(_result())
     window._last_record_id = None
     window._source_filepath = None
 
@@ -156,7 +156,7 @@ def test_cancel_article_job_stops_the_worker_without_reporting_a_result(
     from ui.main_window import MainWindow
 
     window = MainWindow()
-    window._current_result = _result()
+    window._document_session.apply_result(_result())
     window._last_record_id = None
     window._source_filepath = None
 
