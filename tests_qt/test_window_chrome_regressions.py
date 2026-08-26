@@ -95,3 +95,84 @@ def test_find_menu_action_opens_search_only_on_record_page(process_events):
 
     window.close()
     process_events()
+
+
+def test_go_article_switches_to_the_record_page_it_lives_on(process_events):
+    """Regression: Go > Article set main_tabs' current widget without
+    leaving the start screen, so the tab widget it addresses was not on
+    screen and the menu item looked like it did nothing."""
+    from ui.main_window import MainWindow
+
+    window = MainWindow()
+    window.show()
+    window.resize(1200, 800)
+    window._show_new_draft()
+    process_events()
+
+    window._menu_show_articles()
+    process_events()
+
+    assert window._stack.currentIndex() == window._record_index
+    assert window.main_tabs.currentWidget() is window.article_view
+    assert window.article_view.isVisible()
+
+    window.close()
+    process_events()
+
+
+def test_go_library_expands_a_collapsed_library_before_focusing_search(
+    process_events, monkeypatch, tmp_path,
+):
+    """Regression: with the Library collapsed the action focused a search
+    field that is not on screen, so typing went into an invisible widget."""
+    import config
+    from ui.main_window import MainWindow
+
+    monkeypatch.setattr(config, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "config.json")
+    monkeypatch.setattr(config, "_config", config.Config())
+
+    window = MainWindow()
+    window.show()
+    window.resize(1200, 800)
+    window.workspace_shell.set_library_collapsed(True)
+    process_events()
+    assert not window.library_view.isVisible()
+
+    window._menu_focus_library()
+    process_events()
+
+    assert window.library_view.isVisible()
+    assert window.library_view._search_edit.hasFocus()
+
+    window.close()
+    process_events()
+
+
+def test_open_file_action_lands_on_the_page_the_file_selector_is_on(
+    process_events, monkeypatch,
+):
+    """Regression: Ctrl+O opened the file dialog from any screen, feeding
+    a file selector the user could not see."""
+    from ui.main_window import MainWindow
+
+    window = MainWindow()
+    window.show()
+    window.resize(1200, 800)
+    process_events()
+
+    clicked = []
+    monkeypatch.setattr(
+        window.file_selector.browse_btn, "click", lambda: clicked.append(True)
+    )
+    window._stack.setCurrentIndex(window._record_index)
+    window._menu_open_file()
+    process_events()
+
+    assert window._stack.currentIndex() == window._start_index
+    assert window.start_view.current_source() == "file"
+    assert clicked == [True]
+
+    window.close()
+    process_events()
+

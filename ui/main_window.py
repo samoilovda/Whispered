@@ -312,7 +312,7 @@ class MainWindow(QMainWindow):
 
         open_action = QAction(tr("menu_open"), self)
         open_action.setShortcut(QKeySequence("Ctrl+O"))
-        open_action.triggered.connect(lambda: self.file_selector.browse_btn.click())
+        open_action.triggered.connect(self._menu_open_file)
         file_menu.addAction(open_action)
 
         export_action = QAction(tr("menu_export"), self)
@@ -365,16 +365,12 @@ class MainWindow(QMainWindow):
 
         go_library_action = QAction(tr("menu_go_library"), self)
         go_library_action.setShortcut(QKeySequence("Ctrl+1"))
-        go_library_action.triggered.connect(
-            lambda: self.library_view._search_edit.setFocus()
-        )
+        go_library_action.triggered.connect(self._menu_focus_library)
         go_menu.addAction(go_library_action)
 
         go_article_action = QAction(tr("menu_go_article"), self)
         go_article_action.setShortcut(QKeySequence("Ctrl+2"))
-        go_article_action.triggered.connect(
-            lambda: self.main_tabs.setCurrentWidget(self.article_view)
-        )
+        go_article_action.triggered.connect(self._menu_show_articles)
         go_menu.addAction(go_article_action)
 
         go_live_action = QAction(tr("menu_go_live"), self)
@@ -396,9 +392,7 @@ class MainWindow(QMainWindow):
 
         toggle_recording_action = QAction(tr("menu_toggle_recording"), self)
         toggle_recording_action.setShortcut(QKeySequence("Ctrl+R"))
-        toggle_recording_action.triggered.connect(
-            lambda: self.recorder_widget._toggle_recording()
-        )
+        toggle_recording_action.triggered.connect(self._menu_toggle_recording)
         transcribe_menu.addAction(toggle_recording_action)
 
         play_pause_action = QAction(tr("menu_play_pause"), self)
@@ -440,6 +434,33 @@ class MainWindow(QMainWindow):
         help_docs_action = QAction(tr("menu_help_docs"), self)
         help_docs_action.triggered.connect(self._open_help_docs)
         help_menu.addAction(help_docs_action)
+
+    # ── menu targets ─────────────────────────────────────────────────
+    # Each of these navigates to the screen the action actually happens
+    # on before performing it. Firing them blind is what the menu bar
+    # used to do, and from the wrong screen it looked like nothing
+    # happened at all: the file dialog fed a file selector on a page the
+    # user could not see, Go > Article switched a tab inside a hidden
+    # QTabWidget, and Go > Library focused a QLineEdit that is not on
+    # screen while the Library is collapsed.
+
+    def _menu_open_file(self) -> None:
+        self._show_new_draft()
+        self.file_selector.browse_btn.click()
+
+    def _menu_focus_library(self) -> None:
+        if getattr(get_config(), "library_collapsed", False):
+            self.workspace_shell.set_library_collapsed(False)
+        self.library_view._search_edit.setFocus()
+
+    def _menu_show_articles(self) -> None:
+        self._stack.setCurrentIndex(self._record_index)
+        self.main_tabs.setCurrentWidget(self.article_view)
+
+    def _menu_toggle_recording(self) -> None:
+        self._stack.setCurrentIndex(self._start_index)
+        self.start_view.set_source("recorder")
+        self.recorder_widget._toggle_recording()
 
     def _trigger_undo(self) -> None:
         """Trigger undo on the currently focused widget if supported."""
