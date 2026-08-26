@@ -185,3 +185,96 @@ def test_recipe_filter_chips_exist_for_every_builtin_recipe(process_events):
         assert tr(f"recipe_{recipe.builtin_key}") in labels
 
     view.close()
+
+
+def test_both_filter_rows_are_labeled(process_events):
+    """Regression: two independent chip rows (source, recipe) each
+    defaulted to an unlabeled "All" chip — indistinguishable from each
+    other (see docs/IMPROVEMENT_PLAN_2026-08.ru.md, A2)."""
+    load_locale("en")
+    from core.i18n import tr
+
+    view = LibraryView()
+    process_events()
+
+    texts = [label.text() for label in view.findChildren(QLabel)]
+    assert tr("library_filter_source_label") in texts
+    assert tr("library_filter_recipe_label") in texts
+
+    view.close()
+
+
+def test_reset_button_appears_only_with_a_non_default_filter_or_search(
+    monkeypatch, tmp_path, process_events,
+):
+    load_locale("en")
+    store = _make_store(tmp_path)
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+    _add_record(store, "one.mp3")
+
+    view = LibraryView()
+    view.refresh()
+    process_events()
+    assert not view._reset_filters_btn.isVisibleTo(view)
+
+    view._set_filter("file")
+    process_events()
+    assert view._reset_filters_btn.isVisibleTo(view)
+
+    view._set_filter("all")
+    process_events()
+    assert not view._reset_filters_btn.isVisibleTo(view)
+
+    view._set_recipe_filter("book")
+    process_events()
+    assert view._reset_filters_btn.isVisibleTo(view)
+    view._set_recipe_filter("all")
+    process_events()
+
+    view._search_edit.setText("one")
+    view._run_search()
+    process_events()
+    assert view._reset_filters_btn.isVisibleTo(view)
+
+    view.close()
+
+
+def test_reset_button_clears_both_filters_and_the_search_text(
+    monkeypatch, tmp_path, process_events,
+):
+    load_locale("en")
+    store = _make_store(tmp_path)
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+    yt_id = _add_record(store, "video.mp4")
+    _save_run(yt_id, "youtube_video", {
+        "transcribe": StepOutcome("transcribe", StepStatus.SUCCEEDED),
+    })
+    book_id = _add_record(store, "novel.mp3")
+    _save_run(book_id, "book", {
+        "transcribe": StepOutcome("transcribe", StepStatus.SUCCEEDED),
+    })
+
+    view = LibraryView()
+    view.refresh()
+    process_events()
+
+    view._set_recipe_filter("youtube_video")
+    view._search_edit.setText("video")
+    view._run_search()
+    process_events()
+    assert _item_widget(view, book_id) is None
+    assert view._reset_filters_btn.isVisibleTo(view)
+
+    view._reset_filters_btn.click()
+    process_events()
+
+    assert view._active_filter == "all"
+    assert view._active_recipe_filter == "all"
+    assert view._search_edit.text() == ""
+    assert view._filter_all_btn.isChecked()
+    assert view._recipe_filter_all_btn.isChecked()
+    assert _item_widget(view, yt_id) is not None
+    assert _item_widget(view, book_id) is not None
+    assert not view._reset_filters_btn.isVisibleTo(view)
+
+    view.close()

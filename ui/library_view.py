@@ -226,6 +226,15 @@ class LibraryView(QWidget):
         # own label once the Library column is too narrow to fit all four
         # ("Диктофон" clipped to "iктоф") — FlowLayout wraps to a second
         # row at full width instead (see docs/UI_REDESIGN_PLAN_2026-09.ru.md, A2).
+        #
+        # Both this row and the recipe row below it default to an
+        # unlabeled "All" chip — indistinguishable from each other without
+        # a heading, since neither says what it's filtering (see
+        # docs/IMPROVEMENT_PLAN_2026-08.ru.md, A2).
+        source_label = QLabel(tr("library_filter_source_label"))
+        source_label.setProperty("role", "muted")
+        layout.addWidget(source_label)
+
         filters_widget = QWidget()
         filters = FlowLayout(filters_widget, spacing=6)
         self._filter_group = QButtonGroup(self)
@@ -241,12 +250,17 @@ class LibraryView(QWidget):
             filters.addWidget(button)
             if key == "all":
                 button.setChecked(True)
+                self._filter_all_btn = button
         layout.addWidget(filters_widget)
 
         # Recipe filter (B8, docs/UI_REDESIGN_PLAN_2026-09.ru.md) — a
         # second, independent chip row: source kind and recipe are
         # orthogonal properties of a record, so this isn't merged into
         # the group above.
+        recipe_label = QLabel(tr("library_filter_recipe_label"))
+        recipe_label.setProperty("role", "muted")
+        layout.addWidget(recipe_label)
+
         recipe_filters_widget = QWidget()
         recipe_filters = FlowLayout(recipe_filters_widget, spacing=6)
         self._recipe_filter_group = QButtonGroup(self)
@@ -258,6 +272,7 @@ class LibraryView(QWidget):
         all_recipes_button.clicked.connect(lambda: self._set_recipe_filter("all"))
         self._recipe_filter_group.addButton(all_recipes_button)
         recipe_filters.addWidget(all_recipes_button)
+        self._recipe_filter_all_btn = all_recipes_button
         for recipe in BUILTIN_RECIPES:
             button = QPushButton(tr(f"recipe_{recipe.builtin_key}"))
             button.setCheckable(True)
@@ -268,6 +283,19 @@ class LibraryView(QWidget):
             self._recipe_filter_group.addButton(button)
             recipe_filters.addWidget(button)
         layout.addWidget(recipe_filters_widget)
+
+        # Hidden until a non-default filter or a live search makes the
+        # list not show "everything" — clicking it returns to that state
+        # in one step instead of un-toggling chips and clearing text by
+        # hand.
+        reset_row = QHBoxLayout()
+        reset_row.addStretch(1)
+        self._reset_filters_btn = QPushButton(tr("library_filters_reset"))
+        self._reset_filters_btn.setProperty("variant", "ghost")
+        self._reset_filters_btn.setVisible(False)
+        self._reset_filters_btn.clicked.connect(self._reset_filters)
+        reset_row.addWidget(self._reset_filters_btn)
+        layout.addLayout(reset_row)
 
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
@@ -415,6 +443,10 @@ class LibraryView(QWidget):
         self._no_results_state.setVisible(show_no_results)
         self._list.setVisible(not show_empty_state and not show_no_results)
 
+        self._reset_filters_btn.setVisible(
+            is_search or self._active_filter != "all" or self._active_recipe_filter != "all"
+        )
+
     def _schedule_search(self, _text: str):
         self._search_timer.start()
 
@@ -438,6 +470,22 @@ class LibraryView(QWidget):
     def _set_recipe_filter(self, recipe_key: str) -> None:
         self._active_recipe_filter = recipe_key
         self._populate()
+
+    def _reset_filters(self) -> None:
+        """Return both filter rows to "All" and clear the search field —
+        the "Reset" button next to them (see docs/IMPROVEMENT_PLAN_2026-08.ru.md,
+        A2), visible only while there's something non-default to reset."""
+        self._active_filter = "all"
+        self._active_recipe_filter = "all"
+        self._filter_all_btn.setChecked(True)
+        self._recipe_filter_all_btn.setChecked(True)
+        # setText alone wouldn't re-run the search; blockSignals avoids a
+        # redundant _schedule_search -> debounce -> _run_search round trip
+        # for what _load("") below already does synchronously.
+        self._search_edit.blockSignals(True)
+        self._search_edit.clear()
+        self._search_edit.blockSignals(False)
+        self._load("")
 
     def _open_selected(self, item: QListWidgetItem):
         record_id = item.data(Qt.ItemDataRole.UserRole)
