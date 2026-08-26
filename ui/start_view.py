@@ -125,16 +125,16 @@ class StartView(QWidget):
             self.stack.addWidget(page)
         root.addWidget(self.stack, stretch=1)
 
-        recipe_label = QLabel(tr("start_recipe_label"))
-        recipe_label.setProperty("role", "muted")
-        root.addWidget(recipe_label)
+        self._recipe_label = QLabel(tr("start_recipe_label"))
+        self._recipe_label.setProperty("role", "muted")
+        root.addWidget(self._recipe_label)
 
         # A plain QHBoxLayout would squeeze these chips narrower than
         # their own label at 900px width — FlowLayout wraps to a second
         # row instead (see docs/UI_REDESIGN_PLAN_2026-09.ru.md, A2, the
         # same fix Library's filter chips needed).
-        recipe_row_widget = QWidget()
-        recipe_row = FlowLayout(recipe_row_widget, spacing=6)
+        self._recipe_row_widget = QWidget()
+        recipe_row = FlowLayout(self._recipe_row_widget, spacing=6)
         self._recipe_group = QButtonGroup(self)
         self._recipe_group.setExclusive(True)
         self._recipe_buttons: dict[str, QPushButton] = {}
@@ -153,7 +153,7 @@ class StartView(QWidget):
         configure_btn.setProperty("role", "quick-chip")
         configure_btn.clicked.connect(self.configure_recipe_requested.emit)
         recipe_row.addWidget(configure_btn)
-        root.addWidget(recipe_row_widget)
+        root.addWidget(self._recipe_row_widget)
 
         self.process_button = AnimatedButton(tr("start_launch"))
         self.process_button.setProperty("variant", "primary")
@@ -162,7 +162,11 @@ class StartView(QWidget):
         self.process_button.clicked.connect(self.process_requested.emit)
         root.addWidget(self.process_button)
 
-        summary_row = QHBoxLayout()
+        # A container widget (not a bare layout added via addLayout) so
+        # set_source() can hide the whole row for "folder" — see below.
+        self._summary_row_widget = QWidget()
+        summary_row = QHBoxLayout(self._summary_row_widget)
+        summary_row.setContentsMargins(0, 0, 0, 0)
         summary_row.setSpacing(6)
         self._summary_label = QLabel("")
         self._summary_label.setProperty("role", "muted")
@@ -171,7 +175,7 @@ class StartView(QWidget):
         change_link.setProperty("variant", "ghost")
         change_link.clicked.connect(self.configure_recipe_requested.emit)
         summary_row.addWidget(change_link)
-        root.addLayout(summary_row)
+        root.addWidget(self._summary_row_widget)
 
         self.set_source("file", 0)
         self.refresh_summary()
@@ -185,6 +189,16 @@ class StartView(QWidget):
         self._source_buttons[key].setChecked(True)
         self.stack.setCurrentIndex(index)
         self.process_button.setVisible(key in self._launchable_sources)
+        # The folder queue only transcribes each item (see
+        # MainWindow._on_batch_item_finished) — it does not run a recipe
+        # against them yet (docs/IMPROVEMENT_PLAN_2026-08.ru.md, A6). The
+        # recipe picker promised otherwise by being visible here, so it's
+        # hidden for this source rather than offering a choice queued
+        # files don't actually honour.
+        recipe_ui_applies = key != "folder"
+        self._recipe_label.setVisible(recipe_ui_applies)
+        self._recipe_row_widget.setVisible(recipe_ui_applies)
+        self._summary_row_widget.setVisible(recipe_ui_applies)
         self.source_changed.emit(key)
 
     def set_process_enabled(self, enabled: bool) -> None:

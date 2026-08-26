@@ -9,7 +9,7 @@
   "draft_source_recorder": "Recorder",
   "draft_source_live": "Live",
   "draft_source_folder": "Folder",
-  "draft_folder_hint": "Add a folder to the shared queue. Book processing is available as a material for an open record.",
+  "draft_folder_hint": "Add a folder to the shared queue — each file is transcribed only; recipe steps aren't applied there yet. Book processing is available as a material for an open record.",
   "draft_open_queue": "Open queue",
   "start_launch": "Launch",
   "start_recipe_label": "Recipe",

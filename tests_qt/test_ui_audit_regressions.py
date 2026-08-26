@@ -433,3 +433,34 @@ def _live_setup_panel_type():
 
     return LiveSetupPanel
 
+
+def test_folder_source_hides_the_recipe_picker_it_does_not_honour(process_events):
+    """Regression basis for docs/IMPROVEMENT_PLAN_2026-08.ru.md, A6
+    (minimal variant): the folder queue only transcribes each item
+    (MainWindow._on_batch_item_finished), but the recipe chips stayed
+    visible for that source, promising a choice the queue doesn't act on.
+    """
+    from ui.main_window import MainWindow
+
+    window = MainWindow()
+    window.show()
+    process_events()
+
+    window.start_view.set_source("file")
+    process_events()
+    assert window.start_view._recipe_row_widget.isVisibleTo(window.start_view)
+    assert window.start_view._recipe_label.isVisibleTo(window.start_view)
+
+    window.start_view.set_source("folder")
+    process_events()
+    assert not window.start_view._recipe_row_widget.isVisibleTo(window.start_view)
+    assert not window.start_view._recipe_label.isVisibleTo(window.start_view)
+    assert not window.start_view._summary_row_widget.isVisibleTo(window.start_view)
+
+    window.start_view.set_source("file")
+    process_events()
+    assert window.start_view._recipe_row_widget.isVisibleTo(window.start_view)
+
+    window.close()
+    process_events()
+
