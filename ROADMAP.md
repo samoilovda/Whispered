@@ -91,6 +91,16 @@ environment to validate and are not attempted from here.*
 
 ## Next
 
+*A post-redesign review (2026-08-26) produced a worked plan for the next
+round: nine design cleanups plus eleven features, each with the files to
+touch, acceptance criteria and tests —
+[docs/IMPROVEMENT_PLAN_2026-08.ru.md](docs/IMPROVEMENT_PLAN_2026-08.ru.md).
+It also found that R8's cache-skip is further along than the paragraph
+above claims: `build_cache_checks()`, per-step `make_artifact()` and
+`JobRunner`'s `cache_checks` argument all exist and are tested — only the
+six `set_runners()` call sites in `main_window.py` never pass them, and
+skipped steps need a way to reload their artifact (plan item B1).*
+
 - **Live transcription stabilization** — the opt-in L1–L14 foundation is in
   the development branch, including the UI-independent session pipeline and
   a buildable ScreenCaptureKit helper. Gate A/Gate B are not complete: pass
