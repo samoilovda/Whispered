@@ -33,6 +33,8 @@
   "run_status_skipped": "кэш",
   "run_status_cancelled": "отменено",
   "run_retry": "Повторить",
+  "run_heading": "Рецепт: {name}",
+  "run_open_record": "Открыть запись",
   "run_toggle_details": "Подробнее",
   "recipe_transcript_only": "Только расшифровка",
   "recipe_youtube_video": "Видео на YouTube",

@@ -203,6 +203,7 @@ class RunView(QWidget):
 
     retry_requested = pyqtSignal(str)
     cancel_requested = pyqtSignal()
+    open_record_requested = pyqtSignal()
 
     def __init__(
         self,
@@ -220,6 +221,24 @@ class RunView(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
+
+        # A step feed with no heading and no exit was the whole screen:
+        # nothing named the recipe that was running, and when it ended the
+        # user was left on a list of finished rows with no route to the
+        # record those steps had just produced.
+        header = QHBoxLayout()
+        header.setContentsMargins(SPACE_4, SPACE_4, SPACE_4, 0)
+        header.setSpacing(SPACE_2)
+        self._heading = QLabel("")
+        self._heading.setProperty("role", "page-title")
+        self._heading.setVisible(False)
+        header.addWidget(self._heading, stretch=1)
+        self._open_button = QPushButton(tr("run_open_record"))
+        self._open_button.setProperty("variant", "primary")
+        self._open_button.setVisible(False)
+        self._open_button.clicked.connect(self.open_record_requested.emit)
+        header.addWidget(self._open_button)
+        root.addLayout(header)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -242,6 +261,25 @@ class RunView(QWidget):
         scroll.setWidget(container)
         root.addWidget(scroll)
         self._scroll = scroll
+
+    def set_recipe_name(self, name: str) -> None:
+        """Name the recipe this run belongs to, in the screen's heading.
+
+        Hidden while unnamed rather than left as an empty page title, so a
+        caller that only binds a JobRun (a fixture, or the gallery) does
+        not get a blank band above the first step.
+        """
+        self._heading.setText(tr("run_heading", name=name) if name else "")
+        self._heading.setVisible(bool(name))
+
+    def set_finished(self, finished: bool) -> None:
+        """Show (or hide) the way out of this screen.
+
+        Deliberately a button rather than an automatic jump to the record:
+        a finished run is exactly when someone wants to read what each
+        step did, and yanking the view away would take that with it.
+        """
+        self._open_button.setVisible(finished)
 
     def rows(self) -> "dict[str, RunStepRow]":
         return dict(self._rows)

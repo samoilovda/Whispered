@@ -33,6 +33,8 @@
   "run_status_skipped": "cached",
   "run_status_cancelled": "cancelled",
   "run_retry": "Retry",
+  "run_heading": "Recipe: {name}",
+  "run_open_record": "Open record",
   "run_toggle_details": "Details",
   "recipe_transcript_only": "Transcript only",
   "recipe_youtube_video": "Video for YouTube",

@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
 
 import config
 import core.history as history
-from core.i18n import load_locale
+from core.i18n import load_locale, tr
 from ui.theme import apply_theme
 
 
@@ -120,6 +120,8 @@ def _bind_demo_run(window) -> None:
     run.outcomes["book"] = StepOutcome("book", StepStatus.CANCELLED)
     # "youtube_package" and "cover" are left unresolved -> "waiting".
     window.run_view.bind_run(run)
+    window.run_view.set_recipe_name(tr("recipe_youtube_video"))
+    window.run_view.set_finished(True)
 
 
 def render(output: Path, check: bool = False) -> list[Path]:

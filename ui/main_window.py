@@ -676,6 +676,9 @@ class MainWindow(QMainWindow):
         )
         self.run_view.retry_requested.connect(self._on_recipe_retry)
         self.run_view.cancel_requested.connect(self._cancel_recipe_job)
+        self.run_view.open_record_requested.connect(
+            lambda: self._stack.setCurrentIndex(self._record_index)
+        )
         self._run_index = self._stack.addWidget(self.run_view)
 
         self.workspace_shell = WorkspaceShell(self.library_view, self._stack)
@@ -1511,6 +1514,10 @@ class MainWindow(QMainWindow):
 
         self._recipe_run_id = None
         self.run_view.bind_run(run)
+        self.run_view.set_recipe_name(
+            tr(f"recipe_{recipe.builtin_key}") if recipe.builtin_key else recipe.name
+        )
+        self.run_view.set_finished(False)
         if show_run_screen:
             self._stack.setCurrentIndex(self._run_index)
         self._save_recipe_run("running")
@@ -1648,6 +1655,7 @@ class MainWindow(QMainWindow):
         own bookkeeping), and report how many came out of it."""
         self._recipe_job = None
         self._reset_ui()
+        self.run_view.set_finished(True)
 
         succeeded = {
             name for name, outcome in run.outcomes.items()

@@ -286,3 +286,41 @@ def test_eight_collapsed_steps_fit_900x550_without_scrolling(qt_application, pro
     bar = view._scroll.verticalScrollBar()
     assert bar.maximum() == 0, f"content needs scrolling: maximum={bar.maximum()}"
     view.close()
+
+
+# ------------------------------------------------------------------ heading and exit
+
+def test_heading_names_the_recipe_and_hides_while_unnamed(process_events):
+    view = RunView(STEP_NAMES, LABELS)
+    view.show()
+    process_events()
+    assert not view._heading.isVisible()
+
+    view.set_recipe_name("Podcast article")
+    process_events()
+
+    assert view._heading.isVisible()
+    assert "Podcast article" in view._heading.text()
+    view.close()
+
+
+def test_open_record_button_appears_only_once_the_run_is_finished(process_events):
+    """Regression: a finished run left the user on a list of completed
+    rows with no route to the record those steps had just produced."""
+    view = RunView(STEP_NAMES, LABELS)
+    view.show()
+    view.set_finished(False)
+    process_events()
+    assert not view._open_button.isVisible()
+
+    seen = []
+    view.open_record_requested.connect(lambda: seen.append(True))
+    view.set_finished(True)
+    process_events()
+    assert view._open_button.isVisible()
+
+    view._open_button.click()
+    process_events()
+    assert seen == [True]
+    view.close()
+

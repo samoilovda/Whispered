@@ -169,6 +169,25 @@ def test_finished_run_clears_the_running_status_line(window, process_events):
     )
 
 
+def test_finished_run_offers_the_way_to_the_record(window, process_events):
+    """The run screen names its recipe while running and grows a route to
+    the record once the run ends."""
+    # isVisibleTo(), not isVisible(): this fixture never show()s the
+    # window, so every descendant reports isVisible() False regardless.
+    window._run_recipe(_result())
+    assert window.run_view._heading.isVisibleTo(window.run_view)
+    assert window.run_view._heading.text()
+    assert not window.run_view._open_button.isVisibleTo(window.run_view)
+
+    assert window._recipe_job.wait(10000)
+    process_events()
+
+    assert window.run_view._open_button.isVisibleTo(window.run_view)
+    window.run_view._open_button.click()
+    process_events()
+    assert window._stack.currentIndex() == window._record_index
+
+
 # ---------------------------------------------------------------- cover params
 
 def test_recipe_run_renders_the_cover_the_workspace_is_set_to(window, monkeypatch, process_events):
