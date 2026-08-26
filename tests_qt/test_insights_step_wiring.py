@@ -147,3 +147,33 @@ def test_cancel_insights_job_stops_the_worker_without_reporting_a_result(
     assert window.insights_panel._results == {}
 
     window.close()
+
+
+def test_finished_insights_job_takes_the_cancel_button_back_down(
+    monkeypatch, process_events,
+):
+    """Regression: _start_insights_job() shows the status bar's Cancel
+    button and nothing in the finish handler hid it again, so it stayed on
+    screen offering to cancel a job that had already ended — and stayed
+    that way for the rest of the session."""
+    monkeypatch.setattr("core.insights.generate_insight", _fake_generate_insight)
+    from config import get_config
+    from ui.main_window import MainWindow
+
+    window = MainWindow()
+    window.show()
+    get_config().lm_studio_url = "http://127.0.0.1:1234"
+    window._current_result = _result()
+    window._last_record_id = None
+    window._source_filepath = None
+    process_events()
+    assert not window.cancel_btn.isVisible()
+
+    window.insights_panel.generate_requested.emit()
+    assert window._insights_job is not None
+    assert window._insights_job.wait(5000)
+    process_events()
+
+    assert not window.cancel_btn.isVisible()
+
+    window.close()

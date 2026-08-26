@@ -155,3 +155,31 @@ def test_cancel_youtube_job_stops_the_worker_without_reporting_a_result(
     assert not window.youtube_panel._copy_btn.isEnabled()
 
     window.close()
+
+
+def test_finished_youtube_job_takes_the_cancel_button_back_down(
+    monkeypatch, process_events,
+):
+    """Same regression as the insights job: _start_youtube_job() showed
+    the status bar's Cancel button and the finish handler never hid it."""
+    monkeypatch.setattr("core.insights.generate_insight", _fake_generate_insight)
+    from config import get_config
+    from ui.main_window import MainWindow
+
+    window = MainWindow()
+    window.show()
+    get_config().lm_studio_url = "http://127.0.0.1:1234"
+    window._current_result = _result()
+    window._last_record_id = None
+    window._source_filepath = None
+    process_events()
+    assert not window.cancel_btn.isVisible()
+
+    window.youtube_panel.generate_requested.emit()
+    assert window._youtube_job is not None
+    assert window._youtube_job.wait(5000)
+    process_events()
+
+    assert not window.cancel_btn.isVisible()
+
+    window.close()

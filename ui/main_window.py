@@ -2059,6 +2059,10 @@ class MainWindow(QMainWindow):
         started by _start_insights_job() — hands the outcome to the panel."""
         self._insights_job = None
         outcome = run.outcomes.get("insights")
+        # _start_insights_job() showed the status bar's Cancel button;
+        # nothing here used to hide it again, so it stayed on screen
+        # offering to cancel a job that had already finished.
+        self._reset_ui()
 
         if outcome is not None and outcome.status is StepStatus.SUCCEEDED and isinstance(
             outcome.result, dict
@@ -2166,6 +2170,9 @@ class MainWindow(QMainWindow):
         job started by _start_youtube_job() — hands the outcome to the panel."""
         self._youtube_job = None
         outcome = run.outcomes.get("youtube_package")
+        # Same as the insights job above: _start_youtube_job() showed the
+        # Cancel button and nothing here took it back down.
+        self._reset_ui()
 
         if outcome is not None and outcome.status is StepStatus.SUCCEEDED and isinstance(
             outcome.result, dict
