@@ -575,6 +575,14 @@ class MainWindow(QMainWindow):
         self.batch_panel.start_requested.connect(self._start_batch_processing)
         self._shutdownables.append(self.batch_panel)
 
+        # Watch folder (B5b): new supported files dropped into a
+        # configured local directory join the same queue a multi-file
+        # drop does (B5a) — see _apply_watch_folder_config().
+        from core.watch_folder import WatchFolderService
+        self._watch_folder_service = WatchFolderService(self)
+        self._watch_folder_service.file_found.connect(self._on_watch_folder_file_found)
+        self._apply_watch_folder_config()
+
         # Course Capture Panel — same "persistent status surface" placement
         # as Batch (see _build_queue_section): a queue of lessons captured
         # one at a time via the Live system-audio pipeline instead of files.
@@ -1088,6 +1096,23 @@ class MainWindow(QMainWindow):
             cfg.live_transcription_enabled
         )
         self.status_bar.set_course_available(cfg.live_transcription_enabled)
+        self._apply_watch_folder_config()
+
+    def _apply_watch_folder_config(self) -> None:
+        """Point _watch_folder_service at Config.watch_folder, or stop it
+        entirely when disabled or unset — called at startup and again
+        after Settings is applied (B5b)."""
+        cfg = get_config()
+        folder = getattr(cfg, "watch_folder", "") if getattr(
+            cfg, "watch_folder_enabled", False
+        ) else ""
+        self._watch_folder_service.set_folder(folder)
+
+    def _on_watch_folder_file_found(self, path: str) -> None:
+        """WatchFolderService.file_found (B5b): joins the same queue a
+        multi-file drop does (B5a)."""
+        self.batch_panel.add_files([path])
+        self.status_bar.show_queue(True)
 
     def _apply_config_defaults(self):
         """Re-seed header controls from the saved config (after settings change)."""

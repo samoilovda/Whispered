@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QStackedWidget, QWidget,
     QPushButton, QLabel, QComboBox, QCheckBox, QLineEdit,
     QDialogButtonBox, QSpinBox, QFormLayout,
-    QDoubleSpinBox, QMessageBox, QPlainTextEdit
+    QDoubleSpinBox, QMessageBox, QPlainTextEdit, QFileDialog
 )
 from PyQt6.QtCore import pyqtSignal
 
@@ -199,9 +199,39 @@ class SettingsDialog(QDialog):
         self._lang_ui_combo.addItem("Русский", "ru")
         layout.addRow(tr("settings_ui_language"), self._lang_ui_combo)
 
+        # Watch folder (B5b): a local directory that gets polled for new
+        # supported files, which are then queued the same way a
+        # multi-file drop is (B5a).
+        self._watch_enabled_chk = QCheckBox(tr("settings_watch_folder_enabled"))
+        layout.addRow(self._watch_enabled_chk)
+
+        watch_row = QHBoxLayout()
+        self._watch_folder_edit = QLineEdit()
+        self._watch_folder_edit.setPlaceholderText(tr("settings_watch_folder_placeholder"))
+        watch_row.addWidget(self._watch_folder_edit, stretch=1)
+        watch_browse_btn = QPushButton(tr("settings_watch_folder_browse"))
+        watch_browse_btn.clicked.connect(self._browse_watch_folder)
+        watch_row.addWidget(watch_browse_btn)
+        watch_container = QWidget()
+        watch_container.setLayout(watch_row)
+        layout.addRow(tr("settings_watch_folder"), watch_container)
+
+        watch_hint = QLabel(tr("settings_watch_folder_hint"))
+        watch_hint.setProperty("role", "muted")
+        watch_hint.setProperty("size", "small")
+        watch_hint.setWordWrap(True)
+        layout.addRow(watch_hint)
+
         tab_layout.addWidget(card)
         tab_layout.addStretch()
         return tab
+
+    def _browse_watch_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(
+            self, tr("settings_watch_folder"), self._watch_folder_edit.text()
+        )
+        if folder:
+            self._watch_folder_edit.setText(folder)
 
     def _build_transcription_tab(self) -> QWidget:
         tab = QWidget()
@@ -403,6 +433,8 @@ class SettingsDialog(QDialog):
         self._live_chk.setChecked(getattr(cfg, "live_transcription_enabled", False))
         idx = self._lang_ui_combo.findData(getattr(cfg, "ui_language", "auto"))
         self._lang_ui_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self._watch_enabled_chk.setChecked(getattr(cfg, "watch_folder_enabled", False))
+        self._watch_folder_edit.setText(getattr(cfg, "watch_folder", ""))
 
         # Transcription
         idx = self._model_combo.findData(getattr(cfg, "default_model", "large-v3-turbo"))
@@ -451,6 +483,8 @@ class SettingsDialog(QDialog):
         cfg.history_enabled = self._history_chk.isChecked()
         cfg.live_transcription_enabled = self._live_chk.isChecked()
         cfg.ui_language = self._lang_ui_combo.currentData() or "auto"
+        cfg.watch_folder_enabled = self._watch_enabled_chk.isChecked()
+        cfg.watch_folder = self._watch_folder_edit.text().strip()
 
         # Transcription
         cfg.default_model = self._model_combo.currentData() or "large-v3-turbo"

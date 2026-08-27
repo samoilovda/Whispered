@@ -101,6 +101,14 @@ class Config:
     # History / privacy
     history_enabled: bool = True
 
+    # Watch folder (B5b, docs/IMPROVEMENT_PLAN_2026-08.ru.md): a local
+    # directory core/watch_folder.py polls for new supported files and
+    # queues automatically. Off by default, and the Settings page warns
+    # the folder must be local — a network/cloud-synced one produces a
+    # flood of filesystem events the debounce alone can't absorb.
+    watch_folder: str = ""
+    watch_folder_enabled: bool = False
+
     # Export formats last selected in the Record view's Export menu
     # (see ui/record_view.py). Persisted so the choice survives restarts.
     export_formats: list = field(default_factory=lambda: ["txt"])
