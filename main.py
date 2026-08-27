@@ -17,11 +17,22 @@ def _setup_frozen_runtime():
     if not getattr(sys, "frozen", False):
         return
     if sys.platform == "darwin":
-        # macOS deliberately keeps whisper.cpp outside the app bundle so a
-        # Metal build can be upgraded independently of Whispered.app.
-        lib_dir = os.path.expanduser("~/Library/Application Support/Whispered/lib")
-        if os.path.isdir(lib_dir):
-            sys.path.insert(0, lib_dir)
+        # A dev build keeps whisper.cpp outside the app bundle so a Metal
+        # build can be upgraded independently of Whispered.app. A release
+        # build (build.py --bundle-libs) has no such external directory on
+        # the user's machine, so it stashes the stack inside the bundle at
+        # Contents/Resources/whisper-runtime. Prefer the external copy when
+        # both exist — that is the one a developer just refreshed.
+        resources = os.path.join(
+            os.path.dirname(os.path.dirname(sys.executable)), "Resources"
+        )
+        lib_dirs = [
+            os.path.expanduser("~/Library/Application Support/Whispered/lib"),
+            os.path.join(resources, "whisper-runtime"),
+        ]
+        for lib_dir in reversed(lib_dirs):
+            if os.path.isdir(lib_dir) and lib_dir not in sys.path:
+                sys.path.insert(0, lib_dir)
         path = os.environ.get("PATH", "")
         for extra in ("/opt/homebrew/bin", "/usr/local/bin"):
             if extra not in path.split(os.pathsep):

@@ -10,8 +10,9 @@ Metal build can be updated without rebuilding the app. GGML models were
 already external (~/Library/Application Support/Whispered/models).
 
 Usage:
-    .venv/bin/python build.py            # build .app + deploy whisper libs
-    .venv/bin/python build.py --no-libs  # build .app only
+    .venv/bin/python build.py                       # build .app + deploy whisper libs (dev)
+    .venv/bin/python build.py --no-libs             # build .app only
+    .venv/bin/python build.py --bundle-libs --no-libs  # self-contained release .app
 
 Requirements: run with the project venv's python (it must have the same
 major.minor version as the interpreter the external _pywhispercpp
@@ -31,6 +32,11 @@ LIB_DEPLOY_DIR = Path.home() / "Library/Application Support/Whispered/lib"
 HELPER_PROJECT = PROJECT / "native" / "system_capture_helper"
 HELPER_NAME = "whispered-capture-helper"
 _BUNDLE_IDENTIFIER = "io.github.whispered"
+# --bundle-libs stashes the whisper stack here, inside the .app, for a
+# self-contained release. main._setup_frozen_runtime() falls back to this
+# path when the external LIB_DEPLOY_DIR is absent (i.e. on any machine
+# that never ran a dev build). Keep the name in step with main.py.
+BUNDLED_RUNTIME_DIRNAME = "whisper-runtime"
 
 # Whisper stack pieces to deploy from site-packages. The compiled
 # extension references its dylibs via @loader_path/pywhispercpp/.dylibs/,
@@ -54,7 +60,7 @@ _WHISPER_GLOBS = (
 )
 
 
-def build_app() -> None:
+def build_app(bundle_libs: bool = False) -> None:
     helper = build_capture_helper()
     for name in ("build", "dist"):
         target = PROJECT / name
@@ -99,13 +105,14 @@ def build_app() -> None:
         raise SystemExit("❌ dist/Whispered.app was not produced")
 
     configure_macos_privacy(app)
-    install_capture_helper(app, helper)
 
-    # Belt and braces: the excludes above should keep the whisper stack
-    # out, but a stray hook could still pull the dylibs in — and then the
-    # bundled (possibly stale) copy would shadow the external one. (Match
-    # the stack's actual artifact names, not bare "whisper" — the app
-    # binary itself is named Whispered.)
+    # Belt and braces: the excludes above should keep the whisper stack out
+    # of the PyInstaller output, but a stray hook could still pull the
+    # dylibs in — and then that (possibly stale) copy would shadow the
+    # external one. Run this before an intentional --bundle-libs so the
+    # check only ever sees what PyInstaller itself collected. (Match the
+    # stack's actual artifact names, not bare "whisper" — the app binary
+    # itself is named Whispered.)
     leaked = [
         p for p in app.rglob("*")
         if p.name.startswith(("libwhisper", "libggml", "_pywhispercpp"))
@@ -113,7 +120,16 @@ def build_app() -> None:
     ]
     if leaked:
         raise SystemExit(f"❌ whisper artifacts leaked into the bundle: {leaked[:5]}")
-    print(f"✅ built {app} (whisper stack verified absent)")
+
+    if bundle_libs:
+        bundle_whisper_libs(app)
+        print(f"✅ built {app} (whisper stack bundled for distribution)")
+    else:
+        print(f"✅ built {app} (whisper stack kept external)")
+
+    # Helper goes in last: it re-seals the outer bundle, so anything added
+    # to the .app (privacy strings, --bundle-libs) must already be in place.
+    install_capture_helper(app, helper)
 
 
 def build_capture_helper() -> Path:
@@ -164,19 +180,23 @@ def configure_macos_privacy(app: Path) -> None:
         plistlib.dump(info, handle)
 
 
-def deploy_whisper_libs() -> None:
-    site = Path(sysconfig.get_paths()["purelib"])
+def _collect_whisper_sources(site: Path | None = None) -> list[Path]:
+    site = site or Path(sysconfig.get_paths()["purelib"])
     sources: list[Path] = []
     for pattern in _WHISPER_GLOBS:
         sources.extend(site.glob(pattern))
     if not any(s.name == "pywhispercpp" for s in sources):
         raise SystemExit(
-            f"❌ pywhispercpp not found in {site} — run from the project venv"
+            f"❌ pywhispercpp not found in {site} — install it into this "
+            "environment first (pip install -r requirements.lock)"
         )
+    return sources
 
-    LIB_DEPLOY_DIR.mkdir(parents=True, exist_ok=True)
+
+def _mirror_into(sources: list[Path], target: Path) -> None:
+    target.mkdir(parents=True, exist_ok=True)
     for src in sources:
-        dst = LIB_DEPLOY_DIR / src.name
+        dst = target / src.name
         if dst.exists():
             shutil.rmtree(dst) if dst.is_dir() else dst.unlink()
         if src.is_dir():
@@ -184,16 +204,38 @@ def deploy_whisper_libs() -> None:
         else:
             shutil.copy2(src, dst)
         print(f"📦 {src.name} → {dst}")
+
+
+def deploy_whisper_libs() -> None:
+    _mirror_into(_collect_whisper_sources(), LIB_DEPLOY_DIR)
     print(f"✅ whisper libs deployed to {LIB_DEPLOY_DIR}")
+
+
+def bundle_whisper_libs(app: Path, site: Path | None = None) -> None:
+    """Copy the whisper stack into the .app for a self-contained release.
+
+    The dev workflow keeps whisper external (``deploy_whisper_libs``) so a
+    Metal rebuild does not need a fresh .app. A downloaded release has no
+    such external directory on the user's machine, so ``--bundle-libs``
+    stashes the same files under
+    ``Contents/Resources/<BUNDLED_RUNTIME_DIRNAME>`` and
+    ``main._setup_frozen_runtime()`` falls back to that path.
+    """
+    target = app / "Contents" / "Resources" / BUNDLED_RUNTIME_DIRNAME
+    _mirror_into(_collect_whisper_sources(site), target)
+    print(f"✅ whisper stack bundled into {target}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--no-libs", action="store_true",
                         help="skip deploying whisper libs to Application Support")
+    parser.add_argument("--bundle-libs", action="store_true",
+                        help="copy the whisper stack into the .app itself "
+                             "(self-contained release build)")
     opts = parser.parse_args()
 
-    build_app()
+    build_app(bundle_libs=opts.bundle_libs)
     if not opts.no_libs:
         deploy_whisper_libs()
 
