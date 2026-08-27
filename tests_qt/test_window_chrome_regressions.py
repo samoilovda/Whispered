@@ -51,6 +51,37 @@ def test_settings_shortcut_opens_settings_dialog(monkeypatch, process_events):
     process_events()
 
 
+def test_settings_action_keeps_preferences_role_in_russian(process_events):
+    """Switching the UI language to Russian used to strip Preferences from
+    the native macOS menu bar: Qt's caption heuristic only recognises the
+    English "Settings", so the Russian caption left the action at NoRole
+    and macOS dropped it. The role is now pinned explicitly."""
+    from PyQt6.QtGui import QAction
+
+    import core.i18n as i18n
+    from ui.main_window import MainWindow
+
+    original_lang = i18n.current_lang()
+    i18n.load_locale("ru")
+    try:
+        assert i18n.tr("menu_settings") == "Настройки"
+
+        window = MainWindow()
+        process_events()
+
+        settings_actions = [
+            a for a in window._palette_menu_actions
+            if a.menuRole() == QAction.MenuRole.PreferencesRole
+        ]
+        assert len(settings_actions) == 1
+        assert settings_actions[0].text() == i18n.tr("menu_settings")
+
+        window.close()
+        process_events()
+    finally:
+        i18n.load_locale(original_lang)
+
+
 def test_compact_library_action_uses_icon_without_clipped_text(process_events):
     """At minimum width the Library action is an icon, not a crushed label."""
     from ui.main_window import MainWindow

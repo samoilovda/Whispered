@@ -387,6 +387,17 @@ class MainWindow(QMainWindow):
         from PyQt6.QtGui import QAction, QKeySequence
 
         _SEPARATOR = object()
+        # macOS moves an action into the application ("Whispered") menu
+        # only when it carries the matching QAction.MenuRole. Qt can guess
+        # the role from the *English* caption ("Settings" → PreferencesRole),
+        # but once the UI language is Russian the caption no longer matches
+        # any heuristic, the role stays NoRole, and the item is dropped
+        # from the native menu bar entirely — Preferences became
+        # unreachable after switching to Russian. Pin the role explicitly
+        # so it survives translation.
+        _MENU_ROLES = {
+            "menu_settings": QAction.MenuRole.PreferencesRole,
+        }
         # (menu_key, label_key, shortcut, slot, in_palette). label_key is
         # also what the palette row shows via action.text() — see
         # ui/command_palette.py's module docstring for why that matters.
@@ -444,6 +455,8 @@ class MainWindow(QMainWindow):
                 menu.addSeparator()
                 continue
             action = QAction(tr(label_key), self)
+            if label_key in _MENU_ROLES:
+                action.setMenuRole(_MENU_ROLES[label_key])
             if shortcut:
                 action.setShortcut(QKeySequence(shortcut))
             action.triggered.connect(slot)
