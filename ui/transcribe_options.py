@@ -140,6 +140,44 @@ class TranscribeOptions(QFrame):
         # values doesn't immediately write them back out again.
         self.changed.connect(self._persist)
 
+    def params(self) -> dict:
+        """The widget's current selections as a Recipe.params dict (B4,
+        docs/IMPROVEMENT_PLAN_2026-08.ru.md) — what the recipe editor
+        captures into the recipe being saved, on top of (not instead of)
+        this panel's existing auto-persist-to-Config side effect."""
+        return {
+            "model": self.model_combo.currentData(),
+            "language": self.language_combo.currentData(),
+            "translate": self.translate_checkbox.isChecked(),
+            "performance_mode": self.perf_combo.currentData(),
+            "diarization": self.diarization_checkbox.isChecked(),
+        }
+
+    def apply_params(self, params: dict) -> None:
+        """Seed the widgets from a recipe's saved params, falling back to
+        whatever is already selected (i.e. Config's defaults, per
+        _load_config()) for any key the recipe doesn't override — called
+        by the recipe editor before it's shown, not on every keystroke."""
+        model = params.get("model")
+        if model:
+            idx = self.model_combo.findData(model)
+            if idx >= 0:
+                self.model_combo.setCurrentIndex(idx)
+        language = params.get("language")
+        if language:
+            idx = self.language_combo.findData(language)
+            if idx >= 0:
+                self.language_combo.setCurrentIndex(idx)
+        if "translate" in params:
+            self.translate_checkbox.setChecked(bool(params["translate"]))
+        mode = params.get("performance_mode")
+        if mode:
+            idx = self.perf_combo.findData(mode)
+            if idx >= 0:
+                self.perf_combo.setCurrentIndex(idx)
+        if "diarization" in params:
+            self.diarization_checkbox.setChecked(bool(params["diarization"]))
+
     def refresh_model_state(self) -> None:
         """Re-check which models are downloaded and rebuild the model
         combo's item text (B10, docs/IMPROVEMENT_PLAN_2026-08.ru.md item

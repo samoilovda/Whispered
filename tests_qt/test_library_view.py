@@ -187,6 +187,76 @@ def test_recipe_filter_chips_exist_for_every_builtin_recipe(process_events):
     view.close()
 
 
+def test_refresh_recipe_filters_adds_and_removes_custom_chips(
+    monkeypatch, tmp_path, process_events,
+):
+    """B4, docs/IMPROVEMENT_PLAN_2026-08.ru.md: the recipe filter row
+    grows a chip for every Config.recipes entry, not just the five
+    built-ins, and drops it again once the recipe is gone.
+
+    Asserts against _recipe_filter_buttons/_recipe_filter_group (updated
+    synchronously by _build_recipe_filter_chips()) rather than
+    findChildren() — a torn-down chip's widget.deleteLater() only
+    actually destroys it on a later real event-loop turn, which
+    processEvents() doesn't reliably drive under the offscreen QPA this
+    suite runs under.
+    """
+    import config
+
+    monkeypatch.setattr(config, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "config.json")
+    cfg = config.Config()
+    monkeypatch.setattr(config, "_config", cfg)
+
+    view = LibraryView()
+    process_events()
+
+    assert "My custom" not in view._recipe_filter_buttons
+
+    cfg.recipes = [{"name": "My custom", "steps": ["transcribe", "clean"], "builtin_key": ""}]
+    view.refresh_recipe_filters()
+    process_events()
+    assert "My custom" in view._recipe_filter_buttons
+    added_button = view._recipe_filter_buttons["My custom"]
+    assert added_button.text() == "My custom"
+    assert added_button in view._recipe_filter_group.buttons()
+
+    cfg.recipes = []
+    view.refresh_recipe_filters()
+    process_events()
+    assert "My custom" not in view._recipe_filter_buttons
+    assert added_button not in view._recipe_filter_group.buttons()
+
+    view.close()
+
+
+def test_refresh_recipe_filters_falls_back_to_all_once_active_recipe_is_gone(
+    monkeypatch, tmp_path, process_events,
+):
+    import config
+
+    monkeypatch.setattr(config, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "config.json")
+    cfg = config.Config(
+        recipes=[{"name": "Temp", "steps": ["transcribe"], "builtin_key": ""}]
+    )
+    monkeypatch.setattr(config, "_config", cfg)
+
+    view = LibraryView()
+    process_events()
+    view._set_recipe_filter("Temp")
+    assert view._active_recipe_filter == "Temp"
+
+    cfg.recipes = []
+    view.refresh_recipe_filters()
+    process_events()
+
+    assert view._active_recipe_filter == "all"
+    assert view._recipe_filter_all_btn.isChecked()
+
+    view.close()
+
+
 def test_both_filter_rows_are_labeled(process_events):
     """Regression: two independent chip rows (source, recipe) each
     defaulted to an unlabeled "All" chip — indistinguishable from each

@@ -57,3 +57,11 @@ def performance_mode_options() -> list[tuple[str, str, float, str]]:
         (key, tr(f"performance_{key}"), multiplier, tr(f"performance_{key}_description"))
         for key, _label, multiplier, _description in PERFORMANCE_MODES
     ]
+
+
+def recipe_label(recipe) -> str:
+    """A recipe's display label (B4, docs/IMPROVEMENT_PLAN_2026-08.ru.md):
+    a built-in's own translated name (``recipe_<builtin_key>``), or a
+    custom recipe's own name exactly as the user typed it — there's no
+    locale key for an arbitrary user-authored name."""
+    return tr(f"recipe_{recipe.builtin_key}") if recipe.builtin_key else recipe.name

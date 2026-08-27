@@ -28,14 +28,16 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QPoint, Qt, QTimer, pyqtSignal
 
+from config import get_config
 from core.logger import get_logger
 from core.i18n import tr
 from domain.job import StepStatus
-from domain.recipe import BUILTIN_RECIPES
+from domain.recipe import BUILTIN_RECIPES, Recipe
 from utils import format_duration
 from ui.empty_state import EmptyStateWidget
 from ui.icons import get_icon, IconColors
 from ui.components import FlowLayout, apply_soft_shadow
+from ui.option_labels import recipe_label as _recipe_display_label
 
 logger = get_logger(__name__)
 
@@ -269,28 +271,19 @@ class LibraryView(QWidget):
         recipe_label.setProperty("role", "muted")
         layout.addWidget(recipe_label)
 
-        recipe_filters_widget = QWidget()
-        recipe_filters = FlowLayout(recipe_filters_widget, spacing=6)
+        self._recipe_filters_widget = QWidget()
+        self._recipe_filters_layout = FlowLayout(self._recipe_filters_widget, spacing=6)
         self._recipe_filter_group = QButtonGroup(self)
         self._recipe_filter_group.setExclusive(True)
-        all_recipes_button = QPushButton(tr("library_filter_all"))
-        all_recipes_button.setCheckable(True)
-        all_recipes_button.setChecked(True)
-        all_recipes_button.setProperty("role", "quick-chip")
-        all_recipes_button.clicked.connect(lambda: self._set_recipe_filter("all"))
-        self._recipe_filter_group.addButton(all_recipes_button)
-        recipe_filters.addWidget(all_recipes_button)
-        self._recipe_filter_all_btn = all_recipes_button
-        for recipe in BUILTIN_RECIPES:
-            button = QPushButton(tr(f"recipe_{recipe.builtin_key}"))
-            button.setCheckable(True)
-            button.setProperty("role", "quick-chip")
-            button.clicked.connect(
-                lambda _checked, key=recipe.builtin_key: self._set_recipe_filter(key)
-            )
-            self._recipe_filter_group.addButton(button)
-            recipe_filters.addWidget(button)
-        layout.addWidget(recipe_filters_widget)
+        self._recipe_filter_all_btn = QPushButton(tr("library_filter_all"))
+        self._recipe_filter_all_btn.setCheckable(True)
+        self._recipe_filter_all_btn.setChecked(True)
+        self._recipe_filter_all_btn.setProperty("role", "quick-chip")
+        self._recipe_filter_all_btn.clicked.connect(lambda: self._set_recipe_filter("all"))
+        self._recipe_filter_group.addButton(self._recipe_filter_all_btn)
+        self._recipe_filter_buttons: dict = {}
+        self._build_recipe_filter_chips()
+        layout.addWidget(self._recipe_filters_widget)
 
         # Hidden until a non-default filter or a live search makes the
         # list not show "everything" — clicking it returns to that state
@@ -477,6 +470,52 @@ class LibraryView(QWidget):
 
     def _set_recipe_filter(self, recipe_key: str) -> None:
         self._active_recipe_filter = recipe_key
+        self._populate()
+
+    def _build_recipe_filter_chips(self) -> None:
+        """(Re)build the built-in + custom recipe filter chips (B4,
+        docs/IMPROVEMENT_PLAN_2026-08.ru.md) — self._recipe_filter_all_btn
+        survives the rebuild (no per-recipe state), everything else is
+        torn down and rebuilt from BUILTIN_RECIPES + Config.recipes."""
+        while self._recipe_filters_layout.count():
+            item = self._recipe_filters_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None and widget is not self._recipe_filter_all_btn:
+                self._recipe_filter_group.removeButton(widget)
+                widget.deleteLater()
+        self._recipe_filter_buttons = {}
+        self._recipe_filters_layout.addWidget(self._recipe_filter_all_btn)
+        recipes = list(BUILTIN_RECIPES) + [
+            Recipe.from_dict(entry) for entry in get_config().recipes
+        ]
+        for recipe in recipes:
+            key = recipe.builtin_key or recipe.name
+            button = QPushButton(_recipe_display_label(recipe))
+            button.setCheckable(True)
+            button.setProperty("role", "quick-chip")
+            button.clicked.connect(lambda _checked, key=key: self._set_recipe_filter(key))
+            self._recipe_filter_group.addButton(button)
+            self._recipe_filter_buttons[key] = button
+            self._recipe_filters_layout.addWidget(button)
+
+    def refresh_recipe_filters(self) -> None:
+        """Public entry point for after Config.recipes changes (save,
+        save-as-new, delete in the recipe editor) — rebuild the chip row;
+        if the currently active filter no longer matches any recipe (its
+        custom recipe was deleted), fall back to "All" rather than
+        silently filtering on a key nothing produces any more."""
+        recipes = list(BUILTIN_RECIPES) + [
+            Recipe.from_dict(e) for e in get_config().recipes
+        ]
+        known_keys = {r.builtin_key or r.name for r in recipes}
+        if self._active_recipe_filter != "all" and self._active_recipe_filter not in known_keys:
+            self._active_recipe_filter = "all"
+        self._build_recipe_filter_chips()
+        button = self._recipe_filter_buttons.get(self._active_recipe_filter)
+        if button is not None:
+            button.setChecked(True)
+        else:
+            self._recipe_filter_all_btn.setChecked(True)
         self._populate()
 
     def _reset_filters(self) -> None:

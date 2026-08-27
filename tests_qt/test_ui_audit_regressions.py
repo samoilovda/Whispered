@@ -163,13 +163,12 @@ def test_recipe_editor_default_name_nudges_toward_a_copy(process_events):
     dialog.close()
 
 
-def test_recipe_editor_save_without_changes_does_not_touch_config(
+def test_recipe_editor_cancel_does_not_touch_config(
     monkeypatch, tmp_path, process_events,
 ):
-    """Regression: "Save" with no actual change used to overwrite
-    Config.recipes with an unnamed "custom" slot and switch
-    Config.last_recipe to it, silently discarding the built-in the editor
-    was opened on and unchecking every start-screen chip."""
+    """Cancel must leave Config.recipes and Config.last_recipe untouched
+    and the original chip checked — only Save/Save as new/Delete (B4,
+    docs/IMPROVEMENT_PLAN_2026-08.ru.md) write anything."""
     import config
     from PyQt6.QtWidgets import QDialog
     from ui.main_window import MainWindow
@@ -180,7 +179,7 @@ def test_recipe_editor_save_without_changes_does_not_touch_config(
     monkeypatch.setattr(config, "_config", config.Config(last_recipe="podcast_article"))
 
     def fake_exec(_dialog):
-        return QDialog.DialogCode.Accepted
+        return QDialog.DialogCode.Rejected
 
     monkeypatch.setattr(RecipeEditorDialog, "exec", fake_exec)
 
@@ -201,12 +200,58 @@ def test_recipe_editor_save_without_changes_does_not_touch_config(
     process_events()
 
 
+def test_recipe_editor_save_without_changes_still_creates_a_named_recipe(
+    monkeypatch, tmp_path, process_events,
+):
+    """B4: unlike the old single ambiguous "OK" button, an explicit click
+    on the now clearly-labeled "Save" button always saves — including
+    with no actual change — under the name field's (defaulted) value,
+    rather than silently no-op'ing."""
+    import config
+    from PyQt6.QtWidgets import QDialog
+    from ui.main_window import MainWindow
+    from ui.recipe_editor import RecipeEditorDialog
+
+    monkeypatch.setattr(config, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "config.json")
+    monkeypatch.setattr(config, "_config", config.Config(last_recipe="podcast_article"))
+
+    def fake_exec(dialog):
+        dialog.result_action = "save"
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(RecipeEditorDialog, "exec", fake_exec)
+
+    window = MainWindow()
+    window.show()
+    window.start_view.select_recipe("podcast_article")
+    process_events()
+
+    window._open_recipe_editor()
+    process_events()
+
+    assert len(config.get_config().recipes) == 1
+    saved = config.get_config().recipes[0]
+    from core.i18n import tr
+    assert saved["name"] == tr(
+        "recipe_editor_default_name", base=tr("recipe_podcast_article")
+    )
+    assert saved["steps"] == ["transcribe", "clean", "article"]
+    assert config.get_config().last_recipe == saved["name"]
+    assert window.start_view.current_recipe_key() == saved["name"]
+
+    window.close()
+    process_events()
+
+
 def test_recipe_editor_save_with_changes_names_the_new_recipe(
     monkeypatch, tmp_path, process_events,
 ):
     """A real step-selection change is saved as a named custom recipe —
-    the name field's value ends up on Config.recipes, not a hardcoded
-    "custom" label."""
+    the name field's value ends up on Config.recipes, and both
+    Config.last_recipe and the selected chip switch to that same name
+    (B4, docs/IMPROVEMENT_PLAN_2026-08.ru.md — no more hardcoded
+    "custom" label)."""
     import config
     from PyQt6.QtWidgets import QDialog
     from ui.main_window import MainWindow
@@ -219,6 +264,7 @@ def test_recipe_editor_save_with_changes_names_the_new_recipe(
     def fake_exec(dialog):
         dialog._checks["article"].setChecked(False)
         dialog._name_edit.setText("My trimmed recipe")
+        dialog.result_action = "save"
         return QDialog.DialogCode.Accepted
 
     monkeypatch.setattr(RecipeEditorDialog, "exec", fake_exec)
@@ -235,8 +281,9 @@ def test_recipe_editor_save_with_changes_names_the_new_recipe(
     saved = config.get_config().recipes[0]
     assert saved["name"] == "My trimmed recipe"
     assert saved["steps"] == ["transcribe", "clean"]
-    assert config.get_config().last_recipe == "custom"
-    assert window.start_view.current_recipe_key() == "custom"
+    assert config.get_config().last_recipe == "My trimmed recipe"
+    assert window.start_view.current_recipe_key() == "My trimmed recipe"
+    assert window.start_view._recipe_buttons["My trimmed recipe"].isChecked()
 
     window.close()
     process_events()

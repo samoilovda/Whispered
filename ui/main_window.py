@@ -1250,16 +1250,28 @@ class MainWindow(QMainWindow):
         self.cut_view.clear()
         self._cleaned_text = None
 
-        # Get settings from header controls
-        model = self.model_combo.currentData()
-        language = self.language_combo.currentData()
-        translate = self.translate_checkbox.isChecked()
-        perf_mode = self.perf_combo.currentData()
+        # Get settings from header controls, with the selected recipe's
+        # own params (B4, docs/IMPROVEMENT_PLAN_2026-08.ru.md) overriding
+        # when set — a recipe without an override for a given key falls
+        # back to whatever the shared widget/Config already has, same as
+        # every launch before B4.
+        recipe = self._resolve_recipe(self.start_view.current_recipe_key())
+        params = recipe.params or {}
+        model = params.get("model") or self.model_combo.currentData()
+        language = params.get("language") or self.language_combo.currentData()
+        translate = (
+            params["translate"] if "translate" in params
+            else self.translate_checkbox.isChecked()
+        )
+        perf_mode = params.get("performance_mode") or self.perf_combo.currentData()
 
         # Determine thread count based on performance mode
         n_threads = get_thread_count(perf_mode)
 
-        enable_diarization = self.diarization_checkbox.isChecked()
+        enable_diarization = (
+            params["diarization"] if "diarization" in params
+            else self.diarization_checkbox.isChecked()
+        )
 
         self._transcription_start = time.monotonic()
         # Build initial prompt from custom vocabulary
@@ -1463,10 +1475,13 @@ class MainWindow(QMainWindow):
     }
 
     def _resolve_recipe(self, key: str) -> Recipe:
-        """Look up *key* among the five built-ins first, then the one
-        custom recipe slot (Config.recipes — see ui/recipe_editor.py);
-        falls back to transcript-only for an unknown/missing key so a
-        stale Config.last_recipe never breaks a launch."""
+        """Look up *key* among the five built-ins first, then Config.recipes'
+        saved custom recipes (B4, docs/IMPROVEMENT_PLAN_2026-08.ru.md —
+        see ui/recipe_editor.py), matched by name; falls back to
+        transcript-only for an unknown/missing key so a stale
+        Config.last_recipe never breaks a launch. ``key == "custom"``
+        matches the very first entry regardless of its own name — the
+        pre-B4 single-slot format's saved name, kept for old configs."""
         builtin = BUILTIN_RECIPES_BY_KEY.get(key)
         if builtin is not None:
             return builtin
@@ -1475,6 +1490,19 @@ class MainWindow(QMainWindow):
             if key == "custom" or recipe.name == key:
                 return recipe
         return TRANSCRIPT_ONLY
+
+    @staticmethod
+    def _unique_recipe_name(base: str, existing_names: "set[str]") -> str:
+        """*base* if it's free, otherwise "*base* (2)", "(3)", … — what
+        "Save as new" (B4) disambiguates a colliding name with instead of
+        silently overwriting an unrelated recipe that happens to share
+        the default-name text."""
+        if base not in existing_names:
+            return base
+        n = 2
+        while f"{base} ({n})" in existing_names:
+            n += 1
+        return f"{base} ({n})"
 
     def _recipe_get_result(self, run: JobRun, name: str):
         """``StepContext.get_result`` for the recipe run: a finished
@@ -1502,37 +1530,53 @@ class MainWindow(QMainWindow):
         before the dialog is discarded, or Qt would destroy it along with
         the dialog's other children.
 
-        "Save" with no actual change used to overwrite Config.recipes and
-        switch last_recipe to the unnamed "custom" slot regardless —
-        opening the editor on a built-in and immediately saving silently
-        discarded it and unchecked every chip (docs/IMPROVEMENT_PLAN_2026-08.ru.md,
-        A4). Only write anything when the selected steps actually differ
-        from what the dialog was opened with.
+        Save/Save as new/Delete (B4, docs/IMPROVEMENT_PLAN_2026-08.ru.md)
+        replaced the old single unnamed "custom" slot: a recipe is
+        identified by its own name, "Save" upserts Config.recipes by that
+        name (creating it the first time, updating it in place after),
+        "Save as new" always inserts a fresh entry (disambiguating a
+        colliding name via _unique_recipe_name), and "Delete" removes the
+        matching entry. Cancel leaves Config.recipes untouched and the
+        original chip checked.
         """
         original_key = self.start_view.current_recipe_key()
         recipe = self._resolve_recipe(original_key)
+        cfg = get_config()
+        existing_names = {entry.get("name", "") for entry in cfg.recipes}
         # Re-check downloaded state (B10) every time the editor opens —
         # this combo is a single long-lived widget, not rebuilt just by
         # showing the dialog, so a model downloaded since the last time
         # it was open would otherwise still read "will download".
         self.transcribe_options.refresh_model_state()
-        dialog = RecipeEditorDialog(self.transcribe_options, recipe, self)
+        dialog = RecipeEditorDialog(self.transcribe_options, recipe, existing_names, self)
         accepted = dialog.exec() == QDialog.DialogCode.Accepted
+        action = dialog.result_action if accepted else None
         steps = dialog.selected_steps() if accepted else None
         name = dialog.recipe_name() if accepted else None
+        params = dialog.recipe_params() if accepted else None
         self.transcribe_options.setParent(None)
         dialog.deleteLater()
-        if steps is not None and tuple(steps) != tuple(recipe.steps):
-            custom = Recipe(name=name or "custom", steps=steps, builtin_key="")
-            cfg = get_config()
-            cfg.recipes = [custom.to_dict()]
-            cfg.last_recipe = "custom"
+
+        if action == "delete":
+            cfg.recipes = [e for e in cfg.recipes if e.get("name") != recipe.name]
+            if cfg.last_recipe == recipe.name:
+                cfg.last_recipe = TRANSCRIPT_ONLY.builtin_key
             save_config()
-            self.start_view.set_recipe("custom")
-        elif steps is not None:
-            # Accepted, but nothing about the step selection changed —
-            # leave Config.recipes untouched and the original chip
-            # checked rather than silently replacing it.
+            self.start_view.refresh_recipe_chips()
+            self.library_view.refresh_recipe_filters()
+        elif action in ("save", "save_as_new"):
+            final_name = (
+                name if action == "save" else self._unique_recipe_name(name, existing_names)
+            )
+            edited = Recipe(name=final_name, steps=steps, builtin_key="", params=params or {})
+            cfg.recipes = [
+                e for e in cfg.recipes if e.get("name") != final_name
+            ] + [edited.to_dict()]
+            cfg.last_recipe = final_name
+            save_config()
+            self.start_view.refresh_recipe_chips()
+            self.library_view.refresh_recipe_filters()
+        else:
             self.start_view.set_recipe(original_key)
         self.start_view.refresh_summary()
 

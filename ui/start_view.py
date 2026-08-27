@@ -29,10 +29,10 @@ from PyQt6.QtWidgets import (
 
 from config import get_config, save_config
 from core.i18n import tr
-from domain.recipe import BUILTIN_RECIPES, TRANSCRIPT_ONLY
+from domain.recipe import BUILTIN_RECIPES, Recipe, TRANSCRIPT_ONLY
 from ui.animated_button import AnimatedButton
 from ui.components import FlowLayout
-from ui.option_labels import whisper_model_options
+from ui.option_labels import recipe_label, whisper_model_options
 
 
 class StartView(QWidget):
@@ -135,25 +135,18 @@ class StartView(QWidget):
         # row instead (see docs/UI_REDESIGN_PLAN_2026-09.ru.md, A2, the
         # same fix Library's filter chips needed).
         self._recipe_row_widget = QWidget()
-        recipe_row = FlowLayout(self._recipe_row_widget, spacing=6)
+        self._recipe_row_layout = FlowLayout(self._recipe_row_widget, spacing=6)
         self._recipe_group = QButtonGroup(self)
         self._recipe_group.setExclusive(True)
         self._recipe_buttons: dict[str, QPushButton] = {}
-        for recipe in BUILTIN_RECIPES:
-            button = QPushButton(tr(f"recipe_{recipe.builtin_key}"))
-            button.setCheckable(True)
-            button.setProperty("role", "quick-chip")
-            button.setChecked(recipe.builtin_key == self._recipe_key)
-            button.clicked.connect(
-                lambda _checked, key=recipe.builtin_key: self._select_recipe(key)
-            )
-            self._recipe_group.addButton(button)
-            self._recipe_buttons[recipe.builtin_key] = button
-            recipe_row.addWidget(button)
-        configure_btn = QPushButton(tr("start_recipe_configure"))
-        configure_btn.setProperty("role", "quick-chip")
-        configure_btn.clicked.connect(self.configure_recipe_requested.emit)
-        recipe_row.addWidget(configure_btn)
+        # A custom recipe (B4, docs/IMPROVEMENT_PLAN_2026-08.ru.md) is
+        # named, unlike a built-in's stable key, so its chip needs a
+        # button that survives being torn down and rebuilt whenever
+        # Config.recipes changes — see _build_recipe_chips().
+        self._configure_btn = QPushButton(tr("start_recipe_configure"))
+        self._configure_btn.setProperty("role", "quick-chip")
+        self._configure_btn.clicked.connect(self.configure_recipe_requested.emit)
+        self._build_recipe_chips()
         root.addWidget(self._recipe_row_widget)
 
         self.process_button = AnimatedButton(tr("start_launch"))
@@ -216,25 +209,52 @@ class StartView(QWidget):
     def current_recipe_key(self) -> str:
         return self._recipe_key
 
+    def _build_recipe_chips(self) -> None:
+        """(Re)build every recipe chip — the five built-ins plus one per
+        Config.recipes entry (B4, docs/IMPROVEMENT_PLAN_2026-08.ru.md).
+        Called from __init__ and again via refresh_recipe_chips()
+        whenever the recipe editor adds, renames, or removes a custom
+        recipe. self._configure_btn survives the rebuild (it carries no
+        per-recipe state) — everything else is torn down and rebuilt."""
+        while self._recipe_row_layout.count():
+            item = self._recipe_row_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None and widget is not self._configure_btn:
+                self._recipe_group.removeButton(widget)
+                widget.deleteLater()
+        self._recipe_buttons = {}
+        recipes = list(BUILTIN_RECIPES) + [
+            Recipe.from_dict(entry) for entry in get_config().recipes
+        ]
+        for recipe in recipes:
+            key = recipe.builtin_key or recipe.name
+            button = QPushButton(recipe_label(recipe))
+            button.setCheckable(True)
+            button.setProperty("role", "quick-chip")
+            button.setChecked(key == self._recipe_key)
+            button.clicked.connect(lambda _checked, key=key: self._select_recipe(key))
+            self._recipe_group.addButton(button)
+            self._recipe_buttons[key] = button
+            self._recipe_row_layout.addWidget(button)
+        self._recipe_row_layout.addWidget(self._configure_btn)
+
+    def refresh_recipe_chips(self) -> None:
+        """Public entry point for after Config.recipes changes (save,
+        save-as-new, delete in the recipe editor) — rebuild the chip row
+        and re-select whatever Config.last_recipe now is."""
+        self._recipe_key = get_config().last_recipe or TRANSCRIPT_ONLY.builtin_key
+        self._build_recipe_chips()
+
     def set_recipe(self, key: str) -> None:
         """Select *key* programmatically (e.g. after the recipe editor
         saves a change) without re-persisting it — _select_recipe() does
-        that when the change originates from a button click.
-
-        *key* may be "custom" (the recipe editor's one saved custom slot,
-        see ui/recipe_editor.py) — it has no matching chip, so every chip
-        is simply left unchecked rather than the call being ignored.
-        """
+        that when the change originates from a button click. Every
+        recipe (built-in or custom) has a chip since B4, so there's no
+        "no matching chip" case to fall back on any more."""
         self._recipe_key = key
         button = self._recipe_buttons.get(key)
         if button is not None:
             button.setChecked(True)
-        else:
-            checked = self._recipe_group.checkedButton()
-            if checked is not None:
-                self._recipe_group.setExclusive(False)
-                checked.setChecked(False)
-                self._recipe_group.setExclusive(True)
         self.refresh_summary()
 
     def _select_recipe(self, key: str) -> None:

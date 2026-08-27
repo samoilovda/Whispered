@@ -98,6 +98,32 @@ def test_from_dict_tolerates_missing_and_malformed_fields():
     assert recipe.steps == ("transcribe",)
 
 
+def test_round_trip_through_dict_for_several_recipes():
+    """B4, docs/IMPROVEMENT_PLAN_2026-08.ru.md: Config.recipes holds a
+    list of independently named recipes, not one unnamed slot."""
+    originals = [
+        Recipe(name="Quick notes", steps=("transcribe", "clean"), params={"performance_mode": "fast"}),
+        Recipe(name="Deep dive", steps=("transcribe", "diarize", "insights"), params={"diarization": True}),
+        Recipe(name="Just text", steps=("transcribe",)),
+    ]
+    stored = [r.to_dict() for r in originals]
+    restored = [Recipe.from_dict(entry) for entry in stored]
+    assert restored == originals
+    assert len({r.name for r in restored}) == 3
+
+
+def test_from_dict_reads_the_pre_b4_single_custom_slot_format():
+    """B4 item 5: the one legacy entry a pre-B4 config could have written
+    (ui/recipe_editor.py used to fall back to the literal name "custom"
+    when the name field was empty) reads as an ordinary named recipe —
+    no migration needed."""
+    legacy_entry = {"name": "custom", "steps": ["transcribe", "clean"], "builtin_key": ""}
+    recipe = Recipe.from_dict(legacy_entry)
+    assert recipe.name == "custom"
+    assert recipe.steps == ("transcribe", "clean")
+    assert recipe.params == {}
+
+
 def test_to_job_spec_passes_name_and_steps_to_the_builder():
     recipe = Recipe(name="custom", steps=("transcribe", "clean"))
     calls = []
