@@ -41,6 +41,7 @@ class RecordView(QWidget):
     clean_requested = pyqtSignal()
     articles_requested = pyqtSignal()
     cover_requested = pyqtSignal()
+    versions_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -81,6 +82,15 @@ class RecordView(QWidget):
         self.cover_btn.setToolTip(tr("tooltip_record_actions_disabled"))
         self.cover_btn.clicked.connect(self.cover_requested.emit)
         header.addWidget(self.cover_btn)
+
+        # B8, docs/IMPROVEMENT_PLAN_2026-08.ru.md: non-destructive
+        # transcript edit history — opens TranscriptVersionsDialog
+        # (MainWindow owns the actual dialog/restore wiring).
+        self.versions_btn = AnimatedButton(tr("record_versions_action"))
+        self.versions_btn.setEnabled(False)
+        self.versions_btn.setToolTip(tr("tooltip_record_actions_disabled"))
+        self.versions_btn.clicked.connect(self.versions_requested.emit)
+        header.addWidget(self.versions_btn)
 
         self.export_btn = AnimatedButton(tr("record_export_menu"))
         self.export_btn.setIcon(get_icon('save', IconColors.default(), 14))
@@ -149,10 +159,12 @@ class RecordView(QWidget):
         self.clean_btn.setEnabled(has_result)
         self.articles_btn.setEnabled(has_result)
         self.cover_btn.setEnabled(has_result)
+        self.versions_btn.setEnabled(has_result)
         disabled_tip = "" if has_result else tr("tooltip_record_actions_disabled")
         self.clean_btn.setToolTip(disabled_tip)
         self.articles_btn.setToolTip(disabled_tip)
         self.cover_btn.setToolTip(disabled_tip)
+        self.versions_btn.setToolTip(disabled_tip)
 
     def get_export_formats(self) -> list[str]:
         """Currently-checked formats, falling back to ['txt'] if none."""

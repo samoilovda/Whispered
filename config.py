@@ -101,6 +101,12 @@ class Config:
     # History / privacy
     history_enabled: bool = True
 
+    # Transcript versions (B8, docs/IMPROVEMENT_PLAN_2026-08.ru.md): how
+    # many transcript_revisions rows HistoryStore.add_transcript_revision()
+    # keeps per record before pruning the oldest — the very first version
+    # ("as transcribed") is always kept regardless of this limit.
+    transcript_revisions_kept: int = 20
+
     # Watch folder (B5b, docs/IMPROVEMENT_PLAN_2026-08.ru.md): a local
     # directory core/watch_folder.py polls for new supported files and
     # queues automatically. Off by default, and the Settings page warns

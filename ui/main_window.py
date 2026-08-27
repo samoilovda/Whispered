@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QApplication, QTabWidget,
     QTextEdit, QLineEdit, QPlainTextEdit, QStackedWidget,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut, QDragEnterEvent, QDropEvent
 
 from ui.toast import show_toast
@@ -186,6 +186,31 @@ class _WorkerShutdown:
             self._owner._registry.retire(worker)
 
 
+def _result_from_payload(payload: dict) -> TranscriptionResult:
+    """Rebuild a TranscriptionResult from a history/transcript_revision
+    JSON payload dict — the same segment/word reconstruction
+    ``_load_from_history`` uses, factored out so B8's version restore
+    doesn't duplicate it."""
+    from transcriber import Segment, Word
+
+    segments = [
+        Segment(
+            start=s["start"],
+            end=s["end"],
+            text=s["text"],
+            speaker=s.get("speaker"),
+            words=[Word(**word) for word in s.get("words", [])],
+        )
+        for s in payload.get("segments", [])
+    ]
+    return TranscriptionResult(
+        segments=segments,
+        language=payload.get("language", ""),
+        duration=payload.get("duration", 0.0),
+        speaker_names=payload.get("speaker_names") or {},
+    )
+
+
 class MainWindow(QMainWindow):
     """Main application window with header-bar settings layout."""
 
@@ -254,7 +279,16 @@ class MainWindow(QMainWindow):
         # ETA tracking
         self._transcription_start: float = 0.0
         self._last_record_id: int | None = None
+        self._versions_dialog = None  # B8: TranscriptVersionsDialog, lazily created
         self._live_checkpoint = LiveCheckpointTracker()
+        # Debounced transcript-version save (B8,
+        # docs/IMPROVEMENT_PLAN_2026-08.ru.md item 2): a version is
+        # written 5s after the last edit, not on every keystroke —
+        # restarted on each _on_transcript_changed() call.
+        self._revision_save_timer = QTimer(self)
+        self._revision_save_timer.setSingleShot(True)
+        self._revision_save_timer.setInterval(5000)
+        self._revision_save_timer.timeout.connect(self._save_transcript_revision)
         self._setup_ui()
         self._document_session = DocumentSession()
         self._register_document_session_consumers()
@@ -588,6 +622,7 @@ class MainWindow(QMainWindow):
         # (see _register_document_session_consumers) — the open record's
         # segments are already loaded by the time this button is clickable.
         self.record_view.cover_requested.connect(lambda: self._on_section_changed("cover"))
+        self.record_view.versions_requested.connect(self._open_versions_dialog)
 
         # Audio player (hidden when multimedia backend unavailable)
         self.player = PlayerWidget()
@@ -847,10 +882,20 @@ class MainWindow(QMainWindow):
         if self._live_checkpoint.history_record_id is not None:
             try:
                 from core.history import get_history_store
-                get_history_store().update_result(
+                store = get_history_store()
+                store.update_result(
                     self._live_checkpoint.history_record_id,
                     result,
                     speaker_names=getattr(result, "speaker_names", {}) or {},
+                )
+                # First transcript version for a live-originated record
+                # (B8) — the periodic checkpoints above are an in-place
+                # save, not a version worth keeping individually; only
+                # the finished transcript gets a baseline to restore to.
+                store.save_current_revision(
+                    self._live_checkpoint.history_record_id, result,
+                    getattr(result, "speaker_names", {}) or {},
+                    keep=get_config().transcript_revisions_kept,
                 )
                 self._last_record_id = self._live_checkpoint.history_record_id
                 self.library_view.refresh()
@@ -1249,8 +1294,83 @@ class MainWindow(QMainWindow):
                     getattr(result, "speaker_names", {}),
                 )
                 self.library_view.refresh()
+                # Debounced version save (B8) — restarted on every edit so
+                # a burst of keystrokes/renames produces one version 5s
+                # after the last one, not one per edit.
+                self._revision_save_timer.start()
         except Exception as exc:
             logger.warning("Failed to persist transcript edit: %s", exc)
+
+    def _save_transcript_revision(self) -> None:
+        """Fired by _revision_save_timer, 5s after the last transcript
+        edit (B8, docs/IMPROVEMENT_PLAN_2026-08.ru.md item 2). A no-op
+        write (the edit ended up producing the same transcript_revision
+        as the last saved version) is silently skipped inside
+        HistoryStore.save_current_revision() itself."""
+        if self._last_record_id is None:
+            return
+        result = self.transcript_view.get_result()
+        if result is None:
+            return
+        try:
+            from core.history import get_history_store
+            get_history_store().save_current_revision(
+                self._last_record_id, result,
+                getattr(result, "speaker_names", {}),
+                keep=get_config().transcript_revisions_kept,
+            )
+        except Exception as exc:
+            logger.warning("Failed to save transcript version: %s", exc)
+
+    def _open_versions_dialog(self) -> None:
+        """B8: open (or raise) the non-modal "Версии" dialog for the
+        currently open record."""
+        if self._last_record_id is None:
+            return
+        from ui.transcript_versions_dialog import TranscriptVersionsDialog
+
+        if self._versions_dialog is not None:
+            self._versions_dialog.close()
+        dialog = TranscriptVersionsDialog(self._last_record_id, parent=self)
+        dialog.restore_requested.connect(self._restore_transcript_revision)
+        self._versions_dialog = dialog
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _restore_transcript_revision(self, revision_id: int) -> None:
+        """Apply a saved transcript version through DocumentSession.
+        apply_result() (B8 item 4) — the same fan-out every other path
+        producing/loading a result uses, so every panel (cleaned text,
+        article, cover, ...) sees the restored content, not just the
+        transcript tab. Also persists it as the record's current text and
+        writes a new version for it (B8 item 5): the restored content's
+        own transcript_revision differs from whatever was last saved, so
+        this legitimately produces one more entry in the version list,
+        and (being a real revision change) correctly invalidates any
+        generated material's cache the next time a recipe runs."""
+        if self._last_record_id is None:
+            return
+        try:
+            from core.history import get_history_store
+            store = get_history_store()
+            payload = store.get_transcript_revision(revision_id)
+            if payload is None:
+                return
+            result = _result_from_payload(payload)
+            self.transcript_view.set_result(result)
+            self._document_session.apply_result(result)
+            speaker_names = getattr(result, "speaker_names", {})
+            store.update_result(self._last_record_id, result, speaker_names)
+            store.save_current_revision(
+                self._last_record_id, result, speaker_names,
+                keep=get_config().transcript_revisions_kept,
+            )
+            self.library_view.refresh()
+            if self._versions_dialog is not None:
+                self._versions_dialog.reload()
+        except Exception as exc:
+            logger.warning("Failed to restore transcript version: %s", exc)
 
     def _start_transcription(self):
         """Start the transcription process."""
@@ -2016,13 +2136,23 @@ class MainWindow(QMainWindow):
             return
         try:
             from core.history import get_history_store
-            self._last_record_id = get_history_store().add(
+            store = get_history_store()
+            self._last_record_id = store.add(
                 result,
                 source_path=source_path,
                 model=model,
                 speaker_names=speaker_names or {},
                 source_kind=self._source_kind,
                 source_name=source_name,
+            )
+            # First transcript version ("as transcribed" — B8,
+            # docs/IMPROVEMENT_PLAN_2026-08.ru.md item 2), written
+            # immediately rather than waiting for the manual-edit
+            # debounce so a record that's never edited still has a
+            # baseline version to restore to.
+            store.save_current_revision(
+                self._last_record_id, result, speaker_names or {},
+                keep=get_config().transcript_revisions_kept,
             )
             self.library_view.refresh()
         except Exception as e:
@@ -2050,7 +2180,6 @@ class MainWindow(QMainWindow):
         """
         try:
             from core.history import get_history_store
-            from transcriber import TranscriptionResult, Segment, Word
             store = get_history_store()
             record = store.get_record(record_id)
             if record is None:
@@ -2059,22 +2188,7 @@ class MainWindow(QMainWindow):
             source_name = record["source_name"] or ""
             source_path = record["source_path"] or ""
 
-            segments = [
-                Segment(
-                    start=s["start"],
-                    end=s["end"],
-                    text=s["text"],
-                    speaker=s.get("speaker"),
-                    words=[Word(**word) for word in s.get("words", [])],
-                )
-                for s in payload.get("segments", [])
-            ]
-            result = TranscriptionResult(
-                segments=segments,
-                language=payload.get("language", ""),
-                duration=payload.get("duration", 0.0),
-                speaker_names=payload.get("speaker_names") or {},
-            )
+            result = _result_from_payload(payload)
             self._last_record_id = record_id
             self._source_kind = record.get("source_kind", "file")
             # set_result honours result.speaker_names, restoring renames.

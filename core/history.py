@@ -122,6 +122,30 @@ def _v6_add_artifact_texts(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _v7_add_transcript_revisions(conn: sqlite3.Connection) -> None:
+    """Non-destructive transcript edit history (B8,
+    docs/IMPROVEMENT_PLAN_2026-08.ru.md) — a full ``json_payload`` per
+    saved version, the same shape ``transcripts.json_payload`` already
+    uses, so a version can be handed straight to ``DocumentSession.
+    apply_result()`` on restore without a separate deserialization path.
+    Written exclusively through ``HistoryStore.add_transcript_revision()``,
+    which also prunes old rows down to ``Config.transcript_revisions_kept``
+    — a full transcript per version) is the "start simple" option B8's own
+    risk note accepts, not an oversight; diffing instead of storing full
+    copies is the fallback if this turns out to bloat the database.
+    """
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS transcript_revisions (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            record_id    INTEGER NOT NULL,
+            revision     TEXT    NOT NULL,
+            created_at   TEXT    NOT NULL,
+            json_payload TEXT    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_revisions_record ON transcript_revisions(record_id, id DESC);
+    """)
+
+
 # Applied in order, tracked via SQLite's built-in `PRAGMA user_version`
 # (see HistoryStore._migrate). Append new migrations here — never edit or
 # reorder an existing one, since a database's user_version records exactly
@@ -133,6 +157,7 @@ _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _v4_add_job_runs_table,
     _v5_add_speaker_aliases_table,
     _v6_add_artifact_texts,
+    _v7_add_transcript_revisions,
 )
 
 # FTS5 schema — created separately so failures (no FTS5 compile) are handled gracefully.
@@ -621,8 +646,13 @@ class HistoryStore:
             return cur.rowcount > 0
 
     def delete(self, record_id: int) -> bool:
-        """Delete a single record. Returns True if a row was removed."""
+        """Delete a single record (and everything keyed off it — material
+        texts, transcript versions) so those don't linger as orphans once
+        the record itself is gone. Returns True if the transcript row was
+        removed."""
         with self._connect() as conn:
+            conn.execute("DELETE FROM artifact_texts WHERE record_id = ?", (record_id,))
+            conn.execute("DELETE FROM transcript_revisions WHERE record_id = ?", (record_id,))
             cur = conn.execute("DELETE FROM transcripts WHERE id = ?", (record_id,))
             return cur.rowcount > 0
 
@@ -648,6 +678,7 @@ class HistoryStore:
                     logger.debug(
                         "Artifact FTS5 rebuild after clear failed (non-critical): %s", exc
                     )
+            conn.execute("DELETE FROM transcript_revisions")
             return cur.rowcount
 
     def search(self, text: str, limit: int = 100) -> List[HistoryRecord]:
@@ -774,6 +805,132 @@ class HistoryStore:
         with self._connect() as conn:
             rows = conn.execute(sql, (pattern, limit)).fetchall()
         return [ArtifactSearchResult(r) for r in rows]
+
+    # ------------------------------------------------------------------ transcript versions (B8)
+
+    def add_transcript_revision(
+        self, record_id: int, revision: str, json_payload: str, keep: int = 20,
+    ) -> Optional[int]:
+        """Save a new transcript version, unless *revision* matches the
+        most recently saved one for this record (nothing actually
+        changed — a debounced caller re-firing on an edit that ended up a
+        no-op, or a version write racing a duplicate save). Returns the
+        new row id, or ``None`` when the write was skipped.
+
+        Prunes down to *keep* rows afterwards, oldest first, but never
+        deletes the very first version ("as transcribed") — that one is
+        the baseline every later diff/restore ultimately traces back to.
+        """
+        with self._connect() as conn:
+            last = conn.execute(
+                "SELECT revision FROM transcript_revisions "
+                "WHERE record_id = ? ORDER BY id DESC LIMIT 1",
+                (record_id,),
+            ).fetchone()
+            if last is not None and last["revision"] == revision:
+                return None
+
+            now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            cur = conn.execute(
+                "INSERT INTO transcript_revisions (record_id, revision, created_at, json_payload) "
+                "VALUES (?, ?, ?, ?)",
+                (record_id, revision, now, json_payload),
+            )
+            new_id = cur.lastrowid
+            assert new_id is not None
+
+            ids = [
+                row["id"] for row in conn.execute(
+                    "SELECT id FROM transcript_revisions WHERE record_id = ? ORDER BY id ASC",
+                    (record_id,),
+                ).fetchall()
+            ]
+            if len(ids) > keep:
+                # Keep the very first version plus the newest (keep - 1);
+                # drop whatever's left in between.
+                newest = ids[-(keep - 1):] if keep > 1 else []
+                keep_ids = {ids[0], *newest}
+                to_delete = [i for i in ids if i not in keep_ids]
+                if to_delete:
+                    conn.executemany(
+                        "DELETE FROM transcript_revisions WHERE id = ?",
+                        [(i,) for i in to_delete],
+                    )
+            return new_id
+
+    def list_transcript_revisions(self, record_id: int) -> List["TranscriptRevisionMeta"]:
+        """Lightweight metadata for every kept version of *record_id*,
+        newest first — what the "Версии" dialog lists. Word count is
+        computed from each version's own payload; a version's size delta
+        is measured against the version immediately before it
+        chronologically (the previous row in ``list()`` order, i.e. the
+        next-oldest one), not against the very first version."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, revision, created_at, json_payload FROM transcript_revisions "
+                "WHERE record_id = ? ORDER BY id DESC",
+                (record_id,),
+            ).fetchall()
+        metas = [TranscriptRevisionMeta(r) for r in rows]
+        for i, meta in enumerate(metas):
+            older = metas[i + 1] if i + 1 < len(metas) else None
+            meta.size_delta = meta.char_count - older.char_count if older is not None else 0
+        return metas
+
+    def get_transcript_revision(self, revision_id: int) -> Optional[dict[str, Any]]:
+        """Full payload dict for one saved version, or ``None`` — the
+        shape ``DocumentSession.apply_result()`` needs to restore it (via
+        the same ``_payload_to_dict``/reconstruction path as a normal
+        history record)."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT json_payload FROM transcript_revisions WHERE id = ?",
+                (revision_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return _payload_to_dict(row["json_payload"])
+
+    def save_current_revision(
+        self, record_id: int, result: Any, speaker_names: dict | None = None, keep: int = 20,
+    ) -> Optional[int]:
+        """Compute *result*'s ``transcript_revision`` hash and save it as
+        a new version if it differs from the last saved one — used by the
+        debounced auto-save on manual edits (B8) and by the initial "as
+        transcribed" version written right after a fresh transcription
+        (or a live capture) is added to history. Keeps the revision-hash/
+        payload-serialization logic in one place instead of MainWindow
+        duplicating ``_result_to_payload`` and
+        ``application.artifact_provenance.transcript_revision`` itself.
+        """
+        from application.artifact_provenance import transcript_revision as _revision
+
+        revision = _revision(result.segments, result.language)
+        payload = _result_to_payload(result, speaker_names=speaker_names)
+        return self.add_transcript_revision(record_id, revision, payload, keep=keep)
+
+
+class TranscriptRevisionMeta:
+    """One row from HistoryStore.list_transcript_revisions() — what the
+    "Версии" dialog shows per version: id, timestamp, word count, and how
+    much the text grew/shrank versus the version right before it.
+    ``size_delta`` starts at 0 and is filled in by the caller (needs the
+    whole list to know each version's neighbour), not computed here."""
+
+    __slots__ = ("id", "revision", "created_at", "word_count", "char_count", "size_delta")
+
+    def __init__(self, row: sqlite3.Row):
+        self.id         = row["id"]
+        self.revision   = row["revision"]
+        self.created_at = row["created_at"]
+        payload = _payload_to_dict(row["json_payload"])
+        text = " ".join(
+            str(seg.get("text", "")) for seg in payload.get("segments", [])
+            if isinstance(seg, dict)
+        )
+        self.word_count = len(text.split())
+        self.char_count = len(text)
+        self.size_delta = 0
 
 
 class ArtifactSearchResult:

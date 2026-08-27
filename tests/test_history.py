@@ -505,3 +505,110 @@ class TestArtifactTexts:
 
     def test_artifact_fts_available_reflects_index_state(self, store):
         assert isinstance(store.artifact_fts_available, bool)
+
+
+class TestTranscriptRevisions:
+    """B8, docs/IMPROVEMENT_PLAN_2026-08.ru.md: non-destructive transcript
+    edit history."""
+
+    @staticmethod
+    def _payload(text: str) -> str:
+        import json
+        return json.dumps({"segments": [{"text": text}], "language": "en"})
+
+    def test_first_version_is_saved(self, store):
+        rid = store.add(_make_result(), "/tmp/a.wav")
+        version_id = store.add_transcript_revision(rid, "rev1", self._payload("hello"))
+
+        assert version_id is not None
+        metas = store.list_transcript_revisions(rid)
+        assert len(metas) == 1
+        assert metas[0].id == version_id
+        assert metas[0].word_count == 1
+
+    def test_saving_the_same_revision_twice_is_skipped(self, store):
+        rid = store.add(_make_result(), "/tmp/a.wav")
+        store.add_transcript_revision(rid, "rev1", self._payload("hello"))
+        second = store.add_transcript_revision(rid, "rev1", self._payload("hello"))
+
+        assert second is None
+        assert len(store.list_transcript_revisions(rid)) == 1
+
+    def test_a_changed_revision_is_saved_as_a_new_version(self, store):
+        rid = store.add(_make_result(), "/tmp/a.wav")
+        store.add_transcript_revision(rid, "rev1", self._payload("hello"))
+        store.add_transcript_revision(rid, "rev2", self._payload("hello world"))
+
+        metas = store.list_transcript_revisions(rid)
+        assert len(metas) == 2
+        # newest first
+        assert metas[0].revision == "rev2"
+        assert metas[1].revision == "rev1"
+
+    def test_size_delta_is_relative_to_the_previous_version(self, store):
+        rid = store.add(_make_result(), "/tmp/a.wav")
+        store.add_transcript_revision(rid, "rev1", self._payload("hi"))
+        store.add_transcript_revision(rid, "rev2", self._payload("hi there"))
+
+        metas = store.list_transcript_revisions(rid)
+        newest, oldest = metas
+        assert oldest.size_delta == 0
+        assert newest.size_delta == newest.char_count - oldest.char_count
+        assert newest.size_delta > 0
+
+    def test_get_transcript_revision_returns_the_full_payload(self, store):
+        rid = store.add(_make_result(), "/tmp/a.wav")
+        version_id = store.add_transcript_revision(rid, "rev1", self._payload("hello"))
+
+        payload = store.get_transcript_revision(version_id)
+        assert payload["segments"][0]["text"] == "hello"
+
+    def test_get_transcript_revision_of_an_unknown_id_is_none(self, store):
+        assert store.get_transcript_revision(999) is None
+
+    def test_pruning_keeps_the_first_version_and_the_newest_n_minus_one(self, store):
+        rid = store.add(_make_result(), "/tmp/a.wav")
+        first_id = store.add_transcript_revision(rid, "rev0", self._payload("v0"))
+        for i in range(1, 25):
+            store.add_transcript_revision(rid, f"rev{i}", self._payload(f"v{i}"), keep=5)
+
+        metas = store.list_transcript_revisions(rid)
+        ids = {m.id for m in metas}
+        assert len(metas) == 5
+        assert first_id in ids
+        revisions = {m.revision for m in metas}
+        assert revisions == {"rev0", "rev21", "rev22", "rev23", "rev24"}
+
+    def test_pruning_with_keep_equal_to_one_keeps_only_the_first_version(self, store):
+        rid = store.add(_make_result(), "/tmp/a.wav")
+        first_id = store.add_transcript_revision(rid, "rev0", self._payload("v0"))
+        store.add_transcript_revision(rid, "rev1", self._payload("v1"), keep=1)
+        store.add_transcript_revision(rid, "rev2", self._payload("v2"), keep=1)
+
+        metas = store.list_transcript_revisions(rid)
+        assert [m.id for m in metas] == [first_id]
+
+    def test_revisions_are_scoped_per_record(self, store):
+        rid_a = store.add(_make_result(), "/tmp/a.wav")
+        rid_b = store.add(_make_result(), "/tmp/b.wav")
+        store.add_transcript_revision(rid_a, "rev1", self._payload("a text"))
+        store.add_transcript_revision(rid_b, "rev1", self._payload("b text"))
+
+        assert len(store.list_transcript_revisions(rid_a)) == 1
+        assert len(store.list_transcript_revisions(rid_b)) == 1
+
+    def test_delete_removes_transcript_revisions_for_that_record(self, store):
+        rid = store.add(_make_result(), "/tmp/a.wav")
+        store.add_transcript_revision(rid, "rev1", self._payload("hello"))
+
+        store.delete(rid)
+
+        assert store.list_transcript_revisions(rid) == []
+
+    def test_clear_wipes_transcript_revisions_too(self, store):
+        rid = store.add(_make_result(), "/tmp/a.wav")
+        store.add_transcript_revision(rid, "rev1", self._payload("hello"))
+
+        store.clear()
+
+        assert store.list_transcript_revisions(rid) == []
