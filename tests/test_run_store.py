@@ -18,7 +18,7 @@ from application.run_store import (
     load_runs_for_record,
     save_run,
 )
-from core.history import HistoryStore
+from core.history import _MIGRATIONS, HistoryStore
 from domain.job import JobSpec, StepOutcome, StepSpec, StepStatus
 
 
@@ -248,10 +248,10 @@ def test_row_with_malformed_outcomes_json_logs_and_returns_empty_dict(db_path):
 
 # ------------------------------------------------------------------ migration itself
 
-def test_v3_database_migrates_to_v4_without_losing_existing_rows(tmp_path):
+def test_v3_database_migrates_to_latest_without_losing_existing_rows(tmp_path):
     """A database written by the pre-B3 code (schema v3: transcripts +
-    artifacts + source_kind, no job_runs) must gain job_runs and keep
-    every existing transcript row."""
+    artifacts + source_kind, no job_runs) must gain job_runs (and every
+    migration after it) and keep every existing transcript row."""
     path = tmp_path / "history.sqlite3"
     with sqlite3.connect(str(path)) as conn:
         conn.executescript("""
@@ -285,8 +285,9 @@ def test_v3_database_migrates_to_v4_without_losing_existing_rows(tmp_path):
         }
         row_count = conn.execute("SELECT COUNT(*) FROM transcripts").fetchone()[0]
 
-    assert version == 4
+    assert version == len(_MIGRATIONS)
     assert "job_runs" in tables
+    assert "speaker_aliases" in tables
     assert row_count == 1
     assert store.count() == 1
 
@@ -300,5 +301,5 @@ def test_migrate_is_idempotent(tmp_path):
     store2 = HistoryStore(db_path=path)
     with sqlite3.connect(str(path)) as conn:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
-    assert version == 4
+    assert version == len(_MIGRATIONS)
     assert store2.count() == 0

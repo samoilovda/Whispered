@@ -9,7 +9,7 @@ from typing import Optional
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTextEdit, QLabel, QHBoxLayout,
-    QPushButton, QLineEdit, QDialog, QFormLayout,
+    QPushButton, QLineEdit, QComboBox, QDialog, QFormLayout,
     QDialogButtonBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -45,21 +45,39 @@ def _parse_vtt_to_seconds(ts: str) -> float:
 
 
 class _SpeakerRenameDialog(QDialog):
-    """Simple dialog to rename / merge speakers."""
+    """Simple dialog to rename / merge speakers.
 
-    def __init__(self, speaker_names: dict, parent=None):
+    Each row is an editable QComboBox rather than a plain QLineEdit
+    (B6, docs/IMPROVEMENT_PLAN_2026-08.ru.md): *suggestions* — names
+    typed while renaming a speaker in any past record
+    (core.history.HistoryStore.list_speaker_aliases()) — fill its
+    dropdown as a reusable hint list. Diarization gives no cross-record
+    speaker identity, so this is a suggestion list a user picks from,
+    never an automatic guess: setEditText() below sets each field's
+    starting text explicitly, so the top suggestion never silently
+    becomes the value just because it's now offered.
+    """
+
+    def __init__(
+        self, speaker_names: dict, parent=None, suggestions: "list[str] | None" = None,
+    ):
         super().__init__(parent)
         self.setWindowTitle(tr("rename_speakers_title"))
         self.setMinimumWidth(340)
-        self._edits: dict[str, QLineEdit] = {}
+        self._combos: dict[str, QComboBox] = {}
         layout = QVBoxLayout(self)
 
         form = QFormLayout()
         for sid, display in sorted(speaker_names.items()):
-            edit = QLineEdit(display)
-            edit.setPlaceholderText(sid)
-            self._edits[sid] = edit
-            form.addRow(f"{sid}:", edit)
+            combo = QComboBox()
+            combo.setEditable(True)
+            combo.addItems(suggestions or [])
+            combo.setEditText(display)
+            line_edit = combo.lineEdit()
+            if line_edit is not None:
+                line_edit.setPlaceholderText(sid)
+            self._combos[sid] = combo
+            form.addRow(f"{sid}:", combo)
         layout.addLayout(form)
 
         btns = QDialogButtonBox(
@@ -70,7 +88,9 @@ class _SpeakerRenameDialog(QDialog):
         layout.addWidget(btns)
 
     def get_names(self) -> dict:
-        return {sid: edit.text().strip() or sid for sid, edit in self._edits.items()}
+        return {
+            sid: combo.currentText().strip() or sid for sid, combo in self._combos.items()
+        }
 
 
 class TranscriptView(QWidget):
@@ -538,7 +558,13 @@ class TranscriptView(QWidget):
     def _rename_speakers(self):
         if not self._speaker_names:
             return
-        dlg = _SpeakerRenameDialog(self._speaker_names, self)
+        suggestions: "list[str]" = []
+        try:
+            from core.history import get_history_store
+            suggestions = get_history_store().list_speaker_aliases()
+        except Exception:
+            pass  # History unavailable/disabled — dialog still works, just with no hints.
+        dlg = _SpeakerRenameDialog(self._speaker_names, self, suggestions=suggestions)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._speaker_names = dlg.get_names()
             # Propagate to the result so renames reach export / copy / history.

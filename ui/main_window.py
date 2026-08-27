@@ -1218,18 +1218,29 @@ class MainWindow(QMainWindow):
         self.cleaned_view.clear()
         self.article_view.clear()
         self._document_session.apply_result(result)
-        if self._last_record_id is not None:
-            try:
-                from core.history import get_history_store
-                store = get_history_store()
+        if not getattr(get_config(), "history_enabled", True):
+            return
+        try:
+            from core.history import get_history_store
+            store = get_history_store()
+            if _change_kind == "speakers":
+                # A rename dialog's untouched fields fall back to the raw
+                # speaker id itself (ui/transcript_view.py's
+                # _SpeakerRenameDialog.get_names()) — only a name that
+                # actually differs from its id is worth remembering as a
+                # future suggestion (B6, docs/IMPROVEMENT_PLAN_2026-08.ru.md).
+                for sid, alias in (result.speaker_names or {}).items():
+                    if alias and alias != sid:
+                        store.remember_speaker_alias(alias)
+            if self._last_record_id is not None:
                 store.update_result(
                     self._last_record_id,
                     result,
                     getattr(result, "speaker_names", {}),
                 )
                 self.library_view.refresh()
-            except Exception as exc:
-                logger.warning("Failed to persist transcript edit: %s", exc)
+        except Exception as exc:
+            logger.warning("Failed to persist transcript edit: %s", exc)
 
     def _start_transcription(self):
         """Start the transcription process."""

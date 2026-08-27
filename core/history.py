@@ -80,6 +80,23 @@ def _v4_add_job_runs_table(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _v5_add_speaker_aliases_table(conn: sqlite3.Connection) -> None:
+    """Speaker names a user has typed while renaming a diarized speaker in
+    any record (B6, docs/IMPROVEMENT_PLAN_2026-08.ru.md) — a reusable
+    hint list, not cross-record identity: diarization gives no speaker
+    embedding, so "SPEAKER_00" in two different files are unrelated
+    objects and this table never claims otherwise. Read/written
+    exclusively through HistoryStore.remember_speaker_alias()/
+    list_speaker_aliases()."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS speaker_aliases (
+            alias       TEXT PRIMARY KEY,
+            used_count  INTEGER NOT NULL DEFAULT 1,
+            updated_at  TEXT    NOT NULL
+        );
+    """)
+
+
 # Applied in order, tracked via SQLite's built-in `PRAGMA user_version`
 # (see HistoryStore._migrate). Append new migrations here — never edit or
 # reorder an existing one, since a database's user_version records exactly
@@ -89,6 +106,7 @@ _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _v2_add_artifacts_column,
     _v3_add_source_kind_column,
     _v4_add_job_runs_table,
+    _v5_add_speaker_aliases_table,
 )
 
 # FTS5 schema — created separately so failures (no FTS5 compile) are handled gracefully.
@@ -455,6 +473,46 @@ class HistoryStore:
                 "UPDATE transcripts SET artifacts = ? WHERE id = ?",
                 (json.dumps(artifact_types, ensure_ascii=False), record_id),
             )
+
+    def remember_speaker_alias(self, alias: str) -> None:
+        """Record a name typed while renaming a diarized speaker, for
+        reuse as a hint in a later record (B6, docs/IMPROVEMENT_PLAN_2026-08.ru.md).
+
+        Upserts by *alias* — a name used again bumps its own count and
+        timestamp rather than creating a duplicate row, so
+        list_speaker_aliases()'s "most used, most recent" order reflects
+        real usage. A blank alias is silently ignored: nothing useful to
+        remember, and it would otherwise become the top suggestion for
+        every future rename.
+        """
+        alias = alias.strip()
+        if not alias:
+            return
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT INTO speaker_aliases (alias, used_count, updated_at)
+                   VALUES (?, 1, ?)
+                   ON CONFLICT(alias) DO UPDATE SET
+                       used_count = used_count + 1,
+                       updated_at = excluded.updated_at""",
+                (alias, now),
+            )
+
+    def list_speaker_aliases(self, limit: int = 20) -> List[str]:
+        """Previously used speaker names, most-used first (ties broken by
+        most recent) — what a rename dialog elsewhere pre-fills as
+        suggestions. Not cross-record speaker identity (diarization gives
+        no such thing — see the B6 module note above
+        _v5_add_speaker_aliases_table): a hint list only, never applied
+        automatically."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT alias FROM speaker_aliases "
+                "ORDER BY used_count DESC, updated_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [row["alias"] for row in rows]
 
     def update_result(self, record_id: int, result: Any,
                       speaker_names: dict | None = None) -> bool:

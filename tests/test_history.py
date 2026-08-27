@@ -159,6 +159,73 @@ class TestSpeakerNames:
         assert payload["speaker_names"] == {}
 
 
+class TestSpeakerAliases:
+    """B6, docs/IMPROVEMENT_PLAN_2026-08.ru.md: a reusable hint list for
+    the speaker rename dialog, not cross-record identity — see
+    core.history._v5_add_speaker_aliases_table's docstring."""
+
+    def test_a_remembered_alias_is_listed(self, store):
+        store.remember_speaker_alias("Alice")
+        assert store.list_speaker_aliases() == ["Alice"]
+
+    def test_list_is_empty_with_nothing_remembered(self, store):
+        assert store.list_speaker_aliases() == []
+
+    def test_upsert_is_idempotent_not_duplicating_rows(self, store):
+        store.remember_speaker_alias("Alice")
+        store.remember_speaker_alias("Alice")
+        store.remember_speaker_alias("Alice")
+        assert store.list_speaker_aliases() == ["Alice"]
+
+    def test_most_used_alias_sorts_first(self, store):
+        store.remember_speaker_alias("Bob")
+        store.remember_speaker_alias("Alice")
+        store.remember_speaker_alias("Alice")
+        assert store.list_speaker_aliases() == ["Alice", "Bob"]
+
+    def test_ties_broken_by_most_recently_used(self, store, monkeypatch):
+        # remember_speaker_alias() timestamps at one-second resolution
+        # (datetime.now(...).isoformat(timespec="seconds")) — two real
+        # calls in the same test can land in the same second, making a
+        # tie-break assertion flaky. Control the clock explicitly instead.
+        import datetime as datetime_module
+        import core.history as history_module
+
+        ticks = iter([
+            datetime_module.datetime(2026, 1, 1, 0, 0, 1, tzinfo=datetime_module.timezone.utc),
+            datetime_module.datetime(2026, 1, 1, 0, 0, 2, tzinfo=datetime_module.timezone.utc),
+            datetime_module.datetime(2026, 1, 1, 0, 0, 3, tzinfo=datetime_module.timezone.utc),
+        ])
+
+        class _FixedDatetime(datetime_module.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return next(ticks)
+
+        monkeypatch.setattr(history_module, "datetime", _FixedDatetime)
+
+        store.remember_speaker_alias("Older")
+        store.remember_speaker_alias("Newer")
+        # Both used exactly once — the more recently touched one sorts first.
+        assert store.list_speaker_aliases() == ["Newer", "Older"]
+        store.remember_speaker_alias("Older")
+        assert store.list_speaker_aliases() == ["Older", "Newer"]
+
+    def test_limit_is_honoured(self, store):
+        for name in ("A", "B", "C", "D"):
+            store.remember_speaker_alias(name)
+        assert len(store.list_speaker_aliases(limit=2)) == 2
+
+    def test_blank_alias_is_not_remembered(self, store):
+        store.remember_speaker_alias("")
+        store.remember_speaker_alias("   ")
+        assert store.list_speaker_aliases() == []
+
+    def test_alias_is_stripped(self, store):
+        store.remember_speaker_alias("  Alice  ")
+        assert store.list_speaker_aliases() == ["Alice"]
+
+
 class TestMultipleRecords:
     def test_newest_first(self, store):
         r1 = _make_result(language="en")
