@@ -14,6 +14,7 @@ from utils import is_supported_format, SUPPORTED_FORMATS, format_duration
 from ui.icons import IconLabel, get_icon, IconColors
 from ui.theme import set_role
 from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 from core.external_tools import resolve_tool
 
 
@@ -69,8 +70,16 @@ class FileSelector(QWidget):
         self._pending_probe_path: str | None = None
         self._duration_probe = QProcess(self)
         self._duration_probe.finished.connect(self._on_duration_probe_finished)
+        self._i18n = Retranslator()
         self._setup_ui()
+        self._i18n.call(self._retranslate_selector)
+        self._i18n.bind()
         self.setAcceptDrops(True)
+
+    def _retranslate_selector(self) -> None:
+        self.text_label.setText(
+            tr("file_ready") if self.selected_file else tr("file_drop_title")
+        )
 
     def _setup_ui(self):
         """Set up the UI components."""
@@ -98,15 +107,14 @@ class FileSelector(QWidget):
         drop_layout.addWidget(self.text_label)
 
         # Browse button
-        self.browse_btn = QPushButton(tr("file_browse"))
+        self.browse_btn = self._i18n.text(QPushButton(), "file_browse", tooltip="tooltip_browse")
         self.browse_btn.setProperty("variant", "primary")
-        self.browse_btn.setToolTip(tr("tooltip_browse"))
         self.browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.browse_btn.clicked.connect(self._browse_files)
         drop_layout.addWidget(self.browse_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # Formats hint
-        self.formats_hint = QLabel(tr("file_formats_hint"))
+        self.formats_hint = self._i18n.text(QLabel(), "file_formats_hint")
         self.formats_hint.setProperty("role", "dim")
         self.formats_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.formats_hint.setWordWrap(True)
@@ -137,8 +145,8 @@ class FileSelector(QWidget):
         self.clear_btn.setIcon(get_icon('close', IconColors.default(), 14))
         self.clear_btn.setFixedSize(24, 24)
         self.clear_btn.setProperty("role", "icon-button-danger")
-        self.clear_btn.setToolTip(tr("file_clear"))
-        self.clear_btn.setAccessibleName(tr("file_clear"))
+        self._i18n.text(self.clear_btn, "file_clear", "setToolTip")
+        self._i18n.text(self.clear_btn, "file_clear", "setAccessibleName")
         self.clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.clear_btn.clicked.connect(self._clear_selection)
         file_info_layout.addWidget(self.clear_btn)

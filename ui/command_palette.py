@@ -9,6 +9,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QVBoxLayout
 
 from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 from domain.recipe import BUILTIN_RECIPES
 
 
@@ -46,21 +47,24 @@ class CommandPalette(QDialog):
         super().__init__(parent)
         self._run_view = None
         self._actions: list = []
+        self._i18n = Retranslator()
         self.setWindowTitle(tr("command_palette_title"))
         self.setModal(True)
         self.resize(620, 420)
         layout = QVBoxLayout(self)
-        title = QLabel(tr("command_palette_title"))
+        title = self._i18n.text(QLabel(), "command_palette_title")
         title.setProperty("role", "page-title")
         layout.addWidget(title)
         self.search = QLineEdit()
-        self.search.setPlaceholderText(tr("command_palette_placeholder"))
+        self._i18n.text(self.search, "command_palette_placeholder", "setPlaceholderText")
+        self._i18n.text(self, "command_palette_title", "setWindowTitle")
         self.search.textChanged.connect(self._refresh)
         self.search.returnPressed.connect(self._activate_current)
         layout.addWidget(self.search)
         self.results = QListWidget()
         self.results.itemActivated.connect(self._activate)
         layout.addWidget(self.results, stretch=1)
+        self._i18n.bind()
 
     def bind_run_view(self, run_view) -> None:
         """*run_view* is asked for its currently retriable steps (B8) each

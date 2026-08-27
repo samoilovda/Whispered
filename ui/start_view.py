@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
 
 from config import get_config, save_config
 from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 from domain.recipe import BUILTIN_RECIPES, Recipe, TRANSCRIPT_ONLY
 from ui.animated_button import AnimatedButton
 from ui.components import FlowLayout
@@ -70,15 +71,16 @@ class StartView(QWidget):
         self._launchable_sources = ("file", "recorder")
         self._transcribe_options = transcribe_options_summary_source
         self._recipe_key = get_config().last_recipe or TRANSCRIPT_ONLY.builtin_key
+        self._i18n = Retranslator()
 
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 16, 20, 20)
         root.setSpacing(16)
 
-        title = QLabel(tr("draft_title"))
+        title = self._i18n.text(QLabel(), "draft_title")
         title.setProperty("role", "page-title")
         root.addWidget(title)
-        subtitle = QLabel(tr("draft_subtitle"))
+        subtitle = self._i18n.text(QLabel(), "draft_subtitle")
         subtitle.setProperty("role", "muted")
         subtitle.setWordWrap(True)
         root.addWidget(subtitle)
@@ -88,7 +90,7 @@ class StartView(QWidget):
         self._source_group.setExclusive(True)
         self._source_buttons: dict[str, QPushButton] = {}
         for index, key in enumerate(self._source_keys):
-            button = QPushButton(tr(f"draft_source_{key}"))
+            button = self._i18n.text(QPushButton(), f"draft_source_{key}")
             button.setCheckable(True)
             button.setProperty("role", "quick-chip")
             button.clicked.connect(lambda _checked, i=index, name=key: self.set_source(name, i))
@@ -126,7 +128,7 @@ class StartView(QWidget):
             self.stack.addWidget(page)
         root.addWidget(self.stack, stretch=1)
 
-        self._recipe_label = QLabel(tr("start_recipe_label"))
+        self._recipe_label = self._i18n.text(QLabel(), "start_recipe_label")
         self._recipe_label.setProperty("role", "muted")
         root.addWidget(self._recipe_label)
 
@@ -143,13 +145,13 @@ class StartView(QWidget):
         # named, unlike a built-in's stable key, so its chip needs a
         # button that survives being torn down and rebuilt whenever
         # Config.recipes changes — see _build_recipe_chips().
-        self._configure_btn = QPushButton(tr("start_recipe_configure"))
+        self._configure_btn = self._i18n.text(QPushButton(), "start_recipe_configure")
         self._configure_btn.setProperty("role", "quick-chip")
         self._configure_btn.clicked.connect(self.configure_recipe_requested.emit)
         self._build_recipe_chips()
         root.addWidget(self._recipe_row_widget)
 
-        self.process_button = AnimatedButton(tr("start_launch"))
+        self.process_button = self._i18n.text(AnimatedButton(), "start_launch")
         self.process_button.setProperty("variant", "primary")
         self.process_button.setEnabled(False)
         self.process_button.setToolTip(tr("tooltip_process_disabled"))
@@ -165,13 +167,20 @@ class StartView(QWidget):
         self._summary_label = QLabel("")
         self._summary_label.setProperty("role", "muted")
         summary_row.addWidget(self._summary_label, stretch=1)
-        change_link = QPushButton(tr("start_recipe_change"))
+        change_link = self._i18n.text(QPushButton(), "start_recipe_change")
         change_link.setProperty("variant", "ghost")
         change_link.clicked.connect(self.configure_recipe_requested.emit)
         summary_row.addWidget(change_link)
         root.addWidget(self._summary_row_widget)
 
         self.set_source("file", 0)
+        self.refresh_summary()
+        self._i18n.call(self._retranslate_start)
+        self._i18n.bind()
+
+    def _retranslate_start(self) -> None:
+        self.set_process_enabled(self.process_button.isEnabled())
+        self._build_recipe_chips()
         self.refresh_summary()
 
     # ── source ───────────────────────────────────────────────────────

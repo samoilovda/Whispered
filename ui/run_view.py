@@ -43,7 +43,7 @@ from PyQt6.QtWidgets import (
 )
 
 from application.job_engine import JobRun
-from core.i18n import tr
+from core.i18n import on_language_changed, tr
 from domain.job import StepOutcome, StepStatus
 from ui.components import StatusBadge
 from ui.theme import SPACE_2, SPACE_4
@@ -146,6 +146,16 @@ class RunStepRow(QWidget):
         root.addWidget(self._body)
 
         self.apply_outcome(None)
+
+    def set_label(self, label: str) -> None:
+        """Update the step's display name (live UI-language switch)."""
+        self._name_label.setText(label)
+
+    def retranslate(self) -> None:
+        """Re-pull this row's own fixed captions after a language switch."""
+        self._cancel_button.setText(tr("btn_cancel"))
+        self._retry_button.setText(tr("run_retry"))
+        self._chevron.setAccessibleName(tr("run_toggle_details"))
 
     def _on_toggled(self, expanded: bool) -> None:
         self._chevron.setArrowType(
@@ -259,6 +269,7 @@ class RunView(QWidget):
         self._run: Optional[JobRun] = None
         self._rows: "dict[str, RunStepRow]" = {}
         self._labels = dict(labels)
+        self._recipe_name: str = ""
         self._run_started_at: Optional[float] = None
 
         root = QVBoxLayout(self)
@@ -322,6 +333,24 @@ class RunView(QWidget):
         root.addWidget(scroll)
         self._scroll = scroll
 
+        on_language_changed(self._retranslate)
+
+    def _retranslate(self) -> None:
+        """Re-pull fixed captions after a live UI-language switch. Step
+        *labels* come from the owner (MainWindow) via ``set_step_labels``;
+        transient per-step status text refreshes on the next run event."""
+        self._open_button.setText(tr("run_open_record"))
+        if self._recipe_name:
+            self._heading.setText(tr("run_heading", name=self._recipe_name))
+        for row in self._rows.values():
+            row.retranslate()
+
+    def set_step_labels(self, labels: dict) -> None:
+        """Replace the step display names (live UI-language switch)."""
+        self._labels = dict(labels)
+        for name, row in self._rows.items():
+            row.set_label(self._labels.get(name, name))
+
     def set_recipe_name(self, name: str) -> None:
         """Name the recipe this run belongs to, in the screen's heading.
 
@@ -329,6 +358,7 @@ class RunView(QWidget):
         caller that only binds a JobRun (a fixture, or the gallery) does
         not get a blank band above the first step.
         """
+        self._recipe_name = name or ""
         self._heading.setText(tr("run_heading", name=name) if name else "")
         self._heading.setVisible(bool(name))
 

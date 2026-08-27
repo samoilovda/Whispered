@@ -16,6 +16,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 
 from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 from core.logger import get_logger
 from core.paths import output_dir
 from core.youtube_description import compose_full_description, format_youtube_description
@@ -80,7 +81,28 @@ class YouTubePanel(QWidget):
         # manifest (see core.paths.artifact_dir / R5-full in the audit plan).
         self._record_id: int | None = None
         self._source_path: str | None = None
+        self._generating = False
+        self._i18n = Retranslator()
         self._setup_ui()
+        self._i18n.call(self._retranslate_youtube)
+        self._i18n.bind()
+
+    def _retranslate_youtube(self) -> None:
+        self._configure_btn.setText(tr("provider_configure"))
+        self._copy_btn.setText(tr("youtube_copy"))
+        self._save_btn.setText(tr("youtube_save"))
+        self._retry_btn.setText(tr("youtube_retry"))
+        self._privacy_notice.setText(tr("youtube_privacy_notice"))
+        self._lang_combo.setItemText(0, tr("youtube_lang_auto"))
+        for i, key in enumerate(("provider_lmstudio", "provider_openai", "provider_anthropic")):
+            self._provider_combo.setItemText(i, tr(key))
+        for i, spec in enumerate(_TAB_SPECS):
+            self._tabs.setItemText(i, tr(spec.label_key))
+        self._gen_btn.setText(
+            tr("youtube_generating") if self._generating else tr("youtube_generate")
+        )
+        if self._placeholder.isVisible():
+            self._placeholder.setText(tr("youtube_placeholder"))
 
     # ── UI ──────────────────────────────────────────────────────────
 
@@ -250,6 +272,7 @@ class YouTubePanel(QWidget):
         self._segments = []
         self._source_name = ""
         self._transcript_language = None
+        self._generating = False
         self._gen_btn.setEnabled(False)
         self._gen_btn.setText(tr("youtube_generate"))
         self._copy_btn.setEnabled(False)
@@ -276,6 +299,7 @@ class YouTubePanel(QWidget):
         self.generate_requested.emit()
 
     def begin_generating(self) -> None:
+        self._generating = True
         self._gen_btn.setEnabled(False)
         self._gen_btn.setText(tr("youtube_generating"))
         self._copy_btn.setEnabled(False)
@@ -361,6 +385,7 @@ class YouTubePanel(QWidget):
             self._desc_edit.setPlainText(full)
 
     def _reset_button(self):
+        self._generating = False
         self._gen_btn.setEnabled(bool(self._segments))
         self._gen_btn.setText(tr("youtube_generate"))
 

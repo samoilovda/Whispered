@@ -14,6 +14,7 @@ from batch_processor import BatchProcessor, BatchItem, BatchStatus
 from ui.theme import set_role
 from ui.empty_state import EmptyStateWidget
 from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 from core.book_batch_worker import BookBatchWorker
 from core.worker_registry import WorkerRegistry
 
@@ -119,8 +120,11 @@ class BatchPanel(QWidget):
         self.processor = BatchProcessor()
         self._book_worker: BookBatchWorker | None = None
         self._registry = WorkerRegistry(parent=self)
+        self._i18n = Retranslator()
         self._setup_ui()
         self._connect_signals()
+        self._i18n.call(self._retranslate_batch)
+        self._i18n.bind()
         # _refresh_list() is what sets file_list/empty_state visibility;
         # without an initial call both are visible at once on cold start.
         self._refresh_list()
@@ -133,7 +137,7 @@ class BatchPanel(QWidget):
         # Header
         header_layout = QHBoxLayout()
 
-        header_label = QLabel(tr("batch_summary_title"))
+        header_label = self._i18n.text(QLabel(), "batch_summary_title")
         header_label.setProperty("role", "section-title")
         header_layout.addWidget(header_label)
 
@@ -142,15 +146,16 @@ class BatchPanel(QWidget):
         header_layout.addWidget(self.count_label)
 
         self.job_kind_combo = QComboBox()
-        self.job_kind_combo.addItem(tr("queue_kind_transcribe"), "transcribe")
-        self.job_kind_combo.addItem(tr("queue_kind_book"), "book")
+        self._i18n.combo_items(self.job_kind_combo, [
+            ("queue_kind_transcribe", "transcribe"),
+            ("queue_kind_book", "book"),
+        ])
         header_layout.addWidget(self.job_kind_combo)
 
         header_layout.addStretch()
 
         # Add files button
-        self.add_btn = QPushButton(tr("batch_add_files"))
-        self.add_btn.setToolTip(tr("batch_add_files"))
+        self.add_btn = self._i18n.text(QPushButton(), "batch_add_files", tooltip="batch_add_files")
         self.add_btn.clicked.connect(self._add_files)
         header_layout.addWidget(self.add_btn)
 
@@ -175,24 +180,30 @@ class BatchPanel(QWidget):
         actions_layout = QHBoxLayout()
         actions_layout.setSpacing(4)
 
-        self.start_btn = QPushButton(tr("batch_start_all"))
+        self.start_btn = self._i18n.text(QPushButton(), "batch_start_all")
         self.start_btn.setProperty("variant", "primary")
         self.start_btn.clicked.connect(self._start_batch)
         self.start_btn.setEnabled(False)
         actions_layout.addWidget(self.start_btn)
 
-        self.cancel_btn = QPushButton(tr("btn_cancel"))
+        self.cancel_btn = self._i18n.text(QPushButton(), "btn_cancel")
         self.cancel_btn.setProperty("variant", "danger")
         self.cancel_btn.clicked.connect(self.cancel_processing)
         self.cancel_btn.setVisible(False)
         actions_layout.addWidget(self.cancel_btn)
 
-        self.clear_btn = QPushButton(tr("batch_clear"))
+        self.clear_btn = self._i18n.text(QPushButton(), "batch_clear")
         self.clear_btn.clicked.connect(self._clear_queue)
         self.clear_btn.setEnabled(False)
         actions_layout.addWidget(self.clear_btn)
 
         layout.addLayout(actions_layout)
+
+    def _retranslate_batch(self) -> None:
+        self.empty_state.set_texts(
+            tr("batch_empty_title"), tr("batch_empty_hint"), tr("batch_add_files")
+        )
+        self._refresh_list()
 
     def _connect_signals(self):
         """Connect processor signals."""

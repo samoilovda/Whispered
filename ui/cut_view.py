@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 
 from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 from utils import format_timestamp_vtt
 from ui.video_panel import VideoPanel
 
@@ -28,7 +29,10 @@ class CutView(QWidget):
         super().__init__(parent)
         self._result = None
         self._segments: list = []
+        self._i18n = Retranslator()
         self._setup_ui()
+        self._i18n.call(self._update_count)
+        self._i18n.bind()
 
     # ------------------------------------------------------------------ UI
 
@@ -51,7 +55,7 @@ class CutView(QWidget):
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(6)
 
-        title = QLabel(tr("cut_view_title"))
+        title = self._i18n.text(QLabel(), "cut_view_title")
         title.setStyleSheet("font-weight: bold; font-size: 14px;")
         header_layout.addWidget(title)
 
@@ -62,12 +66,12 @@ class CutView(QWidget):
         self._count_label.setStyleSheet("font-size: 11px;")
         header_layout.addWidget(self._count_label)
 
-        select_all_btn = QPushButton(tr("cut_select_all"))
+        select_all_btn = self._i18n.text(QPushButton(), "cut_select_all")
         select_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         select_all_btn.clicked.connect(self._select_all)
         header_layout.addWidget(select_all_btn)
 
-        select_none_btn = QPushButton(tr("cut_select_none"))
+        select_none_btn = self._i18n.text(QPushButton(), "cut_select_none")
         select_none_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         select_none_btn.clicked.connect(self._select_none)
         header_layout.addWidget(select_none_btn)
@@ -81,7 +85,7 @@ class CutView(QWidget):
         layout.addWidget(self._list, stretch=1)
 
         # Placeholder label (visible when empty)
-        self._placeholder = QLabel(tr("cut_placeholder"))
+        self._placeholder = self._i18n.text(QLabel(), "cut_placeholder")
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._placeholder.setWordWrap(True)
         self._placeholder.setProperty("role", "dim")

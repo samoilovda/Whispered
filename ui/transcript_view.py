@@ -22,6 +22,7 @@ from utils import format_timestamp_vtt
 from ui.icons import get_icon, IconColors
 from ui.theme import SPEAKER_PALETTE, get_theme
 from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 
 # Speaker color palette (keyed by original speaker id)
 SPEAKER_COLORS = {
@@ -119,7 +120,42 @@ class TranscriptView(QWidget):
         self._segment_positions: list[tuple[float, float, int]] = []
         self._highlighted_block: int = -1
         self._header_compact = False
+        self._i18n = Retranslator()
         self._setup_ui()
+        self._i18n.call(self._retranslate_view)
+        self._i18n.bind()
+
+    def _retranslate_view(self) -> None:
+        """Re-pull every caption after a live UI-language switch."""
+        self.timestamps_btn.setText(tr("btn_timestamps"))
+        self.timestamps_btn.setToolTip(tr("btn_timestamps"))
+        self.speakers_btn.setText(tr("btn_speakers"))
+        self.speakers_btn.setToolTip(tr("btn_speakers"))
+        self.rename_btn.setText(tr("btn_rename_speakers"))
+        self.edit_btn.setText(tr("btn_edit"))
+        self.copy_btn.setText(tr("btn_copy"))
+        self.copy_btn.setToolTip(tr("tooltip_copy"))
+        self._button_labels = {
+            btn: tr(key) for btn, key in self._button_label_keys.items()
+        }
+        if self._header_compact:
+            for btn in self._icon_only_capable:
+                btn.setText("")
+        self.text_edit.setPlaceholderText(tr("transcript_placeholder"))
+        self._find_edit.setPlaceholderText(tr("find_placeholder"))
+        self._replace_edit.setPlaceholderText(tr("replace_placeholder"))
+        for btn, key in self._find_button_keys.items():
+            btn.setText(tr(key))
+        self._edit_hint.setText(tr("edit_hint"))
+        result = self._result
+        if result is not None:
+            word_count = len(result.full_text.split())
+            self.stats_label.setText(tr(
+                "transcript_stats",
+                segments=len(result.segments),
+                words=word_count,
+                minutes=f"{result.duration / 60:.1f}",
+            ))
 
     # ------------------------------------------------------------------ UI setup
 
@@ -189,6 +225,11 @@ class TranscriptView(QWidget):
         self._icon_only_capable = (
             self.timestamps_btn, self.speakers_btn, self.copy_btn,
         )
+        self._button_label_keys = {
+            self.timestamps_btn: "btn_timestamps",
+            self.speakers_btn: "btn_speakers",
+            self.copy_btn: "btn_copy",
+        }
         self._button_labels = {btn: btn.text() for btn in self._icon_only_capable}
 
         layout.addWidget(header)
@@ -227,6 +268,12 @@ class TranscriptView(QWidget):
         replace_all_btn = QPushButton(tr("find_btn_all"))
         replace_all_btn.clicked.connect(self._replace_all)
         find_layout.addWidget(replace_all_btn)
+
+        self._find_button_keys = {
+            find_next_btn: "find_btn_next",
+            replace_btn: "find_btn_replace",
+            replace_all_btn: "find_btn_all",
+        }
 
         self._find_count = QLabel("")
         self._find_count.setProperty("role", "muted")

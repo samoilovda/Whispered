@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QUrl
 
 from core.logger import get_logger
-from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 from utils import format_duration
 
 logger = get_logger(__name__)
@@ -55,7 +55,9 @@ class PlayerWidget(QWidget):
         self._duration = 0.0
         self._player: Optional["QMediaPlayer"] = None
         self._audio_output: Optional["QAudioOutput"] = None
+        self._i18n = Retranslator()
         self._setup_ui()
+        self._i18n.bind()
         if not self._available:
             self.setVisible(False)
             return
@@ -75,19 +77,19 @@ class PlayerWidget(QWidget):
 
         self._rewind_btn = QPushButton("⏮ 10s")
         self._rewind_btn.setProperty("role", "icon-button")
-        self._rewind_btn.setToolTip(tr("tooltip_rewind"))
+        self._i18n.text(self._rewind_btn, "tooltip_rewind", "setToolTip")
         self._rewind_btn.clicked.connect(lambda: self._seek_relative(-10))
         controls.addWidget(self._rewind_btn)
 
         self._play_btn = QPushButton("▶")
         self._play_btn.setProperty("role", "icon-button")
-        self._play_btn.setToolTip(tr("tooltip_play"))
+        self._i18n.text(self._play_btn, "tooltip_play", "setToolTip")
         self._play_btn.clicked.connect(self._toggle_play)
         controls.addWidget(self._play_btn)
 
         self._forward_btn = QPushButton("10s ⏭")
         self._forward_btn.setProperty("role", "icon-button")
-        self._forward_btn.setToolTip(tr("tooltip_forward"))
+        self._i18n.text(self._forward_btn, "tooltip_forward", "setToolTip")
         self._forward_btn.clicked.connect(lambda: self._seek_relative(10))
         controls.addWidget(self._forward_btn)
 
@@ -114,7 +116,7 @@ class PlayerWidget(QWidget):
         row2 = QHBoxLayout()
         row2.setSpacing(8)
 
-        speed_label = QLabel(tr("label_speed"))
+        speed_label = self._i18n.text(QLabel(), "label_speed")
         speed_label.setProperty("role", "muted")
         speed_label.setProperty("size", "small")
         row2.addWidget(speed_label)
@@ -130,7 +132,7 @@ class PlayerWidget(QWidget):
 
         row2.addSpacing(12)
 
-        vol_label = QLabel(tr("label_volume"))
+        vol_label = self._i18n.text(QLabel(), "label_volume")
         vol_label.setProperty("role", "muted")
         vol_label.setProperty("size", "small")
         row2.addWidget(vol_label)

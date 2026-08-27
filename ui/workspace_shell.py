@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 
 from config import get_config, save_config
 from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 from ui.icons import IconColors, get_icon
 
 
@@ -45,7 +46,15 @@ class WorkspaceShell(QWidget):
         self.library = library
         self.center = center
         self._forced_compact = False
+        self._i18n = Retranslator()
         self._setup_ui()
+        self._i18n.call(self._retranslate_shell)
+        self._i18n.bind()
+
+    def _retranslate_shell(self) -> None:
+        self.library_title.setText(tr("workspace_records"))
+        self.new_button.setAccessibleName(tr("workspace_new"))
+        self._apply_responsiveness()
 
     def _setup_ui(self) -> None:
         root = QHBoxLayout(self)

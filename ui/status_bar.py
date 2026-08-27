@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 from ui.components import StatusBadge
 
 
@@ -60,7 +61,11 @@ class _QueueOverlay(QDialog):
         switcher_layout.setSpacing(6)
         self._group = QButtonGroup(self)
         self._group.setExclusive(True)
+        self._i18n = Retranslator()
         self._files_btn = QPushButton(tr("queue_tab_files"))
+        self._i18n.call(lambda: self._files_btn.setText(tr("queue_tab_files")))
+        self._i18n.call(lambda: self._course_btn.setText(tr("queue_tab_course")))
+        self._i18n.bind()
         self._files_btn.setCheckable(True)
         self._files_btn.setChecked(True)
         self._files_btn.setProperty("role", "quick-chip")
@@ -158,6 +163,22 @@ class StatusBar(QFrame):
         self._overlay: _QueueOverlay | None = None
         self._batch_count = 0
         self._course_count = 0
+        self._status_is_idle = True
+        self._llm_connected = False
+        self._llm_detail = ""
+        self._i18n = Retranslator()
+        self._i18n.call(self._retranslate_status)
+        self._i18n.bind()
+
+    def _retranslate_status(self) -> None:
+        """Re-apply the count/state-derived captions after a live
+        UI-language switch. Operation text mid-run is left alone — it is
+        re-emitted in the active language on the next progress update."""
+        if self._status_is_idle:
+            self.status_label.setText(tr("status_idle"))
+        self.cancel_button.setText(tr("btn_cancel"))
+        self._sync_queue_count()
+        self.set_llm_status(self._llm_connected, self._llm_detail)
 
     def add_detail_widget(self, widget: QWidget) -> None:
         self.detail_layout.addWidget(widget)
@@ -198,6 +219,7 @@ class StatusBar(QFrame):
         details_text: str = "",
         cancellable: bool = True,
     ) -> None:
+        self._status_is_idle = False
         self.status_label.setText(text)
         self.progress.setVisible(True)
         if progress is None:
@@ -213,6 +235,8 @@ class StatusBar(QFrame):
         self.cancel_button.setVisible(cancellable)
 
     def set_llm_status(self, connected: bool, detail: str = "") -> None:
+        self._llm_connected = connected
+        self._llm_detail = detail
         model = detail if connected and detail else "LM Studio"
         self.llm_badge.set_status(
             tr("status_llm_model", model=model), "neutral" if connected else "error"
@@ -235,6 +259,7 @@ class StatusBar(QFrame):
         )
 
     def clear(self) -> None:
+        self._status_is_idle = True
         self.status_label.setText(tr("status_idle"))
         self.progress.setVisible(False)
         self.cancel_button.setVisible(False)

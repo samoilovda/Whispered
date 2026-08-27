@@ -27,7 +27,7 @@ from ui.theme import apply_theme, set_role
 from core.lm_status_worker import LMStatusWorker
 from core.worker_registry import WorkerRegistry
 from core.logger import get_logger
-from core.i18n import tr
+from core.i18n import on_language_changed, set_locale, tr
 
 logger = get_logger(__name__)
 
@@ -44,9 +44,17 @@ class SettingsDialog(QDialog):
         self._registry = WorkerRegistry(parent=self)
         self._pending_theme: Optional[str] = None
         self._lang_changed: bool = False
+        self._retranslating: bool = False
+        # Retranslation bookkeeping (live UI-language switch). Populated by
+        # the _tt/_row/_combo_items helpers as the UI is built and replayed
+        # by retranslate().
+        self._i18n_texts: list[tuple] = []       # (widget, setter, key)
+        self._i18n_rows: list[tuple] = []        # (form_layout, field, key)
+        self._i18n_combos: list = []             # list[Callable[[], None]]
         self._setup_ui()
         self._load_values()
         self._connect_dirty_signals()
+        on_language_changed(self.retranslate)
         self._apply_button.setEnabled(False)
         # Qt otherwise hands initial keyboard focus to _categories (the
         # first focusable widget in tab order) — its QSS focus ring then
@@ -55,6 +63,68 @@ class SettingsDialog(QDialog):
         # keyboard-focus indicator. OK is the conventional initial-focus
         # target for a dialog anyway.
         self._ok_button.setFocus()
+
+    # ------------------------------------------------------------------ i18n
+
+    def _tt(self, widget, key: str, setter: str = "setText", **fmt):
+        """Set a translatable caption now and remember it for retranslate()."""
+        getattr(widget, setter)(tr(key, **fmt))
+        self._i18n_texts.append((widget, setter, key))
+        return widget
+
+    def _row(self, layout: QFormLayout, key: str, field) -> None:
+        """QFormLayout.addRow with a translatable label tracked for retranslate()."""
+        layout.addRow(tr(key), field)
+        self._i18n_rows.append((layout, field, key))
+
+    def _combo_items(self, combo: QComboBox, items) -> None:
+        """Populate *combo* from (locale_key, data) pairs, tracked for
+        retranslate(). The selected row (by data) is preserved when the
+        items are rebuilt in another language."""
+        pairs = list(items)
+        self._combo_from(combo, lambda: [(tr(k), d) for k, d in pairs])
+
+    def _combo_from(self, combo: QComboBox, options_fn) -> None:
+        """Populate *combo* from ``options_fn() -> [(label, data), ...]`` and
+        re-run that callable (preserving the selected data) on every
+        language switch. Use for option lists whose labels come from
+        ``ui.option_labels`` rather than a bare locale key."""
+        def _apply() -> None:
+            blocked = combo.blockSignals(True)
+            current = combo.currentData()
+            combo.clear()
+            for label, data in options_fn():
+                combo.addItem(label, data)
+            if current is not None:
+                idx = combo.findData(current)
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
+            combo.blockSignals(blocked)
+
+        _apply()
+        self._i18n_combos.append(_apply)
+
+    def retranslate(self) -> None:
+        """Re-pull every caption after a live UI-language switch."""
+        self._retranslating = True
+        try:
+            self.setWindowTitle(tr("settings_title"))
+            self._categories.setAccessibleName(tr("settings_title"))
+            for widget, setter, key in self._i18n_texts:
+                try:
+                    getattr(widget, setter)(tr(key))
+                except RuntimeError:
+                    pass  # C++ side gone
+            for layout, field, key in self._i18n_rows:
+                label = layout.labelForField(field)
+                if label is not None:
+                    label.setText(tr(key))
+            for apply_combo in self._i18n_combos:
+                apply_combo()
+            for i in range(self._categories.count()):
+                self._categories.item(i).setText(tr(self._category_keys[i]))
+        finally:
+            self._retranslating = False
 
     # ------------------------------------------------------------------ setup
 
@@ -73,7 +143,7 @@ class SettingsDialog(QDialog):
         sidebar.setContentsMargins(0, 0, 0, 0)
         sidebar.setSpacing(8)
         self._search_edit = QLineEdit()
-        self._search_edit.setPlaceholderText(tr("settings_search_placeholder"))
+        self._tt(self._search_edit, "settings_search_placeholder", "setPlaceholderText")
         self._search_edit.setClearButtonEnabled(True)
         self._search_edit.textChanged.connect(self._filter_categories)
         self._search_edit.setFixedWidth(190)
@@ -99,6 +169,7 @@ class SettingsDialog(QDialog):
             ("settings_category_covers", self._build_covers_tab()),
         )
         self._category_search_text: list[str] = []
+        self._category_keys: list[str] = [k for k, _ in pages]
         for label_key, page in pages:
             self._categories.addItem(tr(label_key))
             self._pages.addWidget(page)
@@ -132,10 +203,10 @@ class SettingsDialog(QDialog):
         btn_box.accepted.connect(self._on_ok)
         btn_box.rejected.connect(self.reject)
         self._ok_button = btn_box.button(QDialogButtonBox.StandardButton.Ok)
-        self._ok_button.setText(tr("settings_ok"))
-        btn_box.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("settings_cancel"))
+        self._tt(self._ok_button, "settings_ok")
+        self._tt(btn_box.button(QDialogButtonBox.StandardButton.Cancel), "settings_cancel")
         self._apply_button = btn_box.button(QDialogButtonBox.StandardButton.Apply)
-        self._apply_button.setText(tr("settings_apply"))
+        self._tt(self._apply_button, "settings_apply")
         self._apply_button.clicked.connect(self._on_apply)
         root.addWidget(btn_box)
 
@@ -179,16 +250,20 @@ class SettingsDialog(QDialog):
 
         # Theme
         self._theme_combo = QComboBox()
-        self._theme_combo.addItem(tr("settings_theme_dark"), "dark")
-        self._theme_combo.addItem(tr("settings_theme_light"), "light")
+        self._combo_items(self._theme_combo, [
+            ("settings_theme_dark", "dark"),
+            ("settings_theme_light", "light"),
+        ])
         self._theme_combo.currentIndexChanged.connect(self._on_theme_changed)
-        layout.addRow(tr("settings_theme"), self._theme_combo)
+        self._row(layout, "settings_theme", self._theme_combo)
 
         # History
-        self._history_chk = QCheckBox(tr("settings_history_enabled"))
+        self._history_chk = QCheckBox()
+        self._tt(self._history_chk, "settings_history_enabled")
         layout.addRow(self._history_chk)
 
-        clear_btn = QPushButton(tr("settings_clear_history"))
+        clear_btn = QPushButton()
+        self._tt(clear_btn, "settings_clear_history")
         clear_btn.clicked.connect(self._clear_history)
         layout.addRow(clear_btn)
 
@@ -196,7 +271,8 @@ class SettingsDialog(QDialog):
         # manual rebuild of artifact_texts from whatever's already on
         # disk, not run automatically — useful after upgrading from a
         # build that predates the materials search index.
-        reindex_btn = QPushButton(tr("library_reindex_materials"))
+        reindex_btn = QPushButton()
+        self._tt(reindex_btn, "library_reindex_materials")
         reindex_btn.clicked.connect(self._reindex_materials)
         layout.addRow(reindex_btn)
 
@@ -205,26 +281,29 @@ class SettingsDialog(QDialog):
         self._lang_ui_combo.addItem("Auto", "auto")
         self._lang_ui_combo.addItem("English", "en")
         self._lang_ui_combo.addItem("Русский", "ru")
-        layout.addRow(tr("settings_ui_language"), self._lang_ui_combo)
+        self._row(layout, "settings_ui_language", self._lang_ui_combo)
 
         # Watch folder (B5b): a local directory that gets polled for new
         # supported files, which are then queued the same way a
         # multi-file drop is (B5a).
-        self._watch_enabled_chk = QCheckBox(tr("settings_watch_folder_enabled"))
+        self._watch_enabled_chk = QCheckBox()
+        self._tt(self._watch_enabled_chk, "settings_watch_folder_enabled")
         layout.addRow(self._watch_enabled_chk)
 
         watch_row = QHBoxLayout()
         self._watch_folder_edit = QLineEdit()
-        self._watch_folder_edit.setPlaceholderText(tr("settings_watch_folder_placeholder"))
+        self._tt(self._watch_folder_edit, "settings_watch_folder_placeholder", "setPlaceholderText")
         watch_row.addWidget(self._watch_folder_edit, stretch=1)
-        watch_browse_btn = QPushButton(tr("settings_watch_folder_browse"))
+        watch_browse_btn = QPushButton()
+        self._tt(watch_browse_btn, "settings_watch_folder_browse")
         watch_browse_btn.clicked.connect(self._browse_watch_folder)
         watch_row.addWidget(watch_browse_btn)
         watch_container = QWidget()
         watch_container.setLayout(watch_row)
-        layout.addRow(tr("settings_watch_folder"), watch_container)
+        self._row(layout, "settings_watch_folder", watch_container)
 
-        watch_hint = QLabel(tr("settings_watch_folder_hint"))
+        watch_hint = QLabel()
+        self._tt(watch_hint, "settings_watch_folder_hint")
         watch_hint.setProperty("role", "muted")
         watch_hint.setProperty("size", "small")
         watch_hint.setWordWrap(True)
@@ -249,21 +328,27 @@ class SettingsDialog(QDialog):
 
         # Default model
         self._model_combo = QComboBox()
-        for key, label in whisper_model_options():
-            self._model_combo.addItem(label, key)
-        layout.addRow(tr("settings_default_model"), self._model_combo)
+        self._combo_from(
+            self._model_combo,
+            lambda: [(label, key) for key, label in whisper_model_options()],
+        )
+        self._row(layout, "settings_default_model", self._model_combo)
 
         # Default language
         self._lang_combo = QComboBox()
-        for key, label in whisper_language_options():
-            self._lang_combo.addItem(label, key)
-        layout.addRow(tr("settings_default_language"), self._lang_combo)
+        self._combo_from(
+            self._lang_combo,
+            lambda: [(label, key) for key, label in whisper_language_options()],
+        )
+        self._row(layout, "settings_default_language", self._lang_combo)
 
         # Performance mode
         self._perf_combo = QComboBox()
-        for key, label, *_ in performance_mode_options():
-            self._perf_combo.addItem(label, key)
-        layout.addRow(tr("settings_performance"), self._perf_combo)
+        self._combo_from(
+            self._perf_combo,
+            lambda: [(label, key) for key, label, *_ in performance_mode_options()],
+        )
+        self._row(layout, "settings_performance", self._perf_combo)
 
         # Models directory (read-only)
         models_row = QHBoxLayout()
@@ -273,19 +358,20 @@ class SettingsDialog(QDialog):
         self._models_dir_label.setText(get_models_dir())
         models_row.addWidget(self._models_dir_label, stretch=1)
 
-        open_btn = QPushButton(tr("btn_open_folder"))
+        open_btn = QPushButton()
+        self._tt(open_btn, "btn_open_folder")
         open_btn.clicked.connect(self._open_models_dir)
         models_row.addWidget(open_btn)
 
         models_container = QWidget()
         models_container.setLayout(models_row)
-        layout.addRow(tr("settings_models_dir"), models_container)
+        self._row(layout, "settings_models_dir", models_container)
 
         # Custom vocabulary
         self._vocab_edit = QPlainTextEdit()
-        self._vocab_edit.setPlaceholderText(tr("settings_vocab_hint"))
+        self._tt(self._vocab_edit, "settings_vocab_hint", "setPlaceholderText")
         self._vocab_edit.setMaximumHeight(90)
-        layout.addRow(tr("settings_vocab"), self._vocab_edit)
+        self._row(layout, "settings_vocab", self._vocab_edit)
 
         return tab
 
@@ -297,12 +383,14 @@ class SettingsDialog(QDialog):
 
         self._mic_combo = QComboBox()
         self._populate_mic_devices()
-        layout.addRow(tr("settings_mic_device"), self._mic_combo)
+        self._row(layout, "settings_mic_device", self._mic_combo)
 
-        self._live_chk = QCheckBox(tr("settings_live_enabled"))
+        self._live_chk = QCheckBox()
+        self._tt(self._live_chk, "settings_live_enabled")
         layout.addRow(self._live_chk)
 
-        hint = QLabel(tr("settings_live_hint"))
+        hint = QLabel()
+        self._tt(hint, "settings_live_hint")
         hint.setProperty("role", "muted")
         hint.setWordWrap(True)
         layout.addRow(hint)
@@ -314,15 +402,16 @@ class SettingsDialog(QDialog):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
         self._cover_layout_combo = QComboBox()
-        for label, value in (
-            (tr("cover_layout_duo"), "duo"),
-            (tr("cover_layout_solo"), "solo"),
-            (tr("cover_layout_text"), "text_only"),
-        ):
-            self._cover_layout_combo.addItem(label, value)
+        self._combo_items(self._cover_layout_combo, [
+            ("cover_layout_duo", "duo"),
+            ("cover_layout_solo", "solo"),
+            ("cover_layout_text", "text_only"),
+        ])
         self._cover_variant_combo = QComboBox()
-        self._cover_variant_combo.addItem(tr("cover_variant_mint"), "mint")
-        self._cover_variant_combo.addItem(tr("cover_variant_warm"), "warm")
+        self._combo_items(self._cover_variant_combo, [
+            ("cover_variant_mint", "mint"),
+            ("cover_variant_warm", "warm"),
+        ])
         self._cover_host_name_edit = QLineEdit()
         self._cover_host_photo_edit = QLineEdit()
         self._cover_provider_combo = QComboBox()
@@ -330,13 +419,15 @@ class SettingsDialog(QDialog):
         self._cover_provider_combo.addItem("ComfyUI", "comfyui")
         self._cover_provider_combo.addItem("HTTP", "http")
         self._cover_comfy_edit = QLineEdit()
-        self._cover_upscale_chk = QCheckBox(tr("settings_cover_upscale"))
-        self._cover_shorts_chk = QCheckBox(tr("settings_cover_shorts"))
-        layout.addRow(tr("cover_layout"), self._cover_layout_combo)
-        layout.addRow(tr("cover_variant"), self._cover_variant_combo)
-        layout.addRow(tr("settings_cover_host_name"), self._cover_host_name_edit)
-        layout.addRow(tr("settings_cover_host_photo"), self._cover_host_photo_edit)
-        layout.addRow(tr("settings_cover_provider"), self._cover_provider_combo)
+        self._cover_upscale_chk = QCheckBox()
+        self._tt(self._cover_upscale_chk, "settings_cover_upscale")
+        self._cover_shorts_chk = QCheckBox()
+        self._tt(self._cover_shorts_chk, "settings_cover_shorts")
+        self._row(layout, "cover_layout", self._cover_layout_combo)
+        self._row(layout, "cover_variant", self._cover_variant_combo)
+        self._row(layout, "settings_cover_host_name", self._cover_host_name_edit)
+        self._row(layout, "settings_cover_host_photo", self._cover_host_photo_edit)
+        self._row(layout, "settings_cover_provider", self._cover_provider_combo)
         layout.addRow("ComfyUI URL", self._cover_comfy_edit)
         layout.addRow(self._cover_upscale_chk)
         layout.addRow(self._cover_shorts_chk)
@@ -348,7 +439,8 @@ class SettingsDialog(QDialog):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        self._diarization_chk = QCheckBox(tr("settings_diarization_enable"))
+        self._diarization_chk = QCheckBox()
+        self._tt(self._diarization_chk, "settings_diarization_enable")
         layout.addRow(self._diarization_chk)
 
         # HF token
@@ -358,7 +450,8 @@ class SettingsDialog(QDialog):
         self._hf_token_edit.setPlaceholderText("hf_…")
         token_row.addWidget(self._hf_token_edit, stretch=1)
 
-        show_btn = QPushButton(tr("settings_show_secret"))
+        show_btn = QPushButton()
+        self._tt(show_btn, "settings_show_secret")
         show_btn.setCheckable(True)
         show_btn.toggled.connect(
             lambda checked: self._hf_token_edit.setEchoMode(
@@ -369,16 +462,17 @@ class SettingsDialog(QDialog):
 
         token_container = QWidget()
         token_container.setLayout(token_row)
-        layout.addRow(tr("settings_hf_token"), token_container)
+        self._row(layout, "settings_hf_token", token_container)
 
         # Number of speakers
         self._speakers_spin = QSpinBox()
-        self._speakers_spin.setSpecialValueText(tr("speakers_auto"))
+        self._tt(self._speakers_spin, "speakers_auto", "setSpecialValueText")
         self._speakers_spin.setRange(0, 8)   # 0 = auto
         self._speakers_spin.setValue(0)
-        layout.addRow(tr("settings_num_speakers"), self._speakers_spin)
+        self._row(layout, "settings_num_speakers", self._speakers_spin)
 
-        note = QLabel(tr("diarization_note"))
+        note = QLabel()
+        self._tt(note, "diarization_note")
         note.setProperty("role", "muted")
         note.setProperty("size", "small")
         note.setWordWrap(True)
@@ -395,10 +489,11 @@ class SettingsDialog(QDialog):
         # Posts / AI panel URL
         self._lm_url_edit = QLineEdit()
         self._lm_url_edit.setPlaceholderText("http://localhost:1234/v1")
-        layout.addRow(tr("settings_lm_url"), self._lm_url_edit)
+        self._row(layout, "settings_lm_url", self._lm_url_edit)
 
         check_row = QHBoxLayout()
-        self._check_btn = QPushButton(tr("btn_test_connection"))
+        self._check_btn = QPushButton()
+        self._tt(self._check_btn, "btn_test_connection")
         self._check_btn.setProperty("variant", "primary")
         self._check_btn.clicked.connect(self._check_connection)
         check_row.addWidget(self._check_btn)
@@ -412,19 +507,19 @@ class SettingsDialog(QDialog):
         # Book pipeline URL
         self._book_lm_url_edit = QLineEdit()
         self._book_lm_url_edit.setPlaceholderText("http://localhost:1234/v1")
-        layout.addRow(tr("settings_book_lm_url"), self._book_lm_url_edit)
+        self._row(layout, "settings_book_lm_url", self._book_lm_url_edit)
 
         # Book model name
         self._book_model_edit = QLineEdit()
-        self._book_model_edit.setPlaceholderText(tr("settings_book_model_placeholder"))
-        layout.addRow(tr("settings_book_model"), self._book_model_edit)
+        self._tt(self._book_model_edit, "settings_book_model_placeholder", "setPlaceholderText")
+        self._row(layout, "settings_book_model", self._book_model_edit)
 
         # Book temperature
         self._book_temp_spin = QDoubleSpinBox()
         self._book_temp_spin.setRange(0.0, 2.0)
         self._book_temp_spin.setSingleStep(0.1)
         self._book_temp_spin.setDecimals(1)
-        layout.addRow(tr("settings_book_temp"), self._book_temp_spin)
+        self._row(layout, "settings_book_temp", self._book_temp_spin)
 
         return tab
 
@@ -547,6 +642,8 @@ class SettingsDialog(QDialog):
             widget.valueChanged.connect(self._mark_dirty)
 
     def _mark_dirty(self, *_args) -> None:
+        if self._retranslating:
+            return
         self._apply_button.setEnabled(True)
 
     def _on_theme_changed(self, _index: int):
@@ -558,29 +655,28 @@ class SettingsDialog(QDialog):
             apply_theme(app, name)
         self._pending_theme = name
 
+    def _apply_language_change(self) -> None:
+        """Switch the UI language in-place (no restart) when it changed.
+
+        ``set_locale`` reloads the strings and fans the change out to every
+        open widget registered with ``core.i18n.on_language_changed``,
+        including this dialog (see ``retranslate``)."""
+        if self._lang_changed:
+            set_locale(getattr(self._cfg, "ui_language", "auto"))
+
     def _on_apply(self):
         self._lang_changed = False
         self._save_values()
         self._apply_button.setEnabled(False)
         self.settings_applied.emit()
-        if self._lang_changed:
-            QMessageBox.information(
-                self,
-                tr("app_title"),
-                tr("settings_language_restart"),
-            )
+        self._apply_language_change()
 
     def _on_ok(self):
         self._stop_checker()
         self._lang_changed = False
         self._save_values()
         self.settings_applied.emit()
-        if self._lang_changed:
-            QMessageBox.information(
-                self,
-                tr("app_title"),
-                tr("settings_language_restart"),
-            )
+        self._apply_language_change()
         self.accept()
 
     def _stop_checker(self) -> None:

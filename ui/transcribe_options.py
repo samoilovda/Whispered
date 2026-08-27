@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal
 
 from config import get_config, save_config
-from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 from ui.components import ElidingComboBox
 from ui.option_labels import (
     model_state_suffix,
@@ -65,8 +65,28 @@ class TranscribeOptions(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setProperty("role", "card")
+        self._i18n = Retranslator()
         self._setup_ui()
         self._load_config()
+        self._i18n.call(self._retranslate_options)
+        self._i18n.bind()
+
+    def _retranslate_options(self) -> None:
+        """Rebuild the option combos in the new language, preserving each
+        selection (live UI-language switch)."""
+        for combo, options in (
+            (self.language_combo, [(k, lbl) for k, lbl in whisper_language_options()]),
+            (self.perf_combo, [(m[0], m[1]) for m in performance_mode_options()]),
+        ):
+            current = combo.currentData()
+            combo.blockSignals(True)
+            combo.clear()
+            for key, label in options:
+                combo.addItem(label, key)
+            idx = combo.findData(current)
+            combo.setCurrentIndex(idx if idx >= 0 else 0)
+            combo.blockSignals(False)
+        self.refresh_model_state()
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -75,7 +95,7 @@ class TranscribeOptions(QFrame):
 
         # Model
         model_row = QHBoxLayout()
-        model_label = QLabel(tr("label_model"))
+        model_label = self._i18n.text(QLabel(), "label_model")
         model_label.setProperty("role", "muted")
         model_row.addWidget(model_label)
         self.model_combo = ElidingComboBox()
@@ -87,7 +107,7 @@ class TranscribeOptions(QFrame):
 
         # Language + translate
         lang_row = QHBoxLayout()
-        lang_label = QLabel(tr("label_language"))
+        lang_label = self._i18n.text(QLabel(), "label_language")
         lang_label.setProperty("role", "muted")
         lang_row.addWidget(lang_label)
         self.language_combo = ElidingComboBox()
@@ -98,26 +118,27 @@ class TranscribeOptions(QFrame):
         layout.addLayout(lang_row)
 
         self.translate_checkbox = QCheckBox("→ EN")
-        self.translate_checkbox.setToolTip(tr("tooltip_translate"))
+        self._i18n.text(self.translate_checkbox, "tooltip_translate", "setToolTip")
         self.translate_checkbox.toggled.connect(self.changed.emit)
         layout.addWidget(self.translate_checkbox)
 
         # Performance
         perf_row = QHBoxLayout()
-        perf_label = QLabel(tr("label_mode"))
+        perf_label = self._i18n.text(QLabel(), "label_mode")
         perf_label.setProperty("role", "muted")
         perf_row.addWidget(perf_label)
         self.perf_combo = ElidingComboBox(sync_tooltip=False)
         self.perf_combo.setMinimumWidth(160)
         _fill_combo(self.perf_combo, [(m[0], m[1]) for m in performance_mode_options()])
-        self.perf_combo.setToolTip(tr("tooltip_performance_mode"))
+        self._i18n.text(self.perf_combo, "tooltip_performance_mode", "setToolTip")
         self.perf_combo.currentIndexChanged.connect(self.changed.emit)
         perf_row.addWidget(self.perf_combo, stretch=1)
         layout.addLayout(perf_row)
 
         # Diarization
-        self.diarization_checkbox = QCheckBox(tr("label_speakers"))
-        self.diarization_checkbox.setToolTip(tr("tooltip_diarization"))
+        self.diarization_checkbox = QCheckBox()
+        self._i18n.text(self.diarization_checkbox, "label_speakers")
+        self._i18n.text(self.diarization_checkbox, "tooltip_diarization", "setToolTip")
         self.diarization_checkbox.toggled.connect(self.changed.emit)
         layout.addWidget(self.diarization_checkbox)
 

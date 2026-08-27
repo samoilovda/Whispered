@@ -17,6 +17,7 @@ from PyQt6.QtCore import pyqtSignal, QTimer
 from book_pipeline import BookPipeline, BookResult
 from core.book_batch_worker import BookBatchWorker
 from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 from core.logger import get_logger
 from core.lm_status_worker import LMStatusWorker
 from core.worker_registry import WorkerRegistry
@@ -52,7 +53,11 @@ class BookPanel(QWidget):
         self._conn_timer: QTimer | None = None
         self._has_transcript = False
         self._connected = False
+        self._conn_checked = False
+        self._i18n = Retranslator()
         self._setup_ui()
+        self._i18n.call(self._retranslate_book)
+        self._i18n.bind()
         # The deterministic gallery (tools/render_ui_gallery.py) must never
         # touch a user's LM Studio installation or depend on its response
         # time — see the identical guard in ui/ai_panel.py.
@@ -75,7 +80,7 @@ class BookPanel(QWidget):
         divider.setFixedHeight(1)
         layout.addWidget(divider)
 
-        header = QLabel(tr("book_header"))
+        header = self._i18n.text(QLabel(), "book_header")
         header.setProperty("role", "heading")
         header.setStyleSheet("margin-top: 4px;")
         layout.addWidget(header)
@@ -96,18 +101,18 @@ class BookPanel(QWidget):
         self.status_label.setVisible(False)
 
         # ----- Stage checkboxes -----
-        stages_label = QLabel(tr("book_stages_label"))
+        stages_label = self._i18n.text(QLabel(), "book_stages_label")
         stages_label.setProperty("role", "muted")
         stages_label.setProperty("size", "small")
         layout.addWidget(stages_label)
 
-        self.chk_transcribe = QCheckBox(tr("book_stage_transcribe"))
+        self.chk_transcribe = self._i18n.text(QCheckBox(), "book_stage_transcribe")
         self.chk_transcribe.setStyleSheet("")
         self.chk_transcribe.setChecked(True)
         self.chk_transcribe.setEnabled(False)  # always on — result comes from transcriber
         layout.addWidget(self.chk_transcribe)
 
-        self.chk_unwrap = QCheckBox(tr("book_stage_unwrap"))
+        self.chk_unwrap = self._i18n.text(QCheckBox(), "book_stage_unwrap")
         self.chk_unwrap.setStyleSheet("")
         self.chk_unwrap.setChecked(True)
         layout.addWidget(self.chk_unwrap)
@@ -115,7 +120,7 @@ class BookPanel(QWidget):
         # Custom prompt row
         custom_row = QHBoxLayout()
         custom_row.setSpacing(6)
-        self.chk_custom = QCheckBox(tr("book_stage_custom"))
+        self.chk_custom = self._i18n.text(QCheckBox(), "book_stage_custom")
         self.chk_custom.setStyleSheet("")
         self.chk_custom.toggled.connect(self._on_custom_toggled)
         custom_row.addWidget(self.chk_custom)
@@ -126,7 +131,7 @@ class BookPanel(QWidget):
         cp_layout.setContentsMargins(20, 0, 0, 0)
         cp_layout.setSpacing(4)
         self.custom_prompt_edit = QLineEdit()
-        self.custom_prompt_edit.setPlaceholderText(tr("book_custom_prompt_placeholder"))
+        self._i18n.text(self.custom_prompt_edit, "book_custom_prompt_placeholder", "setPlaceholderText")
         self.custom_prompt_browse = QPushButton("…")
         self.custom_prompt_browse.setFixedSize(26, 26)
         self.custom_prompt_browse.clicked.connect(self._browse_custom_prompt)
@@ -150,13 +155,13 @@ class BookPanel(QWidget):
 
         # ----- Run / Cancel buttons -----
         run_row = QHBoxLayout()
-        self.run_btn = QPushButton(tr("book_run"))
+        self.run_btn = self._i18n.text(QPushButton(), "book_run")
         self.run_btn.setProperty("variant", "primary")
         self.run_btn.setEnabled(False)
         self.run_btn.clicked.connect(self._on_run_clicked)
         run_row.addWidget(self.run_btn)
 
-        self.cancel_btn = QPushButton(tr("btn_cancel"))
+        self.cancel_btn = self._i18n.text(QPushButton(), "btn_cancel")
         self.cancel_btn.setVisible(False)
         self.cancel_btn.clicked.connect(self._on_cancel_clicked)
         run_row.addWidget(self.cancel_btn)
@@ -169,7 +174,7 @@ class BookPanel(QWidget):
         divider2.setFixedHeight(1)
         layout.addWidget(divider2)
 
-        batch_header = QLabel(tr("book_batch_header"))
+        batch_header = self._i18n.text(QLabel(), "book_batch_header")
         batch_header.setProperty("role", "heading")
         layout.addWidget(batch_header)
 
@@ -177,7 +182,7 @@ class BookPanel(QWidget):
         folder_row = QHBoxLayout()
         folder_row.setSpacing(4)
         self.folder_edit = QLineEdit()
-        self.folder_edit.setPlaceholderText(tr("book_folder_placeholder"))
+        self._i18n.text(self.folder_edit, "book_folder_placeholder", "setPlaceholderText")
         self.folder_edit.textChanged.connect(self._on_folder_changed)
         self.folder_browse = QPushButton("…")
         self.folder_browse.setFixedSize(26, 26)
@@ -207,13 +212,13 @@ class BookPanel(QWidget):
 
         # Batch start / cancel
         batch_btn_row = QHBoxLayout()
-        self.batch_start_btn = QPushButton(tr("book_run_all"))
+        self.batch_start_btn = self._i18n.text(QPushButton(), "book_run_all")
         self.batch_start_btn.setProperty("variant", "primary")
         self.batch_start_btn.setEnabled(False)
         self.batch_start_btn.clicked.connect(self._start_batch)
         batch_btn_row.addWidget(self.batch_start_btn)
 
-        self.batch_cancel_btn = QPushButton(tr("book_stop"))
+        self.batch_cancel_btn = self._i18n.text(QPushButton(), "book_stop")
         self.batch_cancel_btn.setVisible(False)
         self.batch_cancel_btn.clicked.connect(self._cancel_batch)
         batch_btn_row.addWidget(self.batch_cancel_btn)
@@ -283,7 +288,20 @@ class BookPanel(QWidget):
         self._registry.register(self._checker, name="lm_status_checker")
         self._checker.start()
 
+    def _retranslate_book(self) -> None:
+        if self._conn_checked:
+            self.status_label.setText(
+                tr("book_lm_connected") if self._connected else tr("book_lm_unavailable")
+            )
+        else:
+            self.status_label.setText(tr("book_lm_checking"))
+        if self.folder_edit.text().strip():
+            self._on_folder_changed("")
+        else:
+            self.batch_count_label.setText(tr("book_files_none_selected"))
+
     def _on_connection_result(self, connected: bool, _detail: str = "") -> None:
+        self._conn_checked = True
         self._connected = connected
         self.connection_changed.emit(connected, _detail)
         if connected:

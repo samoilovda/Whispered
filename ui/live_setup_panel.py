@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 from config import get_config
 from core.base_worker import BaseWorker
 from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 from core.live.preflight import default_helper_path
 from core.live.target_discovery import DiscoveredTarget, discover_targets
 from core.platform_support import live_system_audio_unavailable_message, supports_live_system_audio
@@ -54,7 +55,31 @@ class LiveSetupPanel(FormSection):
         super().__init__(tr("live_setup_title"), tr("live_setup_description"), parent)
         self._target_worker: TargetDiscoveryWorker | None = None
         self._registry = WorkerRegistry(parent=self)
+        self._i18n = Retranslator()
+        self._row_labels: list[tuple] = []
         self._build()
+        self._i18n.call(self._retranslate_live_setup)
+        self._i18n.bind()
+
+    def _retranslate_live_setup(self) -> None:
+        self.set_section_texts(tr("live_setup_title"), tr("live_setup_description"))
+        self.mic_check.setText(tr("live_source_mic"))
+        self.system_check.setText(tr("live_source_system"))
+        self.refresh_btn.setText(tr("live_refresh_targets"))
+        for label, key in self._row_labels:
+            label.setText(tr(key))
+        self.mic_combo.setItemText(0, tr("live_default_microphone"))
+        if self.target_combo.count() == 1 and self.target_combo.itemData(0) is None:
+            self.target_combo.setItemText(0, tr("live_zoom_missing"))
+        self.refresh_model_state()
+        current = self.language_combo.currentData()
+        self.language_combo.blockSignals(True)
+        self.language_combo.clear()
+        for key, label in whisper_language_options():
+            self.language_combo.addItem(label, key)
+        idx = self.language_combo.findData(current)
+        self.language_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.language_combo.blockSignals(False)
 
     def _build(self) -> None:
         # A plain QHBoxLayout squeezes both checkboxes below their label's
@@ -80,9 +105,11 @@ class LiveSetupPanel(FormSection):
         # any other unwrapped QLabel — "Приложение встречи" clipped to
         # "Прилож" (see docs/UI_REDESIGN_PLAN_2026-09.ru.md, A4). Build the
         # label explicitly so it can wrap instead of hard-clipping.
-        def _row_label(text: str) -> QLabel:
+        def _row_label(text: str, key: str = "") -> QLabel:
             label = QLabel(text)
             label.setWordWrap(True)
+            if key:
+                self._row_labels.append((label, key))
             return label
 
         form = QFormLayout()
@@ -96,7 +123,7 @@ class LiveSetupPanel(FormSection):
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.mic_combo = ElidingComboBox()
         self.mic_combo.addItem(tr("live_default_microphone"), get_config().mic_device_index)
-        form.addRow(_row_label(tr("live_mic_device")), self.mic_combo)
+        form.addRow(_row_label(tr("live_mic_device"), "live_mic_device"), self.mic_combo)
 
         target_row = QWidget()
         target_layout = QHBoxLayout(target_row)
@@ -108,18 +135,18 @@ class LiveSetupPanel(FormSection):
         target_layout.addWidget(self.target_combo, 1)
         target_layout.addWidget(self.refresh_btn)
         self._target_row = target_row
-        form.addRow(_row_label(tr("live_meeting_target")), target_row)
+        form.addRow(_row_label(tr("live_meeting_target"), "live_meeting_target"), target_row)
 
         self.model_combo = ElidingComboBox()
         self._fill_model_combo()
         self._select(self.model_combo, get_config().default_model)
-        form.addRow(_row_label(tr("live_model")), self.model_combo)
+        form.addRow(_row_label(tr("live_model"), "live_model"), self.model_combo)
 
         self.language_combo = ElidingComboBox()
         for key, label in whisper_language_options():
             self.language_combo.addItem(label, key)
         self._select(self.language_combo, get_config().default_language)
-        form.addRow(_row_label(tr("live_language")), self.language_combo)
+        form.addRow(_row_label(tr("live_language"), "live_language"), self.language_combo)
         self.body_layout.addLayout(form)
 
         for control in (

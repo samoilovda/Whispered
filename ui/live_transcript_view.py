@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 from core.live.contracts import SegmentState, SegmentUpdate
 from core.live.presentation import LiveTranscriptModel
 from ui.components import StatusBadge
@@ -39,12 +40,13 @@ class LiveTranscriptView(QWidget):
         self._model = LiveTranscriptModel()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        self._i18n = Retranslator()
         heading = QHBoxLayout()
-        title = QLabel(tr("live_transcript_title"))
+        title = self._i18n.text(QLabel(), "live_transcript_title")
         title.setProperty("role", "section-title")
         heading.addWidget(title)
         heading.addStretch()
-        self.latest_btn = QPushButton(tr("live_to_latest"))
+        self.latest_btn = self._i18n.text(QPushButton(), "live_to_latest")
         self.latest_btn.setVisible(False)
         self.latest_btn.clicked.connect(self.scroll_to_latest)
         heading.addWidget(self.latest_btn)
@@ -53,6 +55,7 @@ class LiveTranscriptView(QWidget):
         self.list.setAlternatingRowColors(True)
         self.list.verticalScrollBar().valueChanged.connect(self._sync_latest_button)
         layout.addWidget(self.list, 1)
+        self._i18n.bind()
 
     def accept_update(self, update) -> bool:
         if not self._model.accept(update):

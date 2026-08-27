@@ -316,15 +316,25 @@ class FormSection(QWidget):
         self.body_layout = QVBoxLayout(self)
         self.body_layout.setContentsMargins(SPACE_4, SPACE_4, SPACE_4, SPACE_4)
         self.body_layout.setSpacing(SPACE_3)
+        self._title_label: "QLabel | None" = None
+        self._description_label: "QLabel | None" = None
         if title:
-            label = QLabel(title)
-            label.setProperty("role", "section-title")
-            self.body_layout.addWidget(label)
+            self._title_label = QLabel(title)
+            self._title_label.setProperty("role", "section-title")
+            self.body_layout.addWidget(self._title_label)
         if description:
-            label = QLabel(description)
-            label.setProperty("role", "muted")
-            label.setWordWrap(True)
-            self.body_layout.addWidget(label)
+            self._description_label = QLabel(description)
+            self._description_label.setProperty("role", "muted")
+            self._description_label.setWordWrap(True)
+            self.body_layout.addWidget(self._description_label)
+
+    def set_section_texts(self, title: str = "", description: str = "") -> None:
+        """Update the section's title/description in place (used by panels
+        that retranslate on a live UI-language switch)."""
+        if title and self._title_label is not None:
+            self._title_label.setText(title)
+        if description and self._description_label is not None:
+            self._description_label.setText(description)
 
     def add_widget(self, widget: QWidget) -> None:
         self.body_layout.addWidget(widget)

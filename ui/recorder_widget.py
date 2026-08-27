@@ -16,6 +16,7 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 
 from core.logger import get_logger
 from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 from ui.theme import set_role
 from ui.icons import IconColors, get_icon
 from utils import format_duration
@@ -40,7 +41,10 @@ class RecorderWidget(QWidget):
         self._recorder = None      # lazily instantiated
         self._start_ts: float = 0.0
         self._device: Optional[int] = None
+        self._i18n = Retranslator()
         self._setup_ui()
+        self._i18n.call(self._retranslate_dynamic)
+        self._i18n.bind()
 
     # ------------------------------------------------------------------ UI
 
@@ -51,16 +55,17 @@ class RecorderWidget(QWidget):
         self.setProperty("role", "form-section")
 
         device_row = QHBoxLayout()
-        device_label = QLabel(tr("settings_mic_device"))
+        device_label = self._i18n.text(QLabel(), "settings_mic_device")
         device_label.setProperty("role", "muted")
         device_row.addWidget(device_label)
         self._device_combo = QComboBox()
         self._device_combo.addItem(tr("settings_mic_default"), None)
+        self._i18n.call(lambda: self._device_combo.setItemText(0, tr("settings_mic_default")))
         self._device_combo.currentIndexChanged.connect(
             lambda _index: self.set_device(self._device_combo.currentData())
         )
         device_row.addWidget(self._device_combo, stretch=1)
-        refresh_btn = QPushButton(tr("recorder_refresh_devices"))
+        refresh_btn = self._i18n.text(QPushButton(), "recorder_refresh_devices")
         refresh_btn.clicked.connect(self._refresh_devices)
         device_row.addWidget(refresh_btn)
         layout.addLayout(device_row)
@@ -72,7 +77,7 @@ class RecorderWidget(QWidget):
         self._record_btn = QPushButton(tr("recorder_start"))
         self._record_btn.setIcon(get_icon("microphone", IconColors.WHITE, 16))
         self._record_btn.setProperty("variant", "primary")
-        self._record_btn.setToolTip(tr("tooltip_record"))
+        self._i18n.text(self._record_btn, "tooltip_record", "setToolTip")
         self._record_btn.setMinimumHeight(40)
         self._record_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._record_btn.clicked.connect(self._toggle_recording)
@@ -80,7 +85,7 @@ class RecorderWidget(QWidget):
 
         # Pause button (visible only while recording)
         self._pause_btn = QPushButton(tr("recorder_pause"))
-        self._pause_btn.setToolTip(tr("tooltip_record_pause"))
+        self._i18n.text(self._pause_btn, "tooltip_record_pause", "setToolTip")
         self._pause_btn.setMinimumHeight(40)
         self._pause_btn.setVisible(False)
         self._pause_btn.setCheckable(True)
@@ -111,6 +116,24 @@ class RecorderWidget(QWidget):
         self._timer = QTimer(self)
         self._timer.setInterval(500)
         self._timer.timeout.connect(self._update_timer)
+
+    def _retranslate_dynamic(self) -> None:
+        """Re-apply the record button + status caption for the current
+        recording state after a live UI-language switch."""
+        rec = self._recorder
+        recording = rec is not None and rec.is_recording()
+        self._record_btn.setText(
+            tr("recorder_stop") if recording else tr("recorder_start")
+        )
+        if recording and self._pause_btn.isChecked():
+            self._pause_btn.setText(tr("recorder_resume"))
+            self._status_label.setText(tr("recorder_paused"))
+        elif recording:
+            self._pause_btn.setText(tr("recorder_pause"))
+            self._status_label.setText(tr("recorder_recording"))
+        else:
+            self._pause_btn.setText(tr("recorder_pause"))
+            self._status_label.setText(tr("recorder_ready"))
 
     # ------------------------------------------------------------------ public
 

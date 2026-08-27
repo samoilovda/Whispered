@@ -7,6 +7,17 @@ Usage:
     load_locale("ru")        # called once at startup
     label.setText(tr("btn_transcribe"))
     msg = tr("toast_complete", words=42)
+
+Hot language switching:
+    set_locale("ru")         # at runtime, from the Settings dialog
+    on_language_changed(self._retranslate)   # in a widget's __init__
+
+``set_locale()`` reloads the strings and then invokes every callback
+registered through ``on_language_changed()`` so open widgets can re-pull
+their captions without an application restart. Callbacks are held weakly
+(pass a bound method or keep your own reference); a dead one is dropped
+silently and one that raises is logged and skipped so a single broken
+widget can't abort the rest of the fan-out.
 """
 
 from __future__ import annotations
@@ -15,9 +26,16 @@ import json
 import locale
 import logging
 import os
+import weakref
 from pathlib import Path
+from typing import Callable
 
 logger = logging.getLogger(__name__)
+
+# Language-change subscribers. Bound methods are stored as ``WeakMethod`` and
+# plain functions as ``weakref.ref`` so a destroyed widget drops out of the
+# fan-out on its own (Qt gives us no deterministic teardown hook here).
+_LANG_SUBSCRIBERS: "list[weakref.ref[Callable[[], None]]]" = []
 
 _LOCALE_DIR = Path(__file__).parent.parent / "locales"
 _SUPPORTED = {"en", "ru"}
@@ -99,6 +117,66 @@ def tr(key: str, **kwargs) -> str:
 def current_lang() -> str:
     """Return the active language code, e.g. 'en' or 'ru'."""
     return _CURRENT_LANG
+
+
+# ---------------------------------------------------------------------------
+# Hot language switching
+# ---------------------------------------------------------------------------
+
+def on_language_changed(callback: Callable[[], None]) -> None:
+    """Register *callback* to run whenever ``set_locale()`` changes the
+    active language.
+
+    The reference is weak: pass a bound method (``self._retranslate``) or
+    otherwise keep the callable alive yourself. Registering the same
+    callback twice is a no-op.
+    """
+    try:
+        ref: "weakref.ref[Callable[[], None]]" = weakref.WeakMethod(callback)  # type: ignore[arg-type]
+    except TypeError:
+        ref = weakref.ref(callback)
+
+    for existing in _LANG_SUBSCRIBERS:
+        if existing() is not None and existing() == callback:
+            return
+    _LANG_SUBSCRIBERS.append(ref)
+
+
+def remove_language_listener(callback: Callable[[], None]) -> None:
+    """Unregister a callback added via :func:`on_language_changed`."""
+    _LANG_SUBSCRIBERS[:] = [
+        r for r in _LANG_SUBSCRIBERS if r() is not None and r() != callback
+    ]
+
+
+def _notify_language_changed() -> None:
+    for ref in list(_LANG_SUBSCRIBERS):
+        cb = ref()
+        if cb is None:
+            try:
+                _LANG_SUBSCRIBERS.remove(ref)
+            except ValueError:
+                pass
+            continue
+        try:
+            cb()
+        except Exception:
+            logger.exception("language-change listener failed: %r", cb)
+
+
+def set_locale(lang: str) -> bool:
+    """Switch the active UI language at runtime.
+
+    Reloads the locale strings and, if the effective language actually
+    changed, fires every :func:`on_language_changed` listener. Returns
+    ``True`` when a change was broadcast.
+    """
+    previous = _CURRENT_LANG
+    load_locale(lang)
+    if _CURRENT_LANG == previous:
+        return False
+    _notify_language_changed()
+    return True
 
 
 # Eager load at import time so tr() returns real strings immediately — even

@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 
 from config import get_config, save_config
-from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 from core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -28,8 +28,10 @@ class VideoPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._i18n = Retranslator()
         self._setup_ui()
         self._load_config()
+        self._i18n.bind()
 
     # ------------------------------------------------------------------ UI
 
@@ -39,7 +41,7 @@ class VideoPanel(QWidget):
         layout.setSpacing(10)
 
         # Section label
-        section_label = QLabel(tr("video_panel_title"))
+        section_label = self._i18n.text(QLabel(), "video_panel_title")
         section_label.setProperty("role", "heading")
         layout.addWidget(section_label)
 
@@ -52,7 +54,7 @@ class VideoPanel(QWidget):
         # FPS row
         fps_row = QHBoxLayout()
         fps_row.setSpacing(8)
-        fps_label = QLabel(tr("video_fps_label"))
+        fps_label = self._i18n.text(QLabel(), "video_fps_label")
         fps_label.setProperty("role", "muted")
         fps_row.addWidget(fps_label)
 
@@ -66,8 +68,7 @@ class VideoPanel(QWidget):
         layout.addLayout(fps_row)
 
         # Drop-frame row
-        self._df_checkbox = QCheckBox(tr("video_drop_frame_label"))
-        self._df_checkbox.setToolTip(tr("video_drop_frame_tooltip"))
+        self._df_checkbox = self._i18n.text(QCheckBox(), "video_drop_frame_label", tooltip="video_drop_frame_tooltip")
         self._df_checkbox.stateChanged.connect(self._on_df_changed)
         layout.addWidget(self._df_checkbox)
 
@@ -84,12 +85,12 @@ class VideoPanel(QWidget):
         self._pause_spin.setValue(0.5)
         self._pause_spin.setSuffix(" s")
         self._pause_spin.setFixedWidth(64)
-        self._pause_spin.setToolTip(tr("video_pause_threshold_tooltip"))
+        self._i18n.text(self._pause_spin, "video_pause_threshold_tooltip", "setToolTip")
         actions_row.addWidget(self._pause_spin)
 
         self._export_btn = QPushButton("EDL")
         self._export_btn.setProperty("role", "quick-chip")
-        self._export_btn.setToolTip(tr("video_export_edl"))
+        self._i18n.text(self._export_btn, "video_export_edl", "setToolTip")
         self._export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._export_btn.setEnabled(False)
         self._export_btn.clicked.connect(self.export_edl_requested.emit)
@@ -97,7 +98,7 @@ class VideoPanel(QWidget):
 
         self._mark_btn = QPushButton("Mark")
         self._mark_btn.setProperty("role", "quick-chip")
-        self._mark_btn.setToolTip(tr("video_mark_pauses"))
+        self._i18n.text(self._mark_btn, "video_mark_pauses", "setToolTip")
         self._mark_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._mark_btn.setEnabled(False)
         self._mark_btn.clicked.connect(
@@ -107,7 +108,7 @@ class VideoPanel(QWidget):
 
         self._assemble_btn = QPushButton("MP4")
         self._assemble_btn.setProperty("role", "quick-chip")
-        self._assemble_btn.setToolTip(tr("video_assemble_draft"))
+        self._i18n.text(self._assemble_btn, "video_assemble_draft", "setToolTip")
         self._assemble_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._assemble_btn.setEnabled(False)
         self._assemble_btn.clicked.connect(self.assemble_requested.emit)

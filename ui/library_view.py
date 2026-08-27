@@ -31,6 +31,7 @@ from PyQt6.QtCore import QPoint, Qt, QTimer, pyqtSignal
 from config import get_config
 from core.logger import get_logger
 from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 from domain.job import StepStatus
 from domain.recipe import BUILTIN_RECIPES, Recipe
 from utils import format_duration
@@ -199,7 +200,35 @@ class LibraryView(QWidget):
         self._active_recipe_filter = "all"
         self._search_scope = "all"
         self._open_record_id: int | None = None
+        self._i18n = Retranslator()
         self._setup_ui()
+        self._i18n.call(self._retranslate_library)
+        self._i18n.bind()
+
+    def _retranslate_library(self) -> None:
+        self._title_label.setText(tr("library_recent_title"))
+        self._search_edit.setPlaceholderText(tr("history_search_placeholder"))
+        self._scope_label.setText(tr("library_search_scope_label"))
+        self._source_filter_label.setText(tr("library_filter_source_label"))
+        self._recipe_filter_label.setText(tr("library_filter_recipe_label"))
+        for key, button in self._scope_buttons.items():
+            button.setText(tr(f"library_search_scope_{key}"))
+        for key, button in self._source_filter_buttons.items():
+            button.setText(tr(f"library_filter_{key}"))
+        self._recipe_filter_all_btn.setText(tr("library_filter_all"))
+        self._reset_filters_btn.setText(tr("library_filters_reset"))
+        self._cover_btn.setAccessibleName(tr("cover_workspace_title"))
+        self._cover_btn.setToolTip(tr("cover_workspace_title"))
+        self._refresh_btn.setToolTip(tr("library_refresh_tooltip"))
+        self._more_btn.setAccessibleName(tr("library_more_actions"))
+        self._more_btn.setToolTip(tr("library_more_actions"))
+        self._clear_all_action.setText(tr("history_clear_all"))
+        self._empty_state.set_texts(tr("library_empty_title"), tr("library_empty_hint"))
+        self._no_results_state.set_texts(
+            tr("library_no_results_title"), tr("library_no_results_hint")
+        )
+        self._build_recipe_filter_chips()
+        self.refresh()
 
     # ------------------------------------------------------------------ UI
 
@@ -208,7 +237,7 @@ class LibraryView(QWidget):
         layout.setContentsMargins(0, 4, 0, 0)
         layout.setSpacing(8)
 
-        title = QLabel(tr("library_recent_title"))
+        title = self._title_label = QLabel(tr("library_recent_title"))
         title.setProperty("role", "section-title")
         layout.addWidget(title)
 
@@ -230,7 +259,7 @@ class LibraryView(QWidget):
         # Search scope (B7, docs/IMPROVEMENT_PLAN_2026-08.ru.md): whether a
         # query (and the plain "browse everything" view) covers transcripts,
         # generated materials (article/insights/youtube/book text), or both.
-        scope_label = QLabel(tr("library_search_scope_label"))
+        scope_label = self._scope_label = QLabel(tr("library_search_scope_label"))
         scope_label.setProperty("role", "muted")
         layout.addWidget(scope_label)
 
@@ -238,6 +267,7 @@ class LibraryView(QWidget):
         scope_row = FlowLayout(scope_widget, spacing=6)
         self._scope_group = QButtonGroup(self)
         self._scope_group.setExclusive(True)
+        self._scope_buttons: dict = {}
         for key in ("all", "transcripts", "materials"):
             button = QPushButton(tr(f"library_search_scope_{key}"))
             button.setCheckable(True)
@@ -247,6 +277,7 @@ class LibraryView(QWidget):
             )
             self._scope_group.addButton(button)
             scope_row.addWidget(button)
+            self._scope_buttons[key] = button
             if key == "all":
                 button.setChecked(True)
         layout.addWidget(scope_widget)
@@ -278,7 +309,7 @@ class LibraryView(QWidget):
         self._more_btn.setAccessibleName(tr("library_more_actions"))
         self._more_btn.setToolTip(tr("library_more_actions"))
         menu = QMenu(self._more_btn)
-        clear_action = menu.addAction(tr("history_clear_all"))
+        clear_action = self._clear_all_action = menu.addAction(tr("history_clear_all"))
         clear_action.triggered.connect(self._clear_all)
         self._more_btn.setMenu(menu)
         toolbar.addWidget(self._more_btn)
@@ -294,7 +325,7 @@ class LibraryView(QWidget):
         # unlabeled "All" chip — indistinguishable from each other without
         # a heading, since neither says what it's filtering (see
         # docs/IMPROVEMENT_PLAN_2026-08.ru.md, A2).
-        source_label = QLabel(tr("library_filter_source_label"))
+        source_label = self._source_filter_label = QLabel(tr("library_filter_source_label"))
         source_label.setProperty("role", "muted")
         layout.addWidget(source_label)
 
@@ -302,6 +333,7 @@ class LibraryView(QWidget):
         filters = FlowLayout(filters_widget, spacing=6)
         self._filter_group = QButtonGroup(self)
         self._filter_group.setExclusive(True)
+        self._source_filter_buttons: dict = {}
         for key in ("all", "file", "recorder", "live"):
             button = QPushButton(tr(f"library_filter_{key}"))
             button.setCheckable(True)
@@ -311,6 +343,7 @@ class LibraryView(QWidget):
             )
             self._filter_group.addButton(button)
             filters.addWidget(button)
+            self._source_filter_buttons[key] = button
             if key == "all":
                 button.setChecked(True)
                 self._filter_all_btn = button
@@ -320,7 +353,7 @@ class LibraryView(QWidget):
         # second, independent chip row: source kind and recipe are
         # orthogonal properties of a record, so this isn't merged into
         # the group above.
-        recipe_label = QLabel(tr("library_filter_recipe_label"))
+        recipe_label = self._recipe_filter_label = QLabel(tr("library_filter_recipe_label"))
         recipe_label.setProperty("role", "muted")
         layout.addWidget(recipe_label)
 

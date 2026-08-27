@@ -16,6 +16,7 @@ from PyQt6.QtCore import pyqtSignal
 
 from config import get_config, save_config
 from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 from domain.export_preset import BUILTIN_EXPORT_PRESETS
 from exporters import EXPORT_FORMATS
 from ui.icons import get_icon, IconColors
@@ -48,7 +49,20 @@ class RecordView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._initial_split_done = False
+        self._has_result = False
+        self._i18n = Retranslator()
         self._setup_ui()
+        self._i18n.call(self._retranslate_record)
+        self._i18n.bind()
+
+    def _retranslate_record(self) -> None:
+        self.clean_btn.setText(tr("record_clean_action"))
+        self.articles_btn.setText(tr("record_articles_action"))
+        self.cover_btn.setText(tr("record_cover_action"))
+        self.versions_btn.setText(tr("record_versions_action"))
+        self.export_btn.setText(tr("record_export_menu"))
+        self.set_has_result(self._has_result)
+        self._build_export_menu()
 
     def _setup_ui(self) -> None:
         self._layout = QVBoxLayout(self)
@@ -169,6 +183,7 @@ class RecordView(QWidget):
         self.title_label.setText(name)
 
     def set_has_result(self, has_result: bool) -> None:
+        self._has_result = has_result
         self.clean_btn.setEnabled(has_result)
         self.articles_btn.setEnabled(has_result)
         self.cover_btn.setEnabled(has_result)

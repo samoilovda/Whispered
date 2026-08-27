@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 from core.live.preflight import LivePreflight
 from ui.components import FlowLayout, InlineBanner, StatusBadge
 from ui.live_diagnostics_panel import LiveDiagnosticsPanel
@@ -37,7 +38,34 @@ class LiveView(QWidget):
         super().__init__(parent)
         self._preflight_valid = False
         self._state = "idle"
+        self._source_states = {"mic": "idle", "system": "idle"}
+        self._i18n = Retranslator()
         self._setup_ui()
+        self._i18n.call(self._retranslate_live)
+        self._i18n.bind()
+
+    def _retranslate_live(self) -> None:
+        self.preflight_btn.setText(tr("live_preflight"))
+        self.stop_btn.setText(tr("live_stop"))
+        self.open_btn.setText(tr("live_open_record"))
+        self.privacy_badge.set_status(tr("live_audio_not_saved"), "success")
+        self._set_start_enabled(self.start_btn.isEnabled())
+        self.pause_btn.setText(
+            tr("live_resume") if self.pause_btn.isChecked() else tr("live_pause")
+        )
+        pre_session = {
+            "idle": (tr("live_health_idle"), "neutral"),
+            "ready": (tr("live_ready"), "success"),
+            "not_ready": (tr("live_not_ready"), "error"),
+            "preflighting": (tr("live_preflighting"), "info"),
+        }
+        if self._state in pre_session:
+            label, kind = pre_session[self._state]
+            self.state_badge.set_status(label, kind)
+        else:
+            self.set_session_state(self._state)
+        for source, state in self._source_states.items():
+            self.set_source_state(source, state)
 
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -248,6 +276,7 @@ class LiveView(QWidget):
         self.pause_requested.emit(paused)
 
     def set_source_state(self, source: str, state: str) -> None:
+        self._source_states[source] = state
         label = self.mic_state if source == "mic" else self.system_state
         name = tr("live_source_mic") if source == "mic" else tr("live_zoom")
         localized_state = tr(f"live_state_{state}")

@@ -18,6 +18,7 @@ from article_generator import (
     export_article_md, export_article_html, export_all_articles
 )
 from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 from ui.icons import get_icon
 from ui.theme import IconColors
 
@@ -41,7 +42,35 @@ class ArticleTab(QWidget):
         super().__init__(parent)
         self._article: Article | None = None
         self._actions_compact = False
+        self._i18n = Retranslator()
         self._setup_ui()
+        self._i18n.call(self._retranslate_tab)
+        self._i18n.bind()
+
+    def _retranslate_tab(self) -> None:
+        self.copy_btn.setText(tr("btn_copy"))
+        self.copy_btn.setToolTip(tr("btn_copy"))
+        self.export_md_btn.setText(f"{tr('btn_export')} .md")
+        self.export_md_btn.setToolTip(f"{tr('btn_export')} .md")
+        self.export_html_btn.setText(f"{tr('btn_export')} .html")
+        self.export_html_btn.setToolTip(f"{tr('btn_export')} .html")
+        self._action_btns = {
+            self.copy_btn: self.copy_btn.text(),
+            self.export_md_btn: self.export_md_btn.text(),
+            self.export_html_btn: self.export_html_btn.text(),
+        }
+        if self._actions_compact:
+            for btn in self._action_btns:
+                btn.setText("")
+        article = self._article
+        if article is None:
+            self.title_label.setText(tr("article_empty"))
+        else:
+            self.stats_label.setText(tr("article_words", count=article.word_count))
+            if article.quality_score > 0:
+                self.score_label.setText(
+                    tr("article_quality", score=f"{article.quality_score:.1f}")
+                )
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -221,7 +250,16 @@ class ArticleView(QWidget):
         self._source_path: str | None = None
         self._segments: list = []
         self._transcript_language: str = ""
+        self._i18n = Retranslator()
         self._setup_ui()
+        self._i18n.call(self._retranslate_articleview)
+        self._i18n.bind()
+
+    def _retranslate_articleview(self) -> None:
+        for i, fmt in enumerate(ArticleFormat):
+            info = ARTICLE_FORMAT_INFO[fmt]
+            self.tabs.setItemText(i, f"{info['icon']} {tr(_FORMAT_LABEL_KEYS[fmt])}")
+        self.export_all_btn.setText(tr("article_export_all"))
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -349,7 +387,15 @@ class CleanedTextView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._cleaned_text = ""
+        self._i18n = Retranslator()
         self._setup_ui()
+        self._i18n.call(self._retranslate_cleaned)
+        self._i18n.bind()
+
+    def _retranslate_cleaned(self) -> None:
+        self.copy_btn.setText(tr("cleaned_copy"))
+        if not self._cleaned_text:
+            self.stats_label.setText(tr("cleaned_empty"))
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)

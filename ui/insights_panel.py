@@ -16,6 +16,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from core.insights_export import format_insight_text
 from core.logger import get_logger
 from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 from core.paths import output_dir
 from ui.toast import show_toast
 from utils import format_duration
@@ -121,7 +122,25 @@ class InsightsPanel(QWidget):
         self._record_id: int | None = None
         self._source_path: str | None = None
         self._source_name: str = ""
+        self._generating = False
+        self._error_message: str | None = None
+        self._i18n = Retranslator()
         self._setup_ui()
+        self._i18n.call(self._retranslate_insights)
+        self._i18n.bind()
+
+    def _retranslate_insights(self) -> None:
+        self._save_btn.setText(tr("insights_save"))
+        self._ch_header.setText(tr("insights_chapters"))
+        self._ai_header.setText(tr("insights_action_items"))
+        self._km_header.setText(tr("insights_key_moments"))
+        self._gen_btn.setText(
+            tr("insights_generating") if self._generating else tr("insights_generate")
+        )
+        if self._error_message is not None:
+            self._placeholder.setText(f"{tr('insights_error')} {self._error_message}")
+        elif not self._results:
+            self._placeholder.setText(tr("insights_placeholder"))
 
     # ── UI ──────────────────────────────────────────────────────────
 
@@ -231,6 +250,8 @@ class InsightsPanel(QWidget):
     def clear(self) -> None:
         self._segments = []
         self._transcript_language = None
+        self._generating = False
+        self._error_message = None
         self._gen_btn.setEnabled(False)
         self._gen_btn.setText(tr("insights_generate"))
         self._save_btn.setEnabled(False)
@@ -251,6 +272,8 @@ class InsightsPanel(QWidget):
     # MainWindow._start_next_extra_chain_step().
 
     def begin_generating(self) -> None:
+        self._generating = True
+        self._error_message = None
         self._gen_btn.setEnabled(False)
         self._gen_btn.setText(tr("insights_generating"))
         self._placeholder.hide()
@@ -260,6 +283,8 @@ class InsightsPanel(QWidget):
         """*payload* is application/steps.py's "insights" step output:
         ``{"chapters": [...], "action_items": [...], "key_moments": [...]}``."""
         self._results = dict(payload)
+        self._generating = False
+        self._error_message = None
         self._gen_btn.setEnabled(True)
         self._gen_btn.setText(tr("insights_generate"))
         self._save_btn.setEnabled(bool(self._results))
@@ -272,6 +297,8 @@ class InsightsPanel(QWidget):
         self.generation_finished.emit(True)
 
     def set_error(self, message: str) -> None:
+        self._generating = False
+        self._error_message = message
         self._gen_btn.setEnabled(True)
         self._gen_btn.setText(tr("insights_generate"))
         self._placeholder.setText(f"{tr('insights_error')} {message}")

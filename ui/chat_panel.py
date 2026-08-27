@@ -16,6 +16,7 @@ from PyQt6.QtGui import QFont
 
 from core.logger import get_logger
 from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 from core.worker_registry import WorkerRegistry
 from ui.theme import set_role
 
@@ -88,7 +89,23 @@ class ChatPanel(QWidget):
         self._current_bubble: Optional[_Bubble] = None
         self._token_buf: list[str] = []
         self._scroll_timer: Optional[QTimer] = None
+        self._quick_chip_buttons: list = []
+        self._i18n = Retranslator()
         self._setup_ui()
+        self._i18n.call(self._retranslate_chat)
+        self._i18n.bind()
+
+    def _retranslate_chat(self) -> None:
+        self._input.setPlaceholderText(tr("chat_input_placeholder"))
+        self._send_btn.setText(tr("chat_send"))
+        self._stop_btn.setText(tr("chat_stop"))
+        self._clear_btn.setText(tr("btn_clear"))
+        self._placeholder.setText(
+            tr("chat_ready") if self._transcript else tr("chat_placeholder")
+        )
+        questions = _quick_questions()
+        for btn, text in zip(self._quick_chip_buttons, questions):
+            btn.setText(text)
 
     # ------------------------------------------------------------------ UI
 
@@ -122,12 +139,17 @@ class ChatPanel(QWidget):
         # ── Quick chips ───────────────────────────────────────────────
         chips_row = QHBoxLayout()
         chips_row.setSpacing(6)
-        for q in _quick_questions():
+        for i, q in enumerate(_quick_questions()):
             btn = QPushButton(q)
             btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             btn.setProperty("role", "quick-chip")
-            btn.clicked.connect(lambda _, text=q: self._send(text))
+            # Re-resolve the question text at click time so a chip clicked
+            # after a language switch sends the current-language prompt.
+            btn.clicked.connect(
+                lambda _, idx=i: self._send(_quick_questions()[idx])
+            )
             chips_row.addWidget(btn)
+            self._quick_chip_buttons.append(btn)
         layout.addLayout(chips_row)
 
         # ── Input row ─────────────────────────────────────────────────
@@ -150,9 +172,9 @@ class ChatPanel(QWidget):
         self._stop_btn.clicked.connect(self._on_stop)
         input_row.addWidget(self._stop_btn)
 
-        clear_btn = QPushButton(tr("btn_clear"))
-        clear_btn.clicked.connect(self._clear_chat)
-        input_row.addWidget(clear_btn)
+        self._clear_btn = QPushButton(tr("btn_clear"))
+        self._clear_btn.clicked.connect(self._clear_chat)
+        input_row.addWidget(self._clear_btn)
 
         layout.addLayout(input_row)
 

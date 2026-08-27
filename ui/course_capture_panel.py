@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import (
 
 from config import get_config, save_config
 from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 from core.live.runtime import LiveRuntime
 from core.logger import get_logger
 from domain.course_capture import CaptureItemStatus, CaptureQueue, CaptureQueueItem
@@ -117,8 +118,20 @@ class CourseCapturePanel(QWidget):
         self.queue = CaptureQueue(course_title=get_config().course_capture_course_name)
         self._runtime = LiveRuntime(self)
         self._active_item_id: str | None = None
+        self._i18n = Retranslator()
         self._setup_ui()
         self._connect_runtime()
+        self._refresh_list()
+        self._i18n.call(self._retranslate_course)
+        self._i18n.bind()
+
+    def _retranslate_course(self) -> None:
+        self.empty_state.set_texts(
+            tr("course_empty_title"), tr("course_empty_hint"), tr("course_add_lesson")
+        )
+        self.start_stop_btn.setText(
+            tr("course_stop") if self._active_item_id else tr("course_start")
+        )
         self._refresh_list()
 
     # ------------------------------------------------------------------ UI
@@ -129,28 +142,28 @@ class CourseCapturePanel(QWidget):
         layout.setSpacing(12)
 
         header_layout = QHBoxLayout()
-        header_label = QLabel(tr("course_capture_title"))
+        header_label = self._i18n.text(QLabel(), "course_capture_title")
         header_label.setProperty("role", "section-title")
         header_layout.addWidget(header_label)
         self.count_label = QLabel(tr("course_capture_summary", pending=0, done=0, error=0))
         self.count_label.setProperty("role", "dim")
         header_layout.addWidget(self.count_label)
         header_layout.addStretch()
-        self.add_btn = QPushButton(tr("course_add_lesson"))
+        self.add_btn = self._i18n.text(QPushButton(), "course_add_lesson")
         self.add_btn.clicked.connect(self._add_lesson)
         header_layout.addWidget(self.add_btn)
         layout.addLayout(header_layout)
 
-        hint = QLabel(tr("course_capture_hint"))
+        hint = self._i18n.text(QLabel(), "course_capture_hint")
         hint.setProperty("role", "muted")
         hint.setWordWrap(True)
         layout.addWidget(hint)
 
         course_name_row = QHBoxLayout()
-        course_name_label = QLabel(tr("course_name_label"))
+        course_name_label = self._i18n.text(QLabel(), "course_name_label")
         course_name_row.addWidget(course_name_label)
         self.course_name_edit = QLineEdit(self.queue.course_title)
-        self.course_name_edit.setPlaceholderText(tr("course_name_placeholder"))
+        self._i18n.text(self.course_name_edit, "course_name_placeholder", "setPlaceholderText")
         self.course_name_edit.editingFinished.connect(self._on_course_title_changed)
         course_name_row.addWidget(self.course_name_edit, stretch=1)
         layout.addLayout(course_name_row)
@@ -175,25 +188,24 @@ class CourseCapturePanel(QWidget):
 
         actions_layout = QHBoxLayout()
         actions_layout.setSpacing(4)
-        self.start_stop_btn = QPushButton(tr("course_start"))
+        self.start_stop_btn = self._i18n.text(QPushButton(), "course_start")
         self.start_stop_btn.setProperty("variant", "primary")
         self.start_stop_btn.clicked.connect(self._toggle_capture)
         self.start_stop_btn.setEnabled(False)
         actions_layout.addWidget(self.start_stop_btn)
         actions_layout.addStretch()
         self.format_combo = QComboBox()
-        self.format_combo.addItem(tr("course_format_txt"), "txt")
-        self.format_combo.addItem(tr("course_format_md"), "md")
+        self._i18n.combo_items(self.format_combo, [("course_format_txt", "txt"), ("course_format_md", "md")])
         actions_layout.addWidget(self.format_combo)
-        self.combine_btn = QPushButton(tr("course_combine"))
+        self.combine_btn = self._i18n.text(QPushButton(), "course_combine")
         self.combine_btn.clicked.connect(self._combine_into_document)
         self.combine_btn.setEnabled(False)
         actions_layout.addWidget(self.combine_btn)
-        self.export_per_lesson_btn = QPushButton(tr("course_export_per_lesson"))
+        self.export_per_lesson_btn = self._i18n.text(QPushButton(), "course_export_per_lesson")
         self.export_per_lesson_btn.clicked.connect(self._export_per_lesson)
         self.export_per_lesson_btn.setEnabled(False)
         actions_layout.addWidget(self.export_per_lesson_btn)
-        self.clear_btn = QPushButton(tr("course_clear"))
+        self.clear_btn = self._i18n.text(QPushButton(), "course_clear")
         self.clear_btn.clicked.connect(self._clear_queue)
         self.clear_btn.setEnabled(False)
         actions_layout.addWidget(self.clear_btn)

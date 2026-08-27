@@ -80,6 +80,15 @@ class EmptyStateWidget(QWidget):
         layout.addWidget(container)
         layout.addStretch(1)
 
+    def set_texts(self, message: str, hint: str = "", action_text: str = "") -> None:
+        """Update the message / hint / action captions in place — used by
+        panels that retranslate on a live UI-language switch."""
+        self.message_label.setText(message)
+        if self.hint_label is not None and hint:
+            self.hint_label.setText(hint)
+        if action_text:
+            self.action_button.setText(action_text)
+
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._set_compact(self.height() < self._COMPACT_HEIGHT)

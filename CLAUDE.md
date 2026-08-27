@@ -121,6 +121,24 @@ CI mirrors all of the above (`.github/workflows/ci.yml`).
   Poiret One remains an optional lighter alternative. Keep each font's OFL
   file with its TTF and preserve the generic fallback path.
 
+## i18n / live language switching
+
+- The UI language switches at runtime with no restart. `core.i18n.set_locale()`
+  reloads the strings and fires every callback registered via
+  `core.i18n.on_language_changed` (weak refs — pass a bound method or keep
+  your own reference). The Settings dialog calls `set_locale()` on Apply/OK.
+- Every widget that builds captions with `tr()` must re-apply them on a
+  language change. Use `ui.i18n_helpers.Retranslator`: wrap static captions
+  with `self._i18n.text(widget, key[, setter][, tooltip=…])`, register a
+  method for state-derived text with `self._i18n.call(self._retranslate_…)`,
+  then `self._i18n.bind()` once at the end of `__init__`. `MainWindow`,
+  `RunView`, `SettingsDialog` keep their own bespoke `_retranslate`.
+- Modal dialogs opened with `.exec()` (recipe editor, provider dialog, model
+  downloader, speaker rename, …) are rebuilt each time they open and cannot
+  coexist with the Settings dialog, so they are deliberately not retranslated.
+- Transient strings (status-bar operation text, toasts, already-open message
+  boxes) are not retranslated — they re-emit in the active language on next use.
+
 ## Layout conventions
 
 - `input/`, `output/` are git-ignored user data.

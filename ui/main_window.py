@@ -76,7 +76,7 @@ from core.insights_cache import InsightsCache
 from core.base_worker import BaseWorker
 from core.job_runner import JobRunner
 from core.logger import get_logger
-from core.i18n import tr
+from core.i18n import tr, on_language_changed
 from core.worker_registry import WorkerRegistry
 from transcriber import _build_initial_prompt
 from timeline_export import write_edl
@@ -290,6 +290,7 @@ class MainWindow(QMainWindow):
         self._revision_save_timer.setInterval(5000)
         self._revision_save_timer.timeout.connect(self._save_transcript_revision)
         self._setup_ui()
+        on_language_changed(self._retranslate)
         self._document_session = DocumentSession()
         self._register_document_session_consumers()
         self.command_palette = CommandPalette(self)
@@ -358,6 +359,42 @@ class MainWindow(QMainWindow):
         self._build_recorder_section()
         self._build_live_section()
         self._build_record_section()
+
+    def _retranslate(self) -> None:
+        """Re-pull every persistent caption after a live UI-language switch.
+
+        Registered with ``core.i18n.on_language_changed`` in ``__init__``.
+        Each child panel that owns translatable text subscribes itself the
+        same way; this method only covers the chrome MainWindow builds
+        directly — the menu bar, the document tabs, and a handful of
+        status-area widgets. Transient strings (status-bar operation text,
+        toasts) are not touched here: they are re-emitted in the active
+        language the next time their operation runs.
+        """
+        for obj, key, setter in getattr(self, "_i18n_menu_items", []):
+            getattr(obj, setter)(tr(key))
+        for widget, key in getattr(self, "_i18n_doc_tabs", []):
+            idx = self.main_tabs.indexOf(widget)
+            if idx != -1:
+                self.main_tabs.setTabText(idx, tr(key))
+        if hasattr(self, "_folder_hint_label"):
+            self._folder_hint_label.setText(tr("draft_folder_hint"))
+        if hasattr(self, "_draft_queue_button"):
+            self._draft_queue_button.setText(tr("draft_open_queue"))
+        if hasattr(self, "device_btn"):
+            self.device_btn.setToolTip(tr("tooltip_device"))
+        if hasattr(self, "progress_timeline"):
+            self.progress_timeline.stages = [
+                tr(k) for k in self._timeline_stage_keys
+            ]
+        if hasattr(self, "run_view"):
+            self.run_view.set_step_labels(
+                {d.name: tr(d.label_key) for d in STEP_DEFINITIONS}
+            )
+        if hasattr(self, "_drop_overlay"):
+            self._drop_overlay.setText(tr("drop_overlay"))
+        if hasattr(self, "command_palette"):
+            self.command_palette.bind_actions(self._palette_menu_actions)
 
     def _build_window_chrome(self) -> None:
         """Create the window and the vertical host for shell + status."""
@@ -446,11 +483,15 @@ class MainWindow(QMainWindow):
         menubar.setNativeMenuBar(True)
         menus: dict = {}
         palette_actions = []
+        # (object, key, setter) triples re-applied by _retranslate() on a
+        # live UI-language switch (menu titles + action captions).
+        self._i18n_menu_items: list[tuple] = []
         for menu_key, label_key, shortcut, slot, in_palette in table:
             menu = menus.get(menu_key)
             if menu is None:
                 menu = menubar.addMenu(tr(menu_key))
                 menus[menu_key] = menu
+                self._i18n_menu_items.append((menu, menu_key, "setTitle"))
             if label_key is _SEPARATOR:
                 menu.addSeparator()
                 continue
@@ -461,6 +502,7 @@ class MainWindow(QMainWindow):
                 action.setShortcut(QKeySequence(shortcut))
             action.triggered.connect(slot)
             menu.addAction(action)
+            self._i18n_menu_items.append((action, label_key, "setText"))
             if in_palette:
                 palette_actions.append(action)
         return palette_actions
@@ -678,6 +720,18 @@ class MainWindow(QMainWindow):
         self.main_tabs.addTab(self.insights_panel, tr("tab_insights"))
         self.main_tabs.addTab(self.cut_view, tr("tab_cut"))
         self.main_tabs.addTab(self.chat_panel, tr("tab_chat"))
+        # (widget, key) pairs so _retranslate() can re-label the tabs by
+        # widget rather than by a hard-coded index after a language switch.
+        self._i18n_doc_tabs: list[tuple] = [
+            (self.transcript_view, "tab_transcript"),
+            (self.cleaned_view, "tab_cleaned"),
+            (self.article_view, "tab_articles"),
+            (self.youtube_panel, "tab_youtube"),
+            (self.book_panel, "tab_book"),
+            (self.insights_panel, "tab_insights"),
+            (self.cut_view, "tab_cut"),
+            (self.chat_panel, "tab_chat"),
+        ]
         self.record_view.set_content_widgets(self.player, self.main_tabs)
 
         self._stack = QStackedWidget()
@@ -688,8 +742,10 @@ class MainWindow(QMainWindow):
         folder_hint.setProperty("role", "muted")
         folder_hint.setWordWrap(True)
         folder_layout.addWidget(folder_hint)
+        self._folder_hint_label = folder_hint
         queue_button = AnimatedButton(tr("draft_open_queue"))
         queue_button.clicked.connect(lambda: self.status_bar._toggle_queue())
+        self._draft_queue_button = queue_button
         folder_layout.addWidget(queue_button)
         folder_layout.addStretch()
         self.start_view = StartView(
@@ -750,10 +806,11 @@ class MainWindow(QMainWindow):
         self.status_bar.set_course_available(get_config().live_transcription_enabled)
         self.book_panel.connection_changed.connect(self.status_bar.set_llm_status)
         self.progress_timeline = ProgressTimeline()
-        self.progress_timeline.stages = [
-            tr("timeline_select"), tr("timeline_extract"), tr("timeline_transcribe"),
-            tr("timeline_diarize"), tr("timeline_clean"), tr("timeline_generate"),
-        ]
+        self._timeline_stage_keys = (
+            "timeline_select", "timeline_extract", "timeline_transcribe",
+            "timeline_diarize", "timeline_clean", "timeline_generate",
+        )
+        self.progress_timeline.stages = [tr(k) for k in self._timeline_stage_keys]
         self.progress_timeline.setVisible(False)
         self.status_bar.add_detail_widget(self.progress_timeline)
         self._workspace_layout.addWidget(self.status_bar)
