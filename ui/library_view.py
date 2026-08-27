@@ -80,13 +80,28 @@ def _step_label(name: str) -> str:
     return tr(step.label_key) if step is not None else name
 
 
+def _is_resumable(run) -> bool:
+    """B2, docs/IMPROVEMENT_PLAN_2026-08.ru.md: a run that stopped short
+    — failed outright, or was interrupted by a crash
+    (run_store.mark_stale_running_as_interrupted) — with at least one
+    recorded step that isn't SUCCEEDED/SKIPPED still has work left for
+    "Продолжить" to pick up."""
+    if run is None or run.status not in ("failed", "interrupted"):
+        return False
+    done = (StepStatus.SUCCEEDED.value, StepStatus.SKIPPED.value)
+    return any(outcome.get("status") not in done for outcome in run.outcomes.values())
+
+
 class RecordItemWidget(QWidget):
     """Custom rich widget for library items, replacing plain multi-line
     text. *failed_steps* (B8, docs/UI_REDESIGN_PLAN_2026-09.ru.md) shows
     a record's latest run composition — which steps failed — without
-    opening it."""
+    opening it. *resumable* (B2, docs/IMPROVEMENT_PLAN_2026-08.ru.md)
+    shows a "Продолжить" button for a run that stopped short (failed or
+    was interrupted by a crash) with steps still not SUCCEEDED."""
 
     open_requested = pyqtSignal()
+    resume_requested = pyqtSignal()
 
     def __init__(
         self,
@@ -96,6 +111,7 @@ class RecordItemWidget(QWidget):
         snippet: str = "",
         kind: str = "file",
         failed_steps: "list[str] | None" = None,
+        resumable: bool = False,
         parent=None,
     ):
         super().__init__(parent)
@@ -115,6 +131,11 @@ class RecordItemWidget(QWidget):
         kind_label = QLabel(tr(f"library_filter_{kind}"))
         kind_label.setProperty("role", "chip")
         title_row.addWidget(kind_label)
+        if resumable:
+            self.resume_button = QPushButton(tr("library_resume_run"))
+            self.resume_button.setProperty("variant", "primary")
+            self.resume_button.clicked.connect(self.resume_requested.emit)
+            title_row.addWidget(self.resume_button)
         self.open_button = QPushButton(tr("btn_open"))
         self.open_button.setProperty("variant", "ghost")
         self.open_button.clicked.connect(self.open_requested.emit)
@@ -162,6 +183,7 @@ class LibraryView(QWidget):
 
     open_record = pyqtSignal(int)  # record id
     open_cover = pyqtSignal()
+    resume_run = pyqtSignal(int)  # record id (B2)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -416,10 +438,13 @@ class LibraryView(QWidget):
 
             widget = RecordItemWidget(
                 name, meta, artifacts, snippet, kind=_record_kind(rec),
-                failed_steps=failed_steps,
+                failed_steps=failed_steps, resumable=_is_resumable(run),
             )
             widget.open_requested.connect(
                 lambda record_id=rec.id: self.open_record.emit(record_id)
+            )
+            widget.resume_requested.connect(
+                lambda record_id=rec.id: self.resume_run.emit(record_id)
             )
             item.setSizeHint(widget.sizeHint())
 

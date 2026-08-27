@@ -220,6 +220,24 @@ def load_latest_run(
     return _row_to_stored_run(row) if row is not None else None
 
 
+def mark_stale_running_as_interrupted(*, db_path: Optional[Path] = None) -> int:
+    """Flip every job_runs row still ``status='running'`` to
+    ``'interrupted'`` (B2, docs/IMPROVEMENT_PLAN_2026-08.ru.md) — called
+    once from MainWindow.__init__ before anything else touches job_runs.
+
+    A row can only be 'running' while the process that wrote it is still
+    alive and holding the in-memory JobRun that would eventually flip it
+    to 'done'/'failed' (see save_run()'s docstring) — so finding one at
+    startup means that process is dead (crashed, killed, force-quit) and
+    the row was never closed out. Returns the number of rows flipped.
+    """
+    with _connect(db_path) as conn:
+        cursor = conn.execute(
+            "UPDATE job_runs SET status = 'interrupted' WHERE status = 'running'"
+        )
+        return cursor.rowcount
+
+
 def apply_stored_outcomes(run: JobRun, stored: StoredRun) -> None:
     """Populate *run*.outcomes from *stored*'s serialized snapshot — how a
     JobRun resumes across a restart. Every restored StepOutcome.result is

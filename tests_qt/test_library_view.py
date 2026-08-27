@@ -91,6 +91,113 @@ def test_succeeded_run_shows_no_error_badges(monkeypatch, tmp_path, process_even
     view.close()
 
 
+def test_resume_button_shown_for_a_failed_run_with_unfinished_steps(
+    monkeypatch, tmp_path, process_events,
+):
+    """B2, docs/IMPROVEMENT_PLAN_2026-08.ru.md: a "Продолжить" button
+    appears on a card whose latest run is failed/interrupted with a step
+    that isn't SUCCEEDED/SKIPPED."""
+    load_locale("en")
+    store = _make_store(tmp_path)
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+
+    record_id = _add_record(store, "podcast.mp3")
+    run = JobRun(spec=JobSpec(name="podcast_article", steps=(
+        StepSpec("transcribe"), StepSpec("clean"), StepSpec("article"),
+    )))
+    run.outcomes["transcribe"] = StepOutcome("transcribe", StepStatus.SUCCEEDED)
+    run.outcomes["clean"] = StepOutcome("clean", StepStatus.SUCCEEDED)
+    run.outcomes["article"] = StepOutcome("article", StepStatus.FAILED, error="boom")
+    save_run(record_id, "podcast_article", run, status="failed")
+
+    view = LibraryView()
+    view.refresh()
+    process_events()
+
+    from core.i18n import tr
+
+    widget = _item_widget(view, record_id)
+    assert widget is not None
+    assert hasattr(widget, "resume_button")
+    assert widget.resume_button.text() == tr("library_resume_run")
+
+    view.close()
+
+
+def test_no_resume_button_for_a_fully_succeeded_run(monkeypatch, tmp_path, process_events):
+    store = _make_store(tmp_path)
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+
+    record_id = _add_record(store, "clean.mp3")
+    _save_run(record_id, "transcript_only", {
+        "transcribe": StepOutcome("transcribe", StepStatus.SUCCEEDED),
+    })
+
+    view = LibraryView()
+    view.refresh()
+    process_events()
+
+    widget = _item_widget(view, record_id)
+    assert widget is not None
+    assert not hasattr(widget, "resume_button")
+
+    view.close()
+
+
+def test_no_resume_button_while_the_run_is_still_running(monkeypatch, tmp_path, process_events):
+    """A row genuinely still 'running' (this process's own live run, not
+    a dead one — see run_store.mark_stale_running_as_interrupted) must
+    not offer to resume something already in progress."""
+    store = _make_store(tmp_path)
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+
+    record_id = _add_record(store, "in-progress.mp3")
+    run = JobRun(spec=JobSpec(name="podcast_article", steps=(
+        StepSpec("transcribe"), StepSpec("clean"),
+    )))
+    run.outcomes["transcribe"] = StepOutcome("transcribe", StepStatus.SUCCEEDED)
+    save_run(record_id, "podcast_article", run, status="running")
+
+    view = LibraryView()
+    view.refresh()
+    process_events()
+
+    widget = _item_widget(view, record_id)
+    assert widget is not None
+    assert not hasattr(widget, "resume_button")
+
+    view.close()
+
+
+def test_clicking_resume_emits_resume_run_with_the_record_id(
+    monkeypatch, tmp_path, process_events,
+):
+    store = _make_store(tmp_path)
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+
+    record_id = _add_record(store, "podcast.mp3")
+    run = JobRun(spec=JobSpec(name="podcast_article", steps=(
+        StepSpec("transcribe"), StepSpec("article"),
+    )))
+    run.outcomes["transcribe"] = StepOutcome("transcribe", StepStatus.SUCCEEDED)
+    run.outcomes["article"] = StepOutcome("article", StepStatus.FAILED, error="boom")
+    save_run(record_id, "podcast_article", run, status="failed")
+
+    view = LibraryView()
+    view.refresh()
+    process_events()
+
+    seen = []
+    view.resume_run.connect(seen.append)
+    widget = _item_widget(view, record_id)
+    widget.resume_button.click()
+    process_events()
+
+    assert seen == [record_id]
+
+    view.close()
+
+
 def test_record_with_no_run_at_all_is_not_a_crash(monkeypatch, tmp_path, process_events):
     """Pre-B3 history / a record no recipe ever ran against — load_latest_run
     returns None; the card must still render."""

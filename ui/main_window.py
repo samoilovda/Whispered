@@ -18,6 +18,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut, QDragEnterEvent, QDropEvent
 
 from ui.toast import show_toast
+from ui.option_labels import recipe_label
 from ui.library_view import LibraryView
 from ui.record_view import RecordView
 from ui.workspace_shell import WorkspaceShell
@@ -268,6 +269,18 @@ class MainWindow(QMainWindow):
         # Apply saved mic device
         cfg = get_config()
         self.recorder_widget.set_device(getattr(cfg, "mic_device_index", None))
+        # A job_runs row can only stay 'running' while the process that
+        # wrote it is alive (see run_store.save_run's docstring) — one
+        # still 'running' at startup means that process died mid-run
+        # without ever closing it out. Flip those to 'interrupted' before
+        # the Library reads job_runs below, so a dead run's card offers
+        # "Продолжить" (B2, docs/IMPROVEMENT_PLAN_2026-08.ru.md) instead
+        # of forever reading as still in progress.
+        try:
+            from application import run_store
+            run_store.mark_stale_running_as_interrupted()
+        except Exception as exc:
+            logger.warning("Failed to mark stale job_runs as interrupted: %s", exc)
         # The Library is the startup page but nothing else triggers its
         # first load — every other refresh() call is a reaction to
         # navigating back to it or saving a new record, neither of which
@@ -532,6 +545,7 @@ class MainWindow(QMainWindow):
 
         self.library_view = LibraryView()
         self.library_view.open_record.connect(self._open_record_view)
+        self.library_view.resume_run.connect(self._resume_run)
         self.library_view.open_cover.connect(lambda: self._on_section_changed("cover"))
 
     def _build_queue_section(self) -> None:
@@ -1649,12 +1663,92 @@ class MainWindow(QMainWindow):
 
         self._recipe_run_id = None
         self.run_view.bind_run(run)
-        self.run_view.set_recipe_name(
-            tr(f"recipe_{recipe.builtin_key}") if recipe.builtin_key else recipe.name
-        )
+        self.run_view.set_recipe_name(recipe_label(recipe))
         self.run_view.set_finished(False)
         if show_run_screen:
             self._stack.setCurrentIndex(self._run_index)
+        self._save_recipe_run("running")
+        self._launch_recipe_job()
+
+    def _resume_run(self, record_id: int) -> None:
+        """LibraryView.resume_run (B2, docs/IMPROVEMENT_PLAN_2026-08.ru.md):
+        pick up a run that stopped short — failed, or was interrupted by
+        a crash (run_store.mark_stale_running_as_interrupted) — from
+        wherever it left off.
+
+        Needs B1: a restored StepOutcome's result is always None (see
+        run_store's own module docstring), so a dependent step reads a
+        SUCCEEDED/SKIPPED predecessor's real output from disk via
+        load_step_result(), exactly like a cache-skipped step already
+        does. Resumes by the run's *saved* step composition (its own
+        recipe, resolved by name) rather than assuming nothing changed —
+        the recipe could have been edited since (B4 makes that easy) or
+        deleted outright, in which case _resolve_recipe() already falls
+        back to transcript-only and the mismatch note below explains why
+        the run screen looks different from what actually ran.
+        """
+        from application import run_store
+        from core.ai_provider import provider_from_config
+        from core.paths import artifact_dir
+        from utils import language_name_for_code
+
+        if not self._load_from_history(record_id):
+            return
+        stored = run_store.load_latest_run(record_id)
+        if stored is None:
+            return
+        result = self._current_result
+        if result is None:
+            return
+
+        recipe = self._resolve_recipe(stored.recipe)
+        spec = build_job_spec(stored.recipe, recipe.steps)
+        step_names = tuple(step.name for step in spec.steps)
+        run = JobRun(spec=spec)
+        run_store.apply_stored_outcomes(run, stored)
+
+        cfg = get_config()
+        provider = provider_from_config(cfg)
+        stem = Path(self._source_filepath).stem if self._source_filepath else "recording"
+
+        self._recipe_run = run
+        self._recipe_spec = spec
+        self._recipe_step_names = step_names
+        self._recipe_context = StepContext(
+            source_path=self._source_filepath or "",
+            result=result,
+            record_id=record_id,
+            artifact_dir=artifact_dir(record_id, self._source_filepath or stem),
+            params={
+                "lm_url": cfg.lm_studio_url,
+                "language": language_name_for_code(result.language),
+                "provider": None if provider.kind == "lmstudio" else provider,
+                "insights_cache": self._insights_cache,
+                "do_unwrap": self.book_panel.chk_unwrap.isChecked(),
+                "do_custom": self.book_panel.chk_custom.isChecked(),
+                "custom_prompt_path": self.book_panel.custom_prompt_edit.text().strip(),
+                **self.cover_view.render_params(),
+            },
+            get_result=lambda name: self._recipe_get_result(run, name),
+            is_cancelled=run.is_cancelled,
+        )
+
+        self._recipe_run_id = stored.id
+        self.run_view.bind_run(run)
+        name = recipe_label(recipe)
+        if set(stored.outcomes) - set(recipe.steps):
+            name = tr("run_resumed_mismatch", name=name)
+        self.run_view.set_recipe_name(name)
+        self.run_view.set_finished(False)
+        self._stack.setCurrentIndex(self._run_index)
+        # JobEngine never re-resolves a step already in run.outcomes, so
+        # _launch_recipe_job() below won't fire step_finished for any of
+        # these restored SUCCEEDED/SKIPPED outcomes — without this loop
+        # their tabs (Clean, Article, ...) would stay empty until the
+        # user happened to trigger some other refresh.
+        for step_name, outcome in run.outcomes.items():
+            if outcome.status in (StepStatus.SUCCEEDED, StepStatus.SKIPPED):
+                self._on_recipe_step_finished(step_name, outcome)
         self._save_recipe_run("running")
         self._launch_recipe_job()
 
@@ -1784,7 +1878,11 @@ class MainWindow(QMainWindow):
         into, so they're left to the run screen's own row status.
 
         A SKIPPED step (cache hit — B1) never ran its runner, so
-        outcome.result is None; its tab still needs populating from the
+        outcome.result is None; so does every restored outcome a resumed
+        run (B2) feeds through here, regardless of its own status —
+        run_store's contract is that a StepOutcome read back from storage
+        always has result=None (see application/run_store.py's module
+        docstring). Either way, the tab still needs populating from the
         artifact already on disk via load_step_result(), the same
         reconstruction _recipe_get_result() uses to feed dependent steps.
         """
@@ -1792,7 +1890,7 @@ class MainWindow(QMainWindow):
         if outcome.status not in (StepStatus.SUCCEEDED, StepStatus.SKIPPED):
             return
         result = outcome.result
-        if result is None and outcome.status is StepStatus.SKIPPED:
+        if result is None:
             result = load_step_result(self._recipe_context, name)
         if name == "clean":
             from text_processor import ProcessingResult
