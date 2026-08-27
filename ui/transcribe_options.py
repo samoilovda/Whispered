@@ -21,9 +21,10 @@ from config import get_config, save_config
 from core.i18n import tr
 from ui.components import ElidingComboBox
 from ui.option_labels import (
+    model_state_suffix,
     performance_mode_options,
     whisper_language_options,
-    whisper_model_options,
+    whisper_model_options_with_state,
 )
 from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES
 
@@ -34,6 +35,15 @@ def _fill_combo(combo: QComboBox, items: list) -> None:
             combo.addItem(item[1], item[0])
         else:
             combo.addItem(item)
+
+
+def _fill_model_combo(combo: QComboBox) -> None:
+    """Model items get a "· downloaded"/"· will download" suffix (B10,
+    docs/IMPROVEMENT_PLAN_2026-08.ru.md) — a text signal rather than
+    color alone, and picked up by ElidingComboBox's own tooltip sync for
+    free since it's baked into the item text itself."""
+    for key, label, downloaded in whisper_model_options_with_state():
+        combo.addItem(f"{label} {model_state_suffix(downloaded)}", key)
 
 
 class TranscribeOptions(QFrame):
@@ -70,7 +80,7 @@ class TranscribeOptions(QFrame):
         model_row.addWidget(model_label)
         self.model_combo = ElidingComboBox()
         self.model_combo.setMinimumWidth(200)
-        _fill_combo(self.model_combo, whisper_model_options())
+        _fill_model_combo(self.model_combo)
         self.model_combo.currentIndexChanged.connect(self.changed.emit)
         model_row.addWidget(self.model_combo, stretch=1)
         layout.addLayout(model_row)
@@ -129,6 +139,21 @@ class TranscribeOptions(QFrame):
         # Connected after the initial seeding above, so restoring the saved
         # values doesn't immediately write them back out again.
         self.changed.connect(self._persist)
+
+    def refresh_model_state(self) -> None:
+        """Re-check which models are downloaded and rebuild the model
+        combo's item text (B10, docs/IMPROVEMENT_PLAN_2026-08.ru.md item
+        3) — called after Settings is applied and before the recipe
+        editor is (re)shown, never on every dropdown open. Preserves the
+        current selection; blocked signals keep the rebuild from firing
+        currentIndexChanged (and therefore _persist) as a side effect."""
+        current = self.model_combo.currentData()
+        self.model_combo.blockSignals(True)
+        self.model_combo.clear()
+        _fill_model_combo(self.model_combo)
+        idx = self.model_combo.findData(current)
+        self.model_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.model_combo.blockSignals(False)
 
     def _persist(self) -> None:
         """Write the current selection back to Config.

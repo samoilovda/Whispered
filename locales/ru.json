@@ -583,6 +583,8 @@
   "whisper_model_large_v3_turbo": "Turbo (~1,6 ГБ) - быстро и точно",
   "whisper_model_large_v3_turbo_q5_0": "Turbo Q5 (~547 МБ) - самая компактная и быстрая",
   "whisper_model_large_v3_turbo_q8_0": "Turbo Q8 (~834 МБ) - повышенное качество",
+  "model_state_downloaded": "· скачана",
+  "model_state_not_downloaded": "· будет загружена",
   "whisper_language_auto": "Автоопределение",
   "whisper_language_en": "Английский",
   "whisper_language_es": "Испанский",

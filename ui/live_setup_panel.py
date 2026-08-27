@@ -23,7 +23,11 @@ from core.live.target_discovery import DiscoveredTarget, discover_targets
 from core.platform_support import live_system_audio_unavailable_message, supports_live_system_audio
 from core.worker_registry import WorkerRegistry
 from ui.components import ElidingComboBox, FlowLayout, FormSection
-from ui.option_labels import whisper_language_options, whisper_model_options
+from ui.option_labels import (
+    model_state_suffix,
+    whisper_language_options,
+    whisper_model_options_with_state,
+)
 
 
 class TargetDiscoveryWorker(BaseWorker):
@@ -107,8 +111,7 @@ class LiveSetupPanel(FormSection):
         form.addRow(_row_label(tr("live_meeting_target")), target_row)
 
         self.model_combo = ElidingComboBox()
-        for key, label in whisper_model_options():
-            self.model_combo.addItem(label.split(" - ", 1)[0], key)
+        self._fill_model_combo()
         self._select(self.model_combo, get_config().default_model)
         form.addRow(_row_label(tr("live_model")), self.model_combo)
 
@@ -148,6 +151,29 @@ class LiveSetupPanel(FormSection):
             signal.connect(self._changed)
         self.system_check.toggled.connect(self._sync_target_visibility)
         self._sync_target_visibility(system_audio_supported)
+
+    def _fill_model_combo(self) -> None:
+        """Model items get the same "· downloaded"/"· will download"
+        suffix ui/transcribe_options.py's model combo does (B10,
+        docs/IMPROVEMENT_PLAN_2026-08.ru.md) — kept to the truncated
+        "Name (~size)" label (no " - description") this combo already
+        used, the suffix appended after it."""
+        self.model_combo.clear()
+        for key, label, downloaded in whisper_model_options_with_state():
+            short_label = label.split(" - ", 1)[0]
+            self.model_combo.addItem(f"{short_label} {model_state_suffix(downloaded)}", key)
+
+    def refresh_model_state(self) -> None:
+        """Re-check which models are downloaded and rebuild the model
+        combo's item text — called after Settings is applied, never on
+        every dropdown open (see TranscribeOptions.refresh_model_state's
+        docstring for why)."""
+        current = self.model_combo.currentData()
+        self.model_combo.blockSignals(True)
+        self._fill_model_combo()
+        idx = self.model_combo.findData(current)
+        self.model_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.model_combo.blockSignals(False)
 
     @staticmethod
     def _select(combo: QComboBox, value) -> None:

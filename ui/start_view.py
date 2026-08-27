@@ -32,6 +32,7 @@ from core.i18n import tr
 from domain.recipe import BUILTIN_RECIPES, TRANSCRIPT_ONLY
 from ui.animated_button import AnimatedButton
 from ui.components import FlowLayout
+from ui.option_labels import whisper_model_options
 
 
 class StartView(QWidget):
@@ -254,9 +255,24 @@ class StartView(QWidget):
         """Re-read the transcription options widget's current selections
         into the muted summary line under the launch button — called after
         recipe_editor.py's dialog closes, since that's where those combos
-        actually live now."""
+        actually live now.
+
+        Model text is looked up from whisper_model_options() rather than
+        read as model_combo.currentText() directly: since B10 that combo's
+        item text carries a "· downloaded"/"· will download" suffix
+        (docs/IMPROVEMENT_PLAN_2026-08.ru.md) meant for the combo itself,
+        not for this already-long one-line summary — appending it here
+        overflowed the label (a plain QLabel with no eliding or wrapping)
+        at the gallery's smallest tested width.
+        """
         opts = self._transcribe_options
-        model = opts.model_combo.currentText() if hasattr(opts, "model_combo") else ""
+        model = ""
+        if hasattr(opts, "model_combo"):
+            key = opts.model_combo.currentData()
+            model = next(
+                (label for k, label in whisper_model_options() if k == key),
+                opts.model_combo.currentText(),
+            )
         language = opts.language_combo.currentText() if hasattr(opts, "language_combo") else ""
         mode = opts.perf_combo.currentText() if hasattr(opts, "perf_combo") else ""
         self._summary_label.setText(

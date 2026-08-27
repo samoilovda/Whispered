@@ -1097,6 +1097,9 @@ class MainWindow(QMainWindow):
         )
         self.status_bar.set_course_available(cfg.live_transcription_enabled)
         self._apply_watch_folder_config()
+        self.transcribe_options.refresh_model_state()
+        self.course_capture_panel.setup.refresh_model_state()
+        self.live_view.setup.refresh_model_state()
 
     def _apply_watch_folder_config(self) -> None:
         """Point _watch_folder_service at Config.watch_folder, or stop it
@@ -1589,6 +1592,11 @@ class MainWindow(QMainWindow):
         """
         original_key = self.start_view.current_recipe_key()
         recipe = self._resolve_recipe(original_key)
+        # Re-check downloaded state (B10) every time the editor opens —
+        # this combo is a single long-lived widget, not rebuilt just by
+        # showing the dialog, so a model downloaded since the last time
+        # it was open would otherwise still read "will download".
+        self.transcribe_options.refresh_model_state()
         dialog = RecipeEditorDialog(self.transcribe_options, recipe, self)
         accepted = dialog.exec() == QDialog.DialogCode.Accepted
         steps = dialog.selected_steps() if accepted else None
