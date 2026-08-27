@@ -16,6 +16,7 @@ from PyQt6.QtCore import pyqtSignal
 
 from config import get_config, save_config
 from core.i18n import tr
+from domain.export_preset import BUILTIN_EXPORT_PRESETS
 from exporters import EXPORT_FORMATS
 from ui.icons import get_icon, IconColors
 from ui.animated_button import AnimatedButton
@@ -38,6 +39,7 @@ class RecordView(QWidget):
 
     back_requested = pyqtSignal()
     export_requested = pyqtSignal()
+    export_preset_requested = pyqtSignal(str)  # ExportPreset.key
     clean_requested = pyqtSignal()
     articles_requested = pyqtSignal()
     cover_requested = pyqtSignal()
@@ -113,6 +115,17 @@ class RecordView(QWidget):
         selected = set(getattr(cfg, "export_formats", None) or ["txt"])
 
         menu = KeepOpenMenu(self.export_btn)
+
+        # Presets first (B9, docs/IMPROVEMENT_PLAN_2026-08.ru.md item 3) —
+        # "collect the YouTube package" in one click, formats below a
+        # separator for the existing pick-your-own-formats flow.
+        for preset in BUILTIN_EXPORT_PRESETS:
+            act = menu.addAction(tr(f"export_preset_{preset.key}"))
+            act.triggered.connect(
+                lambda _checked=False, key=preset.key: self.export_preset_requested.emit(key)
+            )
+        menu.addSeparator()
+
         self._format_actions = {}
         for key in _FORMAT_KEYS:
             name, _ = EXPORT_FORMATS[key]

@@ -616,6 +616,7 @@ class MainWindow(QMainWindow):
         self.record_view = RecordView()
         self.record_view.back_requested.connect(self._show_library)
         self.record_view.export_requested.connect(self._export_result)
+        self.record_view.export_preset_requested.connect(self._export_preset)
         self.record_view.clean_requested.connect(self._start_text_cleaning)
         self.record_view.articles_requested.connect(self._start_generate_all)
         # cover_view.set_segments() is already a DocumentSession consumer
@@ -2310,6 +2311,48 @@ class MainWindow(QMainWindow):
                         tr("error_export"),
                         "Failed formats: " + ", ".join(outcome.failed),
                     )
+
+    def _export_preset(self, preset_key: str) -> None:
+        """B9, docs/IMPROVEMENT_PLAN_2026-08.ru.md: collect an export
+        preset's formats and generated materials into one folder — the
+        actual collection is delegated to
+        application/export_controller.py::export_preset(); this method
+        only owns the directory dialog and the resulting toast."""
+        result = self.transcript_view.get_result()
+        if not result:
+            return
+        from domain.export_preset import BUILTIN_EXPORT_PRESETS_BY_KEY
+        preset = BUILTIN_EXPORT_PRESETS_BY_KEY.get(preset_key)
+        if preset is None:
+            return
+
+        directory = QFileDialog.getExistingDirectory(self, "Select Export Directory")
+        if not directory:
+            return
+
+        source_file = self.file_selector.get_file() or "transcript"
+        default_name = os.path.splitext(os.path.basename(source_file))[0]
+        record_id = self._last_record_id if self._last_record_id is not None else "unsaved"
+
+        outcome = export_controller.export_preset(
+            result, preset, directory, record_id,
+            source_path=self._source_filepath or "", default_name=default_name,
+        )
+        if outcome.any_missing:
+            show_toast(
+                self,
+                tr(
+                    "toast_export_preset_partial",
+                    count=outcome.total_files, missing=len(outcome.materials_missing),
+                ),
+                kind="warning",
+            )
+        else:
+            show_toast(
+                self,
+                tr("toast_export_preset_done", count=outcome.total_files, dir=directory),
+                kind="success",
+            )
 
     # ===== AI Processing Methods =====
 

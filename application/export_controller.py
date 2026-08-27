@@ -10,12 +10,17 @@ boxes, and toasts, since those are legitimately UI concerns.
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass, field
-from typing import Sequence
+from pathlib import Path
+from typing import TYPE_CHECKING, Sequence
 
 from core.logger import get_logger
 from domain.transcription import TranscriptionResult
 from exporters import export_result
+
+if TYPE_CHECKING:
+    from domain.export_preset import ExportPreset
 
 logger = get_logger(__name__)
 
@@ -72,4 +77,98 @@ def export_many_to_directory(
         except Exception as exc:
             logger.warning("Failed to export %s: %s", format_key, exc)
             outcome.failed.append(format_key)
+    return outcome
+
+
+@dataclass
+class PresetExportOutcome:
+    """Result of export_preset() (B9, docs/IMPROVEMENT_PLAN_2026-08.ru.md)
+    — the format half (same shape as a plain multi-format export) plus
+    which generated materials actually got copied versus which the
+    record never had, so the caller can show "collected N files, M
+    materials missing" instead of a flat success/fail."""
+    formats: ExportOutcome = field(default_factory=ExportOutcome)
+    materials_copied: list[str] = field(default_factory=list)
+    materials_missing: list[str] = field(default_factory=list)
+    index_path: str = ""
+
+    @property
+    def total_files(self) -> int:
+        return len(self.formats.succeeded) + len(self.materials_copied)
+
+    @property
+    def any_missing(self) -> bool:
+        return bool(self.formats.failed) or bool(self.materials_missing)
+
+
+def export_preset(
+    result: TranscriptionResult,
+    preset: "ExportPreset",
+    directory: str,
+    record_id: "int | str",
+    source_path: str = "",
+    default_name: str = "transcript",
+) -> PresetExportOutcome:
+    """Collect everything *preset* bundles into *directory*: every format
+    in ``preset.formats`` (reusing export_many_to_directory), plus a copy
+    of every generated material in ``preset.artifacts`` that actually
+    exists on disk for this record.
+
+    A material the record never generated (no YouTube package run, no
+    cover rendered, ...) is skipped with a line in ``index.txt`` — not an
+    error — so the same preset works on a record that only has a bare
+    transcript. Materials are located the same deterministic way
+    application/steps.py's own cache-skip does: STEP_REGISTRY[artifact_type]
+    .make_artifact() with a StepContext built from *result*/*source_path*/
+    *record_id*, not by re-running anything.
+    """
+    from application.steps import STEP_REGISTRY, StepContext
+    from core.paths import artifact_dir as _artifact_dir_for
+    from infrastructure.persistence import artifact_store
+
+    outcome = PresetExportOutcome()
+    outcome.formats = export_many_to_directory(result, directory, preset.formats, default_name)
+
+    index_lines = []
+    for format_key in outcome.formats.succeeded:
+        ext = format_extension(format_key)
+        suffix = '_ts' if format_key == 'txt_ts' else ''
+        index_lines.append(f"{format_key}: {default_name}{suffix}.{ext}")
+    for format_key in outcome.formats.failed:
+        index_lines.append(f"{format_key}: export failed")
+
+    context = StepContext(
+        source_path=source_path,
+        result=result,
+        record_id=record_id,
+        artifact_dir=_artifact_dir_for(record_id, source_path),
+    )
+    for artifact_type in preset.artifacts:
+        step = STEP_REGISTRY.get(artifact_type)
+        artifact = step.make_artifact(context) if step is not None else None
+        source_file = Path(artifact.path) if artifact is not None else None
+        if source_file is None or not source_file.is_file():
+            outcome.materials_missing.append(artifact_type)
+            index_lines.append(f"{artifact_type}: not generated for this record")
+            continue
+        dest = Path(directory) / source_file.name
+        try:
+            shutil.copyfile(source_file, dest)
+        except OSError as exc:
+            logger.warning("Failed to copy %s material for preset export: %s", artifact_type, exc)
+            outcome.materials_missing.append(artifact_type)
+            index_lines.append(f"{artifact_type}: copy failed ({exc})")
+            continue
+        outcome.materials_copied.append(artifact_type)
+        manifest = artifact_store.load(source_file)
+        when = manifest.created_at if manifest is not None else "?"
+        index_lines.append(f"{artifact_type}: {dest.name} (generated {when})")
+
+    index_path = Path(directory) / "index.txt"
+    try:
+        index_path.write_text("\n".join(index_lines) + "\n", encoding="utf-8")
+        outcome.index_path = str(index_path)
+    except OSError as exc:
+        logger.warning("Failed to write preset export index.txt: %s", exc)
+
     return outcome
