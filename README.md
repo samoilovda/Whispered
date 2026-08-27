@@ -5,6 +5,7 @@
 [![Lint](https://img.shields.io/badge/lint-ruff-261230)](https://docs.astral.sh/ruff/)
 [![Python](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows%20preview-lightgrey)]()
+[![Latest release](https://img.shields.io/github/v/release/samoilovda/Whispered?include_prereleases&sort=semver)](https://github.com/samoilovda/Whispered/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **Local audio and video transcription with tools for turning recordings into
@@ -20,6 +21,27 @@ default. Text is sent to an external service only when a cloud provider is
 explicitly selected in the YouTube tab.
 
 🇷🇺 [Русская версия](README.ru.md)
+
+---
+
+## Download
+
+Prebuilt applications are published on the
+[**Releases**](https://github.com/samoilovda/Whispered/releases/latest) page:
+
+| Platform | File |
+|---|---|
+| macOS (Apple Silicon, 13+) | `Whispered-<version>-macos-arm64.zip` |
+| Windows 11 (x64) | `Whispered-<version>-windows-x64.zip` |
+
+Both builds are currently **unsigned**. On macOS, right-click `Whispered.app`
+→ **Open** on first launch (or `xattr -dr com.apple.quarantine
+/Applications/Whispered.app`); on Windows, choose **More info** → **Run
+anyway** in SmartScreen. Each release's notes spell this out in English and
+Russian, and `SHA256SUMS.txt` lets you verify the download. The macOS build
+bundles the whisper engine — no separate install.
+
+To build from source instead, see [Building](#building).
 
 ---
 
@@ -255,9 +277,20 @@ macOS application:
 .venv/bin/python build.py
 ```
 
-`build.py` creates `dist/Whispered.app`. The native whisper stack and model
-weights stay outside the app bundle, so they can be updated without rebuilding
-the application.
+`build.py` creates `dist/Whispered.app`. In a dev build the native whisper
+stack and model weights stay outside the app bundle, so they can be updated
+without rebuilding the application. For a self-contained build to hand to
+someone else, add `--bundle-libs` (this is what the release workflow uses):
+
+```bash
+.venv/bin/python build.py --bundle-libs --no-libs
+```
+
+Tagged releases are produced by the manual **Release** workflow
+(`.github/workflows/release.yml`) — run it from the Actions tab with a
+`version` input; it builds macOS and Windows, attaches both plus
+`SHA256SUMS.txt`, and leaves a draft release for review. Release notes live
+in `docs/release-notes/` (`TEMPLATE.md` for new versions).
 
 The repository also contains `appimage/build-appimage.sh`, but Linux AppImage
 is not yet a validated release channel for the complete current feature set.

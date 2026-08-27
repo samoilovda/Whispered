@@ -1,0 +1,148 @@
+name: Release
+
+# Manual only — never on push. Trigger from the Actions tab (or
+# `gh workflow run release.yml -f version=v0.1.0`). The job builds the
+# macOS .app and the Windows onedir package, attaches both plus a
+# SHA256SUMS file to a GitHub Release, and (by default) leaves it as a
+# draft for a human to review and publish.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag, e.g. v0.1.0 (must match pyproject.toml version)"
+        required: true
+        type: string
+      draft:
+        description: "Create the release as a draft (recommended)"
+        required: true
+        type: boolean
+        default: true
+      prerelease:
+        description: "Mark the release as a pre-release"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    name: macOS .app (Apple Silicon)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock
+          pip install pyinstaller==6.21.0
+
+      - name: Build self-contained .app
+        # --bundle-libs stashes the whisper stack inside the bundle;
+        # --no-libs skips the developer-only deploy to ~/Library.
+        run: python build.py --bundle-libs --no-libs
+
+      - name: Frozen smoke test
+        run: ./dist/Whispered.app/Contents/MacOS/Whispered --smoke-test
+
+      - name: Package
+        run: |
+          ditto -c -k --keepParent dist/Whispered.app \
+            "Whispered-${{ inputs.version }}-macos-arm64.zip"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: "Whispered-${{ inputs.version }}-macos-arm64.zip"
+          if-no-files-found: error
+
+  windows:
+    name: Windows package (x64)
+    runs-on: windows-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          architecture: x64
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.lock -r requirements-build-windows.txt
+
+      - name: Build frozen package
+        run: python -m PyInstaller --noconfirm --clean --distpath dist --workpath build/windows packaging/windows/Whispered.windows.spec
+
+      - name: Frozen smoke test
+        shell: pwsh
+        run: |
+          & .\dist\Whispered\Whispered.exe --smoke-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package
+        shell: pwsh
+        run: Compress-Archive -Path .\dist\Whispered\* -DestinationPath ".\Whispered-${{ inputs.version }}-windows-x64.zip"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: "Whispered-${{ inputs.version }}-windows-x64.zip"
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: artifacts
+        run: sha256sum Whispered-* | tee SHA256SUMS.txt
+
+      - name: Resolve release notes
+        id: notes
+        run: |
+          file="docs/release-notes/${{ inputs.version }}.md"
+          if [ -f "$file" ]; then
+            echo "Using $file"
+            cp "$file" RELEASE_BODY.md
+            echo "have_notes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No $file — GitHub will auto-generate the body."
+            echo "have_notes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version }}
+          name: Whispered ${{ inputs.version }}
+          draft: ${{ inputs.draft }}
+          prerelease: ${{ inputs.prerelease }}
+          body_path: ${{ steps.notes.outputs.have_notes == 'true' && 'RELEASE_BODY.md' || '' }}
+          generate_release_notes: ${{ steps.notes.outputs.have_notes != 'true' }}
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/Whispered-*
+            artifacts/SHA256SUMS.txt

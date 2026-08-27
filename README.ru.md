@@ -5,6 +5,7 @@
 [![Lint](https://img.shields.io/badge/lint-ruff-261230)](https://docs.astral.sh/ruff/)
 [![Python](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows%20preview-lightgrey)]()
+[![Latest release](https://img.shields.io/github/v/release/samoilovda/Whispered?include_prereleases&sort=semver)](https://github.com/samoilovda/Whispered/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **Локальная транскрипция аудио и видео с инструментами для дальнейшей работы
@@ -20,6 +21,27 @@ YouTube-пакет, инсайты, книжный черновик или мо�
 явном выборе облачного провайдера на вкладке YouTube.
 
 🇬🇧 [English version](README.md)
+
+---
+
+## Загрузка
+
+Готовые сборки публикуются на странице
+[**Releases**](https://github.com/samoilovda/Whispered/releases/latest):
+
+| Платформа | Файл |
+|---|---|
+| macOS (Apple Silicon, 13+) | `Whispered-<версия>-macos-arm64.zip` |
+| Windows 11 (x64) | `Whispered-<версия>-windows-x64.zip` |
+
+Обе сборки пока **без подписи**. На macOS при первом запуске — правый клик по
+`Whispered.app` → **Открыть** (или `xattr -dr com.apple.quarantine
+/Applications/Whispered.app`); на Windows в SmartScreen — **Подробнее** →
+**Выполнить в любом случае**. В заметках к каждому релизу это описано на
+русском и английском, а `SHA256SUMS.txt` позволяет проверить загрузку.
+Сборка macOS содержит движок whisper внутри — отдельная установка не нужна.
+
+Сборку из исходников см. в разделе [Сборка](#сборка).
 
 ---
 
@@ -264,9 +286,21 @@ macOS-приложение:
 .venv/bin/python build.py
 ```
 
-`build.py` создаёт `dist/Whispered.app`. Нативный whisper-стек и модели не
-встраиваются в `.app`: они размещаются отдельно, поэтому их можно обновлять без
-пересборки приложения.
+`build.py` создаёт `dist/Whispered.app`. В dev-сборке нативный whisper-стек и
+модели не встраиваются в `.app`: они размещаются отдельно, поэтому их можно
+обновлять без пересборки приложения. Для самодостаточной сборки, которую можно
+передать другому человеку, добавьте `--bundle-libs` (именно так собирает
+релизный workflow):
+
+```bash
+.venv/bin/python build.py --bundle-libs --no-libs
+```
+
+Релизы по тегам собирает ручной workflow **Release**
+(`.github/workflows/release.yml`) — запускается со вкладки Actions с вводом
+`version`; он собирает macOS и Windows, прикладывает обе сборки и
+`SHA256SUMS.txt` и оставляет черновик релиза на проверку. Заметки к релизам —
+в `docs/release-notes/` (`TEMPLATE.md` для новых версий).
 
 В репозитории также есть `appimage/build-appimage.sh`, но Linux AppImage пока не
 является проверенным релизным каналом для всего текущего функционала.
