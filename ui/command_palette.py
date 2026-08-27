@@ -26,9 +26,21 @@ class CommandPalette(QDialog):
     same QAction, so it can't diverge from what the menu bar does.
     """
 
-    record_requested = pyqtSignal(int)
+    # record id, artifact type ("" for the transcript itself — B7, matches
+    # LibraryView.open_record; a materials hit carries its own type so
+    # MainWindow._open_record_view can pick the right tab).
+    record_requested = pyqtSignal(int, str)
     recipe_requested = pyqtSignal(str)
     retry_step_requested = pyqtSignal(str)
+
+    # Local copy of LibraryView's artifact-type labels (B7) — kept
+    # independent rather than importing a private name from ui.library_view.
+    _MATERIAL_LABEL_KEYS = {
+        "article": "library_chip_article",
+        "insights": "library_chip_insights",
+        "youtube": "library_chip_youtube",
+        "book": "library_chip_book",
+    }
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -105,11 +117,22 @@ class CommandPalette(QDialog):
         try:
             from core.history import get_history_store
 
-            records = get_history_store().search(query) if query.strip() else get_history_store().list(limit=12)
+            store = get_history_store()
+            records = store.search(query) if query.strip() else store.list(limit=12)
             for record in records[:20]:
                 item = QListWidgetItem(tr("command_record", name=record.source_name))
                 item.setData(Qt.ItemDataRole.UserRole, ("record", record.id))
                 self.results.addItem(item)
+            # Materials search (B7): only meaningful for an actual query —
+            # search_artifacts("") returns nothing, same contract as the
+            # Library's own scope toggle.
+            if query.strip():
+                for hit in store.search_artifacts(query)[:20]:
+                    type_label = tr(self._MATERIAL_LABEL_KEYS.get(hit.type, hit.type))
+                    label = tr("command_material", type=type_label, name=hit.source_name)
+                    item = QListWidgetItem(label)
+                    item.setData(Qt.ItemDataRole.UserRole, ("material", (hit.record_id, hit.type)))
+                    self.results.addItem(item)
         except Exception:
             pass
         if self.results.count():
@@ -126,7 +149,10 @@ class CommandPalette(QDialog):
             return
         self.accept()
         if kind == "record":
-            self.record_requested.emit(int(value))
+            self.record_requested.emit(int(value), "")
+        elif kind == "material":
+            record_id, artifact_type = value
+            self.record_requested.emit(int(record_id), str(artifact_type))
         elif kind == "recipe":
             self.recipe_requested.emit(str(value))
         elif kind == "retry_step":

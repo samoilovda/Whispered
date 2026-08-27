@@ -438,3 +438,70 @@ class TestFTSRebuildPolicy:
         finally:
             conn.close()
         assert row is not None and row[0] == _FTS_STATE_OK
+
+
+class TestArtifactTexts:
+    """B7, docs/IMPROVEMENT_PLAN_2026-08.ru.md: search across generated
+    materials (article/insights/youtube/book text) via artifact_texts."""
+
+    def test_set_and_search_artifacts_finds_a_marker_word(self, store):
+        rid = store.add(_make_result(), "/tmp/audio.wav", source_name="audio.wav")
+        store.set_artifact_text(rid, "article", "/out/article.md", "an article about pricing")
+
+        hits = store.search_artifacts("pricing")
+
+        assert len(hits) == 1
+        assert hits[0].record_id == rid
+        assert hits[0].type == "article"
+        assert hits[0].source_name == "audio.wav"
+        assert "pricing" in hits[0].snippet.replace("**", "")
+
+    def test_search_artifacts_with_empty_query_returns_nothing(self, store):
+        rid = store.add(_make_result(), "/tmp/audio.wav")
+        store.set_artifact_text(rid, "article", "/out/article.md", "some text")
+
+        assert store.search_artifacts("") == []
+        assert store.search_artifacts("   ") == []
+
+    def test_set_artifact_text_upserts_by_record_and_type(self, store):
+        rid = store.add(_make_result(), "/tmp/audio.wav")
+        store.set_artifact_text(rid, "article", "/out/article.md", "about widgets")
+        store.set_artifact_text(rid, "article", "/out/article.md", "about gadgets")
+
+        assert store.search_artifacts("widgets") == []
+        assert len(store.search_artifacts("gadgets")) == 1
+
+    def test_set_artifact_text_truncates_to_the_indexed_cap(self, store):
+        from core.history import _MAX_INDEXED_ARTIFACT_CHARS
+
+        rid = store.add(_make_result(), "/tmp/audio.wav")
+        long_text = "x" * (_MAX_INDEXED_ARTIFACT_CHARS + 5000) + " findableword"
+        store.set_artifact_text(rid, "book", "/out/book.md", long_text)
+
+        # The marker word sits past the cap, so it's simply not indexed —
+        # not a crash, not a silently-oversized row.
+        assert store.search_artifacts("findableword") == []
+        hits = store.search_artifacts("x")
+        assert hits and hits[0].type == "book"
+
+    def test_different_records_and_types_do_not_collide(self, store):
+        rid_a = store.add(_make_result(), "/tmp/a.wav", source_name="a.wav")
+        rid_b = store.add(_make_result(), "/tmp/b.wav", source_name="b.wav")
+        store.set_artifact_text(rid_a, "article", "/out/a-article.md", "about pricing")
+        store.set_artifact_text(rid_a, "insights", "/out/a-insights.md", "chapter: onboarding")
+        store.set_artifact_text(rid_b, "book", "/out/b-book.md", "a chapter about pricing too")
+
+        hits = store.search_artifacts("pricing")
+
+        assert {(h.record_id, h.type) for h in hits} == {(rid_a, "article"), (rid_b, "book")}
+
+    def test_clear_wipes_artifact_texts_too(self, store):
+        rid = store.add(_make_result(), "/tmp/audio.wav")
+        store.set_artifact_text(rid, "article", "/out/article.md", "about pricing")
+
+        store.clear()
+
+        assert store.search_artifacts("pricing") == []
+
+    def test_artifact_fts_available_reflects_index_state(self, store):
+        assert isinstance(store.artifact_fts_available, bool)

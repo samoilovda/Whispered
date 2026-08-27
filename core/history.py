@@ -97,6 +97,31 @@ def _v5_add_speaker_aliases_table(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _v6_add_artifact_texts(conn: sqlite3.Connection) -> None:
+    """Flat, searchable text extracted from generated materials — article
+    bodies, insight titles/bullets, a YouTube package's fields, a book's
+    chapters (B7, docs/IMPROVEMENT_PLAN_2026-08.ru.md item 1). FTS5 only
+    ever indexed transcripts(source_name, json_payload); this is what
+    lets "where did I talk about pricing" also find "where was the
+    article about pricing". Written exclusively through
+    application/steps.py's per-type extractors (via
+    HistoryStore.set_artifact_text()), one row per (record, type) —
+    UNIQUE enforces that a step's re-run replaces its own row rather
+    than accumulating stale copies."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS artifact_texts (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            record_id  INTEGER NOT NULL,
+            type       TEXT    NOT NULL,
+            path       TEXT    NOT NULL,
+            text       TEXT    NOT NULL,
+            updated_at TEXT    NOT NULL,
+            UNIQUE(record_id, type)
+        );
+        CREATE INDEX IF NOT EXISTS idx_artifact_texts_record ON artifact_texts(record_id);
+    """)
+
+
 # Applied in order, tracked via SQLite's built-in `PRAGMA user_version`
 # (see HistoryStore._migrate). Append new migrations here — never edit or
 # reorder an existing one, since a database's user_version records exactly
@@ -107,6 +132,7 @@ _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _v3_add_source_kind_column,
     _v4_add_job_runs_table,
     _v5_add_speaker_aliases_table,
+    _v6_add_artifact_texts,
 )
 
 # FTS5 schema — created separately so failures (no FTS5 compile) are handled gracefully.
@@ -140,6 +166,37 @@ AFTER UPDATE ON transcripts BEGIN
 END;
 """
 
+# Second FTS5 mirror, over artifact_texts (B7) — generated materials
+# (article/insights/youtube/book), not the transcript itself. Same
+# content-table/triggers shape as _CREATE_FTS_SQL above, just over a
+# different source table and column set.
+_CREATE_ARTIFACT_FTS_SQL = """
+CREATE VIRTUAL TABLE IF NOT EXISTS artifact_texts_fts USING fts5(
+    text,
+    content=artifact_texts,
+    content_rowid=id,
+    tokenize="unicode61"
+);
+
+CREATE TRIGGER IF NOT EXISTS artifact_texts_fts_ai
+AFTER INSERT ON artifact_texts BEGIN
+    INSERT INTO artifact_texts_fts(rowid, text) VALUES (new.id, new.text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS artifact_texts_fts_ad
+AFTER DELETE ON artifact_texts BEGIN
+    INSERT INTO artifact_texts_fts(artifact_texts_fts, rowid, text)
+    VALUES ('delete', old.id, old.text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS artifact_texts_fts_au
+AFTER UPDATE ON artifact_texts BEGIN
+    INSERT INTO artifact_texts_fts(artifact_texts_fts, rowid, text)
+    VALUES ('delete', old.id, old.text);
+    INSERT INTO artifact_texts_fts(rowid, text) VALUES (new.id, new.text);
+END;
+"""
+
 # Persistent key-value metadata table used to track FTS state.
 # Stored inside the same SQLite file to avoid a separate sidecar.
 _CREATE_SCHEMA_META_SQL = """
@@ -149,9 +206,16 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 );
 """
 
-# Values stored under the key "fts_state".
+# Values stored under an FTS state key ("fts_state" for transcripts_fts,
+# "fts_state_artifacts" for artifact_texts_fts).
 _FTS_STATE_OK = "ok"
 _FTS_STATE_REPAIR = "repair_needed"
+
+# Cap on how much text of one material gets indexed (B7's own risk note):
+# a book's assembled text can run to megabytes, an order of magnitude
+# more than search needs to be useful. Article/insights/YouTube fields
+# are nowhere close to this in practice.
+_MAX_INDEXED_ARTIFACT_CHARS = 200_000
 
 
 def _result_to_payload(result: Any, model: str = "", speaker_names: dict | None = None) -> str:
@@ -244,6 +308,7 @@ class HistoryStore:
         self._db_path = db_path
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._fts_available: bool = False
+        self._artifact_fts_available: bool = False
         self._init_db()
         if os.name != "nt":
             try:
@@ -302,66 +367,88 @@ class HistoryStore:
                 conn.execute(f"PRAGMA user_version = {version}")
 
     def _init_fts(self) -> None:
-        """Create the FTS5 index if needed; set _fts_available accordingly.
-
-        A rebuild (expensive on large databases) runs only once — when the
-        virtual table is first created — or when the stored ``fts_state``
-        marker is ``repair_needed`` (set by :meth:`repair_fts`).  Every
-        subsequent launch skips the rebuild and takes the fast path.
-        """
+        """Create both FTS5 indexes if needed; set _fts_available /
+        _artifact_fts_available accordingly (B7 — two indexes,
+        transcripts_fts and artifact_texts_fts, sharing the same
+        create-and-rebuild-if-needed logic via _init_one_fts())."""
         try:
             with self._connect() as conn:
                 # Ensure the metadata tracking table exists.
                 conn.executescript(_CREATE_SCHEMA_META_SQL)
-
-                fts_state_row = conn.execute(
-                    "SELECT value FROM schema_meta WHERE key = 'fts_state'"
-                ).fetchone()
-                current_state = fts_state_row[0] if fts_state_row else None
-
-                # Check whether the FTS virtual table already exists.
-                fts_exists = conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                    " AND name='transcripts_fts'"
-                ).fetchone() is not None
-
-                conn.executescript(_CREATE_FTS_SQL)
-
-                need_rebuild = (
-                    not fts_exists  # first time — table just created
-                    or current_state == _FTS_STATE_REPAIR  # explicit repair request
+                self._init_one_fts(
+                    conn, table="transcripts_fts",
+                    create_sql=_CREATE_FTS_SQL, state_key="fts_state",
                 )
-                if need_rebuild:
-                    logger.debug("FTS5: running full index rebuild (state=%s)", current_state)
-                    conn.execute(
-                        "INSERT INTO transcripts_fts(transcripts_fts) VALUES ('rebuild')"
-                    )
-                    conn.execute(
-                        "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('fts_state', ?)",
-                        (_FTS_STATE_OK,),
-                    )
-                else:
-                    logger.debug("FTS5: index already up-to-date, skipping rebuild")
-
             self._fts_available = True
         except sqlite3.OperationalError as exc:
             logger.warning("FTS5 not available — falling back to LIKE search: %s", exc)
             self._fts_available = False
 
-    def repair_fts(self) -> None:
-        """Schedule a full FTS rebuild on the next :class:`HistoryStore` init.
+        try:
+            with self._connect() as conn:
+                conn.executescript(_CREATE_SCHEMA_META_SQL)
+                self._init_one_fts(
+                    conn, table="artifact_texts_fts",
+                    create_sql=_CREATE_ARTIFACT_FTS_SQL, state_key="fts_state_artifacts",
+                )
+            self._artifact_fts_available = True
+        except sqlite3.OperationalError as exc:
+            logger.warning(
+                "Artifact-text FTS5 not available — falling back to LIKE search: %s", exc
+            )
+            self._artifact_fts_available = False
 
-        Call this when the FTS index is suspected to be corrupt (e.g. after
-        an unclean shutdown interrupted a rebuild).  The repair itself is
+    @staticmethod
+    def _init_one_fts(
+        conn: sqlite3.Connection, *, table: str, create_sql: str, state_key: str,
+    ) -> None:
+        """Create *table* if needed and rebuild it exactly once — the
+        first time it's created, or when *state_key* in schema_meta reads
+        ``repair_needed`` (set by :meth:`repair_fts`). Every subsequent
+        launch skips the rebuild and takes the fast path. Shared by
+        _init_fts() for both transcripts_fts and artifact_texts_fts (B7)
+        rather than duplicated per index."""
+        fts_state_row = conn.execute(
+            "SELECT value FROM schema_meta WHERE key = ?", (state_key,)
+        ).fetchone()
+        current_state = fts_state_row[0] if fts_state_row else None
+
+        fts_exists = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name = ?", (table,)
+        ).fetchone() is not None
+
+        conn.executescript(create_sql)
+
+        need_rebuild = (
+            not fts_exists  # first time — table just created
+            or current_state == _FTS_STATE_REPAIR  # explicit repair request
+        )
+        if need_rebuild:
+            logger.debug("FTS5 (%s): running full index rebuild (state=%s)", table, current_state)
+            conn.execute(f"INSERT INTO {table}({table}) VALUES ('rebuild')")
+            conn.execute(
+                "INSERT OR REPLACE INTO schema_meta(key, value) VALUES (?, ?)",
+                (state_key, _FTS_STATE_OK),
+            )
+        else:
+            logger.debug("FTS5 (%s): index already up-to-date, skipping rebuild", table)
+
+    def repair_fts(self) -> None:
+        """Schedule a full rebuild of both FTS5 indexes on the next
+        :class:`HistoryStore` init.
+
+        Call this when an index is suspected to be corrupt (e.g. after an
+        unclean shutdown interrupted a rebuild). The repair itself is
         deferred to the next time :meth:`_init_fts` runs so this method is
         safe to call from any thread without holding a connection.
         """
         try:
             with self._connect() as conn:
-                conn.execute(
-                    "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('fts_state', ?)",
-                    (_FTS_STATE_REPAIR,),
-                )
+                for state_key in ("fts_state", "fts_state_artifacts"):
+                    conn.execute(
+                        "INSERT OR REPLACE INTO schema_meta(key, value) VALUES (?, ?)",
+                        (state_key, _FTS_STATE_REPAIR),
+                    )
             logger.info("FTS5: repair scheduled — will rebuild on next HistoryStore init")
         except sqlite3.OperationalError as exc:
             logger.warning("Could not schedule FTS repair: %s", exc)
@@ -551,6 +638,16 @@ class HistoryStore:
                     )
                 except Exception as exc:
                     logger.debug("FTS5 rebuild after clear failed (non-critical): %s", exc)
+            conn.execute("DELETE FROM artifact_texts")
+            if self._artifact_fts_available:
+                try:
+                    conn.execute(
+                        "INSERT INTO artifact_texts_fts(artifact_texts_fts) VALUES ('rebuild')"
+                    )
+                except Exception as exc:
+                    logger.debug(
+                        "Artifact FTS5 rebuild after clear failed (non-critical): %s", exc
+                    )
             return cur.rowcount
 
     def search(self, text: str, limit: int = 100) -> List[HistoryRecord]:
@@ -603,6 +700,94 @@ class HistoryStore:
     @property
     def fts_available(self) -> bool:
         return self._fts_available
+
+    @property
+    def artifact_fts_available(self) -> bool:
+        return self._artifact_fts_available
+
+    # ------------------------------------------------------------------ artifact text (B7)
+
+    def set_artifact_text(self, record_id: int, artifact_type: str, path: str, text: str) -> None:
+        """Upsert the flat, searchable text for one generated material
+        (article/insights/youtube/book) belonging to *record_id*.
+
+        Called from application/steps.py's per-type extractors after a
+        step succeeds. Truncates to _MAX_INDEXED_ARTIFACT_CHARS (a book's
+        assembled text can run to megabytes) — search still works on the
+        truncated text, it just won't match a hit past the cap.
+        """
+        text = text[:_MAX_INDEXED_ARTIFACT_CHARS]
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT INTO artifact_texts (record_id, type, path, text, updated_at)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(record_id, type) DO UPDATE SET
+                       path = excluded.path,
+                       text = excluded.text,
+                       updated_at = excluded.updated_at""",
+                (record_id, artifact_type, path, text, now),
+            )
+
+    def search_artifacts(self, text: str, limit: int = 100) -> List["ArtifactSearchResult"]:
+        """Search generated materials (article/insights/youtube/book text
+        indexed via set_artifact_text()); uses FTS5 when available, else
+        LIKE. An empty query returns no results — unlike search(), there
+        is no "browse all materials" view backing this."""
+        if not text.strip():
+            return []
+        if self._artifact_fts_available:
+            return self._search_artifacts_fts(text, limit)
+        return self._search_artifacts_like(text, limit)
+
+    def _search_artifacts_fts(self, text: str, limit: int) -> List["ArtifactSearchResult"]:
+        query = _fts_query(text)
+        sql = """
+            SELECT a.record_id, a.type, a.path, t.source_name, t.source_kind,
+                   snippet(artifact_texts_fts, 0, '**', '**', '…', 20) AS snippet
+            FROM artifact_texts_fts
+            JOIN artifact_texts a ON a.id = artifact_texts_fts.rowid
+            JOIN transcripts t ON t.id = a.record_id
+            WHERE artifact_texts_fts MATCH ?
+            ORDER BY rank
+            LIMIT ?
+        """
+        try:
+            with self._connect() as conn:
+                rows = conn.execute(sql, (query, limit)).fetchall()
+            return [ArtifactSearchResult(r) for r in rows]
+        except sqlite3.OperationalError as exc:
+            logger.warning("Artifact FTS5 search failed, falling back to LIKE: %s", exc)
+            return self._search_artifacts_like(text, limit)
+
+    def _search_artifacts_like(self, text: str, limit: int) -> List["ArtifactSearchResult"]:
+        pattern = f"%{text}%"
+        sql = """
+            SELECT a.record_id, a.type, a.path, t.source_name, t.source_kind,
+                   substr(a.text, 1, 300) AS snippet
+            FROM artifact_texts a
+            JOIN transcripts t ON t.id = a.record_id
+            WHERE a.text LIKE ?
+            ORDER BY a.updated_at DESC
+            LIMIT ?
+        """
+        with self._connect() as conn:
+            rows = conn.execute(sql, (pattern, limit)).fetchall()
+        return [ArtifactSearchResult(r) for r in rows]
+
+
+class ArtifactSearchResult:
+    """One hit from HistoryStore.search_artifacts()."""
+
+    __slots__ = ("record_id", "type", "path", "source_name", "source_kind", "snippet")
+
+    def __init__(self, row: sqlite3.Row):
+        self.record_id   = row["record_id"]
+        self.type        = row["type"]
+        self.path        = row["path"]
+        self.source_name = row["source_name"]
+        self.source_kind = row["source_kind"] if "source_kind" in row.keys() else "file"
+        self.snippet     = row["snippet"]
 
 
 # Module-level singleton (lazy)

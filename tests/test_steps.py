@@ -628,3 +628,256 @@ def test_manifest_path_for_step_of_transcribe_and_diarize_is_none(tmp_path):
 
 def test_manifest_path_for_step_of_an_unknown_step_name_is_none(tmp_path):
     assert manifest_path_for_step(_context(tmp_path), "not_a_real_step") is None
+
+
+# ------------------------------------------------------------------ B7 search indexing
+
+def test_extract_article_text_joins_title_and_content():
+    from application.steps import _extract_article_text
+
+    payload = {
+        "blog_post": {"title": "Pricing Guide", "content": "about pricing strategy"},
+        "faq": {"title": "", "content": "more pricing details"},
+    }
+    text = _extract_article_text(payload)
+
+    assert "Pricing Guide" in text
+    assert "about pricing strategy" in text
+    assert "more pricing details" in text
+
+
+def test_extract_article_text_skips_non_dict_entries():
+    from application.steps import _extract_article_text
+
+    assert _extract_article_text({"blog_post": "not a dict"}) == ""
+
+
+def test_flatten_insight_strings_walks_nested_lists_and_dicts():
+    from application.steps import _flatten_insight_strings
+
+    payload = {
+        "chapters": [{"title": "Intro", "start": 0}, {"title": "Pricing"}],
+        "action_items": ["Follow up with the client"],
+    }
+    text = _flatten_insight_strings(payload)
+
+    assert "Intro" in text
+    assert "Pricing" in text
+    assert "Follow up with the client" in text
+    # Numeric values are silently skipped, not stringified into noise.
+    assert "0" not in text.split("\n")
+
+
+def test_flatten_insight_strings_skips_blank_strings():
+    from application.steps import _flatten_insight_strings
+
+    assert _flatten_insight_strings({"chapters": [{"title": "   "}]}) == ""
+
+
+def test_article_runner_indexes_article_text(tmp_path, monkeypatch):
+    from article_generator import Article, ArticleFormat, GenerationResult, TopicAnalysis
+    from core.history import HistoryStore
+
+    class _FakeLMClient:
+        is_cancelled = None
+
+    class _FakeArticleGenerator:
+        def __init__(self, *_args, **_kwargs):
+            self.lm_client = _FakeLMClient()
+
+        def generate_all_formats(self, text, formats=None, on_progress=None):
+            return GenerationResult(
+                source_text=text, topic_analysis=TopicAnalysis(),
+                articles=[Article(
+                    title="Pricing Guide", format=ArticleFormat.BLOG_POST,
+                    content="a deep dive on pricing strategy",
+                )],
+            )
+
+    monkeypatch.setattr("article_generator.ArticleGenerator", _FakeArticleGenerator)
+
+    store = HistoryStore(db_path=tmp_path / "history.sqlite3")
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+    store.add(_result(), source_path=str(tmp_path / "source.mp3"))  # record id 1, matching _context()'s default
+
+    context = _context(tmp_path, provider=None, model="m")
+    STEP_REGISTRY["article"].make_runner(context)()
+
+    hits = store.search_artifacts("pricing")
+    assert len(hits) == 1
+    assert hits[0].record_id == 1
+    assert hits[0].type == "article"
+
+
+def test_insights_runner_indexes_insights_text(tmp_path, monkeypatch):
+    from core.history import HistoryStore
+
+    def _fake_generate_insight(insight_type, segments, **kwargs):
+        return [{"title": f"{insight_type} about onboarding"}]
+
+    monkeypatch.setattr("core.insights.generate_insight", _fake_generate_insight)
+
+    store = HistoryStore(db_path=tmp_path / "history.sqlite3")
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+    store.add(_result(), source_path=str(tmp_path / "source.mp3"))
+
+    context = _context(tmp_path, provider=None, model="m")
+    STEP_REGISTRY["insights"].make_runner(context)()
+
+    hits = store.search_artifacts("onboarding")
+    assert len(hits) == 1
+    assert hits[0].type == "insights"
+
+
+def test_youtube_package_runner_indexes_under_the_youtube_type(tmp_path, monkeypatch):
+    """artifact_texts.type must be "youtube" (matching
+    MainWindow._STEP_TO_ARTIFACT_TYPE's own value for this step), not the
+    step name "youtube_package" — otherwise the tab-routing reverse lookup
+    in _open_record_view() would never match."""
+    from core.history import HistoryStore
+
+    def _fake_generate_insight(insight_type, segments, **kwargs):
+        return [{"title": f"{insight_type} for the launch video"}]
+
+    monkeypatch.setattr("core.insights.generate_insight", _fake_generate_insight)
+
+    store = HistoryStore(db_path=tmp_path / "history.sqlite3")
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+    store.add(_result(), source_path=str(tmp_path / "source.mp3"))
+
+    context = _context(tmp_path, provider=None, model="m")
+    STEP_REGISTRY["youtube_package"].make_runner(context)()
+
+    hits = store.search_artifacts("launch")
+    assert len(hits) == 1
+    assert hits[0].type == "youtube"
+
+
+def test_book_runner_indexes_final_text(tmp_path, monkeypatch):
+    from book_pipeline import BookResult, BookStageResult
+    from core.history import HistoryStore
+
+    class _FakeBookPipeline:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def process(self, transcript_text, source_path, **kwargs):
+            return BookResult(
+                source_path=source_path,
+                stages=[BookStageResult(
+                    stage="unwrap", output_text="A chapter about pricing strategy.",
+                    output_path="",
+                )],
+            )
+
+    monkeypatch.setattr("book_pipeline.BookPipeline", _FakeBookPipeline)
+
+    store = HistoryStore(db_path=tmp_path / "history.sqlite3")
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+    store.add(_result(), source_path=str(tmp_path / "source.mp3"))
+
+    context = _context(tmp_path, provider=None, model="m")
+    STEP_REGISTRY["book"].make_runner(context)()
+
+    hits = store.search_artifacts("pricing")
+    assert len(hits) == 1
+    assert hits[0].type == "book"
+
+
+def test_index_artifact_text_is_skipped_when_record_is_unsaved(tmp_path, monkeypatch):
+    """A run whose result hasn't been saved to history yet (record_id is
+    the "unsaved" placeholder string) must not try to attach artifact
+    text to a non-existent row."""
+    from application.steps import _index_artifact_text
+
+    calls = []
+    monkeypatch.setattr(
+        "core.history.get_history_store",
+        lambda: (_ for _ in ()).throw(AssertionError("should not be called")),
+    )
+
+    context = StepContext(
+        source_path=str(tmp_path / "source.mp3"), result=_result(),
+        record_id="unsaved", artifact_dir=tmp_path / "artifacts",
+    )
+    _index_artifact_text(context, "article", tmp_path / "a.json", "some text")
+    assert calls == []
+
+
+def test_index_artifact_text_indexing_failure_does_not_raise(tmp_path, monkeypatch):
+    """Best-effort, per B7's plan ("Ошибка индексации не должна валить
+    успешный шаг") — mirrors _save_artifact's own posture."""
+    from application.steps import _index_artifact_text
+
+    def _boom():
+        raise RuntimeError("db is locked")
+
+    monkeypatch.setattr("core.history.get_history_store", _boom)
+
+    context = _context(tmp_path)
+    _index_artifact_text(context, "article", tmp_path / "a.json", "some text")  # must not raise
+
+
+def _fake_artifact_dir(tmp_path):
+    """reindex_artifacts() calls the real core.paths.artifact_dir(), which
+    resolves under the app's real output_dir() — never tmp_path — unless
+    redirected. tests_qt/conftest.py wipes output_dir() per test, but
+    plain unit tests here don't get real Qt's fixtures, so tests below
+    monkeypatch this in directly rather than touching real user data."""
+    def _dir(record_id, source):
+        return tmp_path / f"artifacts-{record_id}"
+    return _dir
+
+
+def test_reindex_artifacts_rebuilds_from_disk(tmp_path, monkeypatch):
+    from core.history import HistoryStore
+
+    store = HistoryStore(db_path=tmp_path / "history.sqlite3")
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+    monkeypatch.setattr("core.paths.artifact_dir", _fake_artifact_dir(tmp_path))
+
+    rid = store.add(_result(), source_path=str(tmp_path / "audio.mp3"), source_name="audio.mp3")
+    store.set_artifacts(rid, ["transcript", "article"])
+
+    adir = tmp_path / f"artifacts-{rid}"
+    adir.mkdir(parents=True, exist_ok=True)
+    (adir / "articles.json").write_text(
+        json.dumps({"blog_post": {"title": "T", "content": "about pricing strategy"}}),
+        encoding="utf-8",
+    )
+
+    from application.steps import reindex_artifacts
+    count = reindex_artifacts()
+
+    assert count == 1
+    hits = store.search_artifacts("pricing")
+    assert len(hits) == 1
+    assert hits[0].record_id == rid
+
+
+def test_reindex_artifacts_skips_records_with_no_indexable_type(tmp_path, monkeypatch):
+    from core.history import HistoryStore
+
+    store = HistoryStore(db_path=tmp_path / "history.sqlite3")
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+    monkeypatch.setattr("core.paths.artifact_dir", _fake_artifact_dir(tmp_path))
+
+    rid = store.add(_result(), source_path=str(tmp_path / "audio.mp3"))
+    store.set_artifacts(rid, ["transcript"])
+
+    from application.steps import reindex_artifacts
+    assert reindex_artifacts() == 0
+
+
+def test_reindex_artifacts_skips_a_missing_file_without_raising(tmp_path, monkeypatch):
+    from core.history import HistoryStore
+
+    store = HistoryStore(db_path=tmp_path / "history.sqlite3")
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+    monkeypatch.setattr("core.paths.artifact_dir", _fake_artifact_dir(tmp_path))
+
+    rid = store.add(_result(), source_path=str(tmp_path / "audio.mp3"))
+    store.set_artifacts(rid, ["transcript", "article"])  # articles.json never written
+
+    from application.steps import reindex_artifacts
+    assert reindex_artifacts() == 0

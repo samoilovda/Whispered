@@ -187,6 +187,84 @@ def _save_artifact(context: StepContext, artifact: Artifact) -> None:
         )
 
 
+# ------------------------------------------------------------- search text (B7)
+#
+# Flat, searchable text extracted from a generated material so it shows up
+# in "search across materials" (docs/IMPROVEMENT_PLAN_2026-08.ru.md, B7),
+# alongside transcripts_fts. Only the four LLM-generated content types are
+# indexed — "cover" is an image and "clean"/"transcribe"/"diarize" aren't
+# materials distinct from the transcript itself.
+
+# Values match _STEP_TO_ARTIFACT_TYPE in ui/main_window.py (article,
+# insights, book map onto their own step name; the youtube_package step
+# maps to the shorter "youtube") — artifact_texts.type has to agree with
+# HistoryRecord.artifacts so reindex_artifacts() and the tab-routing
+# reverse lookup both key off the same strings.
+_ARTIFACT_TEXT_TYPES = ("article", "insights", "youtube", "book")
+
+
+def _extract_article_text(payload: dict) -> str:
+    """Article bodies (plan item 2: "article: тела статей") — title plus
+    content of every generated format, concatenated."""
+    parts = []
+    for data in payload.values():
+        if not isinstance(data, dict):
+            continue
+        title = str(data.get("title", "")).strip()
+        content = str(data.get("content", "")).strip()
+        if title:
+            parts.append(title)
+        if content:
+            parts.append(content)
+    return "\n\n".join(parts)
+
+
+def _flatten_insight_strings(payload: dict) -> str:
+    """Every string value inside an insights/youtube_package payload
+    (plan item 2: "insights: заголовки глав и пункты"), flattened into one
+    searchable blob. Item shape varies by insight type and prompt version,
+    so this walks whatever JSON came back rather than assuming specific
+    keys — robust to a prompt's fields changing without this needing an
+    update too."""
+    parts: list[str] = []
+
+    def _walk(value: Any) -> None:
+        if isinstance(value, str):
+            if value.strip():
+                parts.append(value)
+        elif isinstance(value, dict):
+            for v in value.values():
+                _walk(v)
+        elif isinstance(value, list):
+            for v in value:
+                _walk(v)
+
+    _walk(payload)
+    return "\n".join(parts)
+
+
+def _index_artifact_text(context: StepContext, artifact_type: str, path: Path, text: str) -> None:
+    """Best-effort: extract+store searchable text for one generated
+    material (B7). Never turn a successful step into a reported failure
+    over an indexing problem (same posture as _save_artifact above) — and
+    never index a run whose result hasn't been saved to history yet
+    (record_id is the "unsaved" placeholder, not a real row to attach
+    artifact_texts to)."""
+    record_id = context.record_id
+    if not isinstance(record_id, int):
+        return
+    try:
+        from core.history import get_history_store
+
+        get_history_store().set_artifact_text(record_id, artifact_type, str(path), text)
+    except Exception as exc:  # noqa: BLE001 - deliberately broad, see docstring
+        from core.logger import get_logger
+
+        get_logger(__name__).warning(
+            "Failed to index %s text for record %s: %s", artifact_type, record_id, exc,
+        )
+
+
 # ---------------------------------------------------------------- transcribe
 
 def _transcribe_runner(context: StepContext) -> StepRunner:
@@ -328,8 +406,10 @@ def _article_runner(context: StepContext) -> StepRunner:
             article.format.value: {"title": article.title, "content": article.content}
             for article in result.articles
         }
-        _write_json(context.artifact_dir / "articles.json", payload)
+        articles_path = context.artifact_dir / "articles.json"
+        _write_json(articles_path, payload)
         _save_artifact(context, _article_artifact(context))
+        _index_artifact_text(context, "article", articles_path, _extract_article_text(payload))
         return result
 
     return run
@@ -412,8 +492,10 @@ def _insights_runner(context: StepContext) -> StepRunner:
                 lm_url=lm_url, language=language, provider=provider, cache=cache,
                 is_cancelled=context.is_cancelled,
             )
-        _write_json(context.artifact_dir / "insights.json", payload)
+        insights_path = context.artifact_dir / "insights.json"
+        _write_json(insights_path, payload)
         _save_artifact(context, _insights_artifact(context))
+        _index_artifact_text(context, "insights", insights_path, _flatten_insight_strings(payload))
         return payload
 
     return run
@@ -462,8 +544,10 @@ def _youtube_package_runner(context: StepContext) -> StepRunner:
                 lm_url=lm_url, language=language, provider=provider, cache=cache,
                 is_cancelled=context.is_cancelled,
             )
-        _write_json(context.artifact_dir / "youtube_package.json", payload)
+        youtube_path = context.artifact_dir / "youtube_package.json"
+        _write_json(youtube_path, payload)
         _save_artifact(context, _youtube_package_artifact(context))
+        _index_artifact_text(context, "youtube", youtube_path, _flatten_insight_strings(payload))
         return payload
 
     return run
@@ -520,6 +604,7 @@ def _book_runner(context: StepContext) -> StepRunner:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(result.final_text, encoding="utf-8")
         _save_artifact(context, _book_artifact(context))
+        _index_artifact_text(context, "book", path, result.final_text)
         return result
 
     return run
@@ -809,3 +894,65 @@ def manifest_path_for_step(context: StepContext, name: str) -> Optional[Path]:
         return None
     from infrastructure.persistence import artifact_store
     return artifact_store.manifest_path_for(artifact.path)
+
+
+# ------------------------------------------------------------------ reindex (B7)
+
+_ARTIFACT_TEXT_READERS: "dict[str, Callable[[Path], Optional[str]]]" = {
+    "article": lambda d: (
+        _extract_article_text(payload)
+        if isinstance(payload := _read_json(d / "articles.json"), dict) else None
+    ),
+    "insights": lambda d: (
+        _flatten_insight_strings(payload)
+        if isinstance(payload := _read_json(d / "insights.json"), dict) else None
+    ),
+    "youtube": lambda d: (
+        _flatten_insight_strings(payload)
+        if isinstance(payload := _read_json(d / "youtube_package.json"), dict) else None
+    ),
+    "book": lambda d: _read_text(d / "book.md"),
+}
+
+_ARTIFACT_TEXT_PATHS: "dict[str, Callable[[Path], Path]]" = {
+    "article": lambda d: d / "articles.json",
+    "insights": lambda d: d / "insights.json",
+    "youtube": lambda d: d / "youtube_package.json",
+    "book": lambda d: d / "book.md",
+}
+
+
+def reindex_artifacts() -> int:
+    """Rebuild ``artifact_texts`` from whatever's already on disk (B7 plan
+    item 6) — a manual action from Settings, not run automatically.
+    Useful after upgrading from a build that predates B7 (nothing was
+    indexed yet) or after a corrupt index. Returns how many materials
+    were (re)indexed; a record whose listed artifact type has no file on
+    disk any more is silently skipped.
+    """
+    from core.history import get_history_store
+    from core.paths import artifact_dir as _artifact_dir_for
+
+    store = get_history_store()
+    indexed = 0
+    for record in store.list(limit=1_000_000):
+        types = [t for t in (record.artifacts or []) if t in _ARTIFACT_TEXT_TYPES]
+        if not types:
+            continue
+        adir = _artifact_dir_for(record.id, record.source_path)
+        for artifact_type in types:
+            text = _ARTIFACT_TEXT_READERS[artifact_type](adir)
+            if not text:
+                continue
+            path = _ARTIFACT_TEXT_PATHS[artifact_type](adir)
+            try:
+                store.set_artifact_text(record.id, artifact_type, str(path), text)
+                indexed += 1
+            except Exception as exc:  # noqa: BLE001 - best-effort, see docstring
+                from core.logger import get_logger
+
+                get_logger(__name__).warning(
+                    "Reindex: failed to store %s text for record %s: %s",
+                    artifact_type, record.id, exc,
+                )
+    return indexed

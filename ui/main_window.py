@@ -738,11 +738,21 @@ class MainWindow(QMainWindow):
         self._stack.setCurrentIndex(self._start_index)
         self.library_view.refresh()
 
-    def _open_record_view(self, record_id: int) -> None:
-        """Load a history record and switch to the Record page."""
+    def _open_record_view(self, record_id: int, artifact_type: str = "") -> None:
+        """Load a history record and switch to the Record page.
+
+        *artifact_type* (B7, docs/IMPROVEMENT_PLAN_2026-08.ru.md) is the
+        reverse of ``_STEP_TO_ARTIFACT_TYPE`` — set when the caller is a
+        materials search hit (Library scope toggle or the Ctrl+K palette),
+        so the record opens straight on the tab that hit's own generator
+        writes to instead of always landing on the transcript.
+        """
         if self._load_from_history(record_id):
             self.library_view.set_open_record(record_id)
             self._stack.setCurrentIndex(self._record_index)
+            tab = self._ARTIFACT_TYPE_TO_TAB.get(artifact_type)
+            if tab is not None:
+                self.main_tabs.setCurrentWidget(getattr(self, tab))
 
     def _live_options(self):
         use_mic, use_system = self.live_view.selected_sources()
@@ -1497,6 +1507,17 @@ class MainWindow(QMainWindow):
         "insights": "insights",
         "youtube_package": "youtube",
         "book": "book",
+    }
+
+    # Reverse of the mapping above (B7) — which main_tabs page a materials
+    # search hit's artifact type opens on. Attribute names, resolved via
+    # getattr() in _open_record_view() since main_tabs is built in
+    # _setup_ui(), after this class body is read.
+    _ARTIFACT_TYPE_TO_TAB = {
+        "article": "article_view",
+        "insights": "insights_panel",
+        "youtube": "youtube_panel",
+        "book": "book_panel",
     }
 
     def _resolve_recipe(self, key: str) -> Recipe:

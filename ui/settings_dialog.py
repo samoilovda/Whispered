@@ -192,6 +192,14 @@ class SettingsDialog(QDialog):
         clear_btn.clicked.connect(self._clear_history)
         layout.addRow(clear_btn)
 
+        # B7, docs/IMPROVEMENT_PLAN_2026-08.ru.md item 6: a one-shot
+        # manual rebuild of artifact_texts from whatever's already on
+        # disk, not run automatically — useful after upgrading from a
+        # build that predates the materials search index.
+        reindex_btn = QPushButton(tr("library_reindex_materials"))
+        reindex_btn.clicked.connect(self._reindex_materials)
+        layout.addRow(reindex_btn)
+
         # UI language
         self._lang_ui_combo = QComboBox()
         self._lang_ui_combo.addItem("Auto", "auto")
@@ -663,3 +671,15 @@ class SettingsDialog(QDialog):
             logger.info("History cleared from settings: %d records", n)
         except Exception as e:
             logger.warning("History clear failed: %s", e)
+
+    def _reindex_materials(self):
+        try:
+            from application.steps import reindex_artifacts
+            n = reindex_artifacts()
+            logger.info("Materials reindexed from settings: %d", n)
+            QMessageBox.information(
+                self, tr("library_reindex_materials"),
+                tr("library_reindex_materials_done", count=n),
+            )
+        except Exception as e:
+            logger.warning("Materials reindex failed: %s", e)

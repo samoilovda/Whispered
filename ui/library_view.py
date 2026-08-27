@@ -70,6 +70,8 @@ _ARTIFACT_LABEL_KEYS = {
     "transcript": "library_chip_transcript",
     "youtube": "library_chip_youtube",
     "article": "library_chip_article",
+    "insights": "library_chip_insights",
+    "book": "library_chip_book",
 }
 
 
@@ -181,7 +183,10 @@ class LibraryView(QWidget):
     Record view.
     """
 
-    open_record = pyqtSignal(int)  # record id
+    # record id, artifact type ("" for the transcript itself — B7,
+    # docs/IMPROVEMENT_PLAN_2026-08.ru.md; MainWindow._open_record_view
+    # uses the type to pick which tab a materials search hit opens on).
+    open_record = pyqtSignal(int, str)
     open_cover = pyqtSignal()
     resume_run = pyqtSignal(int)  # record id (B2)
 
@@ -189,8 +194,10 @@ class LibraryView(QWidget):
         super().__init__(parent)
         self._store = None   # lazy: avoid import at startup if history_enabled=False
         self._records: list = []
+        self._material_hits: list = []
         self._active_filter = "all"
         self._active_recipe_filter = "all"
+        self._search_scope = "all"
         self._open_record_id: int | None = None
         self._setup_ui()
 
@@ -219,6 +226,30 @@ class LibraryView(QWidget):
         )
         self._search_edit.textChanged.connect(self._schedule_search)
         layout.addWidget(self._search_edit)
+
+        # Search scope (B7, docs/IMPROVEMENT_PLAN_2026-08.ru.md): whether a
+        # query (and the plain "browse everything" view) covers transcripts,
+        # generated materials (article/insights/youtube/book text), or both.
+        scope_label = QLabel(tr("library_search_scope_label"))
+        scope_label.setProperty("role", "muted")
+        layout.addWidget(scope_label)
+
+        scope_widget = QWidget()
+        scope_row = FlowLayout(scope_widget, spacing=6)
+        self._scope_group = QButtonGroup(self)
+        self._scope_group.setExclusive(True)
+        for key in ("all", "transcripts", "materials"):
+            button = QPushButton(tr(f"library_search_scope_{key}"))
+            button.setCheckable(True)
+            button.setProperty("role", "quick-chip")
+            button.clicked.connect(
+                lambda _checked, scope_key=key: self._set_search_scope(scope_key)
+            )
+            self._scope_group.addButton(button)
+            scope_row.addWidget(button)
+            if key == "all":
+                button.setChecked(True)
+        layout.addWidget(scope_widget)
 
         # ── Toolbar ──────────────────────────────────────────────
         toolbar = QHBoxLayout()
@@ -376,14 +407,24 @@ class LibraryView(QWidget):
 
     def _load(self, query: str = ""):
         store = self._get_store()
+        self._material_hits = []
         try:
             if query:
-                self._records = store.search(query)
+                self._records = (
+                    store.search(query) if self._search_scope != "materials" else []
+                )
+                if self._search_scope in ("all", "materials"):
+                    self._material_hits = store.search_artifacts(query)
             else:
-                self._records = store.list()
+                # No query: there is no "browse all materials" view — a
+                # materials-only scope with an empty search box just shows
+                # nothing until the user types something (see
+                # HistoryStore.search_artifacts's own empty-query contract).
+                self._records = store.list() if self._search_scope != "materials" else []
         except Exception as e:
             logger.warning("Library load failed: %s", e)
             self._records = []
+            self._material_hits = []
         self._populate()
 
     def _latest_runs_for(self, records) -> dict:
@@ -441,7 +482,7 @@ class LibraryView(QWidget):
                 failed_steps=failed_steps, resumable=_is_resumable(run),
             )
             widget.open_requested.connect(
-                lambda record_id=rec.id: self.open_record.emit(record_id)
+                lambda record_id=rec.id: self.open_record.emit(record_id, "")
             )
             widget.resume_requested.connect(
                 lambda record_id=rec.id: self.resume_run.emit(record_id)
@@ -453,7 +494,27 @@ class LibraryView(QWidget):
             if rec.id == self._open_record_id:
                 self._list.setCurrentItem(item)
 
-        total = len(visible_records)
+        for hit in self._material_hits:
+            item = QListWidgetItem()
+            item.setData(Qt.ItemDataRole.UserRole, hit.record_id)
+
+            type_label = tr(_ARTIFACT_LABEL_KEYS.get(hit.type, hit.type))
+            name = f"{hit.source_name or hit.type} — {type_label}"
+            snippet = _clean_snippet(hit.snippet) if hit.snippet else ""
+
+            widget = RecordItemWidget(
+                name, "", [], snippet, kind=hit.source_kind or "file",
+            )
+            widget.open_requested.connect(
+                lambda record_id=hit.record_id, artifact_type=hit.type:
+                    self.open_record.emit(record_id, artifact_type)
+            )
+            item.setSizeHint(widget.sizeHint())
+
+            self._list.addItem(item)
+            self._list.setItemWidget(item, widget)
+
+        total = len(visible_records) + len(self._material_hits)
         key = "history_status_plural" if total != 1 else "history_status"
         self._status.setText(tr(key, count=total))
 
@@ -463,6 +524,7 @@ class LibraryView(QWidget):
         show_empty_state = (
             total == 0 and not is_search
             and self._active_filter == "all" and self._active_recipe_filter == "all"
+            and self._search_scope != "materials"
         )
         show_no_results = total == 0 and not show_empty_state
         self._empty_state.setVisible(show_empty_state)
@@ -496,6 +558,10 @@ class LibraryView(QWidget):
     def _set_recipe_filter(self, recipe_key: str) -> None:
         self._active_recipe_filter = recipe_key
         self._populate()
+
+    def _set_search_scope(self, scope: str) -> None:
+        self._search_scope = scope
+        self._load(self._search_edit.text().strip())
 
     def _build_recipe_filter_chips(self) -> None:
         """(Re)build the built-in + custom recipe filter chips (B4,
@@ -561,7 +627,7 @@ class LibraryView(QWidget):
 
     def _open_selected(self, item: QListWidgetItem):
         record_id = item.data(Qt.ItemDataRole.UserRole)
-        self.open_record.emit(record_id)
+        self.open_record.emit(record_id, "")
 
     def _show_context_menu(self, pos: QPoint):
         item = self._list.itemAt(pos)
@@ -576,7 +642,7 @@ class LibraryView(QWidget):
 
         action = menu.exec(self._list.mapToGlobal(pos))
         if action == open_act:
-            self.open_record.emit(record_id)
+            self.open_record.emit(record_id, "")
         elif action == delete_act:
             self._delete_record(record_id)
 
