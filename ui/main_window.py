@@ -259,8 +259,8 @@ class MainWindow(QMainWindow):
         self._register_document_session_consumers()
         self.command_palette = CommandPalette(self)
         self.command_palette.bind_run_view(self.run_view)
+        self.command_palette.bind_actions(self._palette_menu_actions)
         self.command_palette.record_requested.connect(self._open_record_view)
-        self.command_palette.action_requested.connect(self._run_palette_action)
         self.command_palette.recipe_requested.connect(self._select_recipe_from_palette)
         self.command_palette.retry_step_requested.connect(self._retry_recipe_step_from_palette)
         self._connect_signals()
@@ -318,7 +318,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(900, 550)
         self.resize(1100, 700)
 
-        self._init_menu_bar()
+        self._palette_menu_actions = self._init_menu_bar()
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -326,152 +326,84 @@ class MainWindow(QMainWindow):
         self._workspace_layout.setContentsMargins(0, 0, 0, 0)
         self._workspace_layout.setSpacing(0)
 
-    def _init_menu_bar(self) -> None:
-        """Initialize the global menu bar (native on macOS)."""
+    def _init_menu_bar(self) -> "list":
+        """Build the global menu bar (native on macOS) from one
+        declarative table instead of ~24 repeated construct-and-addAction
+        blocks (B12, docs/IMPROVEMENT_PLAN_2026-08.ru.md).
+
+        Returns the QActions marked ``in_palette=True`` — MainWindow
+        hands this straight to ``CommandPalette.bind_actions()`` so the
+        command palette's generic-action rows are exactly these QActions,
+        not a second hardcoded list that could silently drift from what
+        the menu bar actually offers.
+        """
         from PyQt6.QtGui import QAction, QKeySequence
+
+        _SEPARATOR = object()
+        # (menu_key, label_key, shortcut, slot, in_palette). label_key is
+        # also what the palette row shows via action.text() — see
+        # ui/command_palette.py's module docstring for why that matters.
+        table = (
+            ("menu_file", "menu_new_record", "", self._show_new_draft, True),
+            ("menu_file", "menu_open", "Ctrl+O", self._menu_open_file, False),
+            ("menu_file", "menu_export", "Ctrl+E", self._export_result, True),
+            ("menu_file", _SEPARATOR, "", None, False),
+            ("menu_file", "menu_settings", "Ctrl+,", self._open_settings, True),
+
+            ("menu_edit", "menu_undo", "", self._trigger_undo, False),
+            ("menu_edit", "menu_find", "", self._trigger_find, False),
+            ("menu_edit", _SEPARATOR, "", None, False),
+            ("menu_edit", "menu_copy_transcript", "Ctrl+Shift+C", self._copy_to_clipboard, False),
+
+            ("menu_view", "menu_toggle_theme", "", self._toggle_theme, False),
+            ("menu_view", "menu_toggle_library", "", self._toggle_library_sidebar, False),
+            ("menu_view", "menu_show_queue", "", lambda: self.status_bar.show_queue(True), True),
+
+            ("menu_go", "menu_go_library", "Ctrl+1", self._menu_focus_library, False),
+            ("menu_go", "menu_go_article", "Ctrl+2", self._menu_show_articles, False),
+            ("menu_go", "menu_go_live", "", lambda: self._on_section_changed("live"), True),
+            ("menu_go", "menu_go_recipe_editor", "Ctrl+3", self._open_recipe_editor, False),
+            # Cover workspace (docs/IMPROVEMENT_PLAN_2026-08.ru.md, A5):
+            # before this, the only entrance was one button in the
+            # Library panel — not the menu bar, the command palette, or
+            # reachable from the record a cover is actually made for.
+            ("menu_go", "menu_go_cover", "Ctrl+4", lambda: self._on_section_changed("cover"), False),
+
+            ("menu_transcribe", "menu_start_transcription", "Ctrl+T", self._start_transcription, False),
+            ("menu_transcribe", "menu_toggle_recording", "Ctrl+R", self._menu_toggle_recording, False),
+            ("menu_transcribe", "menu_play_pause", "Space", self._space_play_pause, False),
+
+            ("menu_video", "video_export_edl", "", self._trigger_export_edl, False),
+            ("menu_video", "video_mark_pauses", "", self._trigger_mark_pauses, False),
+            ("menu_video", "video_assemble_draft", "", self._trigger_assemble_mp4, False),
+
+            ("menu_library", "menu_refresh_library", "", lambda: self.library_view.refresh(), False),
+            ("menu_library", _SEPARATOR, "", None, False),
+            ("menu_library", "menu_clear_history", "", lambda: self.library_view.clear_all(), False),
+
+            ("menu_help", "menu_help_docs", "", self._open_help_docs, False),
+        )
+
         menubar = self.menuBar()
         menubar.setNativeMenuBar(True)
-
-        # --- File Menu ---
-        file_menu = menubar.addMenu(tr("menu_file"))
-
-        new_record_action = QAction(tr("menu_new_record"), self)
-        new_record_action.triggered.connect(self._show_new_draft)
-        file_menu.addAction(new_record_action)
-
-        open_action = QAction(tr("menu_open"), self)
-        open_action.setShortcut(QKeySequence("Ctrl+O"))
-        open_action.triggered.connect(self._menu_open_file)
-        file_menu.addAction(open_action)
-
-        export_action = QAction(tr("menu_export"), self)
-        export_action.setShortcut(QKeySequence("Ctrl+E"))
-        export_action.triggered.connect(self._export_result)
-        file_menu.addAction(export_action)
-
-        file_menu.addSeparator()
-
-        settings_action = QAction(tr("menu_settings"), self)
-        settings_action.setShortcut(QKeySequence("Ctrl+,"))
-        settings_action.triggered.connect(self._open_settings)
-        file_menu.addAction(settings_action)
-
-        # --- Edit Menu ---
-        edit_menu = menubar.addMenu(tr("menu_edit"))
-
-        undo_action = QAction(tr("menu_undo"), self)
-        undo_action.triggered.connect(self._trigger_undo)
-        edit_menu.addAction(undo_action)
-
-        find_action = QAction(tr("menu_find"), self)
-        find_action.triggered.connect(self._trigger_find)
-        edit_menu.addAction(find_action)
-
-        edit_menu.addSeparator()
-
-        copy_transcript_action = QAction(tr("menu_copy_transcript"), self)
-        copy_transcript_action.setShortcut(QKeySequence("Ctrl+Shift+C"))
-        copy_transcript_action.triggered.connect(self._copy_to_clipboard)
-        edit_menu.addAction(copy_transcript_action)
-
-        # --- View Menu ---
-        view_menu = menubar.addMenu(tr("menu_view"))
-
-        toggle_theme_action = QAction(tr("menu_toggle_theme"), self)
-        toggle_theme_action.triggered.connect(self._toggle_theme)
-        view_menu.addAction(toggle_theme_action)
-
-        toggle_library_action = QAction(tr("menu_toggle_library"), self)
-        toggle_library_action.triggered.connect(self._toggle_library_sidebar)
-        view_menu.addAction(toggle_library_action)
-
-        show_queue_action = QAction(tr("menu_show_queue"), self)
-        show_queue_action.triggered.connect(lambda: self.status_bar.show_queue(True))
-        view_menu.addAction(show_queue_action)
-
-        # --- Go Menu ---
-        go_menu = menubar.addMenu(tr("menu_go"))
-
-        go_library_action = QAction(tr("menu_go_library"), self)
-        go_library_action.setShortcut(QKeySequence("Ctrl+1"))
-        go_library_action.triggered.connect(self._menu_focus_library)
-        go_menu.addAction(go_library_action)
-
-        go_article_action = QAction(tr("menu_go_article"), self)
-        go_article_action.setShortcut(QKeySequence("Ctrl+2"))
-        go_article_action.triggered.connect(self._menu_show_articles)
-        go_menu.addAction(go_article_action)
-
-        go_live_action = QAction(tr("menu_go_live"), self)
-        go_live_action.triggered.connect(lambda: self._on_section_changed("live"))
-        go_menu.addAction(go_live_action)
-
-        go_recipe_editor_action = QAction(tr("menu_go_recipe_editor"), self)
-        go_recipe_editor_action.setShortcut(QKeySequence("Ctrl+3"))
-        go_recipe_editor_action.triggered.connect(self._open_recipe_editor)
-        go_menu.addAction(go_recipe_editor_action)
-
-        # Cover workspace (docs/IMPROVEMENT_PLAN_2026-08.ru.md, A5): before
-        # this, the only entrance was one button in the Library panel — not
-        # in the menu bar, the command palette, or reachable from the
-        # record a cover is actually made for.
-        go_cover_action = QAction(tr("menu_go_cover"), self)
-        go_cover_action.setShortcut(QKeySequence("Ctrl+4"))
-        go_cover_action.triggered.connect(lambda: self._on_section_changed("cover"))
-        go_menu.addAction(go_cover_action)
-
-        # --- Transcribe Menu ---
-        transcribe_menu = menubar.addMenu(tr("menu_transcribe"))
-
-        start_transcription_action = QAction(tr("menu_start_transcription"), self)
-        start_transcription_action.setShortcut(QKeySequence("Ctrl+T"))
-        start_transcription_action.triggered.connect(self._start_transcription)
-        transcribe_menu.addAction(start_transcription_action)
-
-        toggle_recording_action = QAction(tr("menu_toggle_recording"), self)
-        toggle_recording_action.setShortcut(QKeySequence("Ctrl+R"))
-        toggle_recording_action.triggered.connect(self._menu_toggle_recording)
-        transcribe_menu.addAction(toggle_recording_action)
-
-        play_pause_action = QAction(tr("menu_play_pause"), self)
-        play_pause_action.setShortcut(QKeySequence("Space"))
-        play_pause_action.triggered.connect(self._space_play_pause)
-        transcribe_menu.addAction(play_pause_action)
-
-        # --- Video / Actions Menu ---
-        video_menu = menubar.addMenu(tr("menu_video"))
-
-        export_edl_action = QAction(tr("video_export_edl"), self)
-        export_edl_action.triggered.connect(self._trigger_export_edl)
-        video_menu.addAction(export_edl_action)
-
-        mark_action = QAction(tr("video_mark_pauses"), self)
-        mark_action.triggered.connect(self._trigger_mark_pauses)
-        video_menu.addAction(mark_action)
-
-        assemble_action = QAction(tr("video_assemble_draft"), self)
-        assemble_action.triggered.connect(self._trigger_assemble_mp4)
-        video_menu.addAction(assemble_action)
-
-        # --- Library Menu ---
-        library_menu = menubar.addMenu(tr("menu_library"))
-
-        refresh_library_action = QAction(tr("menu_refresh_library"), self)
-        refresh_library_action.triggered.connect(lambda: self.library_view.refresh())
-        library_menu.addAction(refresh_library_action)
-
-        library_menu.addSeparator()
-
-        clear_history_action = QAction(tr("menu_clear_history"), self)
-        clear_history_action.triggered.connect(lambda: self.library_view.clear_all())
-        library_menu.addAction(clear_history_action)
-
-        # --- Help Menu ---
-        help_menu = menubar.addMenu(tr("menu_help"))
-
-        help_docs_action = QAction(tr("menu_help_docs"), self)
-        help_docs_action.triggered.connect(self._open_help_docs)
-        help_menu.addAction(help_docs_action)
+        menus: dict = {}
+        palette_actions = []
+        for menu_key, label_key, shortcut, slot, in_palette in table:
+            menu = menus.get(menu_key)
+            if menu is None:
+                menu = menubar.addMenu(tr(menu_key))
+                menus[menu_key] = menu
+            if label_key is _SEPARATOR:
+                menu.addSeparator()
+                continue
+            action = QAction(tr(label_key), self)
+            if shortcut:
+                action.setShortcut(QKeySequence(shortcut))
+            action.triggered.connect(slot)
+            menu.addAction(action)
+            if in_palette:
+                palette_actions.append(action)
+        return palette_actions
 
     # ── menu targets ─────────────────────────────────────────────────
     # Each of these navigates to the screen the action actually happens
@@ -992,19 +924,6 @@ class MainWindow(QMainWindow):
         _sc("Ctrl+Return",  self.transcribe_btn.click)
         _sc("Ctrl+Enter",   self.transcribe_btn.click)  # numpad Enter
         _sc("Ctrl+K",       self.command_palette.open_palette)
-
-    def _run_palette_action(self, action: str) -> None:
-        handlers = {
-            "new": self._show_new_draft,
-            "youtube": self.youtube_panel.generate,
-            "export": self._export_result,
-            "live": lambda: self._on_section_changed("live"),
-            "queue": lambda: self.status_bar.show_queue(True),
-            "settings": self._open_settings,
-        }
-        handler = handlers.get(action)
-        if handler is not None:
-            handler()
 
     def _select_recipe_from_palette(self, key: str) -> None:
         """Command palette "Run: <recipe>" (B8): pick the recipe and land

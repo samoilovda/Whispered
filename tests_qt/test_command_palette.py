@@ -125,6 +125,87 @@ def test_one_query_can_find_both_a_recipe_and_a_step(process_events):
     assert kinds == {"recipe", "retry_step"}
 
 
+# ------------------------------------------------------------------ B12: menu-derived actions
+
+def test_every_palette_marked_menu_action_is_findable(process_events):
+    """B12 acceptance criterion: every QAction MainWindow._init_menu_bar
+    marks in_palette=True must show up in the palette with the same
+    caption — bind_actions() is handed exactly that list, so this is
+    really asserting bind_actions()/_refresh() don't drop or rename any
+    of them."""
+    from ui.main_window import MainWindow
+
+    window = MainWindow()
+    palette = window.command_palette
+    palette._refresh("")
+    process_events()
+
+    labels = {value.text() for kind, value in _payloads(palette) if kind == "action"}
+    expected = {action.text() for action in window._palette_menu_actions}
+    assert labels == expected
+    assert expected, "menu bar produced no palette-eligible actions at all"
+
+    window.close()
+    process_events()
+
+
+def test_activating_an_action_row_triggers_the_same_qaction_the_menu_uses(
+    process_events,
+):
+    from PyQt6.QtCore import Qt
+    from ui.main_window import MainWindow
+
+    window = MainWindow()
+    palette = window.command_palette
+    palette._refresh("")
+    process_events()
+
+    target = window._palette_menu_actions[0]
+    calls = []
+    target.triggered.connect(lambda: calls.append(True))
+
+    item = next(
+        palette.results.item(i) for i in range(palette.results.count())
+        if palette.results.item(i).data(Qt.ItemDataRole.UserRole) == ("action", target)
+    )
+    palette._activate(item)
+
+    assert calls == [True]
+
+    window.close()
+    process_events()
+
+
+def test_a_disabled_action_is_shown_but_not_triggerable(process_events):
+    """B12 item 4: an inapplicable action stays visible (so the user
+    knows the function exists) but inactive — activating it must not
+    fire triggered()."""
+    from PyQt6.QtCore import Qt
+    from ui.main_window import MainWindow
+
+    window = MainWindow()
+    palette = window.command_palette
+    target = window._palette_menu_actions[0]
+    target.setEnabled(False)
+    palette._refresh("")
+    process_events()
+
+    item = next(
+        palette.results.item(i) for i in range(palette.results.count())
+        if palette.results.item(i).data(Qt.ItemDataRole.UserRole) == ("action", target)
+    )
+    assert not (item.flags() & Qt.ItemFlag.ItemIsEnabled)
+
+    calls = []
+    target.triggered.connect(lambda: calls.append(True))
+    palette._activate(item)
+
+    assert calls == []
+
+    window.close()
+    process_events()
+
+
 def test_activating_a_retry_step_item_emits_retry_step_requested(process_events):
     run_view = RunView(("cover",), {"cover": "Cover"})
     spec = JobSpec(name="test", steps=(StepSpec("cover"),))
