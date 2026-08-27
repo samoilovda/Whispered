@@ -1044,6 +1044,7 @@ class MainWindow(QMainWindow):
 
         # Player ↔ transcript sync
         self.player.position_changed_sec.connect(self._on_player_position)
+        self.player.position_changed_sec.connect(self.cover_view.set_playhead)
         self.transcript_view.seek_requested.connect(self.player.seek_to)
         self.cut_view.seek_requested.connect(self.player.seek_to)
 
@@ -1325,12 +1326,14 @@ class MainWindow(QMainWindow):
         self.start_view.set_process_enabled(True)
         self.status_label.setText(tr("status_ready_file", name=os.path.basename(filepath)))
         self.player.load(filepath)
+        self.cover_view.set_video_source(filepath)
 
     def _on_file_cleared(self):
         """Drop every media-specific reference when selection is cleared."""
         self._source_filepath = None
         self._source_kind = "file"
         self.player.load("")
+        self.cover_view.set_video_source(None)
         self.start_view.set_process_enabled(False)
         # Transcript-only records can still be exported, but cannot be cut.
         self.cut_view.video_panel.set_has_transcript(False)
@@ -1663,6 +1666,7 @@ class MainWindow(QMainWindow):
         # directly above via _save_to_history, or by the live-checkpoint
         # branches in _on_live_finished before it calls this method).
         self.cover_view.set_provenance(self._last_record_id, self._source_filepath)
+        self.cover_view.set_video_source(self._source_filepath)
         self.article_view.set_provenance(
             self._last_record_id, self._source_filepath,
             result.segments, result.language,
@@ -2278,6 +2282,7 @@ class MainWindow(QMainWindow):
 
             self._document_session.apply_result(result)
             self.cover_view.set_provenance(record_id, source_path or None)
+            self.cover_view.set_video_source(source_path if has_media else None)
             self.article_view.set_provenance(
                 record_id, source_path or None, result.segments, result.language,
             )

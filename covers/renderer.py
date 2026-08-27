@@ -75,7 +75,13 @@ def _asset(template: CoverTemplate, category: str, name: str) -> Path:
     return template.root / category / name
 
 
-def _draw_fitted(painter: QPainter, image: QImage, rect: QRectF, fit: str) -> None:
+def _draw_fitted(
+    painter: QPainter,
+    image: QImage,
+    rect: QRectF,
+    fit: str,
+    focus: tuple[float, float] | None = None,
+) -> None:
     if image.isNull():
         return
     iw, ih = image.width(), image.height()
@@ -84,9 +90,16 @@ def _draw_fitted(painter: QPainter, image: QImage, rect: QRectF, fit: str) -> No
     else:
         ratio = max(rect.width() / iw, rect.height() / ih)
     target_w, target_h = iw * ratio, ih * ratio
+    # ``focus`` (normalised 0..1) aligns that point of the image with the
+    # same relative point of ``rect``; for a "cover" fit the offset range
+    # is exactly the overflow, so no extra clamping is needed. Default
+    # (0.5, 0.5) reproduces plain centering.
+    fx, fy = focus or (0.5, 0.5)
+    fx = min(1.0, max(0.0, fx))
+    fy = min(1.0, max(0.0, fy))
     target = QRectF(
-        rect.center().x() - target_w / 2,
-        rect.center().y() - target_h / 2,
+        rect.x() + fx * (rect.width() - target_w),
+        rect.y() + fy * (rect.height() - target_h),
         target_w,
         target_h,
     )
@@ -221,6 +234,7 @@ def render(
             photo_value = (
                 slots.get(layer.get("slot")) if kind == "photo" else layer.get("source")
             )
+            focus: tuple[float, float] | None = None
             if photo_value:
                 if isinstance(photo_value, QImage):
                     picture = photo_value
@@ -228,6 +242,11 @@ def render(
                     picture = photo_value.toImage()
                 elif isinstance(photo_value, dict):
                     picture = QImage(str(photo_value.get("file", "")))
+                    if "focus_x" in photo_value and "focus_y" in photo_value:
+                        focus = (
+                            float(photo_value["focus_x"]),
+                            float(photo_value["focus_y"]),
+                        )
                 else:
                     path = (
                         Path(str(photo_value))
@@ -249,6 +268,7 @@ def render(
                     picture,
                     rect,
                     layer.get("fit", "contain" if kind == "image" else "cover"),
+                    focus,
                 )
                 painter.restore()
         elif kind == "text":

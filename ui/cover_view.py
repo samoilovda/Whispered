@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shutil
+import tempfile
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer
@@ -18,6 +20,7 @@ from PyQt6.QtWidgets import (
 from application.artifact_provenance import source_fingerprint, transcript_revision
 from config import get_config
 from core.i18n import tr
+from ui.i18n_helpers import Retranslator
 from core.insights_worker import InsightsWorker
 from core.logger import get_logger
 from core.prompts import prompt_version
@@ -28,8 +31,16 @@ from covers.template import load_template
 from domain.artifact import Artifact
 from infrastructure.persistence import artifact_store
 from ui.cover_inspector import CoverInspector
+from ui.cover_frame_dialog import CoverFrameDialog, FrameGrabWorker
 
 logger = get_logger(__name__)
+
+# Container formats we can pull still frames from with FFmpeg. Kept local
+# rather than reusing utils.SUPPORTED_FORMATS so audio-only sources never
+# light up the "frame from video" controls.
+_VIDEO_EXTS = frozenset(
+    {".mp4", ".mkv", ".avi", ".mov", ".webm", ".wmv", ".flv", ".m4v"}
+)
 
 
 class CoverView(QWidget):
@@ -37,6 +48,8 @@ class CoverView(QWidget):
         super().__init__(parent)
         self.template = load_template(get_config().cover_template)
         self.photos: dict[str, str] = {}
+        # Per-slot focal point (normalised 0..1) for cover-fit cropping.
+        self._focus: dict[str, tuple[float, float]] = {}
         self.last_image = None
         self._workers: list = []
         self._registry = WorkerRegistry(parent=self)
@@ -52,9 +65,18 @@ class CoverView(QWidget):
         self._record_id: int | None = None
         self._source_path: str | None = None
         self._transcript_language = ""
+        # Set via set_video_source()/set_playhead() by MainWindow so a
+        # photo slot can be filled from a still of the loaded video rather
+        # than an external file (see _grab_frame).
+        self._video: str | None = None
+        self._playhead: float = 0.0
+        # Lazily created scratch dir for stills pulled from the video;
+        # removed in shutdown().
+        self._frame_dir: str | None = None
+        self._i18n = Retranslator()
         root = QHBoxLayout(self)
         preview_column = QVBoxLayout()
-        title = QLabel(tr("cover_workspace_title"))
+        title = self._i18n.text(QLabel(), "cover_workspace_title")
         title.setProperty("role", "section-title")
         preview_column.addWidget(title)
         self.preview = QLabel()
@@ -80,8 +102,11 @@ class CoverView(QWidget):
         self._timer.timeout.connect(self.render_preview)
         self.inspector.changed.connect(lambda: self._timer.start())
         self.inspector.choose_photo.connect(self._choose_photo)
+        self.inspector.grab_frame.connect(self._grab_frame)
+        self.inspector.focus_changed.connect(self._on_focus_changed)
         self.inspector.export_requested.connect(self._export)
         self.inspector.suggest_requested.connect(self._suggest_title)
+        self._i18n.bind()
         self.render_preview()
 
     def _choose_photo(self, slot: str) -> None:
@@ -95,6 +120,73 @@ class CoverView(QWidget):
     def set_segments(self, segments, transcript_language: str | None = None) -> None:
         self._segments = list(segments or [])
         self._transcript_language = transcript_language or ""
+
+    def _grab_frame(self, slot: str) -> None:
+        if not self._video:
+            return
+        try:
+            from video_input import probe_video
+
+            _, duration = probe_video(self._video)
+        except Exception:
+            duration = 0.0
+        if self._frame_dir is None:
+            self._frame_dir = tempfile.mkdtemp(prefix="whispered-cover-frames-")
+        dialog = CoverFrameDialog(
+            self._video, self._playhead, duration, self._frame_dir, parent=self
+        )
+        if dialog.exec() != CoverFrameDialog.DialogCode.Accepted:
+            return
+        worker = FrameGrabWorker(
+            self._video, dialog.selected_time, self._frame_dir, parent=self
+        )
+        worker.ready.connect(lambda path, s=slot: self._on_frame_ready(s, path))
+        worker.failed.connect(lambda message: self.warning.setText(message))
+        for signal in (worker.ready, worker.failed):
+            signal.connect(
+                lambda *_a, w=worker: self._workers.remove(w)
+                if w in self._workers
+                else None
+            )
+        self._workers.append(worker)
+        self._registry.register(worker, name=f"cover_frame_{id(worker)}")
+        self.warning.setText(tr("cover_frame_extracting"))
+        worker.start()
+
+    def _on_focus_changed(self, slot: str, fx: float, fy: float) -> None:
+        self._focus[slot] = (fx, fy)
+        self.render_preview()
+
+    def _photo_slots(self) -> dict[str, object]:
+        """Merge chosen photo paths with their focal point so the renderer
+        crops toward it (a plain path stays a plain path)."""
+        merged: dict[str, object] = {}
+        for slot, path in self.photos.items():
+            focus = self._focus.get(slot)
+            if focus and focus != (0.5, 0.5):
+                merged[slot] = {
+                    "file": path, "focus_x": focus[0], "focus_y": focus[1]
+                }
+            else:
+                merged[slot] = path
+        return merged
+
+    def _on_frame_ready(self, slot: str, path: str) -> None:
+        self.photos[slot] = path
+        self.warning.clear()
+        self.render_preview()
+
+    def set_video_source(self, path: str | None) -> None:
+        """Called by MainWindow when the loaded media changes. A non-video
+        source (audio, transcript-only) clears the frame-grab controls."""
+        self._video = (
+            path if path and Path(path).suffix.lower() in _VIDEO_EXTS else None
+        )
+        self.inspector.set_video_available(self._video is not None)
+
+    def set_playhead(self, seconds: float) -> None:
+        """Track the player position so 'current frame' can grab it."""
+        self._playhead = max(0.0, float(seconds))
 
     def set_provenance(self, record_id: int | None, source_path: str | None) -> None:
         """Called by MainWindow whenever the open transcript's identity
@@ -142,7 +234,7 @@ class CoverView(QWidget):
         ignores what they chose.
         """
         layout, variant, slots = self.inspector.state()
-        slots.update(self.photos)
+        slots.update(self._photo_slots())
         return {
             "cover_template": self.template.id,
             "cover_layout": layout,
@@ -152,7 +244,7 @@ class CoverView(QWidget):
 
     def render_preview(self) -> None:
         layout, variant, slots = self.inspector.state()
-        slots.update(self.photos)
+        slots.update(self._photo_slots())
         try:
             self.last_image, warnings = render(
                 self.template, layout, variant, slots, (1280, 720)
@@ -181,7 +273,7 @@ class CoverView(QWidget):
             return
         try:
             layout, variant, slots = self.inspector.state()
-            slots.update(self.photos)
+            slots.update(self._photo_slots())
             cfg = get_config()
             shorts_image = None
             if cfg.cover_export_shorts:
@@ -262,3 +354,6 @@ class CoverView(QWidget):
         self._timer.stop()
         self._workers.clear()
         self._registry.shutdown_all(timeout_ms=timeout)
+        if self._frame_dir:
+            shutil.rmtree(self._frame_dir, ignore_errors=True)
+            self._frame_dir = None
