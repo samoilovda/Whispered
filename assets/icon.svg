@@ -11,9 +11,20 @@
        overflowing them. -->
   <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#bg)"/>
 
-  <!-- Stylised W: the middle peak rises past the outer arms like a
-       waveform crest. Round joins keep it soft at small sizes. -->
-  <path d="M 296 372 L 404 668 L 512 442 L 620 668 L 728 372"
-        fill="none" stroke="#ffffff" stroke-width="68"
-        stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- One continuous handwritten stroke: a small ripple, a cursive "w" at
+       the exact centre, then a matching ripple decaying back out — the
+       letter rides the middle of the waveform instead of starting it.
+       The ripples are drawn thinner than the "w" itself (pen-pressure
+       taper), with a soft pen-lift dot bookending each end. -->
+  <path d="M 192 445 C 237 445 237 560 282 560 C 327 560 327 420 372 420"
+        fill="none" stroke="#ffffff" stroke-width="20"
+        stroke-linecap="round" stroke-linejoin="round" transform="rotate(-3 512 512)"/>
+  <path d="M 372 420 C 407 420 407 615 442 615 C 477 615 477 450 512 450 C 547 450 547 615 582 615 C 617 615 617 420 652 420"
+        fill="none" stroke="#ffffff" stroke-width="46"
+        stroke-linecap="round" stroke-linejoin="round" transform="rotate(-3 512 512)"/>
+  <path d="M 652 420 C 697 420 697 560 742 560 C 787 560 787 445 832 445"
+        fill="none" stroke="#ffffff" stroke-width="20"
+        stroke-linecap="round" stroke-linejoin="round" transform="rotate(-3 512 512)"/>
+  <circle cx="152" cy="445" r="16" fill="#ffffff" transform="rotate(-3 512 512)"/>
+  <circle cx="872" cy="445" r="16" fill="#ffffff" transform="rotate(-3 512 512)"/>
 </svg>
