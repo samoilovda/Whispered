@@ -10,14 +10,11 @@ from utils import format_timestamp_srt, format_timestamp_vtt
 def _speaker_name(result: TranscriptionResult, seg) -> str:
     """Display name for a segment's speaker ('' if none).
 
-    Honours user renames stored in result.speaker_names; falls back to the raw
-    speaker id. Works even on results that predate the speaker_names field.
+    A thin '' for None wrapper around TranscriptionResult.speaker_label()
+    (see docs/IMPROVEMENT_PLAN_2026-08.ru.md, B6 item 4) — every call site
+    below expects a plain str, not that method's Optional[str].
     """
-    speaker_id = getattr(seg, 'speaker', None)
-    if not speaker_id:
-        return ''
-    names = getattr(result, 'speaker_names', None) or {}
-    return names.get(speaker_id, speaker_id)
+    return result.speaker_label(getattr(seg, 'speaker', None)) or ''
 
 
 def export_txt(result: TranscriptionResult, filepath: str) -> None:

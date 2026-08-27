@@ -37,6 +37,14 @@ class _TranscriptionResult:
     def full_text(self) -> str:
         return " ".join(s.text.strip() for s in self.segments)
 
+    def speaker_label(self, speaker_id: Optional[str]) -> Optional[str]:
+        """Mirrors domain.transcription.TranscriptionResult.speaker_label()
+        — exporters._speaker_name() (B6, docs/IMPROVEMENT_PLAN_2026-08.ru.md
+        item 4) now delegates to this instead of duplicating the lookup."""
+        if not speaker_id:
+            return None
+        return self.speaker_names.get(speaker_id, speaker_id)
+
 
 # Inject stub before importing exporters.
 # Direct assignment, not setdefault: tests/test_batch_processor.py installs
