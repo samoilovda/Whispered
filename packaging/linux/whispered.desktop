@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Whispered
+GenericName=Transcription
+Comment=Offline local transcription, editing and AI tools
+Exec=Whispered %F
+Icon=whispered
+Terminal=false
+Categories=AudioVideo;Audio;Utility;
+MimeType=audio/x-wav;audio/mpeg;audio/mp4;audio/flac;audio/ogg;video/mp4;video/x-matroska;
+Keywords=transcription;whisper;subtitles;speech;audio;
+StartupWMClass=Whispered

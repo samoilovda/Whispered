@@ -34,6 +34,7 @@ build/
 dist/
 *.spec
 !packaging/windows/Whispered.windows.spec
+!packaging/linux/Whispered.linux.spec
 
 # ========================================
 # ML Models & Weights (downloaded dynamically)

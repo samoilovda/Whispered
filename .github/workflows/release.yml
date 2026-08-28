@@ -2,9 +2,9 @@ name: Release
 
 # Manual only — never on push. Trigger from the Actions tab (or
 # `gh workflow run release.yml -f version=v0.1.0`). The job builds the
-# macOS .app and the Windows onedir package, attaches both plus a
-# SHA256SUMS file to a GitHub Release, and (by default) leaves it as a
-# draft for a human to review and publish.
+# macOS .app, the Windows onedir package and the Linux (Fedora) tarball,
+# attaches all three plus a SHA256SUMS file to a GitHub Release, and (by
+# default) leaves it as a draft for a human to review and publish.
 on:
   workflow_dispatch:
     inputs:
@@ -103,9 +103,59 @@ jobs:
           path: "Whispered-${{ inputs.version }}-windows-x64.zip"
           if-no-files-found: error
 
+  linux:
+    name: Linux package (x86_64, Fedora)
+    runs-on: ubuntu-latest
+    # Build against Fedora's glibc/toolchain so the frozen binary runs on
+    # a current Fedora without pulling in a newer libc than the target.
+    container: fedora:41
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            python3.11 python3.11-devel python3-pip \
+            gcc gcc-c++ cmake make git tar gzip \
+            libxkbcommon-x11 mesa-libEGL mesa-libGL dbus-libs
+
+      - name: Install build dependencies
+        run: |
+          python3.11 -m pip install --upgrade pip
+          python3.11 -m pip install -r requirements-build-linux.txt
+
+      - name: Build frozen package
+        run: |
+          python3.11 -m PyInstaller --noconfirm --clean \
+            --distpath dist --workpath build/linux \
+            packaging/linux/Whispered.linux.spec
+
+      - name: Frozen smoke test
+        run: ./dist/Whispered/Whispered --smoke-test
+
+      - name: Stage desktop file and icon
+        run: |
+          install -Dm644 packaging/linux/whispered.desktop \
+            dist/Whispered/share/applications/whispered.desktop
+          install -Dm644 assets/icon.png \
+            dist/Whispered/share/icons/hicolor/512x512/apps/whispered.png
+
+      - name: Package
+        run: |
+          tar -C dist -czf "Whispered-${{ inputs.version }}-linux-x86_64.tar.gz" Whispered
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: "Whispered-${{ inputs.version }}-linux-x86_64.tar.gz"
+          if-no-files-found: error
+
   release:
     name: Publish GitHub Release
-    needs: [macos, windows]
+    needs: [macos, windows, linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
