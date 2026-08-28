@@ -33,13 +33,17 @@ Prebuilt applications are published on the
 |---|---|
 | macOS (Apple Silicon, 13+) | `Whispered-<version>-macos-arm64.zip` |
 | Windows 11 (x64) | `Whispered-<version>-windows-x64.zip` |
+| Linux (x86_64, Fedora-oriented) | `Whispered-<version>-linux-x86_64.tar.gz` |
 
-Both builds are currently **unsigned**. On macOS, right-click `Whispered.app`
+All builds are currently **unsigned**. On macOS, right-click `Whispered.app`
 → **Open** on first launch (or `xattr -dr com.apple.quarantine
 /Applications/Whispered.app`); on Windows, choose **More info** → **Run
-anyway** in SmartScreen. Each release's notes spell this out in English and
-Russian, and `SHA256SUMS.txt` lets you verify the download. The macOS build
-bundles the whisper engine — no separate install.
+anyway** in SmartScreen. On Linux, extract the tarball and run
+`./Whispered/Whispered` (needs `ffmpeg` and `xcb-util-cursor`; see
+`packaging/linux/README.md`). Each release's notes spell this out in English
+and Russian, and `SHA256SUMS.txt` lets you verify the download. All three
+builds bundle the whisper engine — no separate install. The Linux build is a
+mic-only preview: Live system-audio capture is macOS-only for now.
 
 To build from source instead, see [Building](#building).
 
@@ -288,21 +292,25 @@ someone else, add `--bundle-libs` (this is what the release workflow uses):
 
 Tagged releases are produced by the manual **Release** workflow
 (`.github/workflows/release.yml`) — run it from the Actions tab with a
-`version` input; it builds macOS and Windows, attaches both plus
+`version` input; it builds macOS, Windows and Linux, attaches all three plus
 `SHA256SUMS.txt`, and leaves a draft release for review. Release notes live
 in `docs/release-notes/` (`TEMPLATE.md` for new versions).
 
-The repository also contains `appimage/build-appimage.sh`, but Linux AppImage
-is not yet a validated release channel for the complete current feature set.
-
-Windows packaging is available as an unsigned preview workflow:
+Windows and Linux packaging are also runnable locally as unsigned previews:
 
 ```powershell
 .\packaging\windows\build-windows.ps1
 ```
 
-It produces an `onedir` package and ZIP. The Inno Setup installer and code
-signing remain release-gated; see `packaging/windows/README.md`.
+```bash
+./packaging/linux/build-linux.sh
+```
+
+The Windows script produces an `onedir` package and ZIP (Inno Setup installer
+and code signing stay release-gated; see `packaging/windows/README.md`). The
+Linux script produces a PyInstaller `onedir` tree and `.tar.gz`; see
+`packaging/linux/README.md`. The older `appimage/build-appimage.sh` is a
+separate experiment and not a validated release channel.
 
 ---
 

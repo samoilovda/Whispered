@@ -17,4 +17,6 @@ def supports_live_system_audio() -> bool:
 def live_system_audio_unavailable_message() -> str:
     if is_windows():
         return "System audio capture is not available on Windows yet."
+    if platform.system() == "Linux":
+        return "System audio capture is not available on Linux yet; Live runs microphone-only."
     return "System audio currently requires macOS."

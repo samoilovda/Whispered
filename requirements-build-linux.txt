@@ -1,0 +1,10 @@
+# Linux packaging dependencies. Mirrors requirements-build-windows.txt.
+#
+# There is no requirements-linux.lock yet: pywhispercpp is compiled from
+# sdist on Linux (CPU build; set GGML_CUDA=1 / GGML_VULKAN=1 before pip
+# install for GPU) and the exact transitive set depends on the build
+# host, so this pins only the build tool and defers the runtime set to
+# requirements.txt's minimum bounds. Generating a real lock on a Fedora
+# host is tracked as a follow-up.
+-r requirements.txt
+pyinstaller==6.21.0

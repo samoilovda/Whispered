@@ -45,10 +45,13 @@ call sites).
 5. **Code style.** CPython 3.11, type hints, docstrings matching neighbors,
    logging via `core.logger.get_logger(__name__)`. `print()` only in
    standalone CLI scripts (`build.py`, `setup_diarization.py`).
-6. **Platforms.** macOS is primary. Linux source installs are supported, but
-   AppImage is not a validated release channel. Windows 11 x64 has source,
-   packaging, and CI preview support; keep its open hardware/signing gates
-   explicit.
+6. **Platforms.** macOS is primary. Linux source installs are supported;
+   `packaging/linux/` adds a Fedora-oriented PyInstaller tarball built in
+   the release workflow (mic-only preview — no system-audio helper, no
+   RPM/Flatpak, no `requirements-linux.lock` yet). The older
+   `appimage/build-appimage.sh` is a separate experiment and not a
+   validated release channel. Windows 11 x64 has source, packaging, and
+   CI preview support; keep its open hardware/signing gates explicit.
 7. **Dependencies.** Pin minimum versions in `requirements.txt`; import
    heavy/optional deps (pyannote) lazily with a clear error message.
 8. **One step = one commit** (`feat:`/`fix:`/`docs:`/`chore:`). Don't mix
