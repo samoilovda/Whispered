@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Концепт 1 «Гребень» — эволюция текущего знака: W, у которой
+       средний пик перерастает внешние плечи, как гребень волны. -->
+  <defs>
+    <linearGradient id="c1bg" x1="0" y1="0" x2="0.18" y2="1">
+      <stop offset="0" stop-color="#8b8cf9"/>
+      <stop offset="0.55" stop-color="#5b57ef"/>
+      <stop offset="1" stop-color="#3f34c7"/>
+    </linearGradient>
+    <linearGradient id="c1sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="0.45" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Плита по сетке macOS Big Sur: 824x824 внутри канваса 1024. -->
+  <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#c1bg)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#c1sheen)"/>
+
+  <path d="M 300 392 L 404 660 L 512 316 L 620 660 L 724 392"
+        fill="none" stroke="#ffffff" stroke-width="66"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

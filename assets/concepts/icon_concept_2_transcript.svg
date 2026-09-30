@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Концепт 2 «Транскрипт» — три строки, в которых волна выпрямляется
+       в текст: звук сверху, готовая строка снизу. -->
+  <defs>
+    <linearGradient id="c2bg" x1="0" y1="0" x2="0.2" y2="1">
+      <stop offset="0" stop-color="#2b3244"/>
+      <stop offset="0.5" stop-color="#1a2030"/>
+      <stop offset="1" stop-color="#0d1119"/>
+    </linearGradient>
+    <linearGradient id="c2sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.10"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#c2bg)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#c2sheen)"/>
+
+  <g fill="none" stroke-width="54" stroke-linecap="round">
+    <!-- строка 1: ещё звук -->
+    <path d="M 240 372 q 36 -84 72 0 t 72 0 t 72 0 t 72 0 t 72 0 L 784 372"
+          stroke="#8b8cf9"/>
+    <!-- строка 2: волна затухает в текст -->
+    <path d="M 240 512 q 36 -60 72 0 t 72 0 t 72 0 L 736 512"
+          stroke="#c3c8d4"/>
+    <!-- строка 3: чистый текст -->
+    <path d="M 240 652 L 616 652" stroke="#ffffff"/>
+  </g>
+</svg>

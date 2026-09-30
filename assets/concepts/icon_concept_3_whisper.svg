@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Концепт 3 «Шёпот» — источник и три затухающие дуги: тихий голос,
+       который никуда не уходит за пределы плиты (offline-first). -->
+  <defs>
+    <linearGradient id="c3bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#b06bf5"/>
+      <stop offset="0.45" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#2b2380"/>
+    </linearGradient>
+    <linearGradient id="c3sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.20"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#c3bg)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#c3sheen)"/>
+
+  <circle cx="376" cy="512" r="56" fill="#ffffff"/>
+  <g fill="none" stroke="#ffffff" stroke-linecap="round">
+    <path d="M 462.0 389.1 A 150 150 0 0 1 462.0 634.9" stroke-width="56" opacity="1"/>
+    <path d="M 519.4 307.2 A 250 250 0 0 1 519.4 716.8" stroke-width="44" opacity="0.7"/>
+    <path d="M 576.8 225.3 A 350 350 0 0 1 576.8 798.7" stroke-width="32" opacity="0.42"/>
+  </g>
+</svg>
