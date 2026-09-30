@@ -1,7 +1,6 @@
 # Whispered
 
 [![CI](https://github.com/samoilovda/Whispered/actions/workflows/ci.yml/badge.svg)](https://github.com/samoilovda/Whispered/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-500%20passing-brightgreen)](TESTING.md)
 [![Lint](https://img.shields.io/badge/lint-ruff-261230)](https://docs.astral.sh/ruff/)
 [![Python](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows%20preview-lightgrey)]()
@@ -13,8 +12,9 @@ usable content.**
 
 Whispered is a PyQt6 desktop application. It transcribes recordings with
 `whisper.cpp`, can label speakers with `pyannote.audio`, keeps a searchable
-history, and helps turn a transcript into subtitles, articles, a YouTube
-package, insights, a book draft, or an editing timeline.
+history, and runs *recipes* — named sets of steps that turn a transcript into
+cleaned text, an article, insights, a YouTube package, a book draft, or a
+cover — plus subtitles and an editing timeline.
 
 Transcription runs locally. AI features use a local LM Studio server by
 default. Text is sent to an external service only when a cloud provider is
@@ -49,89 +49,134 @@ To build from source instead, see [Building](#building).
 
 ---
 
-## Interface
+## How it works
 
-The window is a two-column workspace: a Library pane on the left (collapsible
-or auto-collapsing on narrow windows) and the current document on the right —
-a start screen, the record view, the cover workspace, or a run screen,
-depending on what you're doing. The layout is remembered between runs.
+The window is a two-column workspace: a **Library** on the left (collapsible,
+and auto-collapsing on narrow windows) and the current document on the right —
+the start screen, a record, the cover workspace, or a run screen. The layout
+is remembered between runs.
 
-- The start screen picks a source (file, folder, microphone, or Live) and a
-  recipe — one of five built-in step sets (transcript only, YouTube video,
-  podcast article, meeting notes, book) or a custom one edited via
-  "Configure…" — then launches with a single button; parameters stay out of
-  the way behind a one-line summary and an "Change" link.
-- Launching runs the recipe as one job through a run screen: one row per
-  step (transcribe, clean, article, insights, YouTube package, book, cover),
-  live progress, and per-step retry/cancel without re-running what already
-  succeeded. Once transcription finishes, its generator panels — Articles,
-  YouTube, Book, Insights, Cut, Chat — live as tabs on the record view.
-- `Ctrl+K` opens a command palette that searches transcript history, lists
-  every recipe ("Run: <recipe>") and the open run's failed/cancelled steps
-  ("Restart: <step>"), and exposes quick actions (new record, YouTube
-  package, export, Live, queue, settings).
-- The Library's record cards show a run's failed steps directly, without
-  opening the record, and can be filtered by recipe alongside the existing
-  source-kind filter.
-- A single status bar at the bottom shows the current operation, progress,
-  cancel control, a popover queue for batch jobs, and LM Studio/GPU status.
+1. **Start screen.** Pick a source — file, folder, microphone, or Live — and a
+   recipe, then launch with one button. Transcription parameters stay behind a
+   one-line summary and a "Change" link.
+2. **Run screen.** The recipe runs as one job: a row per step (transcribe,
+   diarize, clean, article, insights, YouTube package, book, cover), live
+   progress, an overall progress bar with elapsed time and an ETA once two
+   steps have finished, and per-step retry/cancel that does not redo what
+   already succeeded. A step whose inputs (transcript, model, prompt) have not
+   changed is skipped from cache.
+3. **Record.** When transcription finishes, the record opens with a player
+   and tabs: Transcript, Cleaned text, Articles, YouTube, Book, Insights,
+   Cut, and Chat. Covers open from a **Cover** button in the record header,
+   **Go → Covers** (`Ctrl+4`), or the Library.
+
+Other interface pieces:
+
+- `Ctrl+K` opens a command palette. It searches transcript history and
+  generated materials, lists every recipe ("Run: <recipe>") and the open run's
+  failed/cancelled steps ("Restart: <step>"), and includes every menu action.
+- A single status bar shows the current operation and its progress, cancel,
+  a popover queue for batch jobs and Course Capture, and LM Studio/GPU status.
+- Dark/light theme and a Russian/English interface. The language switches at
+  runtime, without a restart.
 
 ---
 
 ## What the application can do
 
-### Cover generator
+### Recipes
 
-Open **Covers** from the Library to create Prosvet YouTube artwork from the
-bundled declarative template. The workspace supports duo, solo, and text-only
-layouts, mint/warm variants, live preview, manual portraits, and reproducible
-PNG/JPEG exports with a `.cover.json` sidecar, plus title suggestions from the
-open transcript. The original Templegarten face is replaced by bundled
-OFL-licensed Bellota Bold, with a generic system-font fallback. Shorts export
-stays opt-in until the authored 9:16 adaptation receives brand approval.
+A recipe is a named list of steps chosen from `transcribe`, `diarize`,
+`clean`, `article`, `insights`, `youtube_package`, `book`, and `cover`.
+Five are built in:
 
-Frame extraction, Zoom-tile detection, ONNX restoration, and the localhost
-ComfyUI adapter currently exist as experimental core modules. They are not yet
-wired into the Cover workspace; portraits are selected from PNG/JPEG files.
+| Recipe | Steps |
+|---|---|
+| Transcript only | transcribe |
+| YouTube video | transcribe → clean → YouTube package → cover |
+| Podcast article | transcribe → clean → article |
+| Meeting notes | transcribe → diarize → insights |
+| Book | transcribe → clean → book |
+
+**Configure…** opens the recipe editor, where you can save your own recipes
+(Save / Save as new / Delete). A custom recipe appears alongside the built-ins
+on the start screen and as a Library filter, and can carry its own model,
+language, translation, performance mode, and diarization settings; anything it
+does not set falls back to the global defaults.
+
+Runs are stored per record. The Library card shows a run's failed steps
+without opening the record, and a run that failed, was cancelled, or was
+interrupted by closing the app can be resumed with **Continue** — steps that
+already succeeded are not repeated.
+
+Transcription and the history save always run. Video editing operations
+(Cut) stay manual.
+
+The **Folder** source queues files for transcription only; the selected
+recipe's other steps are not applied to queued files.
 
 ### Transcription
 
 - audio: MP3, WAV, FLAC, M4A, OGG, OPUS, WMA, AAC;
 - video: MP4, MKV, AVI, MOV, WebM, WMV, FLV, M4V;
-- Whisper models from Tiny and Base through Large v3 and Turbo variants;
+- eight Whisper models — Tiny, Base, Small, Medium, Large v3, Turbo, and the
+  Turbo Q5 / Q8 quantizations — downloaded on demand, with a badge in the
+  model list showing which are already on disk;
 - language auto-detection, 19 selectable languages, and translation to English;
-- performance profiles and CPU / Metal / CUDA / ROCm acceleration;
+- Efficiency / Balanced / Performance profiles and CPU / Metal / CUDA / ROCm
+  acceleration;
 - custom vocabulary passed to Whisper as an initial prompt;
 - hard cancellation: transcription runs in a child process that can be
   terminated without closing the application.
 
-`ffmpeg` and `ffprobe` are required for media conversion, duration probing, and
-video editing.
+`ffmpeg` and `ffprobe` are required for media conversion, duration probing,
+cover frames, and video editing.
 
 ### Speakers
 
 Optional `pyannote.audio` diarization adds speaker labels. Speakers can be
-renamed or merged in the UI; names are saved in history and used by exporters.
+renamed or merged; names are saved in history and used by exporters. Names you
+have typed before are offered again as suggestions when renaming speakers in
+other records. This is a hint list, not speaker recognition — the same
+"SPEAKER_00" in two files is unrelated.
 
 ### Library, queue, and recorder
 
-- SQLite transcription history with FTS5 full-text search and a `LIKE` fallback;
-- reopening saved transcript segments, metadata, and speaker names;
-- sequential batch processing for multiple files;
-- microphone recording with device selection, level meter, pause, and resume;
-- file drag-and-drop and Russian / English UI localization.
+- SQLite history with FTS5 full-text search and a `LIKE` fallback;
+- search scope toggle: **Transcripts**, **Materials** (text of generated
+  articles, insights, YouTube packages, and books), or **Everything**; a
+  materials hit opens the record on the tab that produced it. Records made
+  before this feature can be backfilled with **Reindex materials** in Settings;
+- filters by source kind and by recipe, with a reset;
+- reopening saved segments, metadata, and speaker names;
+- batch queue: drop several files (or a folder — expanded one level deep) on
+  the window, or add files in the queue panel; they are transcribed
+  sequentially and saved to history;
+- **watch folder** (Settings → General, off by default): new supported files
+  appearing in a local folder join the queue automatically once they stop
+  growing;
+- microphone recording with device selection, level meter, pause, and resume.
 
-History stores transcripts, but it does not restore the content of previously
-generated AI artifacts. A recipe's output is saved as separate files in the
-application data directory.
+History stores transcripts, run state, and the searchable text of generated
+materials, but it does not restore the content of previously generated AI
+artifacts into their panels by itself. A recipe's output is saved as separate
+files in the application data directory, each with a provenance manifest
+(`<file>.manifest.json`) recording the transcript revision, model, and prompt
+version that produced it.
 
 ### Transcript workspace
 
 - built-in audio/video player with click-to-seek transcript segments;
-- segment editing while preserving timestamps;
-- find, replace, copy, and speaker renaming;
-- 9 export formats: TXT, timestamped TXT, SRT, VTT,
-  JSON, Markdown, HTML, DOCX, and PDF.
+- segment editing that preserves timestamps, plus find, replace, and copy;
+- **Versions**: every edit is saved as a non-destructive revision (the last 20
+  are kept by default); compare any two with a highlighted diff or restore one;
+- 9 export formats: TXT, timestamped TXT, SRT, VTT, JSON, Markdown, HTML,
+  DOCX, and PDF;
+- **export presets** that write formats and already-generated materials into
+  one folder with an `index.txt`: *YouTube* (SRT + VTT + YouTube package +
+  cover), *Article draft* (Markdown + DOCX + article), and *Archive* (every
+  format and every material). A material the record never generated is
+  reported, not treated as an error.
 
 ### AI tools
 
@@ -145,34 +190,32 @@ The following features require LM Studio with a loaded chat model:
 - book pipeline: spoken-text unwrapping, an optional custom prompt, and batch
   processing of Markdown files.
 
-The YouTube package contains:
-
-- timestamped chapters;
-- title options;
-- a description;
-- tags;
-- timestamped key questions.
+The YouTube package contains timestamped chapters, title options, a
+description, tags, and timestamped key questions.
 
 Only the YouTube package can use either LM Studio, an OpenAI-compatible API, or
 Anthropic with the user's key. All other AI tools currently use LM Studio.
 
-### API-key storage
+The task templates are editable Markdown files in `prompts/`.
 
-When the optional `keyring` package and a working OS backend are available,
-cloud-provider API keys and the Hugging Face token are stored in macOS
-Keychain, Windows Credential Manager, or a Linux Secret Service. Otherwise
-Whispered falls back to its owner-only local configuration file. Use a
-dedicated, least-privilege key and protect the user account accordingly.
+### Cover generator
 
-### Recipes
+Covers create Prosvet YouTube artwork from the bundled declarative template.
+The workspace supports duo, solo, and text-only layouts, mint/warm variants,
+live preview, title suggestions from the open transcript, and reproducible
+PNG/JPEG exports with a `.cover.json` sidecar. The original Templegarten face
+is replaced by bundled OFL-licensed Bellota Bold, with a generic system-font
+fallback. Shorts export stays opt-in until the authored 9:16 adaptation
+receives brand approval.
 
-Transcription and the history save always run. The selected recipe then
-runs its remaining steps — any combination of clean, article, insights,
-YouTube package, book, and cover — as one job (per-resource concurrency,
-cache-skip on an unchanged model/prompt/transcript, point-in-place retry).
-Five built-in recipes cover the common cases; "Configure…" opens a step-level
-editor for a one-off combination, saved as a single custom recipe. Editing
-operations remain manual.
+Portraits can be chosen from PNG/JPEG files, or — when the open record is a
+video — pulled from it: **Frame from video** opens a dialog with a timestamp
+field (prefilled from the player position) and a gallery of candidate frames,
+extracted with `ffmpeg` in the background. Each photo slot also has a focal-point
+(crop) selector.
+
+Zoom-tile detection, ONNX face restoration, and the localhost ComfyUI adapter
+exist as experimental core modules and are not yet wired into the workspace.
 
 ### Editing
 
@@ -181,11 +224,10 @@ through the source, export a CMX3600 EDL, and assemble a draft MP4 with
 `ffmpeg`. Draft assembly uses per-segment re-encoding by default for more
 accurate cut boundaries.
 
-### Live transcription
+### Live transcription and Course Capture (experimental)
 
-The experimental Live section can be enabled manually in Settings and is then
-started from the source picker (file / folder / recorder / Live) when
-starting a new record. It includes:
+Live is enabled manually in Settings and is then started from the start
+screen's source picker. It includes:
 
 - microphone and system-audio sources;
 - asynchronous preflight checks;
@@ -193,6 +235,12 @@ starting a new record. It includes:
 - saving finalized text segments to the Library during a session;
 - application discovery and system-audio capture through a separate
   ScreenCaptureKit helper.
+
+**Course Capture** builds on the same pipeline: queue named lessons, play each
+in a browser or other app you are watching, capture its system audio, and each
+finished lesson is saved to the Library as a normal record. It appears as a tab
+in the status-bar queue popover whenever Live is enabled. It captures audio
+only and does not download or touch the source site.
 
 Live does not write WAV, M4A, or temporary PCM files: audio exists only in
 bounded in-memory buffers needed for current recognition. The Library keeps
@@ -202,6 +250,14 @@ available for such a session.
 System-audio capture requires macOS 13+, a built Swift helper, and Screen
 Recording permission. Live is disabled by default and has not yet passed the
 full release soak gate.
+
+### API-key storage
+
+When the optional `keyring` package and a working OS backend are available,
+cloud-provider API keys and the Hugging Face token are stored in macOS
+Keychain, Windows Credential Manager, or a Linux Secret Service. Otherwise
+Whispered falls back to its owner-only local configuration file. Use a
+dedicated, least-privilege key and protect the user account accordingly.
 
 ---
 
@@ -320,16 +376,22 @@ separate experiment and not a validated release channel.
 .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 .venv/bin/ruff check .
 .venv/bin/python -m pytest tests/ -q
+QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests_qt/ -q
 QT_QPA_PLATFORM=offscreen .venv/bin/python tools/render_ui_gallery.py --check
 ```
 
-Current repository state: the unit suite and a separate offscreen-Qt smoke
-suite in `tests_qt/` pass. CI runs tests and blocking `ruff` checks on Linux
-(Python 3.11), and builds an unsigned Windows package with a frozen smoke test
-on Python 3.11 on every push. `mypy` is blocking for the module
-set listed in [CLAUDE.md](CLAUDE.md) and informational for `ui/`.
+The unit suite (`tests/`, run against PyQt6 stubs) and a separate
+offscreen-Qt smoke suite (`tests_qt/`, real Qt) both pass. CI runs tests and
+blocking `ruff` checks on Linux (Python 3.11), and builds an unsigned Windows
+package with a frozen smoke test on every push. `mypy` is blocking for the
+module set listed in [CLAUDE.md](CLAUDE.md) and informational for `ui/`.
 
-The main AI task templates live in 17 Markdown files under `prompts/`. Some
+The code is layered — `domain/` (Qt-free DTOs), `application/` (job engine,
+step registry, export controller), `infrastructure/` (artifact manifests),
+`core/` (workers, history, LLM clients), `ui/` — see the architecture map in
+[CLAUDE.md](CLAUDE.md).
+
+The AI task templates live in 18 Markdown files under `prompts/`. Some
 modules also keep embedded fallback text for resilience.
 
 See [TESTING.md](TESTING.md), [ROADMAP.md](ROADMAP.md), and
@@ -343,15 +405,20 @@ See [TESTING.md](TESTING.md), [ROADMAP.md](ROADMAP.md), and
   validated release platform. Its real-hardware, clean-VM, and signing gates
   remain open.
 - Diarization requires separate heavyweight dependencies, a Hugging Face
-  token, and accepted model terms.
+  token, and accepted model terms. Speaker-name suggestions are not automatic
+  speaker recognition.
 - Local LM Studio calls are serialized process-wide. Long generations can
   still delay cancellation while the current HTTP response is being read.
 - AI requests use a configured context cap; for long recordings, chapters and
   insights are sampled evenly across the recording.
 - Cloud providers apply only to the YouTube package.
-- The Cover portrait-processing modules are not yet connected to the UI;
-  manual PNG/JPEG portrait selection is the supported path.
-- Live system-audio capture is macOS-only and remains experimental.
+- Files queued from a folder, a multi-file drop, or the watch folder are
+  transcribed and saved to history only; recipe steps are not run per file.
+- Zoom-tile detection, ONNX restoration, and ComfyUI for covers are not
+  connected to the UI. Zoom multitrack (per-participant audio) transcript
+  merging exists only as engine modules with no UI entry point.
+- Live and Course Capture system-audio capture is macOS-only and remains
+  experimental.
 
 ---
 
