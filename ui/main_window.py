@@ -2114,6 +2114,16 @@ class MainWindow(QMainWindow):
         reconstruction _recipe_get_result() uses to feed dependent steps.
         """
         self._save_recipe_run("running")
+        if outcome.status is StepStatus.FAILED:
+            # Only these two panels have a set_error()/retry affordance of
+            # their own (ui/youtube_panel.py, ui/insights_panel.py) — a
+            # failed "clean"/"article"/"book" step is still visible on the
+            # run screen's own row, same as before this branch existed.
+            if name == "youtube_package":
+                self.youtube_panel.set_error(outcome.error)
+            elif name == "insights":
+                self.insights_panel.set_error(outcome.error)
+            return
         if outcome.status not in (StepStatus.SUCCEEDED, StepStatus.SKIPPED):
             return
         result = outcome.result
