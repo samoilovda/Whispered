@@ -228,59 +228,6 @@ class Diarizer:
         )
 
 
-
-
-
-
-
-# ============================================================================
-# SIMPLE FALLBACK DIARIZER (No external dependencies)
-# ============================================================================
-
-class SimpleDiarizer:
-    """
-    Simple heuristic-based diarization fallback.
-
-    Placeholder for a future VAD-based fallback. It is not wired into the
-    application and must not be presented as functional diarization until it
-    produces actual speaker segments.
-    """
-
-    def __init__(self):
-        self._available = True
-
-    def is_available(self) -> bool:
-        return True
-
-    def diarize(
-        self,
-        audio_path: str,
-        num_speakers: Optional[int] = 2,
-        on_progress: Optional[Callable[[int, str], None]] = None
-    ) -> DiarizationResult:
-        """
-        Placeholder API only; returns no inferred speaker segments.
-
-        TODO: implement a VAD-based fallback before exposing this class in UI.
-        """
-        if on_progress:
-            on_progress(50, "Using simple diarization...")
-
-        # For now, return empty result
-        # This could be enhanced with pydub or librosa for silence detection
-        if on_progress:
-            on_progress(100, "Simple diarization (limited accuracy)")
-
-        return DiarizationResult(
-            segments=[],
-            num_speakers=0,
-            duration=0.0
-        )
-
-
-
-
-
 # ============================================================================
 # CLI FOR TESTING
 # ============================================================================

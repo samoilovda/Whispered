@@ -287,33 +287,3 @@ class ModelDownloaderDialog(QDialog):
         self.stats_label.setText(tr("progress_cancelling"))
         self._registry.retire(self.worker)
         QThread.finished.__get__(self.worker, type(self.worker)).connect(self.reject)
-
-
-def ensure_whisper_model(model_name: str, parent=None) -> bool:
-    """
-    Check if a Whisper model exists, and download it if it doesn't.
-    Returns True if the model is ready to use.
-    """
-    target_filename = f"ggml-{model_name}.bin"
-    target_path = os.path.join(get_models_dir(), target_filename)
-
-    if os.path.exists(target_path):
-        return True
-
-    # Model doesn't exist, show downloader
-    dialog = ModelDownloaderDialog(model_name, is_diarization=False, parent=parent)
-    dialog.start_download()
-    dialog.exec()
-
-    return dialog.download_successful
-
-def ensure_diarization_models(hf_token: str, parent=None) -> bool:
-    """
-    Check/download Pyannote models. Returns True if successful.
-    """
-    # Simply launching the dialog. If the cache exists, the worker will finish very fast.
-    dialog = ModelDownloaderDialog("Pyannote", is_diarization=True, hf_token=hf_token, parent=parent)
-    dialog.start_download()
-    dialog.exec()
-
-    return dialog.download_successful

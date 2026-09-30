@@ -9,12 +9,10 @@ from __future__ import annotations
 from PyQt6.QtCore import QPoint, QRect, QSize, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QLayout,
     QMenu,
-    QProgressBar,
     QPushButton,
     QSizePolicy,
     QStyle,
@@ -27,7 +25,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QColor, QFontMetrics
 
-from ui.theme import SPACE_2, SPACE_3, SPACE_4, SPACE_6, mark_elides, set_role
+from ui.theme import SPACE_2, SPACE_3, SPACE_4, mark_elides, set_role
 
 
 class ElidingComboBox(QComboBox):
@@ -361,73 +359,6 @@ class KeepOpenMenu(QMenu):
             action.trigger()
             return
         super().mouseReleaseEvent(event)
-
-
-class OperationBar(QFrame):
-    """Shared long-running operation status; hidden in the idle state."""
-
-    cancel_requested = pyqtSignal()
-    details_requested = pyqtSignal()
-
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self.setProperty("role", "operation-bar")
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-        layout = QHBoxLayout()
-        layout.setContentsMargins(SPACE_6, SPACE_3, SPACE_6, SPACE_3)
-        layout.setSpacing(SPACE_3)
-        self.status_label = QLabel()
-        self.status_label.setProperty("role", "muted")
-        layout.addWidget(self.status_label)
-        self.progress = QProgressBar()
-        self.progress.setTextVisible(False)
-        self.progress.setMaximumWidth(420)
-        layout.addWidget(self.progress, stretch=1)
-        self.details_button = QPushButton()
-        self.details_button.setProperty("variant", "ghost")
-        self.details_button.clicked.connect(self.details_requested.emit)
-        self.details_button.setVisible(False)
-        layout.addWidget(self.details_button)
-        self.cancel_button = QPushButton()
-        self.cancel_button.setProperty("variant", "danger")
-        self.cancel_button.clicked.connect(self.cancel_requested.emit)
-        layout.addWidget(self.cancel_button)
-        root.addLayout(layout)
-        self.detail_container = QWidget()
-        self.detail_layout = QVBoxLayout(self.detail_container)
-        self.detail_layout.setContentsMargins(SPACE_6, 0, SPACE_6, SPACE_3)
-        self.detail_layout.setSpacing(SPACE_2)
-        root.addWidget(self.detail_container)
-        self.setVisible(False)
-
-    def add_detail_widget(self, widget: QWidget) -> None:
-        self.detail_layout.addWidget(widget)
-
-    def set_operation(
-        self,
-        text: str,
-        *,
-        progress: int | None = None,
-        cancel_text: str = "",
-        details_text: str = "",
-    ) -> None:
-        self.status_label.setText(text)
-        if progress is None:
-            self.progress.setRange(0, 0)
-        else:
-            self.progress.setRange(0, 100)
-            self.progress.setValue(max(0, min(100, progress)))
-        self.cancel_button.setText(cancel_text)
-        self.cancel_button.setVisible(bool(cancel_text))
-        self.details_button.setText(details_text)
-        self.details_button.setVisible(bool(details_text))
-        self.setVisible(bool(text))
-
-    def clear(self) -> None:
-        self.status_label.clear()
-        self.setVisible(False)
 
 
 def apply_soft_shadow(widget: QWidget) -> None:

@@ -37,17 +37,5 @@ class CoverWorker(BaseWorker):
         self.error.emit(msg)
 
 
-class FrameExtractWorker(CoverWorker):
-    pass
-
-
-class TileDetectWorker(CoverWorker):
-    pass
-
-
 class RestoreWorker(CoverWorker):
-    pass
-
-
-class ProviderWorker(CoverWorker):
     pass
