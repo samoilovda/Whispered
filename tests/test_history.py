@@ -612,3 +612,50 @@ class TestTranscriptRevisions:
         store.clear()
 
         assert store.list_transcript_revisions(rid) == []
+
+
+class TestRecordTitle:
+    """A user-given display name (migration v8); the source name stays."""
+
+    def _store(self, tmp_path):
+        from core.history import HistoryStore
+        return HistoryStore(db_path=tmp_path / "h.db")
+
+    def _add(self, store, name="audio123.m4a", text="hello there"):
+        from transcriber import Segment, TranscriptionResult
+        result = TranscriptionResult(segments=[Segment(0.0, 1.0, text)], language="en", duration=1.0)
+        return store.add(result, source_path=f"/media/{name}", model="")
+
+    def test_title_defaults_to_source_name(self, tmp_path):
+        store = self._store(tmp_path)
+        rid = self._add(store)
+        assert store.get_title(rid) == "audio123.m4a"
+        assert store.list()[0].title == ""
+
+    def test_set_title_is_listed_and_kept_beside_source_name(self, tmp_path):
+        store = self._store(tmp_path)
+        rid = self._add(store)
+        store.set_title(rid, "  Interview with Val  ")
+        assert store.get_title(rid) == "Interview with Val"
+        record = store.list()[0]
+        assert record.title == "Interview with Val"
+        assert record.source_name == "audio123.m4a"
+        assert store.get_record(rid)["title"] == "Interview with Val"
+
+    def test_empty_title_returns_to_source_name(self, tmp_path):
+        store = self._store(tmp_path)
+        rid = self._add(store)
+        store.set_title(rid, "X")
+        store.set_title(rid, "")
+        assert store.get_title(rid) == "audio123.m4a"
+
+    def test_search_finds_a_record_by_title(self, tmp_path):
+        store = self._store(tmp_path)
+        rid = self._add(store, text="nothing related")
+        self._add(store, name="other.m4a", text="unrelated words")
+        store.set_title(rid, "Quarterly planning")
+        hits = store.search("Quarterly")
+        assert [r.id for r in hits] == [rid]
+
+    def test_unknown_record_has_no_title(self, tmp_path):
+        assert self._store(tmp_path).get_title(999) is None

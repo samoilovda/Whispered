@@ -146,6 +146,14 @@ def _v7_add_transcript_revisions(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _v8_add_record_title(conn: sqlite3.Connection) -> None:
+    """A display name the user gives a record ("Интервью с Валерией"
+    instead of "audio1868123432.m4a"). Empty means "use source_name":
+    the source file, its path and the record's output folder keep their
+    names — renaming is presentation only."""
+    conn.execute("ALTER TABLE transcripts ADD COLUMN title TEXT NOT NULL DEFAULT ''")
+
+
 # Applied in order, tracked via SQLite's built-in `PRAGMA user_version`
 # (see HistoryStore._migrate). Append new migrations here — never edit or
 # reorder an existing one, since a database's user_version records exactly
@@ -158,6 +166,7 @@ _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _v5_add_speaker_aliases_table,
     _v6_add_artifact_texts,
     _v7_add_transcript_revisions,
+    _v8_add_record_title,
 )
 
 # FTS5 schema — created separately so failures (no FTS5 compile) are handled gracefully.
@@ -302,7 +311,7 @@ class HistoryRecord:
     """
 
     __slots__ = ("id", "created_at", "source_path", "source_name", "source_kind",
-                 "duration", "language", "model", "preview", "artifacts")
+                 "duration", "language", "model", "preview", "artifacts", "title")
 
     def __init__(self, row: sqlite3.Row):
         self.id          = row["id"]
@@ -310,6 +319,7 @@ class HistoryRecord:
         self.source_path = row["source_path"]
         self.source_name = row["source_name"]
         self.source_kind = row["source_kind"] if "source_kind" in row.keys() else "file"
+        self.title       = (row["title"] if "title" in row.keys() else "") or ""
         self.duration    = row["duration"]
         self.language    = row["language"]
         self.model       = row["model"]
@@ -520,7 +530,7 @@ class HistoryStore:
         """Return lightweight metadata rows, newest first."""
         sql = """
             SELECT id, created_at, source_path, source_name, source_kind, duration, language, model,
-                   artifacts, substr(json_payload, 1, 300) AS preview
+                   artifacts, title, substr(json_payload, 1, 300) AS preview
             FROM transcripts
             ORDER BY created_at DESC, id DESC
             LIMIT ? OFFSET ?
@@ -545,7 +555,7 @@ class HistoryStore:
         with self._connect() as conn:
             row = conn.execute(
                 """SELECT id, source_path, source_name, source_kind, duration, language, model,
-                          artifacts, json_payload
+                          artifacts, title, json_payload
                    FROM transcripts WHERE id = ?""",
                 (record_id,),
             ).fetchone()
@@ -560,6 +570,7 @@ class HistoryStore:
             "source_path": row["source_path"],
             "source_name": row["source_name"],
             "source_kind": row["source_kind"],
+            "title": row["title"] or "",
             "duration": row["duration"],
             "language": row["language"],
             "model": row["model"],
@@ -574,6 +585,25 @@ class HistoryStore:
                 "SELECT source_name FROM transcripts WHERE id = ?", (record_id,)
             ).fetchone()
         return row["source_name"] if row else None
+
+    def get_title(self, record_id: int) -> Optional[str]:
+        """The record's display name: the user's title if set, else its
+        source_name. ``None`` for an unknown record."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT title, source_name FROM transcripts WHERE id = ?", (record_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        return row["title"] or row["source_name"]
+
+    def set_title(self, record_id: int, title: str) -> None:
+        """Rename a record for display. An empty *title* returns it to its
+        source name."""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE transcripts SET title = ? WHERE id = ?", (title.strip(), record_id)
+            )
 
     def set_artifacts(self, record_id: int, artifact_types: List[str]) -> None:
         """Record which artifact types (e.g. ["transcript", "youtube",
@@ -694,7 +724,7 @@ class HistoryStore:
         # snippet() highlights column 1 (json_payload); column 0 is source_name
         sql = """
             SELECT t.id, t.created_at, t.source_path, t.source_name, t.source_kind,
-                   t.duration, t.language, t.model, t.artifacts,
+                   t.duration, t.language, t.model, t.artifacts, t.title,
                    snippet(transcripts_fts, 1, '**', '**', '…', 20) AS preview
             FROM transcripts_fts
             JOIN transcripts t ON t.id = transcripts_fts.rowid
@@ -705,23 +735,41 @@ class HistoryStore:
         try:
             with self._connect() as conn:
                 rows = conn.execute(sql, (query, limit)).fetchall()
-            return [HistoryRecord(r) for r in rows]
         except sqlite3.OperationalError as exc:
             logger.warning("FTS5 search failed, falling back to LIKE: %s", exc)
             return self._search_like(text, limit)
+        records = [HistoryRecord(r) for r in rows]
+        # The FTS index doesn't cover user titles (they change without the
+        # payload changing); a title match ranks first.
+        seen = {record.id for record in records}
+        titled = [r for r in self._search_titles(text, limit) if r.id not in seen]
+        return (titled + records)[:limit]
+
+    def _search_titles(self, text: str, limit: int) -> List[HistoryRecord]:
+        sql = """
+            SELECT id, created_at, source_path, source_name, source_kind, duration, language, model,
+                   artifacts, title, substr(json_payload, 1, 300) AS preview
+            FROM transcripts
+            WHERE title != '' AND title LIKE ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+        """
+        with self._connect() as conn:
+            rows = conn.execute(sql, (f"%{text}%", limit)).fetchall()
+        return [HistoryRecord(r) for r in rows]
 
     def _search_like(self, text: str, limit: int) -> List[HistoryRecord]:
         pattern = f"%{text}%"
         sql = """
             SELECT id, created_at, source_path, source_name, source_kind, duration, language, model,
-                   artifacts, substr(json_payload, 1, 300) AS preview
+                   artifacts, title, substr(json_payload, 1, 300) AS preview
             FROM transcripts
-            WHERE json_payload LIKE ? OR source_name LIKE ?
+            WHERE json_payload LIKE ? OR source_name LIKE ? OR title LIKE ?
             ORDER BY created_at DESC, id DESC
             LIMIT ?
         """
         with self._connect() as conn:
-            rows = conn.execute(sql, (pattern, pattern, limit)).fetchall()
+            rows = conn.execute(sql, (pattern, pattern, pattern, limit)).fetchall()
         return [HistoryRecord(r) for r in rows]
 
     def count(self) -> int:
@@ -774,7 +822,8 @@ class HistoryStore:
     def _search_artifacts_fts(self, text: str, limit: int) -> List["ArtifactSearchResult"]:
         query = _fts_query(text)
         sql = """
-            SELECT a.record_id, a.type, a.path, t.source_name, t.source_kind,
+            SELECT a.record_id, a.type, a.path,
+                   COALESCE(NULLIF(t.title, ''), t.source_name) AS source_name, t.source_kind,
                    snippet(artifact_texts_fts, 0, '**', '**', '…', 20) AS snippet
             FROM artifact_texts_fts
             JOIN artifact_texts a ON a.id = artifact_texts_fts.rowid
@@ -794,7 +843,8 @@ class HistoryStore:
     def _search_artifacts_like(self, text: str, limit: int) -> List["ArtifactSearchResult"]:
         pattern = f"%{text}%"
         sql = """
-            SELECT a.record_id, a.type, a.path, t.source_name, t.source_kind,
+            SELECT a.record_id, a.type, a.path,
+                   COALESCE(NULLIF(t.title, ''), t.source_name) AS source_name, t.source_kind,
                    substr(a.text, 1, 300) AS snippet
             FROM artifact_texts a
             JOIN transcripts t ON t.id = a.record_id
