@@ -39,3 +39,23 @@ def test_insights_cache_key_changes_with_notes(tmp_path):
     save_notes(tmp_path, "focus on hiring")
     after = _insights_prompt_version(context)
     assert before != after and after.startswith(before)
+
+
+def test_title_suggestion_prefers_the_users_pick(tmp_path):
+    import json
+
+    from application.user_notes import suggest_record_title
+
+    assert suggest_record_title(tmp_path) == ""
+    (tmp_path / "youtube_package.json").write_text(
+        json.dumps({"yt_titles": ["1. First idea", "5 kinds of rest"]}), encoding="utf-8",
+    )
+    assert suggest_record_title(tmp_path) == "First idea"
+    (tmp_path / "youtube_package.json").write_text(
+        json.dumps({"yt_titles": ["5 kinds of rest"]}), encoding="utf-8",
+    )
+    assert suggest_record_title(tmp_path) == "5 kinds of rest"
+    (tmp_path / "youtube_package.user.json").write_text(
+        json.dumps({"title": "Second idea"}), encoding="utf-8",
+    )
+    assert suggest_record_title(tmp_path) == "Second idea"

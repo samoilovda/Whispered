@@ -808,12 +808,24 @@ class LibraryView(QWidget):
         store = self._get_store()
         try:
             current = store.get_title(record_id) or ""
+            record = store.get_record(record_id) or {}
         except Exception as exc:
             logger.warning("Library rename lookup failed: %s", exc)
             return
+        proposal = display_name(current)
+        if not record.get("title"):
+            # Not renamed yet: offer the name its YouTube package suggests.
+            from application.user_notes import suggest_record_title
+            from core.paths import artifact_dir
+
+            try:
+                folder = artifact_dir(record_id, record.get("source_path") or "recording")
+                proposal = suggest_record_title(folder) or proposal
+            except Exception as exc:  # noqa: BLE001 - a suggestion is optional
+                logger.debug("No title suggestion for %s: %s", record_id, exc)
         text, ok = QInputDialog.getText(
             self, tr("library_rename_title"), tr("library_rename_prompt"),
-            QLineEdit.EchoMode.Normal, display_name(current),
+            QLineEdit.EchoMode.Normal, proposal,
         )
         title = text.strip()
         if not ok or not title or title == display_name(current):

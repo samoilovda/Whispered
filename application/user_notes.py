@@ -74,3 +74,31 @@ def notes_fingerprint(text: str) -> str:
     """Short hash of the notes — part of the Insights step's cache key,
     so changed notes make the next run regenerate."""
     return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()[:12]
+
+
+def suggest_record_title(folder: Path) -> str:
+    """A name for a record from its own materials, for the rename prompt:
+    the YouTube title the user picked (the package's edit overlay), else
+    the model's first title, else ""."""
+    import json
+
+    from application.user_edits import load_overlay, overlay_path
+
+    package = Path(folder) / "youtube_package.json"
+    overlay = load_overlay(overlay_path(package))
+    chosen = overlay.get("title")
+    if isinstance(chosen, str) and chosen.strip():
+        return chosen.strip()
+    try:
+        data = json.loads(package.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    titles = data.get("yt_titles") if isinstance(data, dict) else None
+    if not isinstance(titles, list):
+        return ""
+    # The publish dialog's own cleaning, so "1. Title" loses its numbering
+    # but "5 kinds of…" keeps its 5.
+    from application.youtube_publish import normalize_titles
+
+    cleaned = normalize_titles([t for t in titles if isinstance(t, str)])
+    return cleaned[0] if cleaned else ""

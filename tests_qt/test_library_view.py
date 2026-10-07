@@ -592,3 +592,32 @@ def test_a_record_with_a_run_in_progress_says_so(monkeypatch, tmp_path, process_
     widget = _item_widget(view, record_id)
     assert widget.running_label.text() == f"◌ {tr('library_running')}"
     view.close()
+
+
+def test_rename_suggests_the_youtube_title(monkeypatch, tmp_path, process_events):
+    import json
+
+    from core.paths import artifact_dir
+
+    store = _make_store(tmp_path)
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+    result = TranscriptionResult(segments=[Segment(0.0, 1.0, "x")], language="en", duration=1.0)
+    record_id = store.add(result, source_path="/media/audio123.m4a", model="")
+    folder = artifact_dir(record_id, "/media/audio123.m4a")
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "youtube_package.json").write_text(
+        json.dumps({"yt_titles": ["How to find your footing"]}), encoding="utf-8",
+    )
+    offered = []
+
+    def _get_text(_parent, _title, _label, _mode, default):
+        offered.append(default)
+        return default, True
+
+    monkeypatch.setattr("ui.library_view.QInputDialog.getText", _get_text)
+    view = LibraryView()
+    view.refresh()
+    view.rename_record(record_id)
+    assert offered == ["How to find your footing"]
+    assert store.get_title(record_id) == "How to find your footing"
+    view.close()
