@@ -7,18 +7,28 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Callable
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QPlainTextEdit, QApplication, QToolBox, QScrollArea, QFrame,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QTextCursor
 
 from core.i18n import tr
 from ui.i18n_helpers import Retranslator
 from core.logger import get_logger
-from core.paths import output_dir
+from application.user_edits import (
+    drop_edit,
+    is_stale,
+    load_overlay,
+    overlay_path,
+    rebase_edit,
+    save_overlay,
+    set_edit,
+)
+from core.paths import artifact_dir, output_dir
 from core.youtube_description import (
     ISSUE_DUPLICATE,
     ISSUE_FIRST_MOVED,
@@ -32,8 +42,10 @@ from core.youtube_description import (
     ChapterIssue,
     check_chapters,
     compose_full_description,
+    format_chapter_lines,
     format_youtube_description,
     format_youtube_timestamp,
+    parse_chapter_lines,
 )
 from ui.components import ChapterRow
 from ui.theme import set_role
@@ -115,6 +127,15 @@ class YouTubePanel(QWidget):
         # status line can be rebuilt in a new language without regenerating.
         self._chapter_check: ChapterCheck | None = None
         self._chapter_duration: float | None = None
+        # The step's own chapter list, and the user's edits kept apart from
+        # it (application/user_edits.py — youtube_package.user.json). What
+        # is shown, copied and published is the edit when there is one.
+        self._model_chapters: list | None = None
+        self._overlay: dict[str, Any] = {}
+        self._editing_chapters = False
+        self._bad_chapter_lines: list[int] = []
+        # Set by MainWindow: the player's position, for "Insert player time".
+        self._position_provider: Callable[[], float] | None = None
         # Set via set_provenance() by MainWindow whenever the open
         # transcript changes — recorded into each saved file's Artifact
         # manifest (see core.paths.artifact_dir / R5-full in the audit plan).
@@ -136,8 +157,14 @@ class YouTubePanel(QWidget):
         for i, spec in enumerate(_TAB_SPECS):
             self._tabs.setItemText(i, tr(spec.label_key))
         self._placeholder.setText(tr("youtube_placeholder"))
+        self._chapters_edit_btn.setText(tr("yt_chapters_edit"))
+        self._chapters_insert_btn.setText(tr("yt_chapters_insert_time"))
+        self._chapters_cancel_btn.setText(tr("yt_chapters_cancel"))
+        self._chapters_done_btn.setText(tr("yt_chapters_done"))
+        self._chapters_keep_btn.setText(tr("yt_chapters_keep_mine"))
         self._render_state()
         self._render_chapter_status()
+        self._render_chapter_editing()
 
     # ── UI ──────────────────────────────────────────────────────────
 
@@ -245,9 +272,41 @@ class YouTubePanel(QWidget):
         self._chapter_scroll.setWidget(self._chapter_rows)
         self._chapter_scroll.setVisible(False)
 
+        # Edit controls and the note about the user's edits. The text edit
+        # itself is the editor: chapters are written the way YouTube reads
+        # them, one "M:SS Title" line each.
+        self._chapters_note = QLabel()
+        self._chapters_note.setWordWrap(True)
+        self._chapters_note.setProperty("role", "muted")
+        self._chapters_note.setStyleSheet("font-size: 11px;")
+        self._chapters_reset_btn = QPushButton(tr("yt_chapters_reset"))
+        self._chapters_reset_btn.clicked.connect(self._take_model_chapters)
+        self._chapters_keep_btn = QPushButton(tr("yt_chapters_keep_mine"))
+        self._chapters_keep_btn.clicked.connect(self._keep_user_chapters)
+        self._chapters_edit_btn = QPushButton(tr("yt_chapters_edit"))
+        self._chapters_edit_btn.clicked.connect(self._begin_chapter_edit)
+        self._chapters_insert_btn = QPushButton(tr("yt_chapters_insert_time"))
+        self._chapters_insert_btn.clicked.connect(self._insert_player_time)
+        self._chapters_cancel_btn = QPushButton(tr("yt_chapters_cancel"))
+        self._chapters_cancel_btn.clicked.connect(self._cancel_chapter_edit)
+        self._chapters_done_btn = QPushButton(tr("yt_chapters_done"))
+        self._chapters_done_btn.setProperty("variant", "primary")
+        self._chapters_done_btn.clicked.connect(self._finish_chapter_edit)
+        bar = QHBoxLayout()
+        bar.setContentsMargins(4, 4, 4, 0)
+        bar.setSpacing(6)
+        bar.addWidget(self._chapters_note, stretch=1)
+        for button in (
+            self._chapters_reset_btn, self._chapters_keep_btn, self._chapters_edit_btn,
+            self._chapters_insert_btn, self._chapters_cancel_btn, self._chapters_done_btn,
+        ):
+            button.setVisible(False)
+            bar.addWidget(button)
+
         section = QWidget()
         box = QVBoxLayout(section)
         box.setContentsMargins(0, 0, 0, 0)
+        box.addLayout(bar)
         box.addWidget(self._chapter_scroll)
         box.addWidget(edit)
         return section
@@ -268,8 +327,9 @@ class YouTubePanel(QWidget):
             row.seek_requested.connect(self.seek_requested)
             layout.addWidget(row)
         layout.addStretch()
-        self._chapter_scroll.setVisible(bool(chapters))
-        self._chapters_edit.setVisible(not chapters)
+        show_rows = bool(chapters) and not self._editing_chapters
+        self._chapter_scroll.setVisible(show_rows)
+        self._chapters_edit.setVisible(not show_rows)
 
     # ── Public API ──────────────────────────────────────────────────
 
@@ -306,6 +366,7 @@ class YouTubePanel(QWidget):
         self._publish_btn.setEnabled(False)
         self._description_text = None
         self._chapters_data = None
+        self._reset_chapter_edits()
         self._set_chapter_check(None)
         for edit in self._edits():
             edit.clear()
@@ -330,6 +391,7 @@ class YouTubePanel(QWidget):
         self._publish_btn.setEnabled(False)
         self._description_text = None
         self._chapters_data = None
+        self._reset_chapter_edits()
         self._set_chapter_check(None)
         for edit in self._edits():
             edit.clear()
@@ -341,17 +403,19 @@ class YouTubePanel(QWidget):
         output: ``{"chapters": [...], "yt_titles": [...],
         "yt_description": [...], "yt_tags": [...], "yt_questions": [...]}``."""
         data = payload.get("chapters")
+        self._editing_chapters = False
+        self._bad_chapter_lines = []
         if isinstance(data, list):
-            self._chapters_data = data
-            text = format_youtube_description(data)
-            self._chapters_edit.setPlainText(text or tr("youtube_empty"))
-            # Plain-dict segments (some tests) carry no usable duration;
-            # the past-end check is then simply skipped.
-            duration = getattr(self._segments[-1], "end", None) if self._segments else None
-            self._set_chapter_check(check_chapters(data, duration), duration)
+            self._model_chapters = data
+            self._overlay = load_overlay(self._overlay_file())
+            self._apply_chapters()
         else:
+            self._model_chapters = None
+            self._overlay = {}
+            self._chapters_data = None
             self._chapters_edit.setPlainText(str(data) if data else tr("youtube_empty"))
             self._set_chapter_check(None)
+        self._render_chapter_editing()
 
         titles = payload.get("yt_titles")
         if isinstance(titles, list):
@@ -396,6 +460,7 @@ class YouTubePanel(QWidget):
         since both now flow through the same one-step JobRunner and a
         precheck failure deserves the same visibility a runtime one gets."""
         logger.warning("YouTube job failed: %s", message)
+        self._reset_chapter_edits()
         self._chapters_edit.setPlainText(f"{tr('youtube_error')}: {message}" if message else "")
         self._set_chapter_check(None)
         self._tabs.setVisible(True)
@@ -438,12 +503,161 @@ class YouTubePanel(QWidget):
     def _maybe_compose_description(self) -> None:
         """Once both the description and chapters are in, fold the chapter
         timecodes into the Description tab so it reads as one ready-to-paste
-        YouTube description (hook + summary + "Timecodes:" + chapter list)."""
+        YouTube description (hook + summary + "Timecodes:" + chapter list).
+        Re-run after a chapter edit, so the description follows it."""
         full = compose_full_description(
             self._description_text, self._chapters_data, tr("youtube_timecodes_label")
         )
-        if full and full != self._description_text:
+        if full:
             self._desc_edit.setPlainText(full)
+
+    # ── Chapter edits ───────────────────────────────────────────────
+    # The user's chapters are an overlay on the step's result, never
+    # written into youtube_package.json: the step's cache compares against
+    # that file, and a hand edit is not model output.
+
+    def set_position_provider(self, provider: Callable[[], float] | None) -> None:
+        """Where "Insert player time" reads the playback position from."""
+        self._position_provider = provider
+        self._render_chapter_editing()
+
+    def _overlay_file(self) -> Path:
+        """The edit overlay beside youtube_package.json — the same
+        artifact_dir() MainWindow gives the youtube_package step
+        (record id or "unsaved", source path or "recording")."""
+        record_id = self._record_id if self._record_id is not None else "unsaved"
+        folder = artifact_dir(record_id, self._source_path or "recording")
+        return overlay_path(folder / "youtube_package.json")
+
+    def _effective_chapters(self) -> list:
+        edited = self._overlay.get("chapters")
+        if isinstance(edited, list):
+            return edited
+        return self._model_chapters or []
+
+    def _apply_chapters(self) -> None:
+        """Show the effective chapters everywhere: rows, Copy/Save text,
+        checks, and (via _maybe_compose_description) the description."""
+        chapters = self._effective_chapters()
+        self._chapters_data = chapters
+        self._chapters_edit.setReadOnly(True)
+        text = format_youtube_description(chapters)
+        self._chapters_edit.setPlainText(text or tr("youtube_empty"))
+        # Plain-dict segments (some tests) carry no usable duration;
+        # the past-end check is then simply skipped.
+        duration = getattr(self._segments[-1], "end", None) if self._segments else None
+        self._set_chapter_check(check_chapters(chapters, duration), duration)
+
+    def _store_overlay(self, overlay: dict[str, Any]) -> None:
+        self._overlay = overlay
+        try:
+            save_overlay(self._overlay_file(), overlay)
+        except (OSError, ValueError) as exc:
+            logger.warning("Failed to save YouTube chapter edits: %s", exc)
+            show_toast(self, tr("yt_chapters_save_error"), kind="error")
+
+    def _begin_chapter_edit(self) -> None:
+        self._editing_chapters = True
+        self._bad_chapter_lines = []
+        self._chapters_edit.setReadOnly(False)
+        self._chapters_edit.setPlainText(format_chapter_lines(self._effective_chapters()))
+        # Cursor at the end, so "Insert player time" appends a new line.
+        self._chapters_edit.moveCursor(QTextCursor.MoveOperation.End)
+        self._render_chapter_rows()
+        self._render_chapter_editing()
+        self._chapters_edit.setFocus()
+
+    def _cancel_chapter_edit(self) -> None:
+        self._editing_chapters = False
+        self._bad_chapter_lines = []
+        self._apply_chapters()
+        self._render_chapter_editing()
+
+    def _finish_chapter_edit(self) -> None:
+        chapters, bad = parse_chapter_lines(self._chapters_edit.toPlainText())
+        if bad:
+            self._bad_chapter_lines = bad
+            self._render_chapter_editing()
+            return
+        chapters.sort(key=lambda item: item["start"])
+        model = self._model_chapters or []
+        # Compare in the same normal form, so re-saving the model's own
+        # chapters unchanged records no edit.
+        model_normal, _ = parse_chapter_lines(format_chapter_lines(model))
+        if chapters == model_normal:
+            overlay = drop_edit(self._overlay, "chapters")
+        else:
+            overlay = set_edit(self._overlay, "chapters", chapters, model)
+        self._store_overlay(overlay)
+        self._editing_chapters = False
+        self._bad_chapter_lines = []
+        self._apply_chapters()
+        self._maybe_compose_description()
+        self._render_chapter_editing()
+
+    def _insert_player_time(self) -> None:
+        if self._position_provider is None:
+            return
+        stamp = format_youtube_timestamp(int(self._position_provider()))
+        cursor = self._chapters_edit.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock)
+        prefix = "\n" if cursor.block().text().strip() else ""
+        cursor.insertText(f"{prefix}{stamp} ")
+        self._chapters_edit.setTextCursor(cursor)
+        self._chapters_edit.setFocus()
+
+    def _take_model_chapters(self) -> None:
+        self._store_overlay(drop_edit(self._overlay, "chapters"))
+        self._apply_chapters()
+        self._maybe_compose_description()
+        self._render_chapter_editing()
+
+    def _keep_user_chapters(self) -> None:
+        self._store_overlay(rebase_edit(self._overlay, "chapters", self._model_chapters or []))
+        self._render_chapter_editing()
+
+    def _render_chapter_editing(self) -> None:
+        """Edit buttons and the edits note for the current state — also
+        called on a language change."""
+        editing = self._editing_chapters
+        has_model = self._model_chapters is not None
+        edited = "chapters" in self._overlay and has_model
+        stale = edited and is_stale(self._overlay, "chapters", self._model_chapters)
+
+        self._chapters_edit_btn.setVisible(has_model and not editing)
+        self._chapters_insert_btn.setVisible(editing)
+        self._chapters_insert_btn.setEnabled(self._position_provider is not None)
+        self._chapters_cancel_btn.setVisible(editing)
+        self._chapters_done_btn.setVisible(editing)
+        self._chapters_reset_btn.setVisible(edited and not editing)
+        self._chapters_keep_btn.setVisible(stale and not editing)
+        self._chapters_reset_btn.setText(
+            tr("yt_chapters_take_model") if stale else tr("yt_chapters_reset")
+        )
+
+        if editing and self._bad_chapter_lines:
+            text = tr("yt_chapters_bad_lines", lines=", ".join(map(str, self._bad_chapter_lines)))
+            role = "warning-text"
+        elif editing:
+            text, role = tr("yt_chapters_edit_hint"), "muted"
+        elif stale:
+            text, role = tr("yt_chapters_stale"), "warning-text"
+        elif edited:
+            text, role = tr("yt_chapters_edited"), "muted"
+        else:
+            text, role = "", "muted"
+        set_role(self._chapters_note, role)
+        self._chapters_note.setText(text)
+
+    def _reset_chapter_edits(self) -> None:
+        """Forget the shown package's chapters and edit state (the overlay
+        file stays on disk and is read again with the next result)."""
+        self._model_chapters = None
+        self._overlay = {}
+        self._editing_chapters = False
+        self._bad_chapter_lines = []
+        self._chapters_edit.setReadOnly(True)
+        self._render_chapter_editing()
 
     def _set_chapter_check(
         self, check: ChapterCheck | None, duration: float | None = None,

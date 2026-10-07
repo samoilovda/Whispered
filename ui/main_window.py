@@ -1073,6 +1073,7 @@ class MainWindow(QMainWindow):
         # Insights panel
         self.insights_panel.seek_requested.connect(self.player.seek_to)
         self.youtube_panel.seek_requested.connect(self.player.seek_to)
+        self.youtube_panel.set_position_provider(self.player.current_position)
 
         # Auto-save each completed batch item to history
         self.batch_panel.processor.item_finished.connect(self._on_batch_item_finished)

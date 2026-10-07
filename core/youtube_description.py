@@ -5,6 +5,7 @@ Converts a chapter list into a YouTube-ready timecode block.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from core.logger import get_logger
@@ -181,3 +182,70 @@ def compose_full_description(
     if not timecodes:
         return description
     return f"{description}\n\n{timecodes_label}\n{timecodes}"
+
+
+_TIMESTAMP_RE = re.compile(r"^(\d{1,2})(?::(\d{2}))(?::(\d{2}))?$")
+# "M:SS Title", "H:MM:SS Title", optionally "M:SS - Title" / "M:SS — Title".
+_CHAPTER_LINE_RE = re.compile(r"^\s*(\d{1,2}(?::\d{2}){1,2})\s*(?:[-–—:]\s*)?(\S.*?)\s*$")
+
+
+def parse_timestamp(text: str) -> int | None:
+    """``"2:05"`` / ``"1:02:05"`` → seconds; ``None`` if it is not one.
+
+    Minutes and seconds past the first field must be two digits under 60,
+    the same shape format_youtube_timestamp() prints.
+    """
+    match = _TIMESTAMP_RE.match(text.strip())
+    if not match:
+        return None
+    first, second, third = match.groups()
+    if third is None:
+        minutes, seconds = int(first), int(second)
+        hours = 0
+    else:
+        hours, minutes, seconds = int(first), int(second), int(third)
+        if minutes >= 60:
+            return None
+    if seconds >= 60:
+        return None
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def format_chapter_lines(chapters: list[dict]) -> str:
+    """Chapters as editable ``"M:SS Title"`` lines, sorted by start, with
+    their own starts — unlike format_youtube_description(), nothing is
+    dropped or moved, so the user can fix what YouTube would reject.
+    Items without a usable start or title are left out."""
+    lines: list[tuple[int, str]] = []
+    for item in chapters:
+        title = item.get("title", "")
+        if not isinstance(title, str) or not title.strip():
+            continue
+        try:
+            start = int(item.get("start", 0))
+        except (TypeError, ValueError):
+            continue
+        lines.append((start, title.strip()))
+    lines.sort(key=lambda x: x[0])
+    return "\n".join(f"{format_youtube_timestamp(s)} {t}" for s, t in lines)
+
+
+def parse_chapter_lines(text: str) -> tuple[list[dict], list[int]]:
+    """Parse edited ``"M:SS Title"`` lines back into chapters.
+
+    Returns ``(chapters, bad_lines)``: chapters in the order written, as
+    ``{"start": int, "title": str}``, and the 1-based numbers of non-blank
+    lines that are not a time followed by a title. Blank lines are ignored.
+    """
+    chapters: list[dict] = []
+    bad: list[int] = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        if not line.strip():
+            continue
+        match = _CHAPTER_LINE_RE.match(line)
+        start = parse_timestamp(match.group(1)) if match else None
+        if match is None or start is None:
+            bad.append(number)
+            continue
+        chapters.append({"start": start, "title": match.group(2)})
+    return chapters, bad

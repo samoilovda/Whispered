@@ -11,7 +11,10 @@ from core.youtube_description import (
     check_chapters,
     compose_full_description,
     format_youtube_timestamp,
+    format_chapter_lines,
     format_youtube_description,
+    parse_chapter_lines,
+    parse_timestamp,
 )
 
 
@@ -291,3 +294,38 @@ class TestComposeFullDescription:
         chapters = [{"start": 0, "title": "A"}, {"start": 60, "title": "B"}]
         result = compose_full_description("Desc", chapters)
         assert "Timecodes:" in result
+
+
+class TestChapterLines:
+    def test_parse_timestamp(self):
+        assert parse_timestamp("0:00") == 0
+        assert parse_timestamp("2:05") == 125
+        assert parse_timestamp("1:02:05") == 3725
+        assert parse_timestamp(" 12:30 ") == 750
+        for bad in ("", "2:5", "2:60", "1:60:00", "abc", "2", "1:02:03:04"):
+            assert parse_timestamp(bad) is None, bad
+
+    def test_format_keeps_what_youtube_would_drop(self):
+        chapters = [
+            {"start": 40, "title": "B"},
+            {"start": 30, "title": "A"},
+            {"start": 34, "title": "Close"},
+            {"start": 50, "title": " "},
+        ]
+        assert format_chapter_lines(chapters) == "0:30 A\n0:34 Close\n0:40 B"
+
+    def test_parse_round_trips_format(self):
+        chapters = [{"start": 0, "title": "Intro"}, {"start": 3725, "title": "Late"}]
+        parsed, bad = parse_chapter_lines(format_chapter_lines(chapters))
+        assert (parsed, bad) == (chapters, [])
+
+    def test_parse_accepts_separators_and_skips_blanks(self):
+        text = "0:00 - Intro\n\n1:30 — Body\n2:00: End"
+        parsed, bad = parse_chapter_lines(text)
+        assert bad == []
+        assert [c["title"] for c in parsed] == ["Intro", "Body", "End"]
+
+    def test_parse_reports_bad_lines(self):
+        parsed, bad = parse_chapter_lines("0:00 Intro\nno time here\n1:00\n9:99 Bad")
+        assert parsed == [{"start": 0, "title": "Intro"}]
+        assert bad == [2, 3, 4]
