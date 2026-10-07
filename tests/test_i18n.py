@@ -106,3 +106,30 @@ class TestLocaleFiles:
             for key, val in data.items():
                 if key.startswith("tab_"):
                     assert not emoji_pattern.search(val), f"{loc}.json {key}: {val!r}"
+
+
+class TestTrIn:
+    def test_looks_up_the_given_language_not_the_ui_one(self):
+        from core.i18n import load_locale, tr, tr_in
+
+        load_locale("en")
+        try:
+            assert tr("youtube_timecodes_label") == "Timecodes:"
+            assert tr_in("ru", "youtube_timecodes_label") == "Тайм-коды:"
+            load_locale("ru")
+            assert tr_in("en", "youtube_timecodes_label") == "Timecodes:"
+        finally:
+            load_locale("en")
+
+    def test_region_suffix_and_unknown_language(self):
+        from core.i18n import tr_in
+
+        assert tr_in("ru-RU", "youtube_timecodes_label") == "Тайм-коды:"
+        assert tr_in("de", "youtube_timecodes_label") == "Timecodes:"
+        assert tr_in(None, "youtube_timecodes_label") == "Timecodes:"
+
+    def test_missing_key_and_placeholders(self):
+        from core.i18n import tr_in
+
+        assert tr_in("ru", "no_such_key_anywhere") == "no_such_key_anywhere"
+        assert tr_in("en", "yt_title_count", count=5, limit=100) == "5/100"

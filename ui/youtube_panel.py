@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QTextCursor
 
-from core.i18n import tr
+from core.i18n import tr, tr_in
 from ui.i18n_helpers import Retranslator
 from core.logger import get_logger
 from application.user_edits import (
@@ -854,8 +854,10 @@ class YouTubePanel(QWidget):
             chapters=self._chapters_data,
             questions=shift_chapters(self._questions, self._offset()),
             signature=get_config().yt_channel_signature,
-            timecodes_label=tr("youtube_timecodes_label"),
-            questions_label=tr("yt_desc_questions_label"),
+            # Labels in the package's language, not the UI's: an English
+            # description must not say "Тайм-коды:".
+            timecodes_label=tr_in(self._publish_language(), "youtube_timecodes_label"),
+            questions_label=tr_in(self._publish_language(), "yt_desc_questions_label"),
         )
         self._desc_edit.setPlainText(text)
         self._render_description_meta()

@@ -100,6 +100,37 @@ def load_locale(lang: str = "auto") -> None:
     _CURRENT_LANG = lang
 
 
+_LANG_STRINGS: dict[str, dict[str, str]] = {}   # tr_in() cache, per language
+
+
+def tr_in(lang: str | None, key: str, **kwargs) -> str:
+    """Like tr(), but in *lang* instead of the UI language — for text that
+    goes into content written in another language (e.g. the labels inside
+    a YouTube description generated in English while the UI is Russian).
+
+    *lang* is a language code ("ru", "en", ...); an unsupported or empty
+    one uses English. Lookup order: *lang* → English → bare key.
+    """
+    code = (lang or "").split("-")[0].split("_")[0].lower()
+    if code not in _SUPPORTED:
+        code = "en"
+    strings = _LANG_STRINGS.get(code)
+    if strings is None:
+        strings = _load_json(_LOCALE_DIR / f"{code}.json")
+        _LANG_STRINGS[code] = strings
+    english = _LANG_STRINGS.get("en")
+    if english is None:
+        english = _load_json(_LOCALE_DIR / "en.json")
+        _LANG_STRINGS["en"] = english
+    text = strings.get(key) or english.get(key, key)
+    if kwargs:
+        try:
+            text = text.format_map(kwargs)
+        except (KeyError, ValueError) as exc:
+            logger.debug("tr_in(%r, %r) placeholder substitution failed: %s", lang, key, exc)
+    return text
+
+
 def tr(key: str, **kwargs) -> str:
     """Return the localized string for *key*, filling in {placeholders}.
 

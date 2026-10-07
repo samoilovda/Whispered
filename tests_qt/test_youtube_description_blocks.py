@@ -140,3 +140,32 @@ def test_settings_saves_the_signature(monkeypatch, tmp_path, process_events):
     assert cfg.yt_channel_signature == "Links\nBye"
     dialog.close()
     process_events()
+
+
+def test_labels_follow_the_package_language_not_the_ui(signature):
+    from core.i18n import set_locale, current_lang
+
+    original = current_lang()
+    try:
+        set_locale("ru")
+        signature.yt_language = "English"
+        panel = _panel(dict(_PAYLOAD, yt_description=["An English hook."]))
+        panel._desc_block_btns["questions"].click()
+        text = panel._desc_edit.toPlainText()
+        assert "Timecodes:" in text and "Key questions:" in text
+        assert "Тайм-коды" not in text
+        panel.close()
+
+        set_locale("en")
+        signature.yt_language = ""          # follows the transcript: Russian
+        from ui.youtube_panel import YouTubePanel
+        ru = YouTubePanel()
+        ru.set_provenance(12, "/media/ru.mp4")
+        ru.set_segments([Segment(0.0, 600.0, "привет")], transcript_language="ru")
+        ru.begin_generating()
+        ru.set_result(_PAYLOAD)
+        assert "Тайм-коды:" in ru._desc_edit.toPlainText()
+        ru.close()
+    finally:
+        signature.yt_language = ""
+        set_locale(original)
