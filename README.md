@@ -18,7 +18,9 @@ cover — plus subtitles and an editing timeline.
 
 Transcription runs locally. AI features use a local LM Studio server by
 default. Text is sent to an external service only when a cloud provider is
-explicitly selected in the YouTube tab.
+explicitly selected in the YouTube tab, and a video leaves the machine only
+when you press "Upload to YouTube" for your own channel (off by default; see
+[docs/YOUTUBE_UPLOAD.ru.md](docs/YOUTUBE_UPLOAD.ru.md)).
 
 🇷🇺 [Русская версия](README.ru.md)
 
