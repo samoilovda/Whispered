@@ -144,6 +144,7 @@ class RecordItemWidget(QWidget):
         kind: str = "file",
         failed_steps: "list[str] | None" = None,
         resumable: bool = False,
+        running: bool = False,
         parent=None,
     ):
         super().__init__(parent)
@@ -163,6 +164,11 @@ class RecordItemWidget(QWidget):
         self.title_label = ElidedLabel(name)
         self.title_label.setProperty("role", "library-item-title")
         title_row.addWidget(self.title_label, stretch=1)
+        if running:
+            # A recipe is working on this record right now.
+            self.running_label = QLabel(f"◌ {tr('library_running')}")
+            self.running_label.setProperty("role", "status-info")
+            title_row.addWidget(self.running_label)
         if resumable:
             self.resume_button = QPushButton(tr("library_resume_run"))
             self.resume_button.setProperty("role", "accent-badge")
@@ -576,6 +582,7 @@ class LibraryView(QWidget):
                 name, meta, rec.artifacts or ["transcript"], snippet,
                 kind=_record_kind(rec),
                 failed_steps=failed_steps, resumable=_is_resumable(run),
+                running=run is not None and run.status == "running",
             )
             widget.resume_requested.connect(
                 lambda record_id=rec.id: self.resume_run.emit(record_id)

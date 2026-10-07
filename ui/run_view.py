@@ -110,6 +110,7 @@ class RunStepRow(QWidget):
         self._progress = QProgressBar()
         self._progress.setTextVisible(False)
         self._progress.setMaximumWidth(140)
+        self._progress.setFixedHeight(6)
         self._progress.setVisible(False)
         header.addWidget(self._progress)
 
@@ -310,6 +311,7 @@ class RunView(QWidget):
         overall.setSpacing(SPACE_2)
         self._overall_progress = QProgressBar()
         self._overall_progress.setTextVisible(False)
+        self._overall_progress.setFixedHeight(6)
         self._overall_progress.setVisible(False)
         overall.addWidget(self._overall_progress)
         self._overall_label = QLabel("")

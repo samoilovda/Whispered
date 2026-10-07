@@ -573,3 +573,22 @@ def test_renaming_a_record_shows_the_new_name(monkeypatch, tmp_path, process_eve
     assert widget.title_label.full_text() == "Interview"
 
     view.close()
+
+
+def test_a_record_with_a_run_in_progress_says_so(monkeypatch, tmp_path, process_events):
+    load_locale("en")
+    from core.i18n import tr
+
+    store = _make_store(tmp_path)
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+    record_id = _add_record(store, "talk.mp3")
+    run = JobRun(spec=JobSpec(name="youtube_video", steps=(StepSpec("transcribe"),)))
+    run.outcomes["transcribe"] = StepOutcome("transcribe", StepStatus.SUCCEEDED)
+    save_run(record_id, "youtube_video", run, status="running")
+
+    view = LibraryView()
+    view.refresh()
+    process_events()
+    widget = _item_widget(view, record_id)
+    assert widget.running_label.text() == f"◌ {tr('library_running')}"
+    view.close()

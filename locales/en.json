@@ -965,5 +965,6 @@
   "shortcut_launch": "Launch on the start screen",
   "shortcut_live_note_time": "Note line with the current time (live session)",
   "record_tab_failed": "This step failed in the last run — retry it on the run screen or with Ctrl+K.",
-  "record_tab_stale": "Made from an older version of the transcript — it was edited since. Rerun the step to update."
+  "record_tab_stale": "Made from an older version of the transcript — it was edited since. Rerun the step to update.",
+  "library_running": "processing"
 }

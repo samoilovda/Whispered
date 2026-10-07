@@ -2668,6 +2668,9 @@ class MainWindow(QMainWindow):
         reconstruction _recipe_get_result() uses to feed dependent steps.
         """
         self._save_recipe_run("running")
+        # The Library card shows the run in progress and, once a step
+        # fails, which one.
+        self.library_view.refresh()
         if self._recipe_record_id != self._last_record_id:
             # Another record is open now. The result is on disk in the
             # run's own record folder and comes back when that record is
