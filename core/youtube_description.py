@@ -310,3 +310,22 @@ def above_the_fold(description: str, limit: int = 150) -> str:
     if cut < limit // 2:
         cut = limit
     return flat[:cut].rstrip() + "…"
+
+
+def shift_chapters(chapters: list[dict], offset: int) -> list[dict]:
+    """Chapters moved by *offset* seconds — from recording time to video
+    time when the published video has an intro (positive) or a cut start
+    (negative) the recording lacks. Starts are clamped at 0; items whose
+    start is not a number are kept as they are for check_chapters() to
+    report. An offset of 0 returns the items unchanged."""
+    if not offset:
+        return list(chapters)
+    shifted: list[dict] = []
+    for item in chapters:
+        try:
+            start = int(item.get("start", 0))
+        except (TypeError, ValueError):
+            shifted.append(item)
+            continue
+        shifted.append({**item, "start": max(0, start + offset)})
+    return shifted

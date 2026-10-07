@@ -12,7 +12,7 @@ from typing import Any, Callable
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QPlainTextEdit, QApplication, QToolBox, QScrollArea, QFrame,
-    QRadioButton, QButtonGroup,
+    QRadioButton, QButtonGroup, QSpinBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QTextCursor
@@ -64,6 +64,7 @@ from core.youtube_description import (
     format_youtube_description,
     format_youtube_timestamp,
     parse_chapter_lines,
+    shift_chapters,
 )
 from ui.components import ChapterRow
 from ui.theme import set_role
@@ -96,6 +97,16 @@ _TAB_SPECS: tuple[_TabSpec, ...] = (
     _TabSpec("yt_tags", "_tags_edit", "tags", "yt_tab_tags"),
     _TabSpec("yt_questions", "_questions_edit", "questions", "yt_tab_questions"),
 )
+
+# Largest shift between recording and video the offset field accepts.
+_MAX_OFFSET_SECONDS = 3600
+
+
+def _signed_seconds(seconds: int) -> str:
+    """``+0:15`` / ``−1:05`` for the offset hint."""
+    sign = "+" if seconds >= 0 else "−"
+    return sign + format_youtube_timestamp(abs(seconds))
+
 
 # Roughly how much of a title search results and phones show; past this a
 # title still fits YouTube's limit but gets cut off for most viewers.
@@ -211,6 +222,11 @@ class YouTubePanel(QWidget):
         self._chapters_cancel_btn.setText(tr("yt_chapters_cancel"))
         self._chapters_done_btn.setText(tr("yt_chapters_done"))
         self._chapters_keep_btn.setText(tr("yt_chapters_keep_mine"))
+        self._offset_label.setText(tr("yt_offset_label"))
+        self._offset_hint.setText(tr("yt_offset_hint"))
+        self._offset_spin.setSuffix(tr("yt_offset_suffix"))
+        self._offset_spin.setToolTip(tr("yt_offset_hint"))
+        self._offset_spin.setAccessibleName(tr("yt_offset_label"))
         self._desc_blocks_label.setText(tr("yt_desc_blocks"))
         for block, key in _DESC_BLOCK_LABELS:
             self._desc_block_btns[block].setText(tr(key))
@@ -557,10 +573,37 @@ class YouTubePanel(QWidget):
             button.setVisible(False)
             bar.addWidget(button)
 
+        # Offset between the recording and the published video (an intro
+        # the recording lacks): applied to the timecodes, not to editing.
+        self._offset_label = QLabel(tr("yt_offset_label"))
+        self._offset_label.setProperty("role", "muted")
+        self._offset_label.setStyleSheet("font-size: 11px;")
+        self._offset_spin = QSpinBox()
+        self._offset_spin.setRange(-_MAX_OFFSET_SECONDS, _MAX_OFFSET_SECONDS)
+        self._offset_spin.setSuffix(tr("yt_offset_suffix"))
+        self._offset_spin.setToolTip(tr("yt_offset_hint"))
+        self._offset_spin.setAccessibleName(tr("yt_offset_label"))
+        self._offset_label.setBuddy(self._offset_spin)
+        self._offset_spin.valueChanged.connect(self._on_offset_changed)
+        self._offset_hint = QLabel(tr("yt_offset_hint"))
+        self._offset_hint.setWordWrap(True)
+        self._offset_hint.setProperty("role", "muted")
+        self._offset_hint.setStyleSheet("font-size: 11px;")
+        offset_row = QHBoxLayout()
+        offset_row.setContentsMargins(4, 0, 4, 0)
+        offset_row.setSpacing(6)
+        offset_row.addWidget(self._offset_label)
+        offset_row.addWidget(self._offset_spin)
+        offset_row.addWidget(self._offset_hint, stretch=1)
+        self._offset_bar = QWidget()
+        self._offset_bar.setLayout(offset_row)
+        self._offset_bar.setVisible(False)
+
         section = QWidget()
         box = QVBoxLayout(section)
         box.setContentsMargins(0, 0, 0, 0)
         box.addLayout(bar)
+        box.addWidget(self._offset_bar)
         box.addWidget(self._chapter_scroll)
         box.addWidget(edit)
         return section
@@ -576,8 +619,14 @@ class YouTubePanel(QWidget):
                 widget.setParent(None)
                 widget.deleteLater()
         chapters = self._chapter_check.chapters if self._chapter_check else ()
+        offset = self._offset()
         for start, title in chapters:
-            row = ChapterRow(start, title, self._chapter_rows, label=format_youtube_timestamp(start))
+            # Shown in video time (what YouTube lists); seeks the player in
+            # recording time.
+            row = ChapterRow(
+                max(0, start - offset), title, self._chapter_rows,
+                label=format_youtube_timestamp(start),
+            )
             row.seek_requested.connect(self.seek_requested)
             layout.addWidget(row)
         layout.addStretch()
@@ -803,7 +852,7 @@ class YouTubePanel(QWidget):
             blocks=self._desc_blocks(),
             text=self._description_text,
             chapters=self._chapters_data,
-            questions=self._questions,
+            questions=shift_chapters(self._questions, self._offset()),
             signature=get_config().yt_channel_signature,
             timecodes_label=tr("youtube_timecodes_label"),
             questions_label=tr("yt_desc_questions_label"),
@@ -867,6 +916,19 @@ class YouTubePanel(QWidget):
         folder = artifact_dir(record_id, self._source_path or "recording")
         return overlay_path(folder / "youtube_package.json")
 
+    def _offset(self) -> int:
+        """Seconds the published video runs ahead of the recording."""
+        value = self._overlay.get("offset", 0)
+        return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+    def _on_offset_changed(self, value: int) -> None:
+        if value == self._offset() or self._model_chapters is None:
+            return
+        self._store_overlay(set_edit(self._overlay, "offset", value, 0))
+        self._apply_chapters()
+        self._compose_description()
+        self._render_chapter_editing()
+
     def _effective_chapters(self) -> list:
         edited = self._overlay.get("chapters")
         if isinstance(edited, list):
@@ -876,7 +938,9 @@ class YouTubePanel(QWidget):
     def _apply_chapters(self) -> None:
         """Show the effective chapters everywhere: rows, Copy/Save text,
         checks, and (via _compose_description) the description."""
-        chapters = self._effective_chapters()
+        offset = self._offset()
+        # From here on, chapters are in video time — what YouTube will list.
+        chapters = shift_chapters(self._effective_chapters(), offset)
         self._chapters_data = chapters
         self._chapters_edit.setReadOnly(True)
         text = format_youtube_description(chapters)
@@ -884,6 +948,8 @@ class YouTubePanel(QWidget):
         # Plain-dict segments (some tests) carry no usable duration;
         # the past-end check is then simply skipped.
         duration = getattr(self._segments[-1], "end", None) if self._segments else None
+        if duration is not None:
+            duration = max(0.0, duration + offset)
         self._set_chapter_check(check_chapters(chapters, duration), duration)
 
     def _store_overlay(self, overlay: dict[str, Any]) -> None:
@@ -963,6 +1029,10 @@ class YouTubePanel(QWidget):
         stale = edited and is_stale(self._overlay, "chapters", self._model_chapters)
 
         self._chapters_edit_btn.setVisible(has_model and not editing)
+        self._offset_bar.setVisible(has_model and not editing)
+        blocked = self._offset_spin.blockSignals(True)
+        self._offset_spin.setValue(self._offset())
+        self._offset_spin.blockSignals(blocked)
         self._chapters_insert_btn.setVisible(editing)
         self._chapters_insert_btn.setEnabled(self._position_provider is not None)
         self._chapters_cancel_btn.setVisible(editing)
@@ -976,6 +1046,9 @@ class YouTubePanel(QWidget):
         if editing and self._bad_chapter_lines:
             text = tr("yt_chapters_bad_lines", lines=", ".join(map(str, self._bad_chapter_lines)))
             role = "warning-text"
+        elif editing and self._offset():
+            text = tr("yt_chapters_edit_hint_offset", offset=_signed_seconds(self._offset()))
+            role = "muted"
         elif editing:
             text, role = tr("yt_chapters_edit_hint"), "muted"
         elif stale:
@@ -1035,7 +1108,10 @@ class YouTubePanel(QWidget):
                 duration=format_youtube_timestamp(int(self._chapter_duration)),
                 items=self._describe_chapters(past_end),
             ))
-        moved = check.issues_of(ISSUE_FIRST_MOVED)
+        # A first chapter at 0:00 in the recording lands on the offset in
+        # the video; pulling it back to 0:00 just folds the intro into it —
+        # expected, not worth a warning.
+        moved = tuple(m for m in check.issues_of(ISSUE_FIRST_MOVED) if m.seconds != self._offset())
         if moved:
             lines.append(tr(
                 "yt_chapters_first_moved", time=format_youtube_timestamp(moved[0].seconds),

@@ -22,6 +22,7 @@ from core.youtube_description import (
     format_youtube_description,
     parse_chapter_lines,
     parse_timestamp,
+    shift_chapters,
 )
 
 
@@ -379,3 +380,31 @@ class TestAboveTheFold:
         text = "word " * 50
         result = above_the_fold(text, limit=22)
         assert result == "word word word word…"
+
+
+class TestShiftChapters:
+    _CH = [{"start": 0, "title": "A"}, {"start": 60, "title": "B", "extra": 1}]
+
+    def test_zero_offset_returns_the_items(self):
+        assert shift_chapters(self._CH, 0) == self._CH
+
+    def test_positive_offset_moves_every_start(self):
+        assert shift_chapters(self._CH, 15) == [
+            {"start": 15, "title": "A"}, {"start": 75, "title": "B", "extra": 1},
+        ]
+        # format_youtube_description still opens with 0:00 for YouTube
+        assert format_youtube_description(shift_chapters(self._CH, 15)).splitlines() == [
+            "0:00 A", "1:15 B",
+        ]
+
+    def test_negative_offset_clamps_at_zero(self):
+        assert [c["start"] for c in shift_chapters(self._CH, -30)] == [0, 30]
+
+    def test_unparsable_start_is_left_for_the_checks(self):
+        items = [{"start": "soon", "title": "X"}]
+        assert shift_chapters(items, 10) == items
+
+    def test_input_is_not_mutated(self):
+        original = [{"start": 5, "title": "A"}]
+        shift_chapters(original, 10)
+        assert original == [{"start": 5, "title": "A"}]
