@@ -9,14 +9,14 @@ from typing import Optional
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel,
-    QPushButton, QFrame,
+    QPushButton, QFrame, QApplication,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
-from core.insights_export import format_insight_text
+from core.insights_export import format_insight_text, item_start
 from core.logger import get_logger
 from core.i18n import tr
-from ui.components import ChapterRow
+from ui.components import ChapterRow, FlowLayout
 from ui.i18n_helpers import Retranslator
 from core.paths import output_dir
 from ui.toast import show_toast
@@ -32,16 +32,48 @@ class _SectionHeader(QLabel):
         self.setStyleSheet("padding: 6px 0 2px 0;")
 
 
-class _ActionRow(QLabel):
-    def __init__(self, task: str, owner: Optional[str], deadline: Optional[str], parent=None):
+class _ActionRow(QWidget):
+    """A task: its time (a link that seeks, I2 — only when the model gave
+    one; nothing is made up), the task, then owner and deadline."""
+
+    seek_requested = pyqtSignal(int)
+
+    def __init__(
+        self, task: str, owner: Optional[str], deadline: Optional[str],
+        start: Optional[int] = None, parent=None,
+    ):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 2, 0, 2)
+        layout.setSpacing(8)
+        if start is not None:
+            ts_btn = QPushButton(format_duration(start))
+            ts_btn.setFixedWidth(48)
+            ts_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            ts_btn.setProperty("role", "timestamp-link")
+            ts_btn.setStyleSheet("font-size: 11px;")
+            ts_btn.clicked.connect(lambda: self.seek_requested.emit(start))
+            layout.addWidget(ts_btn, alignment=Qt.AlignmentFlag.AlignTop)
+        else:
+            layout.addSpacing(56)
         parts = [f"• {task}"]
         if owner:
             parts.append(f"  {tr('insights_owner')} {owner}")
         if deadline:
             parts.append(f"  {tr('insights_deadline')} {deadline}")
-        super().__init__("\n".join(parts), parent)
-        self.setWordWrap(True)
-        self.setStyleSheet("font-size: 12px; padding: 2px 0;")
+        label = QLabel("\n".join(parts))
+        label.setWordWrap(True)
+        label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        label.setStyleSheet("font-size: 12px;")
+        layout.addWidget(label, stretch=1)
+
+
+_SECTIONS = ("chapters", "action_items", "key_moments")
+_SECTION_KEYS = {
+    "chapters": "insights_chapters",
+    "action_items": "insights_action_items",
+    "key_moments": "insights_key_moments",
+}
 
 
 class _MomentRow(QWidget):
@@ -108,6 +140,9 @@ class InsightsPanel(QWidget):
         self._source_name: str = ""
         self._generating = False
         self._error_message: str | None = None
+        # Sections shown — and copied/saved (I1). What is *generated* is
+        # the step's business, not this filter's.
+        self._visible_sections: set[str] = set(_SECTIONS)
         self._i18n = Retranslator()
         self._setup_ui()
         self._i18n.call(self._retranslate_insights)
@@ -115,10 +150,9 @@ class InsightsPanel(QWidget):
 
     def _retranslate_insights(self) -> None:
         self._save_btn.setText(tr("insights_save"))
-        self._ch_header.setText(tr("insights_chapters"))
+        self._copy_btn.setText(tr("btn_copy"))
         self._ch_note.setText(tr("insights_chapters_shared"))
-        self._ai_header.setText(tr("insights_action_items"))
-        self._km_header.setText(tr("insights_key_moments"))
+        self._render_section_meta()
         self._gen_btn.setText(
             tr("insights_generating") if self._generating else tr("insights_generate")
         )
@@ -148,6 +182,11 @@ class InsightsPanel(QWidget):
         self._gen_btn.clicked.connect(self.generate_requested.emit)
         gen_row.addWidget(self._gen_btn)
 
+        self._copy_btn = QPushButton(tr("btn_copy"))
+        self._copy_btn.setEnabled(False)
+        self._copy_btn.clicked.connect(self._copy_visible)
+        gen_row.addWidget(self._copy_btn)
+
         self._save_btn = QPushButton(tr("insights_save"))
         self._save_btn.setEnabled(False)
         self._save_btn.clicked.connect(self._save_to_files)
@@ -155,6 +194,23 @@ class InsightsPanel(QWidget):
 
         gen_row.addStretch()
         outer.addLayout(gen_row)
+
+        # Section chips (I1): which sections are shown and copied/saved.
+        self._chips = QWidget()
+        self._chips.setProperty("role", "transparent")
+        chips_layout = FlowLayout(self._chips, spacing=6)
+        chips_layout.setContentsMargins(0, 0, 0, 0)
+        self._chip_buttons: dict[str, QPushButton] = {}
+        for key in _SECTIONS:
+            chip = QPushButton()
+            chip.setCheckable(True)
+            chip.setChecked(True)
+            chip.setProperty("role", "quick-chip")
+            chip.toggled.connect(lambda checked, k=key: self._set_section_visible(k, checked))
+            chips_layout.addWidget(chip)
+            self._chip_buttons[key] = chip
+        self._chips.setVisible(False)
+        outer.addWidget(self._chips)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -167,6 +223,8 @@ class InsightsPanel(QWidget):
 
         self._ch_header = _SectionHeader(tr("insights_chapters"))
         self._content.addWidget(self._ch_header)
+        self._ch_empty = self._empty_label()
+        self._content.addWidget(self._ch_empty)
         self._ch_note = QLabel(tr("insights_chapters_shared"))
         self._ch_note.setWordWrap(True)
         self._ch_note.setProperty("role", "muted")
@@ -179,26 +237,30 @@ class InsightsPanel(QWidget):
         self._ch_layout.setSpacing(2)
         self._content.addWidget(self._ch_container)
 
-        sep1 = QFrame()
+        self._sep1 = sep1 = QFrame()
         sep1.setFrameShape(QFrame.Shape.HLine)
         sep1.setProperty("role", "divider-text")
         self._content.addWidget(sep1)
 
         self._ai_header = _SectionHeader(tr("insights_action_items"))
         self._content.addWidget(self._ai_header)
+        self._ai_empty = self._empty_label()
+        self._content.addWidget(self._ai_empty)
         self._ai_container = QWidget()
         self._ai_layout = QVBoxLayout(self._ai_container)
         self._ai_layout.setContentsMargins(0, 0, 0, 0)
         self._ai_layout.setSpacing(2)
         self._content.addWidget(self._ai_container)
 
-        sep2 = QFrame()
+        self._sep2 = sep2 = QFrame()
         sep2.setFrameShape(QFrame.Shape.HLine)
         sep2.setProperty("role", "divider-text")
         self._content.addWidget(sep2)
 
         self._km_header = _SectionHeader(tr("insights_key_moments"))
         self._content.addWidget(self._km_header)
+        self._km_empty = self._empty_label()
+        self._content.addWidget(self._km_empty)
         self._km_container = QWidget()
         self._km_layout = QVBoxLayout(self._km_container)
         self._km_layout.setContentsMargins(0, 0, 0, 0)
@@ -208,6 +270,95 @@ class InsightsPanel(QWidget):
         self._content.addStretch()
         scroll.setWidget(container)
         outer.addWidget(scroll, stretch=1)
+        self._render_section_meta()
+
+    @staticmethod
+    def _empty_label() -> QLabel:
+        label = QLabel()
+        label.setProperty("role", "dim")
+        label.setStyleSheet("font-size: 12px; padding: 2px 0 6px 56px;")
+        label.setVisible(False)
+        return label
+
+    # ── Sections: counts, empty notes, the show/copy filter (I1) ────
+
+    def _section_items(self, key: str) -> list:
+        if key == "chapters":
+            return list(self._shown_chapters())
+        data = self._results.get(key)
+        return list(data) if isinstance(data, list) else []
+
+    def _section_widgets(self, key: str) -> list:
+        return {
+            "chapters": [self._ch_header, self._ch_empty, self._ch_container],
+            "action_items": [self._sep1, self._ai_header, self._ai_empty, self._ai_container],
+            "key_moments": [self._sep2, self._km_header, self._km_empty, self._km_container],
+        }[key]
+
+    def _render_section_meta(self) -> None:
+        """Headers with counts, "nothing found" notes, chip captions and
+        which sections are on screen — from the current results."""
+        has_results = bool(self._results) or bool(self._shared_chapters)
+        headers = {"chapters": self._ch_header, "action_items": self._ai_header,
+                   "key_moments": self._km_header}
+        empties = {"chapters": self._ch_empty, "action_items": self._ai_empty,
+                   "key_moments": self._km_empty}
+        for key in _SECTIONS:
+            count = len(self._section_items(key))
+            title = tr(_SECTION_KEYS[key])
+            # A section exists once its step produced it — chapters may
+            # also come from the YouTube tab without Insights being run.
+            generated = key in self._results or (key == "chapters" and bool(self._shared_chapters))
+            headers[key].setText(f"{title} · {count}" if generated else title)
+            empties[key].setText(tr(f"insights_none_{key}"))
+            self._chip_buttons[key].setText(f"{title} · {count}")
+            self._chip_buttons[key].setVisible(generated)
+            shown = generated and key in self._visible_sections
+            for widget in self._section_widgets(key):
+                widget.setVisible(shown)
+            empties[key].setVisible(shown and count == 0)
+        self._ch_note.setVisible(
+            "chapters" in self._visible_sections and bool(self._shared_chapters)
+        )
+        self._chips.setVisible(has_results)
+        self._copy_btn.setEnabled(has_results)
+        # Once there are results, running again is the secondary action.
+        if not self._generating:
+            self._gen_btn.setText(
+                tr("insights_regenerate") if self._results else tr("insights_generate")
+            )
+        variant = "" if self._results else "primary"
+        if self._gen_btn.property("variant") != variant:
+            self._gen_btn.setProperty("variant", variant)
+            self._gen_btn.style().unpolish(self._gen_btn)
+            self._gen_btn.style().polish(self._gen_btn)
+
+    def _set_section_visible(self, key: str, visible: bool) -> None:
+        if visible:
+            self._visible_sections.add(key)
+        else:
+            self._visible_sections.discard(key)
+        self._render_section_meta()
+
+    def _visible_results(self) -> dict:
+        """What is on screen, section by section — what Copy and Save use."""
+        results = dict(self._results)
+        if self._shared_chapters:
+            results["chapters"] = self._shared_chapters
+        return {k: v for k, v in results.items() if k in self._visible_sections}
+
+    def _copy_visible(self) -> None:
+        blocks = []
+        for key in _SECTIONS:
+            data = self._visible_results().get(key)
+            text = format_insight_text(key, data) if isinstance(data, list) else ""
+            if text:
+                blocks.append(f"{tr(_SECTION_KEYS[key])}\n{text}")
+        if not blocks:
+            show_toast(self, tr("insights_nothing_to_save"), kind="error")
+            return
+        QApplication.clipboard().setText("\n\n".join(blocks))
+        show_toast(self, tr("toast_copied"), kind="success")
 
     # ── Public API ──────────────────────────────────────────────────
 
@@ -253,6 +404,7 @@ class InsightsPanel(QWidget):
         self.chapters_changed.emit()
         self._placeholder.setText(tr("insights_placeholder"))
         self._placeholder.show()
+        self._render_section_meta()
         self.content_changed.emit()
 
     def has_content(self) -> bool:
@@ -292,6 +444,7 @@ class InsightsPanel(QWidget):
         self._render_action_items(list(payload.get("action_items") or []))
         self._clear_section(self._km_layout)
         self._render_key_moments(list(payload.get("key_moments") or []))
+        self._render_section_meta()
         self.chapters_changed.emit()
         self.content_changed.emit()
         self.generation_finished.emit(True)
@@ -329,6 +482,8 @@ class InsightsPanel(QWidget):
         self._clear_section(self._ch_layout)
         self._render_chapters(self._shown_chapters())
         self._ch_note.setVisible(bool(self._shared_chapters))
+        if hasattr(self, "_chip_buttons"):
+            self._render_section_meta()
 
     # ── Export ──────────────────────────────────────────────────────
 
@@ -344,10 +499,9 @@ class InsightsPanel(QWidget):
         directory = output_dir()
         stem = self._source_name or "insights"
         saved = 0
-        # Save what is on screen: the record's shared chapters when shown.
-        results = dict(self._results)
-        if self._shared_chapters:
-            results["chapters"] = self._shared_chapters
+        # Save what is on screen: the record's shared chapters when shown,
+        # and only the sections the chips leave visible.
+        results = self._visible_results()
         for insight_type, data in results.items():
             text = format_insight_text(insight_type, data)
             if not text:
@@ -410,7 +564,11 @@ class InsightsPanel(QWidget):
                 task = str(item.get("task", ""))
                 if not task:
                     continue
-                row = _ActionRow(task, item.get("owner"), item.get("deadline"), self._ai_container)
+                row = _ActionRow(
+                    task, item.get("owner"), item.get("deadline"), item_start(item),
+                    self._ai_container,
+                )
+                row.seek_requested.connect(self.seek_requested)
                 self._ai_layout.addWidget(row)
             except Exception:
                 pass

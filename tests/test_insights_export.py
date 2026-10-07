@@ -85,3 +85,27 @@ class TestFormatInsightText:
         """A raw-fallback string (unparsed LLM output) must not crash the
         formatter — it's simply not worth exporting."""
         assert format_insight_text("chapters", "raw unparsed text") == ""
+
+
+def test_item_start_reads_what_models_return_and_never_invents():
+    from core.insights_export import item_start
+
+    assert item_start({"start": 312}) == 312
+    assert item_start({"start": 312.7}) == 312
+    assert item_start({"start": "312s"}) == 312
+    assert item_start({"start": "5:12"}) == 312
+    assert item_start({"start": "1:05:12"}) == 3912
+    assert item_start({"start": None}) is None
+    assert item_start({"start": "soon"}) is None
+    assert item_start({}) is None
+    assert item_start({"start": True}) is None
+
+
+def test_action_items_text_leads_with_the_time_when_given():
+    from core.insights_export import format_action_items_text
+
+    text = format_action_items_text([
+        {"task": "Send the deck", "owner": None, "deadline": None, "start": 75},
+        {"task": "Book a room", "owner": None, "deadline": None, "start": None},
+    ])
+    assert text.splitlines() == ["01:15  • Send the deck", "• Book a room"]

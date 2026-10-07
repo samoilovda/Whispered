@@ -933,5 +933,9 @@
   "transcript_chapter_added": "Глава с {time} добавлена в YouTube-пакет",
   "transcript_select_all": "Выделить всё",
   "transcript_cut_from_edit": "Вырезать из монтажа",
-  "transcript_keep_in_edit": "Вернуть в монтаж"
+  "transcript_keep_in_edit": "Вернуть в монтаж",
+  "insights_none_chapters": "Глав не нашлось",
+  "insights_none_action_items": "Задач в записи не нашлось",
+  "insights_none_key_moments": "Ключевых моментов не нашлось",
+  "insights_regenerate": "Пересоздать итоги"
 }

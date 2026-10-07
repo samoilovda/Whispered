@@ -933,5 +933,9 @@
   "transcript_chapter_added": "Chapter at {time} added to the YouTube package",
   "transcript_select_all": "Select all",
   "transcript_cut_from_edit": "Cut from the edit",
-  "transcript_keep_in_edit": "Keep in the edit"
+  "transcript_keep_in_edit": "Keep in the edit",
+  "insights_none_chapters": "No chapters found",
+  "insights_none_action_items": "No tasks found in this record",
+  "insights_none_key_moments": "No key moments found",
+  "insights_regenerate": "Regenerate insights"
 }
