@@ -156,6 +156,10 @@ jobs:
   release:
     name: Publish GitHub Release
     needs: [macos, windows, linux]
+    # The Linux tarball is a preview channel (CLAUDE.md rule 6): its failure
+    # must not block the macOS/Windows release. Whatever Linux produced, if
+    # anything, is attached; nothing is attached when it failed.
+    if: ${{ !cancelled() && needs.macos.result == 'success' && needs.windows.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
