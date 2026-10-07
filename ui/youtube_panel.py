@@ -417,6 +417,28 @@ class YouTubePanel(QWidget):
         self._show_retry(message or tr("youtube_generate_error"))
         self.generation_finished.emit(False)
 
+    def publish_texts(self) -> dict:
+        """The texts as they currently stand in the tabs — including the
+        user's edits and the description with chapter timecodes folded in —
+        for the publish dialog. ``titles`` are raw tab lines (numbering and
+        all; ``application.youtube_publish.normalize_titles`` cleans them),
+        ``chapter_check`` is the last ``check_chapters()`` result or None.
+        Empty strings/lists when nothing was generated yet."""
+        return {
+            "titles": self._titles_edit.toPlainText().splitlines(),
+            "description": self._desc_edit.toPlainText(),
+            "tags": self._tags_edit.toPlainText(),
+            "language": self.selected_language() or self._transcript_language,
+            "chapter_check": self._chapter_check,
+        }
+
+    def has_publishable_content(self) -> bool:
+        """True once a title and a description exist to publish."""
+        return bool(
+            self._titles_edit.toPlainText().strip()
+            and self._desc_edit.toPlainText().strip()
+        )
+
     def _maybe_compose_description(self) -> None:
         """Once both the description and chapters are in, fold the chapter
         timecodes into the Description tab so it reads as one ready-to-paste
