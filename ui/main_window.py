@@ -442,6 +442,7 @@ class MainWindow(QMainWindow):
             ("menu_file", "menu_new_record", "", self._show_new_draft, True),
             ("menu_file", "menu_open", "Ctrl+O", self._menu_open_file, False),
             ("menu_file", "menu_export", "Ctrl+E", self._export_result, True),
+            ("menu_file", "yt_publish_btn", "", self._open_publish_dialog, True),
             ("menu_file", _SEPARATOR, "", None, False),
             ("menu_file", "menu_settings", "Ctrl+,", self._open_settings, True),
 
@@ -782,6 +783,8 @@ class MainWindow(QMainWindow):
         self.run_view.open_record_requested.connect(
             lambda: self._stack.setCurrentIndex(self._record_index)
         )
+        self.run_view.publish_requested.connect(self._open_publish_dialog)
+        self.youtube_panel.publish_requested.connect(self._open_publish_dialog)
         self._run_index = self._stack.addWidget(self.run_view)
 
         self.workspace_shell = WorkspaceShell(self.library_view, self._stack)
@@ -1892,6 +1895,7 @@ class MainWindow(QMainWindow):
         self.run_view.bind_run(run)
         self.run_view.set_recipe_name(recipe_label(recipe))
         self.run_view.set_finished(False)
+        self.run_view.set_publish_available(False)
         if show_run_screen:
             self._stack.setCurrentIndex(self._run_index)
         self._save_recipe_run("running")
@@ -1967,6 +1971,7 @@ class MainWindow(QMainWindow):
             name = tr("run_resumed_mismatch", name=name)
         self.run_view.set_recipe_name(name)
         self.run_view.set_finished(False)
+        self.run_view.set_publish_available(False)
         self._stack.setCurrentIndex(self._run_index)
         # JobEngine never re-resolves a step already in run.outcomes, so
         # _launch_recipe_job() below won't fire step_finished for any of
@@ -2208,6 +2213,38 @@ class MainWindow(QMainWindow):
             show_toast(
                 self, tr("toast_chain_done", count=len(artifact_types)), kind="success"
             )
+
+        can_publish = "youtube_package" in succeeded
+        self.run_view.set_publish_available(can_publish)
+        if can_publish and get_config().yt_publish_mode != "off":
+            QTimer.singleShot(0, self._open_publish_dialog)
+
+    def _open_publish_dialog(self) -> None:
+        """Hand the current YouTube package over to the publish dialog (see
+        docs/YOUTUBE_PUBLISH_PLAN_2026-10.ru.md). Texts come from the
+        YouTube tab so the user's edits are what gets published."""
+        if not self.youtube_panel.has_publishable_content():
+            show_toast(self, tr("yt_publish_nothing"), kind="info")
+            return
+        from application.youtube_publish import find_video_source
+        from core.paths import artifact_dir, output_dir
+        from ui.youtube_publish_dialog import YouTubePublishDialog
+
+        record_id, source_path = self.youtube_panel.provenance()
+        stem = Path(source_path).stem if source_path else ""
+        cover_path = None
+        if record_id is not None:
+            candidate = artifact_dir(record_id, source_path or stem or "youtube") / "cover.png"
+            cover_path = candidate if candidate.is_file() else None
+        dialog = YouTubePublishDialog(
+            self.youtube_panel.publish_texts(),
+            video_path=find_video_source(source_path),
+            cover_path=cover_path,
+            source_name=stem or "youtube",
+            save_dir=output_dir(),
+            parent=self,
+        )
+        dialog.exec()
 
     def _save_to_history(self, result: TranscriptionResult, source_path: str,
                          model: str, speaker_names: dict,

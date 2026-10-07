@@ -430,3 +430,16 @@ class TestConfigBackendError:
         # Field in memory should still be the sentinel, not ""
         # (so the next save() doesn't wipe the keyring entry)
         assert loaded.hf_token == ss_module.KEYRING_SENTINEL
+
+
+class TestPublishMode:
+    def test_defaults_to_off(self):
+        assert Config().yt_publish_mode == "off"
+
+    def test_unknown_mode_is_reported(self):
+        warnings = Config(yt_publish_mode="sometimes").validate()
+        assert any("yt_publish_mode" in w for w in warnings)
+
+    @pytest.mark.parametrize("mode", ["off", "handoff", "api"])
+    def test_known_modes_are_valid(self, mode):
+        assert not any("yt_publish_mode" in w for w in Config(yt_publish_mode=mode).validate())

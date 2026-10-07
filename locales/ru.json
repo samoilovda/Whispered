@@ -740,5 +740,10 @@
   "yt_publish_issue_description_brackets": "В описании не должно быть < и >.",
   "yt_publish_issue_tags_trimmed": "Теги сверх лимита в {limit} символов будут отброшены: {count}.",
   "yt_publish_issue_thumbnail_missing": "Файл обложки не найден.",
-  "yt_publish_issue_thumbnail_too_large": "Обложка больше 2 МБ — YouTube может её отклонить."
+  "yt_publish_issue_thumbnail_too_large": "Обложка больше 2 МБ — YouTube может её отклонить.",
+  "settings_yt_publish_mode": "После запуска «Видео на YouTube»",
+  "settings_yt_publish_off": "Ничего не делать",
+  "settings_yt_publish_handoff": "Открыть диалог публикации",
+  "run_publish": "Опубликовать на YouTube",
+  "yt_publish_nothing": "Сначала создайте пакет для YouTube — публиковать пока нечего."
 }

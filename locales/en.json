@@ -740,5 +740,10 @@
   "yt_publish_issue_description_brackets": "The description must not contain < or >.",
   "yt_publish_issue_tags_trimmed": "Tags over the {limit}-character limit will be left out: {count}.",
   "yt_publish_issue_thumbnail_missing": "The cover file was not found.",
-  "yt_publish_issue_thumbnail_too_large": "The cover is larger than 2 MB; YouTube may reject it."
+  "yt_publish_issue_thumbnail_too_large": "The cover is larger than 2 MB; YouTube may reject it.",
+  "settings_yt_publish_mode": "After a YouTube run",
+  "settings_yt_publish_off": "Do nothing",
+  "settings_yt_publish_handoff": "Open the publish dialog",
+  "run_publish": "Publish to YouTube",
+  "yt_publish_nothing": "Generate the YouTube package first — there is nothing to publish yet."
 }

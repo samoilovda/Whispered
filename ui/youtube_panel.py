@@ -88,6 +88,7 @@ class YouTubePanel(QWidget):
     # safe to move on without polling internal job state.
     generate_requested = pyqtSignal()
     generation_finished = pyqtSignal(bool)
+    publish_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -115,6 +116,7 @@ class YouTubePanel(QWidget):
         self._configure_btn.setText(tr("provider_configure"))
         self._copy_btn.setText(tr("youtube_copy"))
         self._save_btn.setText(tr("youtube_save"))
+        self._publish_btn.setText(tr("yt_publish_btn"))
         self._retry_btn.setText(tr("youtube_retry"))
         self._privacy_notice.setText(tr("youtube_privacy_notice"))
         self._lang_combo.setItemText(0, tr("youtube_lang_auto"))
@@ -181,6 +183,11 @@ class YouTubePanel(QWidget):
         self._save_btn.setEnabled(False)
         self._save_btn.clicked.connect(self._save_to_file)
         controls.addWidget(self._save_btn)
+
+        self._publish_btn = QPushButton(tr("yt_publish_btn"))
+        self._publish_btn.setEnabled(False)
+        self._publish_btn.clicked.connect(self.publish_requested.emit)
+        controls.addWidget(self._publish_btn)
 
         layout.addLayout(controls)
 
@@ -312,6 +319,7 @@ class YouTubePanel(QWidget):
         self._gen_btn.setText(tr("youtube_generate"))
         self._copy_btn.setEnabled(False)
         self._save_btn.setEnabled(False)
+        self._publish_btn.setEnabled(False)
         self._description_text = None
         self._chapters_data = None
         self._set_chapter_check(None)
@@ -340,6 +348,7 @@ class YouTubePanel(QWidget):
         self._gen_btn.setText(tr("youtube_generating"))
         self._copy_btn.setEnabled(False)
         self._save_btn.setEnabled(False)
+        self._publish_btn.setEnabled(False)
         self._description_text = None
         self._chapters_data = None
         self._set_chapter_check(None)
@@ -399,6 +408,7 @@ class YouTubePanel(QWidget):
         self._reset_button()
         self._copy_btn.setEnabled(True)
         self._save_btn.setEnabled(True)
+        self._publish_btn.setEnabled(True)
         self.generation_finished.emit(True)
 
     def set_error(self, message: str) -> None:
@@ -431,6 +441,10 @@ class YouTubePanel(QWidget):
             "language": self.selected_language() or self._transcript_language,
             "chapter_check": self._chapter_check,
         }
+
+    def provenance(self) -> tuple[int | None, str | None]:
+        """``(record_id, source_path)`` as last set by ``set_provenance()``."""
+        return self._record_id, self._source_path
 
     def has_publishable_content(self) -> bool:
         """True once a title and a description exist to publish."""

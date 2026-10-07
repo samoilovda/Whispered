@@ -521,6 +521,14 @@ class SettingsDialog(QDialog):
         self._book_temp_spin.setDecimals(1)
         self._row(layout, "settings_book_temp", self._book_temp_spin)
 
+        # What to do after a "Video for YouTube" run
+        self._yt_publish_combo = QComboBox()
+        self._combo_items(self._yt_publish_combo, [
+            ("settings_yt_publish_off", "off"),
+            ("settings_yt_publish_handoff", "handoff"),
+        ])
+        self._row(layout, "settings_yt_publish_mode", self._yt_publish_combo)
+
         return tab
 
     # ------------------------------------------------------------------ helpers
@@ -562,6 +570,8 @@ class SettingsDialog(QDialog):
         self._book_lm_url_edit.setText(cfg.book_lm_url)
         self._book_model_edit.setText(cfg.book_model_name or "")
         self._book_temp_spin.setValue(cfg.book_temperature)
+        idx = self._yt_publish_combo.findData(cfg.yt_publish_mode)
+        self._yt_publish_combo.setCurrentIndex(idx if idx >= 0 else 0)
 
         for combo, value in (
             (self._cover_layout_combo, cfg.cover_layout),
@@ -608,6 +618,7 @@ class SettingsDialog(QDialog):
         cfg.book_lm_url = self._book_lm_url_edit.text().strip() or "http://localhost:1234/v1"
         cfg.book_model_name = self._book_model_edit.text().strip()
         cfg.book_temperature = self._book_temp_spin.value()
+        cfg.yt_publish_mode = self._yt_publish_combo.currentData() or "off"
 
         cfg.cover_layout = self._cover_layout_combo.currentData() or "duo"
         cfg.cover_variant = self._cover_variant_combo.currentData() or "mint"

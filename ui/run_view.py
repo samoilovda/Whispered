@@ -254,6 +254,7 @@ class RunView(QWidget):
     retry_requested = pyqtSignal(str)
     cancel_requested = pyqtSignal()
     open_record_requested = pyqtSignal()
+    publish_requested = pyqtSignal()
     regenerate_requested = pyqtSignal(str)
     overall_progress_changed = pyqtSignal(int)
 
@@ -271,6 +272,8 @@ class RunView(QWidget):
         self._labels = dict(labels)
         self._recipe_name: str = ""
         self._run_started_at: Optional[float] = None
+        self._finished = False
+        self._publish_available = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -287,6 +290,11 @@ class RunView(QWidget):
         self._heading.setProperty("role", "page-title")
         self._heading.setVisible(False)
         header.addWidget(self._heading, stretch=1)
+        self._publish_button = QPushButton(tr("run_publish"))
+        self._publish_button.setProperty("variant", "ghost")
+        self._publish_button.setVisible(False)
+        self._publish_button.clicked.connect(self.publish_requested.emit)
+        header.addWidget(self._publish_button)
         self._open_button = QPushButton(tr("run_open_record"))
         self._open_button.setProperty("variant", "primary")
         self._open_button.setVisible(False)
@@ -340,6 +348,7 @@ class RunView(QWidget):
         *labels* come from the owner (MainWindow) via ``set_step_labels``;
         transient per-step status text refreshes on the next run event."""
         self._open_button.setText(tr("run_open_record"))
+        self._publish_button.setText(tr("run_publish"))
         if self._recipe_name:
             self._heading.setText(tr("run_heading", name=self._recipe_name))
         for row in self._rows.values():
@@ -369,7 +378,15 @@ class RunView(QWidget):
         a finished run is exactly when someone wants to read what each
         step did, and yanking the view away would take that with it.
         """
+        self._finished = finished
         self._open_button.setVisible(finished)
+        self._publish_button.setVisible(finished and self._publish_available)
+
+    def set_publish_available(self, available: bool) -> None:
+        """Offer "Publish to YouTube" once the run is finished — only
+        when it produced something to publish (a youtube_package)."""
+        self._publish_available = available
+        self._publish_button.setVisible(self._finished and available)
 
     def rows(self) -> "dict[str, RunStepRow]":
         return dict(self._rows)
