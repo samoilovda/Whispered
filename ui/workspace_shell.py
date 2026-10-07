@@ -46,6 +46,9 @@ class WorkspaceShell(QWidget):
         self.library = library
         self.center = center
         self._forced_compact = False
+        # The Library's width as the user dragged it (Config.library_width).
+        saved = int(getattr(get_config(), "library_width", 0) or 0)
+        self._library_width = saved if 220 <= saved <= 420 else LIBRARY_WIDTH
         self._i18n = Retranslator()
         self._setup_ui()
         self._i18n.call(self._retranslate_shell)
@@ -91,6 +94,7 @@ class WorkspaceShell(QWidget):
         self.splitter.setCollapsible(1, False)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
+        self.splitter.splitterMoved.connect(self._on_splitter_moved)
         root.addWidget(self.splitter)
 
     def showEvent(self, event) -> None:
@@ -123,10 +127,22 @@ class WorkspaceShell(QWidget):
             LIBRARY_COMPACT_WIDTH if compact_library else 420
         )
         if self.width() > 0:
-            library_width = LIBRARY_COMPACT_WIDTH if compact_library else LIBRARY_WIDTH
+            library_width = LIBRARY_COMPACT_WIDTH if compact_library else self._library_width
             self.splitter.setSizes(
                 [library_width, max(360, self.width() - library_width)]
             )
+
+    def _on_splitter_moved(self, _pos: int, _index: int) -> None:
+        """Keep the width the user dragged the Library to; resizing the
+        window used to snap it back to the default every time."""
+        if getattr(self, "_compact_library", False):
+            return
+        width = self.splitter.sizes()[0]
+        if 220 <= width <= 420:
+            self._library_width = width
+
+    def library_width(self) -> int:
+        return self._library_width
 
     def _on_header_action(self) -> None:
         if getattr(self, "_compact_library", False) and not self.library.isVisible():
@@ -134,7 +150,8 @@ class WorkspaceShell(QWidget):
             self.library_title.setVisible(True)
             self.library_pane.setMinimumWidth(220)
             self.library_pane.setMaximumWidth(420)
-            self.splitter.setSizes([280, max(360, self.width() - 280)])
+            width = self._library_width
+            self.splitter.setSizes([width, max(360, self.width() - width)])
             return
         self.new_requested.emit()
 

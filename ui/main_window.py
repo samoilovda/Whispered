@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QApplication, QTabWidget,
     QTextEdit, QLineEdit, QPlainTextEdit, QStackedWidget, QToolButton, QMenu, QInputDialog,
 )
-from PyQt6.QtCore import Qt, QTimer, QUrl, pyqtSignal
+from PyQt6.QtCore import QByteArray, Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices, QKeySequence, QShortcut, QDragEnterEvent, QDropEvent
 
 from ui.toast import show_toast
@@ -357,9 +357,29 @@ class MainWindow(QMainWindow):
         panel's private state (``book_panel._batch_worker``). See
         ui/shutdownable.py.
         """
+        self._save_window_state()
         for shutdownable in self._shutdownables:
             shutdownable.shutdown()
         event.accept()
+
+    def _save_window_state(self) -> None:
+        """Remember the window's geometry and the Library's width."""
+        if os.environ.get("WHISPERED_UI_GALLERY") == "1":
+            return
+        cfg = get_config()
+        cfg.window_geometry = bytes(self.saveGeometry().toBase64()).decode("ascii")
+        if hasattr(self, "workspace_shell"):
+            cfg.library_width = self.workspace_shell.library_width()
+        save_config()
+
+    def _restore_window_geometry(self) -> None:
+        saved = getattr(get_config(), "window_geometry", "") or ""
+        if not saved or os.environ.get("WHISPERED_UI_GALLERY") == "1":
+            return
+        try:
+            self.restoreGeometry(QByteArray.fromBase64(saved.encode("ascii")))
+        except Exception as exc:
+            logger.debug("Ignoring unreadable window geometry: %s", exc)
 
 
     def _setup_ui(self):
@@ -412,6 +432,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Whispered")
         self.setMinimumSize(900, 550)
         self.resize(1100, 700)
+        self._restore_window_geometry()
 
         self._palette_menu_actions = self._init_menu_bar()
 

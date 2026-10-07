@@ -77,6 +77,10 @@ class Config:
     sidebar_collapsed: bool = False
     live_diagnostics_expanded: bool = False
     library_collapsed: bool = False
+    # Window position/size (QWidget.saveGeometry, base64) and the Library
+    # column's width as the user left them; empty/0 = defaults.
+    window_geometry: str = ""
+    library_width: int = 0
 
     # UI language
     ui_language: str = "auto"   # "auto" | "en" | "ru"
