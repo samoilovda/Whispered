@@ -943,5 +943,14 @@
   "insights_my_notes": "My notes",
   "insights_notes_placeholder": "Your notes on this record — the next insights run takes them into account.",
   "insights_notes_save_error": "Couldn't save the notes",
-  "library_chip_notes": "notes"
+  "library_chip_notes": "notes",
+  "settings_tray_icon": "Menu bar icon: recorder, live session, recent records",
+  "tray_show_window": "Show Whispered",
+  "tray_start_recording": "Start recording",
+  "tray_stop_recording": "Stop recording",
+  "tray_live": "Live session…",
+  "tray_open_file": "Open file…",
+  "tray_recent": "Recent records",
+  "tray_no_records": "No records yet",
+  "tray_quit": "Quit Whispered"
 }

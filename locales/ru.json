@@ -943,5 +943,14 @@
   "insights_my_notes": "Мои заметки",
   "insights_notes_placeholder": "Ваши заметки к этой записи — их учтут при следующем создании итогов.",
   "insights_notes_save_error": "Не удалось сохранить заметки",
-  "library_chip_notes": "заметки"
+  "library_chip_notes": "заметки",
+  "settings_tray_icon": "Значок в строке меню: диктофон, живая встреча, недавние записи",
+  "tray_show_window": "Показать Whispered",
+  "tray_start_recording": "Начать запись с микрофона",
+  "tray_stop_recording": "Остановить запись",
+  "tray_live": "Живая встреча…",
+  "tray_open_file": "Открыть файл…",
+  "tray_recent": "Недавние записи",
+  "tray_no_records": "Записей пока нет",
+  "tray_quit": "Выйти из Whispered"
 }

@@ -137,6 +137,10 @@ class RecorderWidget(QWidget):
 
     # ------------------------------------------------------------------ public
 
+    def is_recording(self) -> bool:
+        rec = self._recorder
+        return rec is not None and rec.is_recording()
+
     def set_device(self, device_index: Optional[int]) -> None:
         self._device = device_index
         index = self._device_combo.findData(device_index)

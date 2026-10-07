@@ -265,6 +265,11 @@ class SettingsDialog(QDialog):
         self._theme_combo.currentIndexChanged.connect(self._on_theme_changed)
         self._row(layout, "settings_theme", self._theme_combo)
 
+        # Menu-bar / tray icon (ui/tray.py)
+        self._tray_chk = QCheckBox()
+        self._tt(self._tray_chk, "settings_tray_icon")
+        layout.addRow(self._tray_chk)
+
         # History
         self._history_chk = QCheckBox()
         self._tt(self._history_chk, "settings_history_enabled")
@@ -625,6 +630,7 @@ class SettingsDialog(QDialog):
         idx = self._theme_combo.findData(cfg.theme)
         self._theme_combo.setCurrentIndex(idx if idx >= 0 else 0)
         self._history_chk.setChecked(cfg.history_enabled)
+        self._tray_chk.setChecked(getattr(cfg, "tray_icon_enabled", True))
         self._live_chk.setChecked(getattr(cfg, "live_transcription_enabled", False))
         idx = self._lang_ui_combo.findData(getattr(cfg, "ui_language", "auto"))
         self._lang_ui_combo.setCurrentIndex(idx if idx >= 0 else 0)
@@ -684,6 +690,7 @@ class SettingsDialog(QDialog):
         # General
         cfg.theme = self._theme_combo.currentData() or "dark"
         cfg.history_enabled = self._history_chk.isChecked()
+        cfg.tray_icon_enabled = self._tray_chk.isChecked()
         cfg.live_transcription_enabled = self._live_chk.isChecked()
         cfg.ui_language = self._lang_ui_combo.currentData() or "auto"
         cfg.watch_folder_enabled = self._watch_enabled_chk.isChecked()

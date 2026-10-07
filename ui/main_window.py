@@ -231,6 +231,7 @@ class MainWindow(QMainWindow):
         self._shutdownables.append(self.transcriber)
         self._cleaned_text: str | None = None
         self._bookmarks: list = []
+        self._tray = None
         self._clean_job: JobRunner | None = None
         self._article_job: JobRunner | None = None
         self._insights_job: JobRunner | None = None
@@ -315,6 +316,7 @@ class MainWindow(QMainWindow):
         # Apply saved mic device
         cfg = get_config()
         self.recorder_widget.set_device(getattr(cfg, "mic_device_index", None))
+        self._apply_tray_config()
         # A job_runs row can only stay 'running' while the process that
         # wrote it is alive (see run_store.save_run's docstring) — one
         # still 'running' at startup means that process died mid-run
@@ -358,9 +360,36 @@ class MainWindow(QMainWindow):
         ui/shutdownable.py.
         """
         self._save_window_state()
+        if self._tray is not None:
+            self._tray.hide()
         for shutdownable in self._shutdownables:
             shutdownable.shutdown()
         event.accept()
+
+    def _apply_tray_config(self) -> None:
+        """Show or hide the menu-bar / tray icon per Config.tray_icon_enabled."""
+        from ui.tray import TrayController
+
+        wanted = bool(getattr(get_config(), "tray_icon_enabled", True))
+        if os.environ.get("WHISPERED_UI_GALLERY") == "1" or not TrayController.available():
+            wanted = False
+        if wanted and self._tray is None:
+            self._tray = TrayController(
+                self,
+                status_text=self._tray_status_text,
+                recording=self.recorder_widget.is_recording,
+            )
+        if self._tray is not None:
+            (self._tray.show if wanted else self._tray.hide)()
+
+    def _tray_status_text(self) -> str:
+        """The status bar's line while something is running, else ""."""
+        busy = (
+            (self._recipe_job is not None and self._recipe_job.isRunning())
+            or self.recorder_widget.is_recording()
+            or self.cancel_btn.isVisible()
+        )
+        return self.status_label.text() if busy else ""
 
     def _save_window_state(self) -> None:
         """Remember the window's geometry and the Library's width."""
@@ -1568,6 +1597,7 @@ class MainWindow(QMainWindow):
         self.course_capture_panel.setup.refresh_model_state()
         self.live_view.setup.refresh_model_state()
         self.start_view.refresh_readiness()
+        self._apply_tray_config()
 
     def _apply_watch_folder_config(self) -> None:
         """Point _watch_folder_service at Config.watch_folder, or stop it

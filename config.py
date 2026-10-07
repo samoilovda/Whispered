@@ -81,6 +81,9 @@ class Config:
     # column's width as the user left them; empty/0 = defaults.
     window_geometry: str = ""
     library_width: int = 0
+    # A menu-bar (macOS) / tray icon with the recorder, live session,
+    # open file and recent records (ui/tray.py).
+    tray_icon_enabled: bool = True
 
     # UI language
     ui_language: str = "auto"   # "auto" | "en" | "ru"
