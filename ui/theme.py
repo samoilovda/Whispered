@@ -483,6 +483,51 @@ def build_stylesheet(t: Theme) -> str:
         border-color: {t.accent};
     }}
 
+    /* ── Radio buttons (same language as the checkbox) ── */
+    QRadioButton {{
+        color: {t.text_primary};
+        spacing: 8px;
+        background: transparent;
+    }}
+    QRadioButton::indicator {{
+        width: 14px;
+        height: 14px;
+        border: 1px solid {t.border_input};
+        border-radius: 7px;
+        background-color: {t.bg_surface};
+    }}
+    QRadioButton::indicator:hover {{
+        border-color: {t.accent};
+    }}
+    QRadioButton::indicator:checked {{
+        border: 1px solid {t.accent};
+        background-color: qradialgradient(cx: 0.5, cy: 0.5, radius: 0.5, fx: 0.5, fy: 0.5,
+            stop: 0 #ffffff, stop: 0.38 #ffffff, stop: 0.48 {t.accent}, stop: 1 {t.accent});
+    }}
+
+    /* ── Tool boxes (YouTube sections, article formats) ── */
+    QToolBox {{
+        background: transparent;
+    }}
+    QToolBox::tab {{
+        background-color: {t.bg_surface};
+        border: 1px solid {t.border};
+        border-radius: {t.radius_sm};
+        padding: 0 12px;
+        min-height: 28px;
+        color: {t.text_secondary};
+        font-weight: 600;
+    }}
+    QToolBox::tab:hover {{
+        color: {t.text_primary};
+        border-color: {t.border_hover};
+    }}
+    QToolBox::tab:selected {{
+        color: {t.text_primary};
+        background-color: {t.bg_elevated};
+        border-color: {rgba(t.accent, 0.6)};
+    }}
+
     /* ── Tabs ── */
     QTabWidget::pane {{
         border: none;
