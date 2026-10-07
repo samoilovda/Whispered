@@ -15,7 +15,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from utils import get_cached_gpu
 from core.base_worker import BaseWorker
 from core.logger import get_logger
-from domain.transcription import Segment, TranscriptionResult, Word  # noqa: F401 (re-exported)
+from domain.transcription import Segment, TranscriptionResult, Word, merge_confidence  # noqa: F401 (re-exported)
 
 logger = get_logger(__name__)
 
@@ -102,6 +102,16 @@ _BATCH_MERGE_MAX_WORDS = 35
 _SENTENCE_END_RE = re.compile(r"[.!?…][\"'”’»)]*$")
 
 
+def _confidence(value) -> Optional[float]:
+    """pywhispercpp's segment probability as a confidence, or None when
+    it wasn't computed (NaN) or is out of range."""
+    try:
+        conf = float(value)
+    except (TypeError, ValueError):
+        return None
+    return conf if 0.0 <= conf <= 1.0 else None
+
+
 def _group_words_into_segments(words: list) -> list:
     """Group word-level items into phrase Segments.
 
@@ -169,6 +179,7 @@ def _coalesce_batch_segments(segments: list[Segment]) -> list[Segment]:
             text=text,
             speaker=group[0].speaker,
             words=[word for item in group for word in item.words],
+            confidence=merge_confidence(group),
         ))
         group.clear()
 
@@ -347,7 +358,11 @@ def _run_transcription_process(
 
         # Run transcription
         q.put(('progress', 20, "Transcribing audio..."))
-        segments_raw = model.transcribe(audio_path, new_segment_callback=segment_cb, **params)
+        # extract_probability adds whisper.cpp's per-segment confidence
+        # (R6); measured: same text, no measurable slowdown.
+        segments_raw = model.transcribe(
+            audio_path, new_segment_callback=segment_cb, extract_probability=True, **params,
+        )
 
         q.put(('progress', 90, "Processing results..."))
 
@@ -363,7 +378,8 @@ def _run_transcription_process(
                     start=seg.t0 / 100.0,
                     end=seg.t1 / 100.0,
                     text=seg.text,
-                    speaker=None
+                    speaker=None,
+                    confidence=_confidence(getattr(seg, "probability", None)),
                 ))
 
         # Run diarization if enabled

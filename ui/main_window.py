@@ -202,6 +202,7 @@ def _result_from_payload(payload: dict) -> TranscriptionResult:
             text=s["text"],
             speaker=s.get("speaker"),
             words=[Word(**word) for word in s.get("words", [])],
+            confidence=s.get("confidence"),
         )
         for s in payload.get("segments", [])
     ]

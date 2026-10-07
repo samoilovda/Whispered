@@ -281,6 +281,11 @@ def _result_to_payload(result: Any, model: str = "", speaker_names: dict | None 
                 {"start": word.start, "end": word.end, "text": word.text}
                 for word in getattr(seg, "words", [])
             ],
+            # Older payloads simply lack the key (read back as None).
+            **(
+                {"confidence": round(seg.confidence, 4)}
+                if getattr(seg, "confidence", None) is not None else {}
+            ),
         }
         for seg in result.segments
     ]

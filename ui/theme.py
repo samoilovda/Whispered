@@ -892,6 +892,16 @@ def build_stylesheet(t: Theme) -> str:
         font-size: {t.font_sm};
         font-family: "SF Mono", "Menlo", "Consolas", monospace;
     }}
+    QPushButton[role="uncertain-link"] {{
+        background: transparent;
+        border: none;
+        padding: 4px 6px;
+        color: {t.warning};
+        font-size: {t.font_sm};
+    }}
+    QPushButton[role="uncertain-link"]:hover {{
+        text-decoration: underline;
+    }}
     QWidget[role="transparent"] {{
         background: transparent;
     }}

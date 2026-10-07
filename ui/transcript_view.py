@@ -31,6 +31,7 @@ from PyQt6.QtGui import (
 )
 
 from domain.paragraphs import group_paragraphs
+from domain.transcription import LOW_CONFIDENCE
 from transcriber import TranscriptionResult
 from utils import format_duration, format_timestamp_vtt
 from ui.icons import get_icon, IconColors
@@ -281,6 +282,14 @@ class TranscriptView(QWidget):
         self.speakers_btn.setVisible(False)
         header_layout.addWidget(self.speakers_btn)
 
+        # Low-confidence segments (R6): how many, and a step to the next.
+        self.uncertain_btn = QPushButton()
+        self.uncertain_btn.setProperty("role", "uncertain-link")
+        self.uncertain_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.uncertain_btn.clicked.connect(self.next_uncertain)
+        self.uncertain_btn.setVisible(False)
+        header_layout.addWidget(self.uncertain_btn)
+
         # Rename speakers button
         self.rename_btn = QPushButton(tr("btn_rename_speakers"))
         self.rename_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -506,7 +515,39 @@ class TranscriptView(QWidget):
 
     # ------------------------------------------------------------------ display
 
+    def _uncertain_indices(self) -> list[int]:
+        if self._result is None:
+            return []
+        return [
+            i for i, seg in enumerate(self._result.segments)
+            if seg.confidence is not None and seg.confidence < LOW_CONFIDENCE
+        ]
+
+    def _render_uncertain(self) -> None:
+        count = len(self._uncertain_indices()) if not self._edit_mode else 0
+        self.uncertain_btn.setVisible(count > 0)
+        if count:
+            self.uncertain_btn.setText(f"◌ {tr_count('transcript_uncertain', count)}")
+            self.uncertain_btn.setToolTip(tr("transcript_uncertain_tooltip"))
+
+    def next_uncertain(self) -> None:
+        """Select the next low-confidence segment after the cursor
+        (wrapping), so the reader can check it against the audio."""
+        targets = set(self._uncertain_indices())
+        spans = [s for s in self._segment_spans if s.index in targets]
+        if not spans:
+            return
+        here = self.text_edit.textCursor().selectionEnd()
+        span = next((s for s in spans if s.pos_from >= here), spans[0])
+        cursor = QTextCursor(self.text_edit.document())
+        cursor.setPosition(span.pos_from)
+        cursor.setPosition(span.pos_to, QTextCursor.MoveMode.KeepAnchor)
+        self.text_edit.setTextCursor(cursor)
+        self.text_edit.ensureCursorVisible()
+        self.seek_requested.emit(span.seconds)
+
     def _render_stats(self) -> None:
+        self._render_uncertain()
         result = self._result
         if result is None:
             self.stats_label.setText("")
@@ -550,6 +591,7 @@ class TranscriptView(QWidget):
         self.speakers_btn.setVisible(has_speakers)
         self.rename_btn.setVisible(has_speakers)
         self._render_reading(with_speakers=has_speakers and self._show_speakers)
+        self._render_uncertain()
 
     def _clear_spans(self) -> None:
         self._spans = []
@@ -672,6 +714,7 @@ class TranscriptView(QWidget):
         self._edit_mode = True
         self.edit_btn.setChecked(True)
         self.stats_bar.setVisible(True)
+        self._render_uncertain()
         self._follow_btn.setVisible(False)
 
         if not self._result:
@@ -769,6 +812,9 @@ class TranscriptView(QWidget):
                     text=text,
                     speaker=original.speaker,
                     words=list(original.words),
+                    # A corrected segment is no longer "uncertain" (R6);
+                    # an untouched one keeps its confidence.
+                    confidence=original.confidence if text == original.text.strip() else None,
                 ))
                 continue
             # End time: next segment's start, else preserve original / duration.
@@ -974,6 +1020,20 @@ class TranscriptView(QWidget):
     def _refresh_extra_selections(self) -> None:
         theme = get_theme()
         selections: list[QTextEdit.ExtraSelection] = []
+        uncertain = set(self._uncertain_indices()) if not self._edit_mode else set()
+        if uncertain:
+            for span in self._segment_spans:
+                if span.index in uncertain:
+                    sel = QTextEdit.ExtraSelection()
+                    cursor = QTextCursor(self.text_edit.document())
+                    cursor.setPosition(span.pos_from)
+                    cursor.setPosition(span.pos_to, QTextCursor.MoveMode.KeepAnchor)
+                    sel.cursor = cursor
+                    fmt = QTextCharFormat()
+                    fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.DotLine)
+                    fmt.setUnderlineColor(QColor(theme.warning))
+                    sel.format = fmt
+                    selections.append(sel)
         if not self._edit_mode and self._cut_indices:
             muted = QColor(theme.text_muted)
             for span in self._segment_spans:

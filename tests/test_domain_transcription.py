@@ -74,3 +74,30 @@ def test_segment_words_default_to_empty_list_independently():
     a.words.append(Word(start=0.0, end=0.5, text="a"))
     assert a.words != b.words
     assert b.words == []
+
+
+def test_merge_confidence_is_a_length_weighted_geometric_mean():
+    import math
+
+    from domain.transcription import Segment, merge_confidence
+
+    parts = [Segment(0, 1, "aaaa", confidence=0.9), Segment(1, 2, "bb", confidence=0.6),
+             Segment(2, 3, "c", confidence=None)]
+    expected = math.exp((4 * math.log(0.9) + 2 * math.log(0.6)) / 6)
+    assert abs(merge_confidence(parts) - expected) < 1e-9
+    assert merge_confidence([Segment(0, 1, "x")]) is None
+
+
+def test_confidence_survives_the_history_payload(tmp_path):
+    from core.history import HistoryStore
+    from domain.transcription import Segment, TranscriptionResult
+
+    store = HistoryStore(db_path=tmp_path / "h.db")
+    result = TranscriptionResult(
+        segments=[Segment(0, 1, "sure", confidence=0.95123), Segment(1, 2, "old")],
+        language="en", duration=2,
+    )
+    rid = store.add(result, source_path="/m/a.mp3", model="")
+    segments = store.get(rid)["segments"]
+    assert segments[0]["confidence"] == 0.9512
+    assert "confidence" not in segments[1]

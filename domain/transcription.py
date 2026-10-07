@@ -12,8 +12,16 @@ unaffected; new code should import from here directly.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional
+
+# Segments whose confidence is below this read as "check this" in the
+# transcript (R6). Measured on real 3-minute clips with large-v3-turbo-q5:
+# clean Russian speech had a median of 0.93 and a minimum of 0.69; a
+# hard English recording had a median of 0.80, and its garbled phrases
+# ("being hanged in in an air in in the air") sat at 0.66–0.70.
+LOW_CONFIDENCE = 0.70
 
 
 @dataclass
@@ -32,6 +40,25 @@ class Segment:
     text: str     # Transcribed text
     speaker: Optional[str] = None  # Speaker label (e.g., "Speaker 1")
     words: List['Word'] = field(default_factory=list)  # Word-level timings (video mode only)
+    # whisper.cpp's geometric mean of the segment's token probabilities,
+    # in [0, 1]; None when not measured (older records, live, edited).
+    confidence: Optional[float] = None
+
+
+def merge_confidence(parts: Iterable["Segment"]) -> Optional[float]:
+    """Confidence of segments joined into one: the text-length-weighted
+    geometric mean of theirs (how whisper averages tokens), ignoring
+    parts that have none; None when none has one."""
+    total = 0.0
+    weight = 0
+    for part in parts:
+        conf = part.confidence
+        if conf is None or not 0.0 < conf <= 1.0:
+            continue
+        length = max(1, len(part.text.strip()))
+        total += length * math.log(conf)
+        weight += length
+    return math.exp(total / weight) if weight else None
 
 
 @dataclass

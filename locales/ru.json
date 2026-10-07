@@ -952,5 +952,9 @@
   "tray_open_file": "Открыть файл…",
   "tray_recent": "Недавние записи",
   "tray_no_records": "Записей пока нет",
-  "tray_quit": "Выйти из Whispered"
+  "tray_quit": "Выйти из Whispered",
+  "transcript_uncertain_one": "{count} неуверенный фрагмент",
+  "transcript_uncertain_few": "{count} неуверенных фрагмента",
+  "transcript_uncertain_many": "{count} неуверенных фрагментов",
+  "transcript_uncertain_tooltip": "Здесь распознавание не уверено — подчёркнуто точками. Нажмите, чтобы перейти к следующему и послушать."
 }
