@@ -117,3 +117,32 @@ def test_a_broken_package_file_leaves_the_tab_empty(window):
 
     assert window._load_from_history(record)
     assert window.youtube_panel._state == "ready"
+
+
+def test_cleaned_text_and_articles_follow_the_opened_record(window, process_events):
+    """Record B never shows record A's cleaned text or articles — and A's
+    cleaned text no longer feeds B's article generation — while each
+    record's own saved ones come back on opening."""
+    from core.paths import artifact_dir
+
+    a = window._test_store.add(_result("alpha"), source_path="/media/a.mp4", model="")
+    b = window._test_store.add(_result("beta"), source_path="/media/b.mp4", model="")
+    folder = artifact_dir(a, "/media/a.mp4")
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "clean.md").write_text("Alpha, cleaned.", encoding="utf-8")
+    (folder / "articles.json").write_text(
+        json.dumps({"summary": {"title": "A summary", "content": "About alpha."}}),
+        encoding="utf-8",
+    )
+
+    window._open_record_view(a)
+    process_events()
+    assert window.cleaned_view.get_text() == "Alpha, cleaned."
+    assert window.article_view.has_articles()
+    assert window._get_text_for_ai() == "Alpha, cleaned."
+
+    window._open_record_view(b)
+    process_events()
+    assert window.cleaned_view.get_text() == ""
+    assert not window.article_view.has_articles()
+    assert window._get_text_for_ai() == "beta"

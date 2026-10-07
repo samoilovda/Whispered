@@ -2683,6 +2683,15 @@ class MainWindow(QMainWindow):
             self.youtube_panel.clear()
             self._cancel_insights_job()
             self.insights_panel.clear()
+            # The same goes for cleaned text and articles — and the cleaned
+            # text also feeds the next article generation
+            # (_get_text_for_ai), so a stale one would write the previous
+            # record's text into this record's articles.
+            self._cancel_clean_job()
+            self._cancel_article_job()
+            self._cleaned_text = None
+            self.cleaned_view.clear()
+            self.article_view.clear()
             self._document_session.apply_result(result)
             self.cover_view.set_provenance(record_id, source_path or None)
             self.cover_view.set_video_source(source_path if has_media else None)
@@ -2730,11 +2739,12 @@ class MainWindow(QMainWindow):
     def _restore_saved_results(
         self, record_id: int, source_path: str, result: TranscriptionResult,
     ) -> None:
-        """Show the record's own saved Insights and YouTube package, if it
-        has them — the package with its chapter/title/description edits and
-        offset — on opening, not only after running the steps again. Read
-        from the same folder the steps write to; a missing or unreadable
-        result leaves its tab empty, offering to create one."""
+        """Show the record's own saved cleaned text, articles, Insights and
+        YouTube package, if it has them — the package with its
+        chapter/title/description edits and offset — on opening, not only
+        after running the steps again. Read from the same folder the steps
+        write to; a missing or unreadable result leaves its tab empty,
+        offering to create one."""
         from core.paths import artifact_dir
 
         context = StepContext(
@@ -2743,6 +2753,27 @@ class MainWindow(QMainWindow):
             record_id=record_id,
             artifact_dir=artifact_dir(record_id, source_path or "recording"),
         )
+        from article_generator import GenerationResult
+        from text_processor import ProcessingResult
+
+        try:
+            cleaned = load_step_result(context, "clean")
+        except Exception as exc:
+            logger.warning("Could not restore clean of record %d: %s", record_id, exc)
+            cleaned = None
+        if isinstance(cleaned, ProcessingResult) and cleaned.coherent.text:
+            self._cleaned_text = cleaned.coherent.text
+            self.cleaned_view.set_text(
+                cleaned.coherent.text, paragraphs=len(cleaned.coherent.paragraphs),
+            )
+        try:
+            articles = load_step_result(context, "article")
+        except Exception as exc:
+            logger.warning("Could not restore articles of record %d: %s", record_id, exc)
+            articles = None
+        if isinstance(articles, GenerationResult) and articles.articles:
+            self.article_view.set_articles(articles.articles)
+
         # Insights first: the YouTube package's chapters, when present,
         # then take over the shared chapter list (_refresh_record_chapters).
         for name, panel in (("insights", self.insights_panel), ("youtube_package", self.youtube_panel)):
