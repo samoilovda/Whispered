@@ -524,6 +524,47 @@ class SettingsDialog(QDialog):
         self._book_temp_spin.setDecimals(1)
         self._row(layout, "settings_book_temp", self._book_temp_spin)
 
+        # Provider for Insights and the YouTube package — moved here from
+        # the YouTube tab: recipe runs read it too, so it is a default, not
+        # a per-panel choice. Local LM Studio stays the default (rule 1).
+        self._yt_provider_combo = QComboBox()
+        self._combo_items(self._yt_provider_combo, [
+            ("provider_lmstudio", "lmstudio"),
+            ("provider_openai", "openai"),
+            ("provider_anthropic", "anthropic"),
+        ])
+        self._yt_provider_combo.currentIndexChanged.connect(self._on_yt_provider_changed)
+        self._yt_configure_btn = QPushButton()
+        self._tt(self._yt_configure_btn, "provider_configure")
+        self._yt_configure_btn.clicked.connect(self._open_yt_provider_dialog)
+        provider_row = QHBoxLayout()
+        provider_row.setContentsMargins(0, 0, 0, 0)
+        provider_row.addWidget(self._yt_provider_combo, stretch=1)
+        provider_row.addWidget(self._yt_configure_btn)
+        provider_line = QWidget()
+        provider_line.setLayout(provider_row)
+        self._yt_privacy_notice = QLabel()
+        self._tt(self._yt_privacy_notice, "youtube_privacy_notice")
+        self._yt_privacy_notice.setWordWrap(True)
+        self._yt_privacy_notice.setProperty("role", "warning-text")
+        self._yt_privacy_notice.setProperty("size", "small")
+        provider_box = QVBoxLayout()
+        provider_box.setContentsMargins(0, 0, 0, 0)
+        provider_box.addWidget(provider_line)
+        provider_box.addWidget(self._yt_privacy_notice)
+        provider_widget = QWidget()
+        provider_widget.setLayout(provider_box)
+        self._row(layout, "settings_yt_provider", provider_widget)
+
+        # Language the YouTube package is written in
+        self._yt_language_combo = QComboBox()
+        self._combo_items(self._yt_language_combo, [
+            ("settings_yt_language_auto", ""),
+            ("settings_yt_language_russian", "Russian"),
+            ("settings_yt_language_english", "English"),
+        ])
+        self._row(layout, "settings_yt_language", self._yt_language_combo)
+
         # What to do after a "Video for YouTube" run
         self._yt_publish_combo = QComboBox()
         self._combo_items(self._yt_publish_combo, [
@@ -604,6 +645,11 @@ class SettingsDialog(QDialog):
         self._book_temp_spin.setValue(cfg.book_temperature)
         idx = self._yt_publish_combo.findData(cfg.yt_publish_mode)
         self._yt_publish_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        idx = self._yt_provider_combo.findData(cfg.yt_provider)
+        self._yt_provider_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        idx = self._yt_language_combo.findData(cfg.yt_language)
+        self._yt_language_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self._on_yt_provider_changed()
 
         for combo, value in (
             (self._cover_layout_combo, cfg.cover_layout),
@@ -651,6 +697,8 @@ class SettingsDialog(QDialog):
         cfg.book_model_name = self._book_model_edit.text().strip()
         cfg.book_temperature = self._book_temp_spin.value()
         cfg.yt_publish_mode = self._yt_publish_combo.currentData() or "off"
+        cfg.yt_provider = self._yt_provider_combo.currentData() or "lmstudio"
+        cfg.yt_language = self._yt_language_combo.currentData() or ""
 
         cfg.cover_layout = self._cover_layout_combo.currentData() or "duo"
         cfg.cover_variant = self._cover_variant_combo.currentData() or "mint"
@@ -665,6 +713,16 @@ class SettingsDialog(QDialog):
 
         if cfg.ui_language != prev_lang:
             self._lang_changed = True
+
+    def _on_yt_provider_changed(self, *_args) -> None:
+        is_cloud = (self._yt_provider_combo.currentData() or "lmstudio") != "lmstudio"
+        self._yt_configure_btn.setEnabled(is_cloud)
+        self._yt_privacy_notice.setVisible(is_cloud)
+
+    def _open_yt_provider_dialog(self) -> None:
+        from ui.provider_dialog import ProviderDialog
+        kind = self._yt_provider_combo.currentData() or "lmstudio"
+        ProviderDialog(kind=kind, parent=self).exec()
 
     def _connect_dirty_signals(self) -> None:
         for widget in self.findChildren(QComboBox):

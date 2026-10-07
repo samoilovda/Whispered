@@ -35,6 +35,7 @@ _CURRENT_SCHEMA_VERSION = 1
 # Allowed enum values for validated fields.
 _VALID_PROVIDERS = frozenset({"lmstudio", "openai", "anthropic"})
 _VALID_PUBLISH_MODES = frozenset({"off", "handoff", "api"})
+_VALID_YT_LANGUAGES = frozenset({"", "Russian", "English"})
 _VALID_THEMES = frozenset({"dark", "light"})
 _VALID_PERFORMANCE_MODES = frozenset({"fast", "balanced", "accurate"})
 _VALID_FPS = frozenset({24, 25, 30, 60})
@@ -141,6 +142,10 @@ class Config:
     yt_openai_model: str = "gpt-4o-mini"                 # editable default
     yt_anthropic_api_key: str = ""
     yt_anthropic_model: str = "claude-sonnet-5"          # editable default
+    # Language the YouTube package is written in: "" follows the recording,
+    # otherwise the language name the prompts ask for. Read only by the
+    # youtube_package step, so it never changes other steps' language.
+    yt_language: str = ""                                # "" | "Russian" | "English"
 
     # What happens after a "Video for YouTube" run: nothing, open the
     # hand-off dialog (copy text, reveal video, open Studio), or also allow
@@ -177,6 +182,11 @@ class Config:
             warnings.append(
                 f"yt_provider={self.yt_provider!r} is not one of"
                 f" {sorted(_VALID_PROVIDERS)}"
+            )
+        if self.yt_language not in _VALID_YT_LANGUAGES:
+            warnings.append(
+                f"yt_language={self.yt_language!r} is not one of"
+                f" {sorted(_VALID_YT_LANGUAGES)}"
             )
         if self.yt_publish_mode not in _VALID_PUBLISH_MODES:
             warnings.append(

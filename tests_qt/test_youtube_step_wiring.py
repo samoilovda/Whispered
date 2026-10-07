@@ -124,7 +124,7 @@ def test_no_lm_studio_url_reports_the_error_without_starting_a_job(
     process_events()
 
     assert window._youtube_job is None
-    assert window.youtube_panel._retry_label.text()
+    assert window.youtube_panel._state_label.text()
 
     window.close()
 
@@ -154,7 +154,7 @@ def test_youtube_job_failure_reports_the_error_without_crashing(
     assert window._youtube_job is None
     assert not window.youtube_panel._copy_btn.isEnabled()
     assert "LM Studio unreachable" in window.youtube_panel._chapters_edit.toPlainText()
-    assert window.youtube_panel._retry_label.text()
+    assert window.youtube_panel._state_label.text()
 
     window.close()
 

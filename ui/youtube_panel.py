@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QComboBox, QPlainTextEdit, QApplication, QToolBox,
+    QPushButton, QPlainTextEdit, QApplication, QToolBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -66,7 +66,7 @@ _TAB_SPECS: tuple[_TabSpec, ...] = (
     _TabSpec("yt_questions", "_questions_edit", "questions", "yt_tab_questions"),
 )
 
-# The language combo's data is the name the prompt asks for; YouTube's
+# Config.yt_language holds the name the prompt asks for; YouTube's
 # snippet.defaultLanguage wants a code.
 _LANGUAGE_CODES = {"Russian": "ru", "English": "en"}
 
@@ -85,11 +85,18 @@ def _friendly_path(path: Path) -> str:
 
 
 class YouTubePanel(QWidget):
-    """YouTube tab — generates titles, description, tags, and timecode chapters."""
+    """YouTube tab — shows the youtube_package step's result: chapters,
+    titles, description, tags and key questions.
 
-    # Emitted by set_result()/set_error() once MainWindow's "youtube_package"
-    # JobRunner has settled. Lets a preset chain (MainWindow) know when it's
-    # safe to move on without polling internal job state.
+    A pure viewer (B5): provider and output language live in Settings, and
+    the step runs from File > Create YouTube package / Ctrl+K. The panel's
+    only way to start it is ``_run_link``, which asks MainWindow for that
+    same action through ``generate_requested``."""
+
+    # generate_requested: the run link was clicked — MainWindow runs the
+    # same single-step job as the menu action. generation_finished: emitted
+    # by set_result()/set_error() once MainWindow's "youtube_package"
+    # JobRunner has settled.
     generate_requested = pyqtSignal()
     generation_finished = pyqtSignal(bool)
     publish_requested = pyqtSignal()
@@ -110,29 +117,23 @@ class YouTubePanel(QWidget):
         # manifest (see core.paths.artifact_dir / R5-full in the audit plan).
         self._record_id: int | None = None
         self._source_path: str | None = None
-        self._generating = False
+        # "empty" (nothing to work from), "ready" (transcript, no package),
+        # "generating", "error" or "done" — drives the state row below.
+        self._state = "empty"
+        self._error_reason = ""
         self._i18n = Retranslator()
         self._setup_ui()
         self._i18n.call(self._retranslate_youtube)
         self._i18n.bind()
 
     def _retranslate_youtube(self) -> None:
-        self._configure_btn.setText(tr("provider_configure"))
         self._copy_btn.setText(tr("youtube_copy"))
         self._save_btn.setText(tr("youtube_save"))
         self._publish_btn.setText(tr("yt_publish_btn"))
-        self._retry_btn.setText(tr("youtube_retry"))
-        self._privacy_notice.setText(tr("youtube_privacy_notice"))
-        self._lang_combo.setItemText(0, tr("youtube_lang_auto"))
-        for i, key in enumerate(("provider_lmstudio", "provider_openai", "provider_anthropic")):
-            self._provider_combo.setItemText(i, tr(key))
         for i, spec in enumerate(_TAB_SPECS):
             self._tabs.setItemText(i, tr(spec.label_key))
-        self._gen_btn.setText(
-            tr("youtube_generating") if self._generating else tr("youtube_generate")
-        )
-        if self._placeholder.isVisible():
-            self._placeholder.setText(tr("youtube_placeholder"))
+        self._placeholder.setText(tr("youtube_placeholder"))
+        self._render_state()
         self._render_chapter_status()
 
     # ── UI ──────────────────────────────────────────────────────────
@@ -151,31 +152,6 @@ class YouTubePanel(QWidget):
 
         controls = QHBoxLayout()
         controls.setSpacing(8)
-
-        self._lang_combo = QComboBox()
-        self._lang_combo.addItem(tr("youtube_lang_auto"), None)
-        self._lang_combo.addItem("Русский", "Russian")
-        self._lang_combo.addItem("English", "English")
-        controls.addWidget(self._lang_combo)
-
-        self._provider_combo = QComboBox()
-        self._provider_combo.addItem(tr("provider_lmstudio"), "lmstudio")
-        self._provider_combo.addItem(tr("provider_openai"), "openai")
-        self._provider_combo.addItem(tr("provider_anthropic"), "anthropic")
-        self._provider_combo.currentIndexChanged.connect(self._on_provider_changed)
-        controls.addWidget(self._provider_combo)
-
-        self._configure_btn = QPushButton(tr("provider_configure"))
-        self._configure_btn.setEnabled(False)
-        self._configure_btn.clicked.connect(self._open_provider_dialog)
-        controls.addWidget(self._configure_btn)
-
-        self._gen_btn = QPushButton(tr("youtube_generate"))
-        self._gen_btn.setProperty("variant", "primary")
-        self._gen_btn.setEnabled(False)
-        self._gen_btn.clicked.connect(self.generate_requested.emit)
-        controls.addWidget(self._gen_btn)
-
         controls.addStretch()
 
         self._copy_btn = QPushButton(tr("youtube_copy"))
@@ -195,35 +171,25 @@ class YouTubePanel(QWidget):
 
         layout.addLayout(controls)
 
-        self._privacy_notice = QLabel(tr("youtube_privacy_notice"))
-        self._privacy_notice.setWordWrap(True)
-        self._privacy_notice.setProperty("role", "warning-text")
-        self._privacy_notice.setStyleSheet("font-size: 11px;")
-        self._privacy_notice.setVisible(False)
-        layout.addWidget(self._privacy_notice)
-
-        # Shown whenever a generation run comes back empty-handed (LM
-        # Studio unreachable, missing cloud API key, or every worker
-        # erroring out) so the user has an explicit way to retry once the
-        # underlying problem is fixed, without hunting for the Generate
-        # button again — this matters most when the run was kicked off
-        # automatically by a preset chain and the user is on another tab.
-        retry_row = QHBoxLayout()
-        retry_row.setSpacing(8)
-        self._retry_label = QLabel()
-        self._retry_label.setWordWrap(True)
-        self._retry_label.setProperty("role", "warning-text")
-        self._retry_label.setStyleSheet("font-size: 11px;")
-        retry_row.addWidget(self._retry_label, stretch=1)
-        self._retry_btn = QPushButton(tr("youtube_retry"))
-        self._retry_btn.clicked.connect(self.generate_requested.emit)
-        retry_row.addWidget(self._retry_btn)
-        self._retry_bar = QWidget()
-        self._retry_bar.setLayout(retry_row)
-        self._retry_bar.setVisible(False)
-        layout.addWidget(self._retry_bar)
-
-        self._init_provider_from_config()
+        # Where the package stands when there is none to show yet: not
+        # made, being made, or failed — with the one link that runs the
+        # step (the same action as File > Create YouTube package). A
+        # failed run kicked off by a recipe in the background is surfaced
+        # here too, so the user can retry once they notice.
+        state_row = QHBoxLayout()
+        state_row.setSpacing(8)
+        self._state_label = QLabel()
+        self._state_label.setWordWrap(True)
+        self._state_label.setProperty("role", "dim")
+        self._state_label.setStyleSheet("font-size: 11px;")
+        state_row.addWidget(self._state_label, stretch=1)
+        self._run_link = QPushButton()
+        self._run_link.clicked.connect(self.generate_requested.emit)
+        state_row.addWidget(self._run_link)
+        self._state_bar = QWidget()
+        self._state_bar.setLayout(state_row)
+        self._state_bar.setVisible(False)
+        layout.addWidget(self._state_bar)
 
         # What YouTube will do with the chapter list: shown once chapters
         # arrive, so a dropped chapter or a list too short for YouTube to
@@ -251,43 +217,18 @@ class YouTubePanel(QWidget):
             self._tabs.addItem(edit, tr(spec.label_key))
 
         layout.addWidget(self._tabs, stretch=1)
-
-    # ── Provider selection ─────────────────────────────────────────
-
-    def _init_provider_from_config(self):
-        from config import get_config
-        kind = get_config().yt_provider
-        idx = self._provider_combo.findData(kind)
-        self._provider_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        self._on_provider_changed()
-
-    def _on_provider_changed(self):
-        from config import get_config, save_config
-        kind = self._provider_combo.currentData()
-        cfg = get_config()
-        if cfg.yt_provider != kind:
-            cfg.yt_provider = kind
-            save_config()
-        is_cloud = kind != "lmstudio"
-        self._configure_btn.setEnabled(is_cloud)
-        self._privacy_notice.setVisible(is_cloud)
-
-    def _open_provider_dialog(self):
-        from ui.provider_dialog import ProviderDialog
-        kind = self._provider_combo.currentData()
-        dialog = ProviderDialog(kind=kind, parent=self)
-        dialog.exec()
+        # Takes the slack only while the sections are hidden, so the state
+        # row sits under the buttons instead of floating mid-panel; once the
+        # sections show, their stretch factor wins.
+        layout.addStretch()
 
     # ── Public API ──────────────────────────────────────────────────
 
     def set_segments(self, segments, transcript_language: str | None = None) -> None:
         self._segments = segments
         self._transcript_language = transcript_language
-        self._gen_btn.setEnabled(bool(segments))
-        if segments:
-            self._placeholder.hide()
-        else:
-            self._placeholder.show()
+        if self._state in ("empty", "ready"):
+            self._set_state("ready" if segments else "empty")
 
     def set_source_name(self, name: str) -> None:
         """Base filename (no extension) used when saving generated files."""
@@ -298,13 +239,6 @@ class YouTubePanel(QWidget):
         changes — recorded into each saved file's Artifact manifest."""
         self._record_id = record_id
         self._source_path = source_path
-
-    def selected_language(self) -> str | None:
-        """Explicit language directive from the combo — ``None`` means
-        "auto", i.e. fall back to the transcript's own detected language
-        (MainWindow's _start_youtube_job() does that fallback, the same
-        way this panel used to)."""
-        return self._lang_combo.currentData()
 
     def shutdown(self) -> None:
         """Part of the Shutdownable protocol (ui/shutdownable.py). This
@@ -318,9 +252,6 @@ class YouTubePanel(QWidget):
         self._segments = []
         self._source_name = ""
         self._transcript_language = None
-        self._generating = False
-        self._gen_btn.setEnabled(False)
-        self._gen_btn.setText(tr("youtube_generate"))
         self._copy_btn.setEnabled(False)
         self._save_btn.setEnabled(False)
         self._publish_btn.setEnabled(False)
@@ -330,9 +261,7 @@ class YouTubePanel(QWidget):
         for edit in self._edits():
             edit.clear()
         self._tabs.setVisible(False)
-        self._retry_bar.setVisible(False)
-        self._placeholder.setText(tr("youtube_placeholder"))
-        self._placeholder.show()
+        self._set_state("empty")
 
     # ── Generation ──────────────────────────────────────────────────
     # This panel no longer runs anything itself — generate_requested asks
@@ -342,14 +271,11 @@ class YouTubePanel(QWidget):
     # starts, and the two ways it can end.
 
     def generate(self) -> None:
-        """Public trigger for programmatic (preset-chain) use — identical
-        to clicking the Generate button."""
+        """Public trigger for programmatic use — identical to clicking the
+        run link."""
         self.generate_requested.emit()
 
     def begin_generating(self) -> None:
-        self._generating = True
-        self._gen_btn.setEnabled(False)
-        self._gen_btn.setText(tr("youtube_generating"))
         self._copy_btn.setEnabled(False)
         self._save_btn.setEnabled(False)
         self._publish_btn.setEnabled(False)
@@ -359,8 +285,7 @@ class YouTubePanel(QWidget):
         for edit in self._edits():
             edit.clear()
         self._tabs.setVisible(True)
-        self._placeholder.hide()
-        self._retry_bar.setVisible(False)
+        self._set_state("generating")
 
     def set_result(self, payload: dict) -> None:
         """*payload* is application/steps.py's "youtube_package" step
@@ -409,7 +334,7 @@ class YouTubePanel(QWidget):
         else:
             self._questions_edit.setPlainText(str(questions) if questions else tr("youtube_empty"))
 
-        self._reset_button()
+        self._set_state("done")
         self._copy_btn.setEnabled(True)
         self._save_btn.setEnabled(True)
         self._publish_btn.setEnabled(True)
@@ -425,10 +350,9 @@ class YouTubePanel(QWidget):
         self._chapters_edit.setPlainText(f"{tr('youtube_error')}: {message}" if message else "")
         self._set_chapter_check(None)
         self._tabs.setVisible(True)
-        self._placeholder.hide()
-        self._reset_button()
         show_toast(self, tr("youtube_generate_error"), kind="error")
-        self._show_retry(message or tr("youtube_generate_error"))
+        self._error_reason = message or tr("youtube_generate_error")
+        self._set_state("error")
         self.generation_finished.emit(False)
 
     def publish_texts(self) -> dict:
@@ -442,9 +366,14 @@ class YouTubePanel(QWidget):
             "titles": self._titles_edit.toPlainText().splitlines(),
             "description": self._desc_edit.toPlainText(),
             "tags": self._tags_edit.toPlainText(),
-            "language": _LANGUAGE_CODES.get(self.selected_language() or "", self._transcript_language),
+            "language": self._publish_language(),
             "chapter_check": self._chapter_check,
         }
+
+    def _publish_language(self) -> str | None:
+        """Config.yt_language as a code, else the transcript's language."""
+        from config import get_config
+        return _LANGUAGE_CODES.get(get_config().yt_language, self._transcript_language)
 
     def provenance(self) -> tuple[int | None, str | None]:
         """``(record_id, source_path)`` as last set by ``set_provenance()``."""
@@ -546,18 +475,34 @@ class YouTubePanel(QWidget):
             parts.append(tr("yt_chapters_more", count=len(issues) - _MAX_LISTED_CHAPTERS))
         return "; ".join(parts)
 
-    def _reset_button(self):
-        self._generating = False
-        self._gen_btn.setEnabled(bool(self._segments))
-        self._gen_btn.setText(tr("youtube_generate"))
+    def _set_state(self, state: str) -> None:
+        self._state = state
+        if state != "error":
+            self._error_reason = ""
+        self._render_state()
 
-    def _show_retry(self, reason: str) -> None:
-        """Surface an inline retry bar so a failed run — e.g. LM Studio was
-        unreachable when a preset chain kicked this off in the background —
-        can be re-run with one click once the user notices and switches to
-        this tab, instead of them having to rediscover the Generate button."""
-        self._retry_label.setText(f"{reason} {tr('youtube_retry_hint')}")
-        self._retry_bar.setVisible(True)
+    def _render_state(self) -> None:
+        """Placeholder and state row for the current ``_state`` — also
+        called on a language change."""
+        state = self._state
+        self._placeholder.setVisible(state == "empty")
+        if state in ("empty", "done"):
+            self._state_bar.setVisible(False)
+            return
+        if state == "generating":
+            text, link = tr("youtube_generating"), ""
+            role = "dim"
+        elif state == "error":
+            text = f"{self._error_reason} {tr('youtube_retry_hint')}"
+            link, role = tr("youtube_retry"), "warning-text"
+        else:  # "ready"
+            text, link = tr("youtube_not_generated"), tr("menu_run_youtube_package")
+            role = "dim"
+        set_role(self._state_label, role)
+        self._state_label.setText(text)
+        self._run_link.setText(link)
+        self._run_link.setVisible(bool(link))
+        self._state_bar.setVisible(True)
 
     def _edits(self) -> list[QPlainTextEdit]:
         """All tab edit widgets, in tab order."""

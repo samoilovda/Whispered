@@ -58,11 +58,18 @@ def test_user_edits_are_what_gets_published():
     panel.close()
 
 
-def test_language_is_a_code_even_when_the_combo_names_a_language():
+def test_language_is_a_code_even_when_settings_name_a_language():
+    from config import get_config
+
     panel = _panel()
     panel.set_result(_PAYLOAD)
-    panel._lang_combo.setCurrentIndex(panel._lang_combo.findData("Russian"))
-    assert panel.publish_texts()["language"] == "ru"
-    panel._lang_combo.setCurrentIndex(0)
-    assert panel.publish_texts()["language"] == "en"     # falls back to the transcript's
+    cfg = get_config()
+    original = cfg.yt_language
+    try:
+        cfg.yt_language = "Russian"
+        assert panel.publish_texts()["language"] == "ru"
+        cfg.yt_language = ""
+        assert panel.publish_texts()["language"] == "en"     # falls back to the transcript's
+    finally:
+        cfg.yt_language = original
     panel.close()

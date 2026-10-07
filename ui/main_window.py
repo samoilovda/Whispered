@@ -1893,6 +1893,7 @@ class MainWindow(QMainWindow):
             params={
                 "lm_url": cfg.lm_studio_url,
                 "language": language_name_for_code(result.language),
+                "yt_language": cfg.yt_language,
                 "provider": None if provider.kind == "lmstudio" else provider,
                 # Shared with InsightsPanel/YouTubePanel so a type more
                 # than one step generates (e.g. "chapters") isn't
@@ -1972,6 +1973,7 @@ class MainWindow(QMainWindow):
             params={
                 "lm_url": cfg.lm_studio_url,
                 "language": language_name_for_code(result.language),
+                "yt_language": cfg.yt_language,
                 "provider": None if provider.kind == "lmstudio" else provider,
                 "insights_cache": self._insights_cache,
                 "do_unwrap": self.book_panel.chk_unwrap.isChecked(),
@@ -2843,10 +2845,9 @@ class MainWindow(QMainWindow):
         step (see _start_preset_chain) now call, same as generate()
         already did before B5d.
 
-        The panel's language/provider combos stay put for now (moving
-        them into a real recipe editor is B6's job) — this just reads
-        their current selection instead of the panel resolving and
-        starting workers with it itself."""
+        Provider and output language come from Settings
+        (Config.yt_provider / Config.yt_language), the same values a
+        recipe run uses — the panel no longer has controls of its own."""
         if not self._current_result:
             return
         # The menu/palette action and the panel's link both land here; a
@@ -2857,9 +2858,6 @@ class MainWindow(QMainWindow):
         from core.ai_provider import provider_from_config
 
         cfg = get_config()
-        # cfg.yt_provider already reflects the panel's combo — it's
-        # persisted eagerly on every change by
-        # YouTubePanel._on_provider_changed(), the same as before B5d.
         provider = provider_from_config(cfg)
 
         if provider.kind != "lmstudio" and not provider.api_key:
@@ -2879,13 +2877,12 @@ class MainWindow(QMainWindow):
         stem = Path(self._source_filepath).stem if self._source_filepath else "recording"
         out_dir = artifact_dir(record_id, self._source_filepath or stem)
 
-        # "Auto" (None) falls back to the transcript's own detected
-        # language rather than sending no directive at all — an empty
-        # directive left the model free to answer in whatever language it
-        # defaulted to (usually English), even for a Russian transcript.
-        lang = self.youtube_panel.selected_language() or language_name_for_code(
-            self._current_result.language
-        )
+        # An empty Config.yt_language falls back to the transcript's own
+        # detected language rather than sending no directive at all — an
+        # empty directive left the model free to answer in whatever
+        # language it defaulted to (usually English), even for a Russian
+        # transcript.
+        lang = language_name_for_code(self._current_result.language)
 
         spec = build_job_spec("youtube-only", ("youtube_package",))
         self._youtube_job = JobRunner(spec)
@@ -2897,6 +2894,7 @@ class MainWindow(QMainWindow):
             params={
                 "lm_url": cfg.lm_studio_url,
                 "language": lang,
+                "yt_language": cfg.yt_language,
                 "provider": None if provider.kind == "lmstudio" else provider,
                 # Shared with InsightsPanel so a type both generate (e.g.
                 # "chapters") isn't recomputed — see core/insights_cache.py.

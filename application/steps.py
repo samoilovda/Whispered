@@ -535,7 +535,9 @@ def _youtube_package_runner(context: StepContext) -> StepRunner:
         lm_url = context.params.get("lm_url", "") or ""
         provider = context.params.get("provider")
         cache = context.params.get("insights_cache")
-        language = context.params.get("language")
+        # Config.yt_language overrides the recording's language for this
+        # step only; empty means "follow the recording".
+        language = context.params.get("yt_language") or context.params.get("language")
 
         payload: dict[str, Any] = {}
         for insight_type in _YOUTUBE_TYPES:
