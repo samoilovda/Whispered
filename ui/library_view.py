@@ -69,14 +69,36 @@ def _fmt_date(iso: str, now: datetime | None = None) -> str:
 
 
 _JSON_KEY_RE = re.compile(r'"[^"]+"\s*:\s*')
+# A key cut in half by the snippet window: `end": ` with no opening quote.
+_CUT_KEY_RE = re.compile(r'\w+"\s*:')
+# Values of the payload's timing/speaker fields: 355.62, null, true.
+_JSON_VALUE_RE = re.compile(r'(?<![\w*])(?:-?\d+(?:\.\d+)?|null|true|false)(?![\w*])')
+_PAYLOAD_KEYS = {"start", "end", "text", "speaker", "words", "segments", "language", "duration"}
 
 
 def _clean_snippet(raw: str) -> str:
-    """Strip JSON structure from an FTS5 snippet to produce readable text."""
-    text = _JSON_KEY_RE.sub("", raw)
+    """Strip JSON structure from an FTS5 snippet to produce readable text:
+    keys, brackets and quotes, the timing numbers and nulls between the
+    words, and key names cut in half at the snippet's edges. The match
+    stays wrapped in ** for _snippet_html()."""
+    text = _JSON_KEY_RE.sub(" ", raw)
+    text = _CUT_KEY_RE.sub(" ", text)
     text = re.sub(r'[\[{}\],"]', " ", text)
-    text = " ".join(text.split())
-    return text
+    text = _JSON_VALUE_RE.sub(" ", text)
+    words = text.split()
+    while words and words[0].strip("…").lower() in _PAYLOAD_KEYS:
+        words.pop(0)
+    while words and words[-1].strip("…").lower() in _PAYLOAD_KEYS:
+        words.pop()
+    return " ".join(words)
+
+
+def _snippet_html(snippet: str) -> str:
+    """The cleaned snippet as rich text, its **match** in bold."""
+    import html as _html
+
+    escaped = _html.escape(snippet)
+    return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escaped)
 
 
 def display_name(name: str) -> str:
@@ -199,7 +221,8 @@ class RecordItemWidget(QWidget):
             main_layout.addWidget(badges)
 
         if snippet:
-            self.snippet_label = QLabel(snippet)
+            self.snippet_label = QLabel(_snippet_html(snippet))
+            self.snippet_label.setTextFormat(Qt.TextFormat.RichText)
             self.snippet_label.setProperty("role", "dim")
             self.snippet_label.setWordWrap(True)
             main_layout.addWidget(self.snippet_label)

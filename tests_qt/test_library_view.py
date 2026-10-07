@@ -621,3 +621,14 @@ def test_rename_suggests_the_youtube_title(monkeypatch, tmp_path, process_events
     assert offered == ["How to find your footing"]
     assert store.get_title(record_id) == "How to find your footing"
     view.close()
+
+
+def test_search_snippets_lose_the_json_and_bold_the_match():
+    from ui.library_view import _clean_snippet, _snippet_html
+
+    raw = '…355.62, "text": "**Ресурсы** могут быть", "speaker": null, "end…'
+    cleaned = _clean_snippet(raw)
+    assert cleaned == "… **Ресурсы** могут быть"
+    assert _snippet_html(cleaned) == "… <b>Ресурсы</b> могут быть"
+    assert _clean_snippet('end": 12.5, "text": "budget <ok>') == "budget <ok>"
+    assert _snippet_html("budget <ok>") == "budget &lt;ok&gt;"
