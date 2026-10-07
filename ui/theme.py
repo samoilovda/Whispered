@@ -815,6 +815,38 @@ def build_stylesheet(t: Theme) -> str:
         border: 1px solid {t.border};
         border-radius: 11px;
     }}
+    QPushButton[role="play-button"] {{
+        background-color: {t.accent};
+        color: #ffffff;
+        border: none;
+        border-radius: 17px;
+        font-size: 14px;
+        padding: 0;
+    }}
+    QPushButton[role="play-button"]:hover {{
+        background-color: {t.accent_hover};
+    }}
+    QPushButton[role="play-button"]:pressed {{
+        background-color: {t.accent_pressed};
+    }}
+    QPushButton[role="player-skip"] {{
+        background: transparent;
+        border: none;
+        border-radius: {t.radius_sm};
+        padding: 4px 6px;
+        color: {t.text_secondary};
+        font-size: {t.font_sm};
+        font-weight: 600;
+    }}
+    QPushButton[role="player-skip"]:hover {{
+        background-color: {t.bg_surface};
+        color: {t.text_primary};
+    }}
+    QLabel[role="player-time"] {{
+        color: {t.text_secondary};
+        font-size: {t.font_sm};
+        font-family: "SF Mono", "Menlo", "Consolas", monospace;
+    }}
     QPushButton[role="floating-pill"] {{
         background-color: {t.bg_elevated};
         color: {t.accent};

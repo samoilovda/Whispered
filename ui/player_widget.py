@@ -10,11 +10,12 @@ from typing import Optional
 
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel, QSlider,
-    QComboBox, QStyle, QStyleOptionSlider, QToolTip
+    QStyle, QStyleOptionSlider, QToolButton, QToolTip, QMenu,
 )
 from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal, QTimer, QUrl
-from PyQt6.QtGui import QPainter
+from PyQt6.QtGui import QAction, QActionGroup, QMouseEvent, QPainter
 
+from core.i18n import tr
 from core.logger import get_logger
 from ui.i18n_helpers import Retranslator
 from utils import format_duration
@@ -103,14 +104,22 @@ class _ChapterMarks(QWidget):
             self.seek_requested.emit(float(chapter[0]))
 
 
+SPEEDS = (0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
+
+
+def _speed_label(rate: float) -> str:
+    return f"{rate:g}×"
+
+
 class PlayerWidget(QWidget):
     """
-    Compact audio/video player (audio only shown) with:
-      - play/pause, seek ±10 s, position slider, time label
-      - playback speed (0.5×–2×)
-      - volume slider
+    Compact audio/video player (audio only shown), one row:
+      - seek −10 s, play/pause, seek +10 s
+      - position, slider (click jumps there; hover names the time and
+        chapter), chapter ticks under it, duration
+      - playback speed menu (0.5×–2×), mute toggle + volume slider
       - signal position_changed_sec(float) emitted ~5 times/s
-      - method seek_to(seconds)
+      - methods seek_to(seconds), seek_relative(delta), speed_step(±1)
 
     If Qt Multimedia backend is unavailable the widget hides itself and all
     public methods become no-ops so the rest of the app is unaffected.
@@ -138,49 +147,88 @@ class PlayerWidget(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 4, 0, 4)
-        layout.setSpacing(4)
+        layout.setContentsMargins(8, 6, 8, 4)
+        layout.setSpacing(0)
 
-        # Row 1: controls + time
         controls = QHBoxLayout()
         controls.setSpacing(6)
 
-        self._rewind_btn = QPushButton("⏮ 10s")
-        self._rewind_btn.setProperty("role", "icon-button")
+        self._rewind_btn = QPushButton("−10")
+        self._rewind_btn.setProperty("role", "player-skip")
         self._i18n.text(self._rewind_btn, "tooltip_rewind", "setToolTip")
-        self._rewind_btn.clicked.connect(lambda: self._seek_relative(-10))
+        self._rewind_btn.clicked.connect(lambda: self.seek_relative(-10))
         controls.addWidget(self._rewind_btn)
 
         self._play_btn = QPushButton("▶")
-        self._play_btn.setProperty("role", "icon-button")
+        self._play_btn.setProperty("role", "play-button")
+        self._play_btn.setFixedSize(34, 34)
         self._i18n.text(self._play_btn, "tooltip_play", "setToolTip")
         self._play_btn.clicked.connect(self._toggle_play)
         controls.addWidget(self._play_btn)
 
-        self._forward_btn = QPushButton("10s ⏭")
-        self._forward_btn.setProperty("role", "icon-button")
+        self._forward_btn = QPushButton("+10")
+        self._forward_btn.setProperty("role", "player-skip")
         self._i18n.text(self._forward_btn, "tooltip_forward", "setToolTip")
-        self._forward_btn.clicked.connect(lambda: self._seek_relative(10))
+        self._forward_btn.clicked.connect(lambda: self.seek_relative(10))
         controls.addWidget(self._forward_btn)
+        controls.addSpacing(6)
 
-        # Position slider
+        self._pos_label = QLabel("00:00")
+        self._pos_label.setProperty("role", "player-time")
+        controls.addWidget(self._pos_label)
+
+        # Position slider: a click on the groove jumps there (Qt's default
+        # is a page step), hovering shows the time and chapter under the
+        # pointer — see eventFilter().
         self._slider = QSlider(Qt.Orientation.Horizontal)
         self._slider.setRange(0, 1000)
+        self._slider.setMouseTracking(True)
         self._slider.sliderPressed.connect(self._on_slider_pressed)
         self._slider.sliderReleased.connect(self._on_slider_released)
         self._slider.sliderMoved.connect(self._on_slider_moved)
         self._slider_dragging = False
         controls.addWidget(self._slider, stretch=1)
 
-        # Time label
-        self._time_label = QLabel("0:00 / 0:00")
-        self._time_label.setProperty("role", "muted")
-        self._time_label.setProperty("size", "small")
-        self._time_label.setFixedWidth(90)
-        self._time_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        controls.addWidget(self._time_label)
+        self._dur_label = QLabel("00:00")
+        self._dur_label.setProperty("role", "player-time")
+        controls.addWidget(self._dur_label)
+        controls.addSpacing(6)
+
+        self._speed_btn = QToolButton()
+        self._speed_btn.setProperty("role", "toolbar-icon")
+        self._speed_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._speed_menu = QMenu(self._speed_btn)
+        self._speed_group = QActionGroup(self)
+        self._speed_actions: dict[float, QAction] = {}
+        for rate in SPEEDS:
+            action = QAction(_speed_label(rate), self._speed_menu)
+            action.setCheckable(True)
+            action.setChecked(rate == 1.0)
+            action.triggered.connect(lambda _c=False, r=rate: self.set_speed(r))
+            self._speed_group.addAction(action)
+            self._speed_menu.addAction(action)
+            self._speed_actions[rate] = action
+        self._speed_btn.setMenu(self._speed_menu)
+        self._speed_btn.setText(_speed_label(1.0))
+        self._speed = 1.0
+        controls.addWidget(self._speed_btn)
+
+        self._mute_btn = QPushButton("🔊")
+        self._mute_btn.setProperty("role", "icon-button")
+        self._mute_btn.setCheckable(True)
+        self._mute_btn.toggled.connect(self._on_mute_toggled)
+        controls.addWidget(self._mute_btn)
+
+        self._vol_slider = QSlider(Qt.Orientation.Horizontal)
+        self._vol_slider.setRange(0, 100)
+        self._vol_slider.setValue(80)
+        self._vol_slider.setFixedWidth(72)
+        self._vol_slider.valueChanged.connect(self._on_volume_changed)
+        controls.addWidget(self._vol_slider)
 
         layout.addLayout(controls)
+        self._retranslate_player()
+        self._i18n.call(self._retranslate_player)
 
         # Chapter ticks under the slider (set_chapters), kept lined up with
         # its groove whenever the slider moves or resizes.
@@ -195,40 +243,14 @@ class PlayerWidget(QWidget):
         self._chapter_marks: list[tuple[float, str]] = []
         self._slider.installEventFilter(self)
 
-        # Row 2: speed + volume
-        row2 = QHBoxLayout()
-        row2.setSpacing(8)
-
-        speed_label = self._i18n.text(QLabel(), "label_speed")
-        speed_label.setProperty("role", "muted")
-        speed_label.setProperty("size", "small")
-        row2.addWidget(speed_label)
-
-        self._speed_combo = QComboBox()
-        self._speed_combo.setFixedWidth(68)
-        for label, val in [("0.5×", 0.5), ("0.75×", 0.75), ("1×", 1.0),
-                           ("1.25×", 1.25), ("1.5×", 1.5), ("2×", 2.0)]:
-            self._speed_combo.addItem(label, val)
-        self._speed_combo.setCurrentIndex(2)  # 1×
-        self._speed_combo.currentIndexChanged.connect(self._on_speed_changed)
-        row2.addWidget(self._speed_combo)
-
-        row2.addSpacing(12)
-
-        vol_label = self._i18n.text(QLabel(), "label_volume")
-        vol_label.setProperty("role", "muted")
-        vol_label.setProperty("size", "small")
-        row2.addWidget(vol_label)
-
-        self._vol_slider = QSlider(Qt.Orientation.Horizontal)
-        self._vol_slider.setRange(0, 100)
-        self._vol_slider.setValue(80)
-        self._vol_slider.setFixedWidth(80)
-        self._vol_slider.valueChanged.connect(self._on_volume_changed)
-        row2.addWidget(self._vol_slider)
-
-        row2.addStretch()
-        layout.addLayout(row2)
+    def _retranslate_player(self) -> None:
+        self._speed_btn.setToolTip(tr("player_speed_tooltip"))
+        self._speed_btn.setAccessibleName(tr("player_speed_tooltip"))
+        self._mute_btn.setToolTip(tr("player_mute_tooltip"))
+        self._mute_btn.setAccessibleName(tr("player_mute_tooltip"))
+        self._vol_slider.setToolTip(tr("player_volume_tooltip"))
+        self._vol_slider.setAccessibleName(tr("player_volume_tooltip"))
+        self._slider.setAccessibleName(tr("player_position"))
 
     def _init_player(self):
         self._audio_output = QAudioOutput()
@@ -278,6 +300,31 @@ class PlayerWidget(QWidget):
     def toggle_play(self):
         self._toggle_play()
 
+    def seek_relative(self, delta_sec: float) -> None:
+        """Move the playhead *delta_sec* seconds (negative = back)."""
+        self._seek_relative(delta_sec)
+
+    def set_speed(self, rate: float) -> None:
+        self._speed = rate
+        self._speed_btn.setText(_speed_label(rate))
+        action = self._speed_actions.get(rate)
+        if action is not None:
+            action.setChecked(True)
+        if self._available and self._player:
+            self._player.setPlaybackRate(rate)
+
+    def speed(self) -> float:
+        return self._speed
+
+    def speed_step(self, direction: int) -> None:
+        """One step faster (+1) or slower (−1) along SPEEDS."""
+        try:
+            index = SPEEDS.index(self._speed)
+        except ValueError:
+            index = SPEEDS.index(1.0)
+        index = min(max(index + direction, 0), len(SPEEDS) - 1)
+        self.set_speed(SPEEDS[index])
+
     def set_chapters(self, chapters: list, fallback_duration: float | None = None) -> None:
         """Show a tick per chapter (``{"start", "title"}`` dicts) on the
         timeline. *fallback_duration* places them before the media reports
@@ -303,8 +350,12 @@ class PlayerWidget(QWidget):
         geometry = self._slider.geometry()
         if geometry.width() <= 0:
             return
+        outer = self.layout().contentsMargins() if self.layout() is not None else None
+        left_pad = outer.left() if outer is not None else 0
+        right_pad = outer.right() if outer is not None else 0
         self._marks_row.setContentsMargins(
-            geometry.x(), 0, max(0, self.width() - geometry.right() - 1), 0,
+            max(0, geometry.x() - left_pad), 0,
+            max(0, self.width() - geometry.right() - 1 - right_pad), 0,
         )
         option = QStyleOptionSlider()
         self._slider.initStyleOption(option)
@@ -314,9 +365,54 @@ class PlayerWidget(QWidget):
         self._marks.set_inset(max(0, handle.width() // 2))
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802 — Qt override
-        if obj is self._slider and event.type() in (QEvent.Type.Resize, QEvent.Type.Move):
-            self._sync_marks_geometry()
+        if obj is self._slider:
+            etype = event.type()
+            if etype in (QEvent.Type.Resize, QEvent.Type.Move):
+                self._sync_marks_geometry()
+            elif etype == QEvent.Type.MouseMove and isinstance(event, QMouseEvent):
+                self._show_hover_time(event)
+            elif (
+                etype == QEvent.Type.MouseButtonPress
+                and isinstance(event, QMouseEvent)
+                and event.button() == Qt.MouseButton.LeftButton
+                and not self._handle_rect().contains(event.position().toPoint())
+            ):
+                # Jump to the clicked point, then let the press start a
+                # drag from there as usual.
+                self._slider.setValue(self._slider_value_at(int(event.position().x())))
         return super().eventFilter(obj, event)
+
+    def _handle_rect(self):
+        option = QStyleOptionSlider()
+        self._slider.initStyleOption(option)
+        return self._slider.style().subControlRect(
+            QStyle.ComplexControl.CC_Slider, option, QStyle.SubControl.SC_SliderHandle, self._slider,
+        )
+
+    def _slider_value_at(self, x: int) -> int:
+        handle = self._handle_rect()
+        span = max(1, self._slider.width() - handle.width())
+        return QStyle.sliderValueFromPosition(
+            self._slider.minimum(), self._slider.maximum(),
+            max(0, x - handle.width() // 2), span,
+        )
+
+    def _media_duration(self) -> float:
+        return self._duration if self._duration > 0 else self._fallback_duration
+
+    def _show_hover_time(self, event: QMouseEvent) -> None:
+        duration = self._media_duration()
+        if duration <= 0:
+            return
+        seconds = self._slider_value_at(int(event.position().x())) / 1000.0 * duration
+        text = _fmt(seconds)
+        title = ""
+        for start, name in self._chapter_marks:
+            if start <= seconds:
+                title = name
+        if title:
+            text = f"{text}  ·  {title}"
+        QToolTip.showText(event.globalPosition().toPoint(), text, self._slider)
 
     def current_position(self) -> float:
         if not self._available or not self._player:
@@ -352,16 +448,18 @@ class PlayerWidget(QWidget):
     def _on_error(self, error, error_string: str):
         logger.warning("Media player error %s: %s", error, error_string)
 
-    def _on_speed_changed(self, _index: int):
-        if not self._available:
-            return
-        rate = self._speed_combo.currentData()
-        self._player.setPlaybackRate(rate)
-
     def _on_volume_changed(self, value: int):
+        if value > 0 and self._mute_btn.isChecked():
+            self._mute_btn.setChecked(False)
+        self._mute_btn.setText("🔇" if value == 0 or self._mute_btn.isChecked() else "🔊")
         if not self._available or not self._audio_output:
             return
         self._audio_output.setVolume(value / 100.0)
+
+    def _on_mute_toggled(self, muted: bool) -> None:
+        self._mute_btn.setText("🔇" if muted else "🔊")
+        if self._available and self._audio_output:
+            self._audio_output.setMuted(muted)
 
     def _on_slider_pressed(self):
         self._slider_dragging = True
@@ -376,9 +474,7 @@ class PlayerWidget(QWidget):
         if self._available and self._duration > 0:
             frac = value / 1000.0
             secs = frac * self._duration
-            self._time_label.setText(
-                f"{_fmt(secs)} / {_fmt(self._duration)}"
-            )
+            self._pos_label.setText(_fmt(secs))
 
     def _tick(self):
         if not self._available or not self._player:
@@ -392,8 +488,10 @@ class PlayerWidget(QWidget):
             frac = pos_sec / dur
             self._slider.setValue(int(frac * 1000))
 
-        # Update time label
-        self._time_label.setText(f"{_fmt(pos_sec)} / {_fmt(dur)}")
+        # Update time labels
+        if not self._slider_dragging:
+            self._pos_label.setText(_fmt(pos_sec))
+        self._dur_label.setText(_fmt(dur if dur > 0 else self._fallback_duration))
 
         # Emit signal (throttled by timer interval)
         self.position_changed_sec.emit(pos_sec)

@@ -442,7 +442,7 @@ class MainWindow(QMainWindow):
         _MENU_ROLES = {
             "menu_settings": QAction.MenuRole.PreferencesRole,
         }
-        # (menu_key, label_key, shortcut, slot, in_palette). label_key is
+        # (menu_key, label_key, shortcut(s) "A|B", slot, in_palette). label_key is
         # also what the palette row shows via action.text() — see
         # ui/command_palette.py's module docstring for why that matters.
         table = (
@@ -475,7 +475,13 @@ class MainWindow(QMainWindow):
 
             ("menu_transcribe", "menu_start_transcription", "Ctrl+T", self._start_transcription, False),
             ("menu_transcribe", "menu_toggle_recording", "Ctrl+R", self._menu_toggle_recording, False),
-            ("menu_transcribe", "menu_play_pause", "Space", self._space_play_pause, False),
+
+            ("menu_playback", "menu_play_pause", "Space|K", self._space_play_pause, False),
+            ("menu_playback", "menu_seek_back", "J", lambda: self._playback_key(lambda: self.player.seek_relative(-10)), True),
+            ("menu_playback", "menu_seek_forward", "L", lambda: self._playback_key(lambda: self.player.seek_relative(10)), True),
+            ("menu_playback", _SEPARATOR, "", None, False),
+            ("menu_playback", "menu_speed_down", "[", lambda: self._playback_key(lambda: self.player.speed_step(-1)), True),
+            ("menu_playback", "menu_speed_up", "]", lambda: self._playback_key(lambda: self.player.speed_step(1)), True),
 
             ("menu_video", "video_export_edl", "", self._trigger_export_edl, False),
             ("menu_video", "video_mark_pauses", "", self._trigger_mark_pauses, False),
@@ -508,7 +514,8 @@ class MainWindow(QMainWindow):
             if label_key in _MENU_ROLES:
                 action.setMenuRole(_MENU_ROLES[label_key])
             if shortcut:
-                action.setShortcut(QKeySequence(shortcut))
+                # "A|B": one action, several keys (Space and K both play).
+                action.setShortcuts([QKeySequence(key) for key in shortcut.split("|")])
             action.triggered.connect(slot)
             menu.addAction(action)
             self._i18n_menu_items.append((action, label_key, "setText"))
@@ -1532,12 +1539,26 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ helpers
 
-    def _space_play_pause(self):
-        """Space play/pause — only fires when focus is not in a text field."""
+    @staticmethod
+    def _focus_is_editable_text() -> bool:
+        """Whether keyboard focus is somewhere typing goes. A read-only
+        text view (the transcript in reading mode, which takes focus on
+        every click-to-seek) is not — playback keys must work there."""
         focused = QApplication.focusWidget()
-        if isinstance(focused, (QTextEdit, QLineEdit, QPlainTextEdit)):
-            return
-        self.player.toggle_play()
+        if isinstance(focused, QLineEdit):
+            return not focused.isReadOnly()
+        if isinstance(focused, (QTextEdit, QPlainTextEdit)):
+            return not focused.isReadOnly()
+        return False
+
+    def _playback_key(self, action) -> None:
+        """Run a single-key playback shortcut unless the user is typing."""
+        if not self._focus_is_editable_text():
+            action()
+
+    def _space_play_pause(self):
+        """Space/K play/pause — only fires when focus is not in a text field."""
+        self._playback_key(self.player.toggle_play)
 
     def _on_player_position(self, seconds: float):
         """Forward player position to transcript highlight (throttled by player timer)."""
