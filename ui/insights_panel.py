@@ -83,6 +83,8 @@ class InsightsPanel(QWidget):
 
     seek_requested = pyqtSignal(int)
     generate_requested = pyqtSignal()
+    # Its own (generated) chapters may have changed — see own_chapters().
+    chapters_changed = pyqtSignal()
     generation_finished = pyqtSignal(bool)
 
     def __init__(self, parent=None):
@@ -93,6 +95,9 @@ class InsightsPanel(QWidget):
         # disk later, since _render_*() only ever builds display widgets
         # from it and doesn't keep the data itself.
         self._results: dict[str, list] = {}
+        # The record's chapters from the YouTube tab (with the user's edits);
+        # shown instead of this panel's own when present (Y6).
+        self._shared_chapters: list | None = None
         # Set via set_provenance()/set_source_name() by MainWindow whenever
         # the open transcript changes — recorded into each saved file's
         # Artifact manifest and used for its filename stem.
@@ -109,6 +114,7 @@ class InsightsPanel(QWidget):
     def _retranslate_insights(self) -> None:
         self._save_btn.setText(tr("insights_save"))
         self._ch_header.setText(tr("insights_chapters"))
+        self._ch_note.setText(tr("insights_chapters_shared"))
         self._ai_header.setText(tr("insights_action_items"))
         self._km_header.setText(tr("insights_key_moments"))
         self._gen_btn.setText(
@@ -159,6 +165,12 @@ class InsightsPanel(QWidget):
 
         self._ch_header = _SectionHeader(tr("insights_chapters"))
         self._content.addWidget(self._ch_header)
+        self._ch_note = QLabel(tr("insights_chapters_shared"))
+        self._ch_note.setWordWrap(True)
+        self._ch_note.setProperty("role", "muted")
+        self._ch_note.setStyleSheet("font-size: 11px;")
+        self._ch_note.setVisible(False)
+        self._content.addWidget(self._ch_note)
         self._ch_container = QWidget()
         self._ch_layout = QVBoxLayout(self._ch_container)
         self._ch_layout.setContentsMargins(0, 0, 0, 0)
@@ -233,8 +245,10 @@ class InsightsPanel(QWidget):
         self._gen_btn.setText(tr("insights_generate"))
         self._save_btn.setEnabled(False)
         self._results.clear()
-        for layout in (self._ch_layout, self._ai_layout, self._km_layout):
+        for layout in (self._ai_layout, self._km_layout):
             self._clear_section(layout)
+        self._render_chapter_section()
+        self.chapters_changed.emit()
         self._placeholder.setText(tr("insights_placeholder"))
         self._placeholder.show()
 
@@ -265,12 +279,12 @@ class InsightsPanel(QWidget):
         self._gen_btn.setEnabled(True)
         self._gen_btn.setText(tr("insights_generate"))
         self._save_btn.setEnabled(bool(self._results))
-        self._clear_section(self._ch_layout)
-        self._render_chapters(list(payload.get("chapters") or []))
+        self._render_chapter_section()
         self._clear_section(self._ai_layout)
         self._render_action_items(list(payload.get("action_items") or []))
         self._clear_section(self._km_layout)
         self._render_key_moments(list(payload.get("key_moments") or []))
+        self.chapters_changed.emit()
         self.generation_finished.emit(True)
 
     def set_error(self, message: str) -> None:
@@ -281,6 +295,30 @@ class InsightsPanel(QWidget):
         self._placeholder.setText(f"{tr('insights_error')} {message}")
         self._placeholder.show()
         self.generation_finished.emit(False)
+
+    # ── Chapters shared with the YouTube tab (Y6) ───────────────────
+
+    def own_chapters(self) -> list[dict]:
+        """The chapters this panel's own insights step produced."""
+        data = self._results.get("chapters")
+        return list(data) if isinstance(data, list) else []
+
+    def set_shared_chapters(self, chapters: list | None) -> None:
+        """Show *chapters* (the record's, from the YouTube tab) instead of
+        this panel's own; ``None`` or empty goes back to its own."""
+        shared = list(chapters) if chapters else None
+        if shared == self._shared_chapters:
+            return
+        self._shared_chapters = shared
+        self._render_chapter_section()
+
+    def _shown_chapters(self) -> list:
+        return self._shared_chapters if self._shared_chapters else self.own_chapters()
+
+    def _render_chapter_section(self) -> None:
+        self._clear_section(self._ch_layout)
+        self._render_chapters(self._shown_chapters())
+        self._ch_note.setVisible(bool(self._shared_chapters))
 
     # ── Export ──────────────────────────────────────────────────────
 
@@ -296,7 +334,11 @@ class InsightsPanel(QWidget):
         directory = output_dir()
         stem = self._source_name or "insights"
         saved = 0
-        for insight_type, data in self._results.items():
+        # Save what is on screen: the record's shared chapters when shown.
+        results = dict(self._results)
+        if self._shared_chapters:
+            results["chapters"] = self._shared_chapters
+        for insight_type, data in results.items():
             text = format_insight_text(insight_type, data)
             if not text:
                 continue
@@ -381,5 +423,10 @@ class InsightsPanel(QWidget):
     def _clear_section(layout: QVBoxLayout):
         while layout.count():
             item = layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            widget = item.widget()
+            if widget:
+                # Detach now: deleteLater() alone leaves the old row in the
+                # tree (and in findChildren) until the event loop runs —
+                # sections are now re-rendered while staying on screen.
+                widget.setParent(None)
+                widget.deleteLater()

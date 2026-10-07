@@ -172,6 +172,9 @@ class YouTubePanel(QWidget):
     generation_finished = pyqtSignal(bool)
     # A chapter's time was clicked: seconds to move the player to.
     seek_requested = pyqtSignal(int)
+    # The record's chapters (record_chapters()) may have changed: a new
+    # package, an edit, back to the model's, or none any more.
+    chapters_changed = pyqtSignal()
     publish_requested = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -918,6 +921,16 @@ class YouTubePanel(QWidget):
         folder = artifact_dir(record_id, self._source_path or "recording")
         return overlay_path(folder / "youtube_package.json")
 
+    def record_chapters(self) -> list[dict]:
+        """This record's chapters as the user has them — the edit if there
+        is one, else the package's — in recording time (no video offset),
+        sorted, valid items only. Empty when no package is shown. What the
+        Insights tab and the player's timeline show (Y6)."""
+        if self._model_chapters is None:
+            return []
+        chapters, _ = parse_chapter_lines(format_chapter_lines(self._effective_chapters()))
+        return chapters
+
     def _offset(self) -> int:
         """Seconds the published video runs ahead of the recording."""
         value = self._overlay.get("offset", 0)
@@ -1079,6 +1092,7 @@ class YouTubePanel(QWidget):
         self._chapter_duration = duration
         self._render_chapter_rows()
         self._render_chapter_status()
+        self.chapters_changed.emit()
 
     def _render_chapter_status(self) -> None:
         """Rebuild the chapter status line from the stored check — also

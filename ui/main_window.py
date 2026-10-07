@@ -1074,6 +1074,10 @@ class MainWindow(QMainWindow):
         self.insights_panel.seek_requested.connect(self.player.seek_to)
         self.youtube_panel.seek_requested.connect(self.player.seek_to)
         self.youtube_panel.set_position_provider(self.player.current_position)
+        # One chapter list per record (Y6): the YouTube tab's (edits
+        # included) wins over the Insights step's own.
+        self.youtube_panel.chapters_changed.connect(self._refresh_record_chapters)
+        self.insights_panel.chapters_changed.connect(self._refresh_record_chapters)
 
         # Auto-save each completed batch item to history
         self.batch_panel.processor.item_finished.connect(self._on_batch_item_finished)
@@ -2486,6 +2490,13 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.warning("Failed to load history record %d: %s", record_id, e)
             return False
+
+    def _refresh_record_chapters(self) -> None:
+        """Hand the record's chapters to every place that shows them: the
+        YouTube tab's (with the user's edits) when it has a package, else
+        the Insights step's own."""
+        shared = self.youtube_panel.record_chapters()
+        self.insights_panel.set_shared_chapters(shared or None)
 
     def _restore_youtube_package(
         self, record_id: int, source_path: str, result: TranscriptionResult,
