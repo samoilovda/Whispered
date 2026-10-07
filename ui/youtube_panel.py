@@ -12,6 +12,7 @@ from typing import Any, Callable
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QPlainTextEdit, QApplication, QToolBox, QScrollArea, QFrame,
+    QRadioButton, QButtonGroup,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QTextCursor
@@ -29,7 +30,16 @@ from application.user_edits import (
     set_edit,
 )
 from core.paths import artifact_dir, output_dir
-from application.youtube_publish import DESCRIPTION_MAX_BYTES, description_bytes
+from application.youtube_publish import (
+    DESCRIPTION_MAX_BYTES,
+    TAGS_MAX_CHARS,
+    TITLE_MAX_CHARS,
+    description_bytes,
+    fit_tags,
+    normalize_titles,
+    parse_tags,
+    tags_length,
+)
 from core.youtube_description import (
     BLOCK_QUESTIONS,
     BLOCK_SIGNATURE,
@@ -86,6 +96,27 @@ _TAB_SPECS: tuple[_TabSpec, ...] = (
     _TabSpec("yt_tags", "_tags_edit", "tags", "yt_tab_tags"),
     _TabSpec("yt_questions", "_questions_edit", "questions", "yt_tab_questions"),
 )
+
+# Roughly how much of a title search results and phones show; past this a
+# title still fits YouTube's limit but gets cut off for most viewers.
+_TITLE_VISIBLE_CHARS = 70
+
+# Copy button caption per section, in _TAB_SPECS order.
+_COPY_KEYS = (
+    "yt_copy_timecodes", "yt_copy_title", "yt_copy_description", "yt_copy_tags", "yt_copy_questions",
+)
+
+
+class _TitleLabel(QLabel):
+    """A wrapped title next to its radio button; clicking it picks the
+    title, as a radio button's own caption would (QRadioButton cannot wrap)."""
+
+    clicked = pyqtSignal()
+
+    def mouseReleaseEvent(self, event):  # noqa: N802 — Qt override
+        self.clicked.emit()
+        super().mouseReleaseEvent(event)
+
 
 # The description's block chips: block id → caption key.
 _DESC_BLOCK_LABELS = (
@@ -148,6 +179,8 @@ class YouTubePanel(QWidget):
         # is shown, copied and published is the edit when there is one.
         self._model_chapters: list | None = None
         self._questions: list = []
+        self._titles: list[str] = []
+        self._title_labels: list[tuple[str, QLabel]] = []
         self._overlay: dict[str, Any] = {}
         self._editing_chapters = False
         self._bad_chapter_lines: list[int] = []
@@ -168,7 +201,6 @@ class YouTubePanel(QWidget):
         self._i18n.bind()
 
     def _retranslate_youtube(self) -> None:
-        self._copy_btn.setText(tr("youtube_copy"))
         self._save_btn.setText(tr("youtube_save"))
         self._publish_btn.setText(tr("yt_publish_btn"))
         for i, spec in enumerate(_TAB_SPECS):
@@ -183,6 +215,9 @@ class YouTubePanel(QWidget):
         for block, key in _DESC_BLOCK_LABELS:
             self._desc_block_btns[block].setText(tr(key))
         self._render_description_meta()
+        self._render_copy_caption()
+        self._render_tags_meta()
+        self._render_titles()
         self._render_state()
         self._render_chapter_status()
         self._render_chapter_editing()
@@ -205,7 +240,7 @@ class YouTubePanel(QWidget):
         controls.setSpacing(8)
         controls.addStretch()
 
-        self._copy_btn = QPushButton(tr("youtube_copy"))
+        self._copy_btn = QPushButton(tr(_COPY_KEYS[0]))
         self._copy_btn.setEnabled(False)
         self._copy_btn.clicked.connect(self._copy_to_clipboard)
         controls.addWidget(self._copy_btn)
@@ -269,14 +304,164 @@ class YouTubePanel(QWidget):
                 self._tabs.addItem(self._build_chapters_section(edit), tr(spec.label_key))
             elif spec.insight_type == "yt_description":
                 self._tabs.addItem(self._build_description_section(edit), tr(spec.label_key))
+            elif spec.insight_type == "yt_titles":
+                self._tabs.addItem(self._build_titles_section(edit), tr(spec.label_key))
+            elif spec.insight_type == "yt_tags":
+                self._tabs.addItem(self._build_tags_section(edit), tr(spec.label_key))
             else:
                 self._tabs.addItem(edit, tr(spec.label_key))
 
         layout.addWidget(self._tabs, stretch=1)
+        self._tabs.currentChanged.connect(self._render_copy_caption)
         # Takes the slack only while the sections are hidden, so the state
         # row sits under the buttons instead of floating mid-panel; once the
         # sections show, their stretch factor wins.
         layout.addStretch()
+
+    def _build_titles_section(self, edit: QPlainTextEdit) -> QWidget:
+        """One radio row per title candidate with its length against
+        YouTube's limit; the chosen one is what Copy and the publish dialog
+        take first. The numbered text form stays (hidden) for Save, and is
+        shown instead when the step gave no list."""
+        self._title_group = QButtonGroup(self)
+        self._title_group.setExclusive(True)
+        self._title_rows = QWidget()
+        self._title_rows_layout = QVBoxLayout(self._title_rows)
+        self._title_rows_layout.setContentsMargins(4, 4, 4, 4)
+        self._title_rows_layout.setSpacing(4)
+        self._title_hint = QLabel(tr("yt_title_hint", limit=TITLE_MAX_CHARS, visible=_TITLE_VISIBLE_CHARS))
+        self._title_hint.setWordWrap(True)
+        self._title_hint.setProperty("role", "muted")
+        self._title_hint.setStyleSheet("font-size: 11px;")
+        self._title_hint.setVisible(False)
+
+        self._title_scroll = QScrollArea()
+        self._title_scroll.setWidgetResizable(True)
+        self._title_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._title_scroll.setWidget(self._title_rows)
+        self._title_scroll.setVisible(False)
+
+        section = QWidget()
+        box = QVBoxLayout(section)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.addWidget(self._title_hint)
+        box.addWidget(self._title_scroll)
+        box.addWidget(edit)
+        return section
+
+    def _build_tags_section(self, edit: QPlainTextEdit) -> QWidget:
+        """Tags text with its length against YouTube's 500-character budget
+        (counted the way the upload counts it)."""
+        self._tags_size = QLabel()
+        self._tags_size.setWordWrap(True)
+        self._tags_size.setProperty("role", "muted")
+        self._tags_size.setStyleSheet("font-size: 11px;")
+        self._tags_size.setVisible(False)
+        edit.textChanged.connect(self._render_tags_meta)
+        section = QWidget()
+        box = QVBoxLayout(section)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.addWidget(edit)
+        box.addWidget(self._tags_size)
+        return section
+
+    # ── Title and tags ──────────────────────────────────────────────
+
+    def _chosen_title(self) -> str:
+        chosen = self._overlay.get("title")
+        if isinstance(chosen, str) and chosen in self._titles:
+            return chosen
+        return self._titles[0] if self._titles else ""
+
+    def _on_title_picked(self, title: str) -> None:
+        if title == self._chosen_title():
+            return
+        model_first = self._titles[0] if self._titles else ""
+        self._store_overlay(set_edit(self._overlay, "title", title, model_first))
+        self._mark_chosen_title()
+
+    def _mark_chosen_title(self) -> None:
+        """Bold the chosen title — the radio dot alone is faint in the
+        dark theme, and weight is a signal that does not rely on colour."""
+        chosen = self._chosen_title()
+        for title, label in self._title_labels:
+            label.setStyleSheet("font-weight: 600;" if title == chosen else "")
+
+    def _render_titles(self) -> None:
+        """Rebuild the title rows for ``_titles`` — also on a language change."""
+        layout = self._title_rows_layout
+        for button in self._title_group.buttons():
+            self._title_group.removeButton(button)
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        chosen = self._chosen_title()
+        self._title_labels = []
+        for title in self._titles:
+            row = QWidget(self._title_rows)
+            line = QHBoxLayout(row)
+            line.setContentsMargins(0, 0, 0, 0)
+            line.setSpacing(8)
+            radio = QRadioButton(row)
+            radio.setAccessibleName(title)
+            radio.setChecked(title == chosen)
+            radio.toggled.connect(
+                lambda checked, t=title: self._on_title_picked(t) if checked else None
+            )
+            self._title_group.addButton(radio)
+            line.addWidget(radio, alignment=Qt.AlignmentFlag.AlignTop)
+            label = _TitleLabel(title, row)
+            label.setWordWrap(True)
+            label.clicked.connect(radio.click)
+            self._title_labels.append((title, label))
+            line.addWidget(label, stretch=1)
+            count = QLabel(self._title_count_text(title), row)
+            count.setStyleSheet("font-size: 11px;")
+            length = len(title)
+            set_role(count, "danger-text" if length > TITLE_MAX_CHARS
+                     else "warning-text" if length > _TITLE_VISIBLE_CHARS else "muted")
+            line.addWidget(count, alignment=Qt.AlignmentFlag.AlignTop)
+            layout.addWidget(row)
+        layout.addStretch()
+        self._mark_chosen_title()
+        has_rows = bool(self._titles)
+        self._title_scroll.setVisible(has_rows)
+        self._title_hint.setVisible(has_rows)
+        self._title_hint.setText(tr("yt_title_hint", limit=TITLE_MAX_CHARS, visible=_TITLE_VISIBLE_CHARS))
+        self._titles_edit.setVisible(not has_rows)
+
+    @staticmethod
+    def _title_count_text(title: str) -> str:
+        length = len(title)
+        if length > TITLE_MAX_CHARS:
+            return tr("yt_title_count_over", count=length, limit=TITLE_MAX_CHARS)
+        if length > _TITLE_VISIBLE_CHARS:
+            return tr("yt_title_count_cut", count=length, limit=TITLE_MAX_CHARS)
+        return tr("yt_title_count", count=length, limit=TITLE_MAX_CHARS)
+
+    def _render_tags_meta(self) -> None:
+        tags = parse_tags(self._tags_edit.toPlainText())
+        if not tags:
+            self._tags_size.setVisible(False)
+            return
+        _, dropped = fit_tags(tags)
+        size = tags_length(tags)
+        if dropped:
+            text = tr("yt_tags_size_over", count=size, limit=TAGS_MAX_CHARS, dropped=len(dropped))
+            role = "warning-text"
+        else:
+            text, role = tr("yt_tags_size", count=size, limit=TAGS_MAX_CHARS), "muted"
+        set_role(self._tags_size, role)
+        self._tags_size.setText(text)
+        self._tags_size.setVisible(True)
+
+    def _render_copy_caption(self, *_args) -> None:
+        index = self._tabs.currentIndex()
+        key = _COPY_KEYS[index] if 0 <= index < len(_COPY_KEYS) else _COPY_KEYS[0]
+        self._copy_btn.setText(tr(key))
 
     def _build_description_section(self, edit: QPlainTextEdit) -> QWidget:
         """Block chips (what goes into the description), the assembled
@@ -436,7 +621,9 @@ class YouTubePanel(QWidget):
         self._description_text = None
         self._chapters_data = None
         self._questions = []
+        self._titles = []
         self._reset_chapter_edits()
+        self._render_titles()
         self._set_chapter_check(None)
         for edit in self._edits():
             edit.clear()
@@ -462,7 +649,9 @@ class YouTubePanel(QWidget):
         self._description_text = None
         self._chapters_data = None
         self._questions = []
+        self._titles = []
         self._reset_chapter_edits()
+        self._render_titles()
         self._set_chapter_check(None)
         for edit in self._edits():
             edit.clear()
@@ -492,8 +681,13 @@ class YouTubePanel(QWidget):
             self._titles_edit.setPlainText(
                 "\n\n".join(f"{i + 1}. {t}" for i, t in enumerate(titles))
             )
+            # The same cleaning the publish dialog applies, so the choice
+            # made here is one of the dialog's candidates.
+            self._titles = normalize_titles(titles)
         else:
             self._titles_edit.setPlainText(str(titles) if titles else "")
+            self._titles = []
+        self._render_titles()
 
         desc = payload.get("yt_description")
         if isinstance(desc, list) and desc:
@@ -552,12 +746,21 @@ class YouTubePanel(QWidget):
         ``chapter_check`` is the last ``check_chapters()`` result or None.
         Empty strings/lists when nothing was generated yet."""
         return {
-            "titles": self._titles_edit.toPlainText().splitlines(),
+            "titles": self._publish_titles(),
             "description": self._desc_edit.toPlainText(),
             "tags": self._tags_edit.toPlainText(),
             "language": self._publish_language(),
             "chapter_check": self._chapter_check,
         }
+
+    def _publish_titles(self) -> list[str]:
+        """Title candidates, the one chosen in the Titles section first —
+        the publish dialog preselects the first. Without a parsed list,
+        the raw lines of the Titles text."""
+        if not self._titles:
+            return self._titles_edit.toPlainText().splitlines()
+        chosen = self._chosen_title()
+        return [chosen] + [title for title in self._titles if title != chosen]
 
     def _publish_language(self) -> str | None:
         """Config.yt_language as a code, else the transcript's language."""
@@ -913,9 +1116,14 @@ class YouTubePanel(QWidget):
         return self._chapters_edit
 
     def _copy_to_clipboard(self):
-        """Copy the content of the currently-visible inner tab."""
-        edit = self._edit_for_index(self._tabs.currentIndex())
-        text = edit.toPlainText()
+        """Copy what the open section is for: the timecodes, the chosen
+        title, the assembled description, the tags, or the questions."""
+        index = self._tabs.currentIndex()
+        is_titles = 0 <= index < len(_TAB_SPECS) and _TAB_SPECS[index].insight_type == "yt_titles"
+        if is_titles and self._titles:
+            text = self._chosen_title()
+        else:
+            text = self._edit_for_index(index).toPlainText()
         if text:
             QApplication.clipboard().setText(text)
             show_toast(self, tr("youtube_copied"), kind="success")
