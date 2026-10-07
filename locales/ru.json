@@ -708,6 +708,8 @@
   "settings_cover_shorts": "Экспортировать Shorts 9:16",
   "yt_publish_title": "Публикация на YouTube",
   "yt_publish_btn": "Опубликовать на YouTube…",
+  "menu_run_youtube_package": "Создать YouTube-пакет",
+  "yt_run_needs_record": "Сначала откройте запись — YouTube-пакет делается из её транскрипта.",
   "yt_publish_intro": "Проверьте текст и передайте его в YouTube Studio. Отсюда ничего не отправляется.",
   "yt_publish_video": "Видео",
   "yt_publish_no_video": "Видеофайл не выбран",

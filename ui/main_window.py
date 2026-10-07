@@ -449,6 +449,7 @@ class MainWindow(QMainWindow):
             ("menu_file", "menu_open", "Ctrl+O", self._menu_open_file, False),
             ("menu_file", "menu_export", "Ctrl+E", self._export_result, True),
             ("menu_file", "yt_publish_btn", "", self._open_publish_dialog, True),
+            ("menu_file", "menu_run_youtube_package", "", self._menu_run_youtube_package, True),
             ("menu_file", _SEPARATOR, "", None, False),
             ("menu_file", "menu_settings", "Ctrl+,", self._open_settings, True),
 
@@ -535,6 +536,18 @@ class MainWindow(QMainWindow):
     def _menu_show_articles(self) -> None:
         self._stack.setCurrentIndex(self._record_index)
         self.main_tabs.setCurrentWidget(self.article_view)
+
+    def _menu_run_youtube_package(self) -> None:
+        """File > Create YouTube package (also in Ctrl+K): the one way to
+        run the "youtube_package" step on its own for the open record —
+        e.g. one transcribed with another recipe. Shows the YouTube tab
+        first so the progress and the result land where the user looks."""
+        if not self._current_result:
+            show_toast(self, tr("yt_run_needs_record"), kind="info")
+            return
+        self._stack.setCurrentIndex(self._record_index)
+        self.main_tabs.setCurrentWidget(self.youtube_panel)
+        self._start_youtube_job()
 
     def _menu_toggle_recording(self) -> None:
         self._stack.setCurrentIndex(self._start_index)
@@ -2835,6 +2848,10 @@ class MainWindow(QMainWindow):
         their current selection instead of the panel resolving and
         starting workers with it itself."""
         if not self._current_result:
+            return
+        # The menu/palette action and the panel's link both land here; a
+        # second start while one runs would orphan the first JobRunner.
+        if self._youtube_job is not None and self._youtube_job.isRunning():
             return
 
         from core.ai_provider import provider_from_config

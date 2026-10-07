@@ -708,6 +708,8 @@
   "settings_cover_shorts": "Export Shorts 9:16",
   "yt_publish_title": "Publish to YouTube",
   "yt_publish_btn": "Publish to YouTube…",
+  "menu_run_youtube_package": "Create YouTube package",
+  "yt_run_needs_record": "Open a record first — the YouTube package is made from its transcript.",
   "yt_publish_intro": "Check the text, then hand it over to YouTube Studio. Nothing is sent from here.",
   "yt_publish_video": "Video",
   "yt_publish_no_video": "No video file selected",
