@@ -56,3 +56,13 @@ def test_user_edits_are_what_gets_published():
     assert texts["description"] == "Edited by hand"
     assert texts["tags"] == "x, y, z"
     panel.close()
+
+
+def test_language_is_a_code_even_when_the_combo_names_a_language():
+    panel = _panel()
+    panel.set_result(_PAYLOAD)
+    panel._lang_combo.setCurrentIndex(panel._lang_combo.findData("Russian"))
+    assert panel.publish_texts()["language"] == "ru"
+    panel._lang_combo.setCurrentIndex(0)
+    assert panel.publish_texts()["language"] == "en"     # falls back to the transcript's
+    panel.close()

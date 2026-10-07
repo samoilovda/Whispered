@@ -66,6 +66,10 @@ _TAB_SPECS: tuple[_TabSpec, ...] = (
     _TabSpec("yt_questions", "_questions_edit", "questions", "yt_tab_questions"),
 )
 
+# The language combo's data is the name the prompt asks for; YouTube's
+# snippet.defaultLanguage wants a code.
+_LANGUAGE_CODES = {"Russian": "ru", "English": "en"}
+
 # Save location for generated files: the user data directory (same base as
 # config.json/history.db), not a path under the app's own install location —
 # in a PyInstaller bundle that location is read-only and saving would fail.
@@ -438,7 +442,7 @@ class YouTubePanel(QWidget):
             "titles": self._titles_edit.toPlainText().splitlines(),
             "description": self._desc_edit.toPlainText(),
             "tags": self._tags_edit.toPlainText(),
-            "language": self.selected_language() or self._transcript_language,
+            "language": _LANGUAGE_CODES.get(self.selected_language() or "", self._transcript_language),
             "chapter_check": self._chapter_check,
         }
 
