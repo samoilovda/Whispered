@@ -2,6 +2,13 @@
 
 # Qt and core.lm_client/core.ai_worker stand-ins come from tests/conftest.py.
 from core.youtube_description import (
+    BLOCK_QUESTIONS,
+    BLOCK_SIGNATURE,
+    BLOCK_TEXT,
+    BLOCK_TIMECODES,
+    DEFAULT_DESCRIPTION_BLOCKS,
+    above_the_fold,
+    compose_description,
     ISSUE_DUPLICATE,
     ISSUE_FIRST_MOVED,
     ISSUE_INVALID,
@@ -329,3 +336,46 @@ class TestChapterLines:
         parsed, bad = parse_chapter_lines("0:00 Intro\nno time here\n1:00\n9:99 Bad")
         assert parsed == [{"start": 0, "title": "Intro"}]
         assert bad == [2, 3, 4]
+
+
+class TestComposeDescription:
+    _CH = [{"start": 30, "title": "Intro"}, {"start": 90, "title": "Body"}, {"start": 150, "title": "End"}]
+    _Q = [{"start": 95, "title": "Why?"}]
+
+    def _compose(self, blocks, **kw):
+        args = dict(text="Hook.", chapters=self._CH, questions=self._Q, signature="Sub!",
+                    timecodes_label="T:", questions_label="Q:")
+        args.update(kw)
+        return compose_description(blocks=blocks, **args)
+
+    def test_default_blocks(self):
+        assert self._compose(DEFAULT_DESCRIPTION_BLOCKS) == (
+            "Hook.\n\nT:\n0:00 Intro\n1:30 Body\n2:30 End\n\nSub!"
+        )
+
+    def test_order_is_fixed_whatever_the_selection_order(self):
+        result = self._compose([BLOCK_SIGNATURE, BLOCK_QUESTIONS, BLOCK_TEXT])
+        assert result == "Hook.\n\nQ:\n1:35 Why?\n\nSub!"
+
+    def test_questions_keep_their_own_times(self):
+        assert "1:35 Why?" in self._compose([BLOCK_QUESTIONS])
+        assert "0:00 Why?" not in self._compose([BLOCK_QUESTIONS])
+
+    def test_empty_blocks_are_left_out(self):
+        assert self._compose([BLOCK_TEXT, BLOCK_SIGNATURE], signature="  ") == "Hook."
+        assert self._compose([BLOCK_TIMECODES], chapters=[]) == ""
+        assert self._compose([]) == ""
+
+    def test_matches_compose_full_description_for_text_and_timecodes(self):
+        expected = compose_full_description("Hook.", self._CH, "T:")
+        assert self._compose([BLOCK_TEXT, BLOCK_TIMECODES]) == expected
+
+
+class TestAboveTheFold:
+    def test_short_text_is_kept_on_one_line(self):
+        assert above_the_fold("Hook.\n\nMore") == "Hook. More"
+
+    def test_long_text_is_cut_at_a_word(self):
+        text = "word " * 50
+        result = above_the_fold(text, limit=22)
+        assert result == "word word word word…"

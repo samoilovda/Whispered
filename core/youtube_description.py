@@ -249,3 +249,64 @@ def parse_chapter_lines(text: str) -> tuple[list[dict], list[int]]:
             continue
         chapters.append({"start": start, "title": match.group(2)})
     return chapters, bad
+
+
+# Blocks a YouTube description is assembled from, in the order they appear.
+BLOCK_TEXT = "text"                # the model's hook + summary
+BLOCK_TIMECODES = "timecodes"      # chapter timecodes (YouTube chapters)
+BLOCK_QUESTIONS = "questions"      # key questions with their own times
+BLOCK_SIGNATURE = "signature"      # the channel's fixed footer (Settings)
+DESCRIPTION_BLOCKS = (BLOCK_TEXT, BLOCK_TIMECODES, BLOCK_QUESTIONS, BLOCK_SIGNATURE)
+DEFAULT_DESCRIPTION_BLOCKS = (BLOCK_TEXT, BLOCK_TIMECODES, BLOCK_SIGNATURE)
+
+
+def compose_description(
+    *,
+    blocks: "tuple[str, ...] | list[str] | set[str] | frozenset[str]",
+    text: str | None = None,
+    chapters: list[dict] | None = None,
+    questions: list[dict] | None = None,
+    signature: str | None = None,
+    timecodes_label: str = "Timecodes:",
+    questions_label: str = "Key questions:",
+) -> str:
+    """Assemble a description from the chosen *blocks*, always in
+    DESCRIPTION_BLOCKS order, separated by a blank line. A chosen block
+    with nothing in it is left out.
+
+    Timecodes follow the chapter rules (format_youtube_description);
+    questions keep their own times (format_chapter_lines) so they never
+    form a second 0:00-led list YouTube could take for chapters. Labels
+    are caller-supplied to keep this free of i18n.
+    """
+    parts: list[str] = []
+    for block in DESCRIPTION_BLOCKS:
+        if block not in blocks:
+            continue
+        if block == BLOCK_TEXT:
+            body = (text or "").strip()
+        elif block == BLOCK_TIMECODES:
+            lines = format_youtube_description(chapters or [])
+            body = f"{timecodes_label}\n{lines}" if lines else ""
+        elif block == BLOCK_QUESTIONS:
+            lines = format_chapter_lines(questions or [])
+            body = f"{questions_label}\n{lines}" if lines else ""
+        else:
+            body = (signature or "").strip()
+        if body:
+            parts.append(body)
+    return "\n\n".join(parts)
+
+
+def above_the_fold(description: str, limit: int = 150) -> str:
+    """Roughly what YouTube shows before "...more": the first *limit*
+    characters on one line, cut at a word boundary, with an ellipsis when
+    something was cut. An approximation — YouTube's cut depends on the
+    viewer's screen."""
+    flat = " ".join(description.split())
+    if len(flat) <= limit:
+        return flat
+    cut = flat.rfind(" ", 0, limit + 1)
+    if cut < limit // 2:
+        cut = limit
+    return flat[:cut].rstrip() + "…"

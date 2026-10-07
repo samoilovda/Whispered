@@ -146,6 +146,9 @@ class Config:
     # otherwise the language name the prompts ask for. Read only by the
     # youtube_package step, so it never changes other steps' language.
     yt_language: str = ""                                # "" | "Russian" | "English"
+    # The channel's fixed footer (links, a sign-off) for the YouTube
+    # description's "Channel signature" block. Empty = no such block.
+    yt_channel_signature: str = ""
 
     # What happens after a "Video for YouTube" run: nothing, open the
     # hand-off dialog (copy text, reveal video, open Studio), or also allow

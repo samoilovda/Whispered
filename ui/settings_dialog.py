@@ -565,6 +565,12 @@ class SettingsDialog(QDialog):
         ])
         self._row(layout, "settings_yt_language", self._yt_language_combo)
 
+        # Footer appended to YouTube descriptions (the "Channel signature" block)
+        self._yt_signature_edit = QPlainTextEdit()
+        self._yt_signature_edit.setMaximumHeight(70)
+        self._tt(self._yt_signature_edit, "settings_yt_signature_placeholder", "setPlaceholderText")
+        self._row(layout, "settings_yt_signature", self._yt_signature_edit)
+
         # What to do after a "Video for YouTube" run
         self._yt_publish_combo = QComboBox()
         self._combo_items(self._yt_publish_combo, [
@@ -650,6 +656,7 @@ class SettingsDialog(QDialog):
         idx = self._yt_language_combo.findData(cfg.yt_language)
         self._yt_language_combo.setCurrentIndex(idx if idx >= 0 else 0)
         self._on_yt_provider_changed()
+        self._yt_signature_edit.setPlainText(cfg.yt_channel_signature)
 
         for combo, value in (
             (self._cover_layout_combo, cfg.cover_layout),
@@ -699,6 +706,7 @@ class SettingsDialog(QDialog):
         cfg.yt_publish_mode = self._yt_publish_combo.currentData() or "off"
         cfg.yt_provider = self._yt_provider_combo.currentData() or "lmstudio"
         cfg.yt_language = self._yt_language_combo.currentData() or ""
+        cfg.yt_channel_signature = self._yt_signature_edit.toPlainText().strip()
 
         cfg.cover_layout = self._cover_layout_combo.currentData() or "duo"
         cfg.cover_variant = self._cover_variant_combo.currentData() or "mint"

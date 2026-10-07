@@ -29,7 +29,14 @@ from application.user_edits import (
     set_edit,
 )
 from core.paths import artifact_dir, output_dir
+from application.youtube_publish import DESCRIPTION_MAX_BYTES, description_bytes
 from core.youtube_description import (
+    BLOCK_QUESTIONS,
+    BLOCK_SIGNATURE,
+    BLOCK_TEXT,
+    BLOCK_TIMECODES,
+    DEFAULT_DESCRIPTION_BLOCKS,
+    DESCRIPTION_BLOCKS,
     ISSUE_DUPLICATE,
     ISSUE_FIRST_MOVED,
     ISSUE_INVALID,
@@ -40,8 +47,9 @@ from core.youtube_description import (
     MIN_YOUTUBE_CHAPTERS,
     ChapterCheck,
     ChapterIssue,
+    above_the_fold,
     check_chapters,
-    compose_full_description,
+    compose_description,
     format_chapter_lines,
     format_youtube_description,
     format_youtube_timestamp,
@@ -77,6 +85,14 @@ _TAB_SPECS: tuple[_TabSpec, ...] = (
     _TabSpec("yt_description", "_desc_edit", "description", "yt_tab_description", mono=False),
     _TabSpec("yt_tags", "_tags_edit", "tags", "yt_tab_tags"),
     _TabSpec("yt_questions", "_questions_edit", "questions", "yt_tab_questions"),
+)
+
+# The description's block chips: block id → caption key.
+_DESC_BLOCK_LABELS = (
+    (BLOCK_TEXT, "yt_desc_block_text"),
+    (BLOCK_TIMECODES, "yt_desc_block_timecodes"),
+    (BLOCK_QUESTIONS, "yt_desc_block_questions"),
+    (BLOCK_SIGNATURE, "yt_desc_block_signature"),
 )
 
 # Config.yt_language holds the name the prompt asks for; YouTube's
@@ -163,6 +179,10 @@ class YouTubePanel(QWidget):
         self._chapters_cancel_btn.setText(tr("yt_chapters_cancel"))
         self._chapters_done_btn.setText(tr("yt_chapters_done"))
         self._chapters_keep_btn.setText(tr("yt_chapters_keep_mine"))
+        self._desc_blocks_label.setText(tr("yt_desc_blocks"))
+        for block, key in _DESC_BLOCK_LABELS:
+            self._desc_block_btns[block].setText(tr(key))
+        self._render_description_meta()
         self._render_state()
         self._render_chapter_status()
         self._render_chapter_editing()
@@ -247,6 +267,8 @@ class YouTubePanel(QWidget):
             setattr(self, spec.edit_attr, edit)
             if spec.insight_type == "chapters":
                 self._tabs.addItem(self._build_chapters_section(edit), tr(spec.label_key))
+            elif spec.insight_type == "yt_description":
+                self._tabs.addItem(self._build_description_section(edit), tr(spec.label_key))
             else:
                 self._tabs.addItem(edit, tr(spec.label_key))
 
@@ -255,6 +277,52 @@ class YouTubePanel(QWidget):
         # row sits under the buttons instead of floating mid-panel; once the
         # sections show, their stretch factor wins.
         layout.addStretch()
+
+    def _build_description_section(self, edit: QPlainTextEdit) -> QWidget:
+        """Block chips (what goes into the description), the assembled
+        description, its size against YouTube's limit and the part shown
+        before "...more"."""
+        chips = QHBoxLayout()
+        chips.setContentsMargins(4, 4, 4, 0)
+        chips.setSpacing(4)
+        self._desc_blocks_label = QLabel(tr("yt_desc_blocks"))
+        self._desc_blocks_label.setProperty("role", "muted")
+        self._desc_blocks_label.setStyleSheet("font-size: 11px;")
+        chips.addWidget(self._desc_blocks_label)
+        self._desc_block_btns: dict[str, QPushButton] = {}
+        for block, key in _DESC_BLOCK_LABELS:
+            button = QPushButton(tr(key))
+            button.setCheckable(True)
+            button.setProperty("role", "quick-chip")
+            button.toggled.connect(
+                lambda checked, b=block: self._on_desc_block_toggled(b, checked)
+            )
+            chips.addWidget(button)
+            self._desc_block_btns[block] = button
+        chips.addStretch()
+
+        meta = QHBoxLayout()
+        meta.setContentsMargins(4, 0, 4, 0)
+        meta.setSpacing(8)
+        self._desc_fold = QLabel()
+        self._desc_fold.setWordWrap(True)
+        self._desc_fold.setProperty("role", "muted")
+        self._desc_fold.setStyleSheet("font-size: 11px;")
+        self._desc_fold.setVisible(False)
+        meta.addWidget(self._desc_fold, stretch=1)
+        self._desc_size = QLabel()
+        self._desc_size.setWordWrap(True)
+        self._desc_size.setProperty("role", "muted")
+        self._desc_size.setStyleSheet("font-size: 11px;")
+        meta.addWidget(self._desc_size)
+
+        section = QWidget()
+        box = QVBoxLayout(section)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.addLayout(chips)
+        box.addLayout(meta)
+        box.addWidget(edit)
+        return section
 
     def _build_chapters_section(self, edit: QPlainTextEdit) -> QWidget:
         """Clickable chapter rows (as YouTube will list them) over the
@@ -367,6 +435,7 @@ class YouTubePanel(QWidget):
         self._publish_btn.setEnabled(False)
         self._description_text = None
         self._chapters_data = None
+        self._questions = []
         self._reset_chapter_edits()
         self._set_chapter_check(None)
         for edit in self._edits():
@@ -392,6 +461,7 @@ class YouTubePanel(QWidget):
         self._publish_btn.setEnabled(False)
         self._description_text = None
         self._chapters_data = None
+        self._questions = []
         self._reset_chapter_edits()
         self._set_chapter_check(None)
         for edit in self._edits():
@@ -406,13 +476,12 @@ class YouTubePanel(QWidget):
         data = payload.get("chapters")
         self._editing_chapters = False
         self._bad_chapter_lines = []
+        self._overlay = load_overlay(self._overlay_file())
         if isinstance(data, list):
             self._model_chapters = data
-            self._overlay = load_overlay(self._overlay_file())
             self._apply_chapters()
         else:
             self._model_chapters = None
-            self._overlay = {}
             self._chapters_data = None
             self._chapters_edit.setPlainText(str(data) if data else tr("youtube_empty"))
             self._set_chapter_check(None)
@@ -429,11 +498,8 @@ class YouTubePanel(QWidget):
         desc = payload.get("yt_description")
         if isinstance(desc, list) and desc:
             self._description_text = desc[0] if isinstance(desc[0], str) else str(desc[0])
-            self._desc_edit.setPlainText(self._description_text)
         elif isinstance(desc, str):
             self._description_text = desc
-            self._desc_edit.setPlainText(desc)
-        self._maybe_compose_description()
 
         tags = payload.get("yt_tags")
         if isinstance(tags, list):
@@ -454,6 +520,8 @@ class YouTubePanel(QWidget):
             self._questions = []
             self._questions_edit.setPlainText(str(questions) if questions else tr("youtube_empty"))
 
+        # Last, once text, chapters and questions are all in.
+        self._compose_description()
         self._set_state("done")
         self._copy_btn.setEnabled(True)
         self._save_btn.setEnabled(True)
@@ -507,16 +575,76 @@ class YouTubePanel(QWidget):
             and self._desc_edit.toPlainText().strip()
         )
 
-    def _maybe_compose_description(self) -> None:
-        """Once both the description and chapters are in, fold the chapter
-        timecodes into the Description tab so it reads as one ready-to-paste
-        YouTube description (hook + summary + "Timecodes:" + chapter list).
-        Re-run after a chapter edit, so the description follows it."""
-        full = compose_full_description(
-            self._description_text, self._chapters_data, tr("youtube_timecodes_label")
+    # ── Description ─────────────────────────────────────────────────
+
+    def refresh_description(self) -> None:
+        """Re-assemble the description — e.g. after Settings changed the
+        channel signature. A no-op until a package is shown."""
+        if self._state == "done":
+            self._compose_description()
+
+    def _desc_blocks(self) -> list[str]:
+        chosen = self._overlay.get("description_blocks")
+        if isinstance(chosen, list):
+            return [block for block in DESCRIPTION_BLOCKS if block in chosen]
+        return list(DEFAULT_DESCRIPTION_BLOCKS)
+
+    def _compose_description(self) -> None:
+        """Assemble the Description tab — one ready-to-paste YouTube
+        description — from the chosen blocks: the model's text, the
+        (possibly edited) chapter timecodes, key questions, and the channel
+        signature from Settings. Re-run whenever any of them changes."""
+        from config import get_config
+
+        text = compose_description(
+            blocks=self._desc_blocks(),
+            text=self._description_text,
+            chapters=self._chapters_data,
+            questions=self._questions,
+            signature=get_config().yt_channel_signature,
+            timecodes_label=tr("youtube_timecodes_label"),
+            questions_label=tr("yt_desc_questions_label"),
         )
-        if full:
-            self._desc_edit.setPlainText(full)
+        self._desc_edit.setPlainText(text)
+        self._render_description_meta()
+
+    def _on_desc_block_toggled(self, block: str, checked: bool) -> None:
+        chosen = set(self._desc_blocks())
+        if checked:
+            chosen.add(block)
+        else:
+            chosen.discard(block)
+        ordered = [b for b in DESCRIPTION_BLOCKS if b in chosen]
+        self._store_overlay(set_edit(
+            self._overlay, "description_blocks", ordered, list(DEFAULT_DESCRIPTION_BLOCKS),
+        ))
+        self._compose_description()
+
+    def _render_description_meta(self) -> None:
+        """Block chips, size against YouTube's limit, and the part shown
+        before "...more" — also called on a language change."""
+        from config import get_config
+
+        chosen = set(self._desc_blocks())
+        for block, button in self._desc_block_btns.items():
+            blocked = button.blockSignals(True)
+            button.setChecked(block in chosen)
+            button.blockSignals(blocked)
+        has_signature = bool(get_config().yt_channel_signature.strip())
+        signature_btn = self._desc_block_btns[BLOCK_SIGNATURE]
+        signature_btn.setEnabled(has_signature)
+        signature_btn.setToolTip("" if has_signature else tr("yt_desc_signature_empty"))
+
+        text = self._desc_edit.toPlainText()
+        size = description_bytes(text)
+        over = size > DESCRIPTION_MAX_BYTES
+        self._desc_size.setText(tr(
+            "yt_desc_size_over" if over else "yt_desc_size",
+            count=size, limit=DESCRIPTION_MAX_BYTES,
+        ))
+        set_role(self._desc_size, "warning-text" if over else "muted")
+        self._desc_fold.setText(tr("yt_desc_fold", text=above_the_fold(text)) if text else "")
+        self._desc_fold.setVisible(bool(text))
 
     # ── Chapter edits ───────────────────────────────────────────────
     # The user's chapters are an overlay on the step's result, never
@@ -544,7 +672,7 @@ class YouTubePanel(QWidget):
 
     def _apply_chapters(self) -> None:
         """Show the effective chapters everywhere: rows, Copy/Save text,
-        checks, and (via _maybe_compose_description) the description."""
+        checks, and (via _compose_description) the description."""
         chapters = self._effective_chapters()
         self._chapters_data = chapters
         self._chapters_edit.setReadOnly(True)
@@ -599,7 +727,7 @@ class YouTubePanel(QWidget):
         self._editing_chapters = False
         self._bad_chapter_lines = []
         self._apply_chapters()
-        self._maybe_compose_description()
+        self._compose_description()
         self._render_chapter_editing()
 
     def _insert_player_time(self) -> None:
@@ -616,7 +744,7 @@ class YouTubePanel(QWidget):
     def _take_model_chapters(self) -> None:
         self._store_overlay(drop_edit(self._overlay, "chapters"))
         self._apply_chapters()
-        self._maybe_compose_description()
+        self._compose_description()
         self._render_chapter_editing()
 
     def _keep_user_chapters(self) -> None:
