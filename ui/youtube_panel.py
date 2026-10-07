@@ -19,10 +19,30 @@ from core.i18n import tr
 from ui.i18n_helpers import Retranslator
 from core.logger import get_logger
 from core.paths import output_dir
-from core.youtube_description import compose_full_description, format_youtube_description
+from core.youtube_description import (
+    ISSUE_DUPLICATE,
+    ISSUE_FIRST_MOVED,
+    ISSUE_INVALID,
+    ISSUE_LONG,
+    ISSUE_PAST_END,
+    ISSUE_TOO_CLOSE,
+    LONG_CHAPTER_SECONDS,
+    MIN_YOUTUBE_CHAPTERS,
+    ChapterCheck,
+    ChapterIssue,
+    check_chapters,
+    compose_full_description,
+    format_youtube_description,
+    format_youtube_timestamp,
+)
+from ui.theme import set_role
 from ui.toast import show_toast
 
 logger = get_logger(__name__)
+
+# How many dropped/out-of-range chapters the status line names individually
+# before collapsing the rest into "and N more".
+_MAX_LISTED_CHAPTERS = 3
 
 
 @dataclass(frozen=True)
@@ -76,6 +96,10 @@ class YouTubePanel(QWidget):
         self._transcript_language: str | None = None
         self._description_text: str | None = None
         self._chapters_data: list | None = None
+        # What check_chapters() made of the last chapter list, kept so the
+        # status line can be rebuilt in a new language without regenerating.
+        self._chapter_check: ChapterCheck | None = None
+        self._chapter_duration: float | None = None
         # Set via set_provenance() by MainWindow whenever the open
         # transcript changes — recorded into each saved file's Artifact
         # manifest (see core.paths.artifact_dir / R5-full in the audit plan).
@@ -103,6 +127,7 @@ class YouTubePanel(QWidget):
         )
         if self._placeholder.isVisible():
             self._placeholder.setText(tr("youtube_placeholder"))
+        self._render_chapter_status()
 
     # ── UI ──────────────────────────────────────────────────────────
 
@@ -188,6 +213,16 @@ class YouTubePanel(QWidget):
         layout.addWidget(self._retry_bar)
 
         self._init_provider_from_config()
+
+        # What YouTube will do with the chapter list: shown once chapters
+        # arrive, so a dropped chapter or a list too short for YouTube to
+        # display at all is visible here instead of only in the log.
+        self._chapter_status = QLabel()
+        self._chapter_status.setWordWrap(True)
+        self._chapter_status.setProperty("role", "success-text")
+        self._chapter_status.setStyleSheet("font-size: 11px;")
+        self._chapter_status.setVisible(False)
+        layout.addWidget(self._chapter_status)
 
         # Inner tabs: Chapters | Titles | Description | Tags | Key Questions
         self._tabs = QToolBox()
@@ -279,6 +314,7 @@ class YouTubePanel(QWidget):
         self._save_btn.setEnabled(False)
         self._description_text = None
         self._chapters_data = None
+        self._set_chapter_check(None)
         for edit in self._edits():
             edit.clear()
         self._tabs.setVisible(False)
@@ -306,6 +342,7 @@ class YouTubePanel(QWidget):
         self._save_btn.setEnabled(False)
         self._description_text = None
         self._chapters_data = None
+        self._set_chapter_check(None)
         for edit in self._edits():
             edit.clear()
         self._tabs.setVisible(True)
@@ -321,8 +358,13 @@ class YouTubePanel(QWidget):
             self._chapters_data = data
             text = format_youtube_description(data)
             self._chapters_edit.setPlainText(text or tr("youtube_empty"))
+            # Plain-dict segments (some tests) carry no usable duration;
+            # the past-end check is then simply skipped.
+            duration = getattr(self._segments[-1], "end", None) if self._segments else None
+            self._set_chapter_check(check_chapters(data, duration), duration)
         else:
             self._chapters_edit.setPlainText(str(data) if data else tr("youtube_empty"))
+            self._set_chapter_check(None)
 
         titles = payload.get("yt_titles")
         if isinstance(titles, list):
@@ -367,6 +409,7 @@ class YouTubePanel(QWidget):
         precheck failure deserves the same visibility a runtime one gets."""
         logger.warning("YouTube job failed: %s", message)
         self._chapters_edit.setPlainText(f"{tr('youtube_error')}: {message}" if message else "")
+        self._set_chapter_check(None)
         self._tabs.setVisible(True)
         self._placeholder.hide()
         self._reset_button()
@@ -383,6 +426,85 @@ class YouTubePanel(QWidget):
         )
         if full and full != self._description_text:
             self._desc_edit.setPlainText(full)
+
+    def _set_chapter_check(
+        self, check: ChapterCheck | None, duration: float | None = None,
+    ) -> None:
+        self._chapter_check = check
+        self._chapter_duration = duration
+        self._render_chapter_status()
+
+    def _render_chapter_status(self) -> None:
+        """Rebuild the chapter status line from the stored check — also
+        called on a language change, hence no work beyond formatting."""
+        check = self._chapter_check
+        if check is None:
+            self._chapter_status.clear()
+            self._chapter_status.setVisible(False)
+            return
+
+        if check.shows_on_youtube:
+            lines = [tr("yt_chapters_ok", count=len(check.chapters))]
+        else:
+            lines = [tr(
+                "yt_chapters_too_few",
+                count=len(check.chapters), minimum=MIN_YOUTUBE_CHAPTERS,
+            )]
+
+        invalid = check.issues_of(ISSUE_INVALID)
+        if invalid:
+            lines.append(tr("yt_chapters_invalid", count=len(invalid)))
+        dropped = check.issues_of(ISSUE_DUPLICATE, ISSUE_TOO_CLOSE)
+        if dropped:
+            lines.append(tr("yt_chapters_dropped", items=self._describe_chapters(dropped)))
+        past_end = check.issues_of(ISSUE_PAST_END)
+        if past_end and self._chapter_duration:
+            lines.append(tr(
+                "yt_chapters_past_end",
+                duration=format_youtube_timestamp(int(self._chapter_duration)),
+                items=self._describe_chapters(past_end),
+            ))
+        moved = check.issues_of(ISSUE_FIRST_MOVED)
+        if moved:
+            lines.append(tr(
+                "yt_chapters_first_moved", time=format_youtube_timestamp(moved[0].seconds),
+            ))
+        long_chapters = check.issues_of(ISSUE_LONG)
+        if long_chapters:
+            lines.append(tr(
+                "yt_chapters_long",
+                count=len(long_chapters),
+                limit=format_youtube_timestamp(LONG_CHAPTER_SECONDS),
+            ))
+
+        # The headline's ✓/✕ glyph carries the verdict on its own; colour
+        # only says whether there is anything below it worth reading.
+        if not check.shows_on_youtube:
+            role = "danger-text"
+        elif len(lines) > 1:
+            role = "warning-text"
+        else:
+            role = "success-text"
+        set_role(self._chapter_status, role)
+        self._chapter_status.setText("\n".join(lines))
+        self._chapter_status.setVisible(True)
+
+    @staticmethod
+    def _describe_chapters(issues: tuple[ChapterIssue, ...]) -> str:
+        parts = []
+        for issue in issues[:_MAX_LISTED_CHAPTERS]:
+            time = format_youtube_timestamp(issue.start or 0)
+            if issue.kind == ISSUE_TOO_CLOSE:
+                parts.append(tr(
+                    "yt_chapter_too_close", time=time, title=issue.title, seconds=issue.seconds,
+                ))
+            elif issue.kind == ISSUE_DUPLICATE:
+                parts.append(tr("yt_chapter_duplicate", time=time, title=issue.title))
+            else:
+                parts.append(tr("yt_chapter_item", time=time, title=issue.title))
+        if len(issues) > _MAX_LISTED_CHAPTERS:
+            parts.append(tr("yt_chapters_more", count=len(issues) - _MAX_LISTED_CHAPTERS))
+        return "; ".join(parts)
 
     def _reset_button(self):
         self._generating = False

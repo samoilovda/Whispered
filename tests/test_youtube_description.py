@@ -2,6 +2,13 @@
 
 # Qt and core.lm_client/core.ai_worker stand-ins come from tests/conftest.py.
 from core.youtube_description import (
+    ISSUE_DUPLICATE,
+    ISSUE_FIRST_MOVED,
+    ISSUE_INVALID,
+    ISSUE_LONG,
+    ISSUE_PAST_END,
+    ISSUE_TOO_CLOSE,
+    check_chapters,
     compose_full_description,
     format_youtube_timestamp,
     format_youtube_description,
@@ -166,6 +173,88 @@ class TestMinimumChapterGap:
         chapters = [{"start": 0, "title": "Only one"}, {"start": 3, "title": "Too close"}]
         result = format_youtube_description(chapters)
         assert result == "0:00 Only one"
+
+
+class TestCheckChapters:
+    def test_clean_list_has_no_issues(self):
+        chapters = [
+            {"start": 0, "title": "A"},
+            {"start": 60, "title": "B"},
+            {"start": 120, "title": "C"},
+        ]
+        check = check_chapters(chapters)
+        assert check.chapters == ((0, "A"), (60, "B"), (120, "C"))
+        assert check.issues == ()
+        assert check.shows_on_youtube
+
+    def test_too_close_reports_the_gap(self):
+        chapters = [{"start": 0, "title": "A"}, {"start": 6, "title": "B"}]
+        check = check_chapters(chapters)
+        (issue,) = check.issues_of(ISSUE_TOO_CLOSE)
+        assert (issue.start, issue.title, issue.seconds) == (6, "B", 6)
+        assert check.chapters == ((0, "A"),)
+
+    def test_duplicate_start_is_reported(self):
+        chapters = [{"start": 0, "title": "A"}, {"start": 0, "title": "Dup"}]
+        (issue,) = check_chapters(chapters).issues_of(ISSUE_DUPLICATE)
+        assert issue.title == "Dup"
+
+    def test_invalid_items_are_reported(self):
+        chapters = [
+            {"start": 0, "title": "A"},
+            {"start": 30, "title": "  "},
+            {"start": "soon", "title": "B"},
+        ]
+        check = check_chapters(chapters)
+        assert len(check.issues_of(ISSUE_INVALID)) == 2
+        assert check.chapters == ((0, "A"),)
+
+    def test_first_moved_records_original_start(self):
+        chapters = [{"start": 30, "title": "Intro"}, {"start": 90, "title": "Body"}]
+        check = check_chapters(chapters)
+        (issue,) = check.issues_of(ISSUE_FIRST_MOVED)
+        assert issue.seconds == 30
+        assert check.chapters[0] == (0, "Intro")
+
+    def test_fewer_than_three_does_not_show_on_youtube(self):
+        chapters = [{"start": 0, "title": "A"}, {"start": 60, "title": "B"}]
+        assert not check_chapters(chapters).shows_on_youtube
+
+    def test_long_chapter_is_kept_but_flagged(self):
+        chapters = [
+            {"start": 0, "title": "A"},
+            {"start": 600, "title": "B"},
+            {"start": 700, "title": "C"},
+        ]
+        check = check_chapters(chapters)
+        (issue,) = check.issues_of(ISSUE_LONG)
+        assert (issue.title, issue.seconds) == ("A", 600)
+        assert len(check.chapters) == 3
+
+    def test_last_chapter_length_uses_duration(self):
+        chapters = [{"start": 0, "title": "A"}, {"start": 60, "title": "B"}]
+        assert check_chapters(chapters).issues_of(ISSUE_LONG) == ()
+        (issue,) = check_chapters(chapters, duration=600).issues_of(ISSUE_LONG)
+        assert (issue.title, issue.seconds) == ("B", 540)
+
+    def test_past_end_is_kept_but_flagged(self):
+        chapters = [{"start": 0, "title": "A"}, {"start": 120, "title": "Late"}]
+        check = check_chapters(chapters, duration=100.5)
+        (issue,) = check.issues_of(ISSUE_PAST_END)
+        assert issue.title == "Late"
+        assert (120, "Late") in check.chapters
+
+    def test_matches_format_youtube_description(self):
+        chapters = [
+            {"start": 5, "title": "A"},
+            {"start": 5, "title": "A2"},
+            {"start": 9, "title": "B"},
+            {"start": 40, "title": "C"},
+            {"start": "x", "title": "D"},
+        ]
+        kept = check_chapters(chapters).chapters
+        expected = "\n".join(f"{format_youtube_timestamp(s)} {t}" for s, t in kept)
+        assert format_youtube_description(chapters) == expected
 
 
 class TestComposeFullDescription:
