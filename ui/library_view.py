@@ -70,6 +70,7 @@ def _clean_snippet(raw: str) -> str:
 _ARTIFACT_LABEL_KEYS = {
     "transcript": "library_chip_transcript",
     "youtube": "library_chip_youtube",
+    "youtube_upload": "library_chip_youtube_upload",
     "article": "library_chip_article",
     "insights": "library_chip_insights",
     "book": "library_chip_book",

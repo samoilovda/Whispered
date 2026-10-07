@@ -260,6 +260,11 @@ class MainWindow(QMainWindow):
         # record to attach it to.
         self._recipe_run_id: int | None = None
         self._gpu_worker: GPUDetectionWorker | None = None
+        # YouTube upload (core/youtube_upload_worker.py): the worker outlives
+        # the publish dialog that started it.
+        self._yt_upload = None
+        self._yt_upload_record_id: int | None = None
+        self._yt_dialog = None
         self._draft_worker: DraftAssemblyWorker | None = None
         self._shutdownables.append(_WorkerShutdown(self, "_clean_job"))
         self._shutdownables.append(_WorkerShutdown(self, "_article_job"))
@@ -267,6 +272,7 @@ class MainWindow(QMainWindow):
         self._shutdownables.append(_WorkerShutdown(self, "_youtube_job"))
         self._shutdownables.append(_WorkerShutdown(self, "_book_job"))
         self._shutdownables.append(_WorkerShutdown(self, "_recipe_job"))
+        self._shutdownables.append(_WorkerShutdown(self, "_yt_upload"))
         self._shutdownables.append(_WorkerShutdown(self, "_gpu_worker", wait_ms=1500))
         # Cancellation stops ffmpeg via SIGTERM (falling back to SIGKILL
         # after 5s) — bound generously above that worst case so close()
@@ -2232,19 +2238,127 @@ class MainWindow(QMainWindow):
 
         record_id, source_path = self.youtube_panel.provenance()
         stem = Path(source_path).stem if source_path else ""
+        art_dir = (
+            artifact_dir(record_id, source_path or stem or "youtube")
+            if record_id is not None else None
+        )
         cover_path = None
-        if record_id is not None:
-            candidate = artifact_dir(record_id, source_path or stem or "youtube") / "cover.png"
-            cover_path = candidate if candidate.is_file() else None
+        if art_dir is not None and (art_dir / "cover.png").is_file():
+            cover_path = art_dir / "cover.png"
+        record_path = art_dir / "youtube_upload.json" if art_dir else None
+        pending_path = art_dir / "youtube_upload.pending.json" if art_dir else None
         dialog = YouTubePublishDialog(
             self.youtube_panel.publish_texts(),
             video_path=find_video_source(source_path),
             cover_path=cover_path,
             source_name=stem or "youtube",
             save_dir=output_dir(),
+            upload_enabled=art_dir is not None and self._youtube_upload_ready(),
+            record_path=record_path,
+            pending_path=pending_path,
             parent=self,
         )
-        dialog.exec()
+        dialog.upload_requested.connect(
+            lambda pkg: self._start_youtube_upload(pkg, record_id, record_path, pending_path)
+        )
+        dialog.upload_cancel_requested.connect(self._cancel_youtube_upload)
+        self._yt_dialog = dialog
+        try:
+            dialog.exec()
+        finally:
+            # A running upload keeps going without the dialog; its signals
+            # then just stop reaching it.
+            self._yt_dialog = None
+            dialog.deleteLater()
+
+    # ------------------------------------------------------------ YouTube upload
+
+    def _youtube_upload_ready(self) -> bool:
+        """API mode is on, the user's OAuth client is imported and the
+        account is connected."""
+        from core import youtube_oauth
+        cfg = get_config()
+        return (
+            cfg.yt_publish_mode == "api"
+            and bool(cfg.yt_oauth_client_id and cfg.yt_oauth_client_secret)
+            and youtube_oauth.is_connected()
+        )
+
+    def _start_youtube_upload(self, pkg, record_id, record_path, pending_path) -> None:
+        """PublishDialog.upload_requested: run the upload worker. One
+        upload at a time; the worker outlives the dialog."""
+        from core.youtube_upload_worker import YouTubeUploadWorker
+        dialog = self._yt_dialog
+        if self._yt_upload is not None and self._yt_upload.isRunning():
+            if dialog is not None:
+                dialog.set_upload_failed(tr("yt_publish_busy"))
+            return
+        if record_path is None or pending_path is None or not self._youtube_upload_ready():
+            if dialog is not None:
+                dialog.set_upload_failed(tr("yt_publish_relogin"))
+            return
+        cfg = get_config()
+        self._yt_upload_record_id = record_id
+        worker = YouTubeUploadWorker(
+            pkg, client_id=cfg.yt_oauth_client_id, client_secret=cfg.yt_oauth_client_secret,
+            pending_path=pending_path, record_path=record_path, parent=self,
+        )
+        worker.progress.connect(self._on_youtube_upload_progress)
+        worker.thumbnail_warning.connect(self._on_youtube_cover_warning)
+        worker.uploaded.connect(self._on_youtube_uploaded)
+        worker.cancelled.connect(self._on_youtube_upload_cancelled)
+        worker.failed.connect(self._on_youtube_upload_failed)
+        self._registry.register(worker, name="youtube_upload")
+        self._yt_upload = worker
+        worker.start()
+
+    def _cancel_youtube_upload(self) -> None:
+        if self._yt_upload is not None and self._yt_upload.isRunning():
+            self._yt_upload.cancel()
+
+    def _on_youtube_upload_progress(self, percent: int, sent: object, total: object) -> None:
+        self.status_label.setText(tr("status_yt_uploading", percent=percent))
+        if self._yt_dialog is not None:
+            self._yt_dialog.set_upload_progress(percent, sent, total)
+
+    def _on_youtube_cover_warning(self, message: str) -> None:
+        if self._yt_dialog is not None:
+            self._yt_dialog.set_thumbnail_warning(message)
+        else:
+            show_toast(self, tr("yt_publish_cover_warning", detail=message), kind="warning")
+
+    def _on_youtube_uploaded(self, record) -> None:
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+        from ui.youtube_publish_dialog import studio_edit_url
+        self.status_label.setText(tr("toast_yt_uploaded"))
+        show_toast(self, tr("toast_yt_uploaded"), kind="success")
+        if self._yt_dialog is not None:
+            self._yt_dialog.set_upload_done(record)
+        QDesktopServices.openUrl(QUrl(studio_edit_url(record.video_id)))
+        record_id = self._yt_upload_record_id
+        if record_id is not None:
+            try:
+                from core.history import get_history_store
+                store = get_history_store()
+                current = store.get_record(record_id) or {}
+                artifacts = {"transcript", "youtube_upload", *current.get("artifacts", [])}
+                store.set_artifacts(record_id, sorted(artifacts))
+                self.library_view.refresh()
+            except Exception as exc:
+                logger.warning("Failed to record the YouTube upload in history: %s", exc)
+
+    def _on_youtube_upload_cancelled(self) -> None:
+        self.status_label.setText("")
+        if self._yt_dialog is not None:
+            self._yt_dialog.set_upload_cancelled()
+
+    def _on_youtube_upload_failed(self, message: str, relogin: bool) -> None:
+        self.status_label.setText("")
+        text = tr("yt_publish_relogin") if relogin else message
+        show_toast(self, tr("yt_publish_upload_failed", detail=text), kind="error")
+        if self._yt_dialog is not None:
+            self._yt_dialog.set_upload_failed(text)
 
     def _save_to_history(self, result: TranscriptionResult, source_path: str,
                          model: str, speaker_names: dict,

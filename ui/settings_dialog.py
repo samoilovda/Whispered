@@ -529,6 +529,7 @@ class SettingsDialog(QDialog):
         self._combo_items(self._yt_publish_combo, [
             ("settings_yt_publish_off", "off"),
             ("settings_yt_publish_handoff", "handoff"),
+            ("settings_yt_publish_api", "api"),
         ])
         self._row(layout, "settings_yt_publish_mode", self._yt_publish_combo)
 

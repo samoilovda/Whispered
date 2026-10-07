@@ -77,3 +77,20 @@ def _isolated_artifact_output_dir():
     if path.exists():
         shutil.rmtree(path)
     path.mkdir(parents=True, exist_ok=True)
+
+
+@pytest.fixture(autouse=True)
+def _youtube_publish_defaults():
+    """The publish dialog opens by itself after a YouTube run when
+    ``yt_publish_mode`` is on, and its ``exec()`` would block a test. Keep
+    the mode (and the OAuth fields tests poke at) from leaking between tests
+    through the process-wide Config."""
+    from config import get_config
+
+    cfg = get_config()
+    saved = (cfg.yt_publish_mode, cfg.yt_oauth_client_id,
+             cfg.yt_oauth_client_secret, cfg.yt_channel_title)
+    cfg.yt_publish_mode = "off"
+    yield
+    (cfg.yt_publish_mode, cfg.yt_oauth_client_id,
+     cfg.yt_oauth_client_secret, cfg.yt_channel_title) = saved
