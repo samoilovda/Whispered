@@ -576,8 +576,8 @@ class HistoryStore:
         """
         with self._connect() as conn:
             row = conn.execute(
-                """SELECT id, source_path, source_name, source_kind, duration, language, model,
-                          artifacts, title, json_payload
+                """SELECT id, created_at, source_path, source_name, source_kind, duration,
+                          language, model, artifacts, title, json_payload
                    FROM transcripts WHERE id = ?""",
                 (record_id,),
             ).fetchone()
@@ -589,6 +589,7 @@ class HistoryStore:
             artifacts = ["transcript"]
         return {
             "id": row["id"],
+            "created_at": row["created_at"],
             "source_path": row["source_path"],
             "source_name": row["source_name"],
             "source_kind": row["source_kind"],

@@ -15,6 +15,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QFocusEvent, QKeyEvent
 from PyQt6.QtWidgets import (
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QMenu,
     QPushButton,
@@ -128,9 +129,17 @@ class RecordView(QWidget):
         header = QHBoxLayout()
         header.setSpacing(8)
 
+        title_box = QVBoxLayout()
+        title_box.setSpacing(0)
         self.title_edit = _TitleEdit()
         self.title_edit.committed.connect(self.rename_requested.emit)
-        header.addWidget(self.title_edit, stretch=1)
+        title_box.addWidget(self.title_edit)
+        # When, how long, which language and model — the record's facts.
+        self.subtitle_label = QLabel()
+        self.subtitle_label.setProperty("role", "muted")
+        self.subtitle_label.setVisible(False)
+        title_box.addWidget(self.subtitle_label)
+        header.addLayout(title_box, stretch=1)
 
         # Last run of a recipe on this record: what succeeded, what failed.
         self.run_chip = QPushButton()
@@ -244,6 +253,10 @@ class RecordView(QWidget):
 
     def set_title(self, name: str) -> None:
         self.title_edit.set_shown_text(name)
+
+    def set_subtitle(self, text: str) -> None:
+        self.subtitle_label.setText(text)
+        self.subtitle_label.setVisible(bool(text))
 
     def title(self) -> str:
         return self.title_edit.text()

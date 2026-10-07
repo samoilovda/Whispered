@@ -214,6 +214,26 @@ def _result_from_payload(payload: dict) -> TranscriptionResult:
     )
 
 
+def _record_subtitle(record: dict) -> str:
+    """"7 Oct 2026, 11:36 · 40:44 · RU · large-v3-turbo-q8_0" for the
+    record header — whatever of those the record has."""
+    from datetime import datetime as _dt
+
+    from core.date_format import parse_iso, relative_stamp
+
+    parts = []
+    when = parse_iso(record.get("created_at") or "")
+    if when is not None:
+        parts.append(relative_stamp(when, _dt.now()))
+    if record.get("duration"):
+        parts.append(format_duration(float(record["duration"])))
+    if record.get("language"):
+        parts.append(str(record["language"]).upper())
+    if record.get("model"):
+        parts.append(str(record["model"]))
+    return "  ·  ".join(parts)
+
+
 class MainWindow(QMainWindow):
     """Main application window with header-bar settings layout."""
 
@@ -2149,6 +2169,9 @@ class MainWindow(QMainWindow):
         self.record_view.set_title(title)
         self.record_view.set_has_result(True)
         self.record_view.set_has_record(self._last_record_id is not None)
+        self.record_view.set_subtitle(_record_subtitle({
+            "duration": result.duration, "language": result.language,
+        }))
         self._load_bookmarks()
         self._revealed_tabs.clear()
         self._record_artifacts = set()
@@ -2937,6 +2960,7 @@ class MainWindow(QMainWindow):
             )
             self.record_view.set_has_result(True)
             self.record_view.set_has_record(True)
+            self.record_view.set_subtitle(_record_subtitle(record))
             self._revealed_tabs.clear()
             self._record_artifacts = set(record.get("artifacts") or [])
             self._refresh_tab_visibility()
