@@ -915,5 +915,13 @@
   "command_group_steps": "Повторить шаг",
   "command_group_records": "Записи",
   "command_group_materials": "Материалы",
-  "command_palette_footer": "↑↓ выбрать · Enter открыть · Esc закрыть"
+  "command_palette_footer": "↑↓ выбрать · Enter открыть · Esc закрыть",
+  "menu_add_bookmark": "Добавить закладку",
+  "bookmark_needs_record": "Закладки ставятся в сохранённых записях",
+  "bookmark_added": "Закладка на {time} — правый клик по метке, чтобы добавить заметку",
+  "bookmark_edit_note": "Изменить заметку…",
+  "bookmark_delete": "Удалить закладку",
+  "bookmark_note_prompt": "Заметка к закладке на {time}:",
+  "command_group_bookmarks": "Закладки",
+  "command_bookmark": "🔖 {time} {note}"
 }

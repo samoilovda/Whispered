@@ -12,8 +12,8 @@ from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel, QSlider,
     QStyle, QStyleOptionSlider, QToolButton, QToolTip, QMenu,
 )
-from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal, QTimer, QUrl
-from PyQt6.QtGui import QAction, QActionGroup, QMouseEvent, QPainter
+from PyQt6.QtCore import QEvent, QObject, QPoint, Qt, pyqtSignal, QTimer, QUrl
+from PyQt6.QtGui import QAction, QActionGroup, QColor, QMouseEvent, QPainter, QPolygon
 
 from core.i18n import tr
 from core.logger import get_logger
@@ -35,28 +35,55 @@ def multimedia_available() -> bool:
     return _MULTIMEDIA_AVAILABLE
 
 
+# Bookmarks are amber in both themes — distinct from the accent-coloured
+# chapter ticks, and drawn as a different shape (not colour alone).
+_BOOKMARK_COLOR = "#f59e0b"
+
+
 class _ChapterMarks(QWidget):
-    """A thin strip under the position slider with a tick per chapter.
-    Hovering a tick names the chapter; clicking it seeks there. Lined up
-    with the slider's groove by PlayerWidget._sync_marks_geometry()."""
+    """A thin strip under the position slider with a tick per chapter and
+    an amber marker per bookmark. Hovering names the chapter or shows the
+    bookmark's note; clicking seeks there; right-clicking a bookmark
+    offers to edit its note or delete it. Lined up with the slider's
+    groove by PlayerWidget._sync_marks_geometry()."""
 
     seek_requested = pyqtSignal(float)
+    bookmark_menu_requested = pyqtSignal(int, object)   # bookmark id, global QPoint
 
     _HIT_PX = 6          # how close the pointer must be to a tick
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(8)
+        self.setFixedHeight(10)
         self.setMouseTracking(True)
         self._chapters: list[tuple[float, str]] = []
+        # (seconds, note, bookmark id)
+        self._bookmarks: list[tuple[float, str, int]] = []
         self._duration = 0.0
         self._inset = 0              # half the slider handle: where 0 sits
 
     def set_chapters(self, chapters: list[tuple[float, str]], duration: float) -> None:
         self._chapters = chapters
         self._duration = duration
-        self.setVisible(bool(chapters) and duration > 0)
+        self._update_visibility()
         self.update()
+
+    def set_bookmarks(self, bookmarks: list[tuple[float, str, int]]) -> None:
+        self._bookmarks = bookmarks
+        self._update_visibility()
+        self.update()
+
+    def _update_visibility(self) -> None:
+        self.setVisible(bool(self._chapters or self._bookmarks) and self._duration > 0)
+
+    def bookmark_at(self, x: int) -> Optional[tuple[float, str, int]]:
+        best = None
+        best_dist = self._HIT_PX + 1
+        for mark in self._bookmarks:
+            dist = abs(self.tick_x(mark[0]) - x)
+            if dist < best_dist:
+                best, best_dist = mark, dist
+        return best
 
     def set_inset(self, inset: int) -> None:
         self._inset = inset
@@ -77,29 +104,48 @@ class _ChapterMarks(QWidget):
         return best
 
     def paintEvent(self, event):  # noqa: N802 — Qt override
-        if not self._chapters or self._duration <= 0:
+        if self._duration <= 0 or not (self._chapters or self._bookmarks):
             return
         painter = QPainter(self)
-        color = self.palette().highlight().color()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(color)
+        painter.setBrush(self.palette().highlight().color())
         for start, _title in self._chapters:
-            painter.drawRect(self.tick_x(start) - 1, 0, 2, self.height())
+            painter.drawRect(self.tick_x(start) - 1, 2, 2, self.height() - 2)
+        painter.setBrush(QColor(_BOOKMARK_COLOR))
+        for start, _note, _id in self._bookmarks:
+            x = self.tick_x(start)
+            # A small downward triangle hanging from the slider.
+            painter.drawPolygon(QPolygon([QPoint(x - 4, 0), QPoint(x + 4, 0), QPoint(x, 7)]))
         painter.end()
 
     def mouseMoveEvent(self, event):  # noqa: N802 — Qt override
-        chapter = self.chapter_at(int(event.position().x()))
-        if chapter is None:
-            self.unsetCursor()
-            QToolTip.hideText()
-            return
+        x = int(event.position().x())
+        bookmark = self.bookmark_at(x)
+        if bookmark is not None:
+            text = f"🔖 {_fmt(bookmark[0])}"
+            if bookmark[1]:
+                text += f"  {bookmark[1]}"
+        else:
+            chapter = self.chapter_at(x)
+            if chapter is None:
+                self.unsetCursor()
+                QToolTip.hideText()
+                return
+            text = f"{_fmt(chapter[0])}  {chapter[1]}"
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        QToolTip.showText(
-            event.globalPosition().toPoint(), f"{_fmt(chapter[0])}  {chapter[1]}", self,
-        )
+        QToolTip.showText(event.globalPosition().toPoint(), text, self)
 
     def mousePressEvent(self, event):  # noqa: N802 — Qt override
-        chapter = self.chapter_at(int(event.position().x()))
+        x = int(event.position().x())
+        bookmark = self.bookmark_at(x)
+        if bookmark is not None and event.button() == Qt.MouseButton.RightButton:
+            self.bookmark_menu_requested.emit(bookmark[2], event.globalPosition().toPoint())
+            return
+        if bookmark is not None:
+            self.seek_requested.emit(float(bookmark[0]))
+            return
+        chapter = self.chapter_at(x)
         if chapter is not None:
             self.seek_requested.emit(float(chapter[0]))
 
@@ -127,6 +173,7 @@ class PlayerWidget(QWidget):
 
     position_changed_sec = pyqtSignal(float)  # emitted on timer tick
     seek_requested = pyqtSignal(float)         # internal re-use
+    bookmark_menu_requested = pyqtSignal(int, object)  # bookmark id, global QPoint
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -235,6 +282,7 @@ class PlayerWidget(QWidget):
         self._marks = _ChapterMarks(self)
         self._marks.setVisible(False)
         self._marks.seek_requested.connect(self.seek_to)
+        self._marks.bookmark_menu_requested.connect(self.bookmark_menu_requested.emit)
         self._marks_row = QHBoxLayout()
         self._marks_row.setContentsMargins(0, 0, 0, 0)
         self._marks_row.addWidget(self._marks)
@@ -338,6 +386,11 @@ class PlayerWidget(QWidget):
                 continue
         self._chapter_marks = marks
         self._update_marks()
+
+    def set_bookmarks(self, bookmarks: list[tuple[float, str, int]]) -> None:
+        """Show a marker per bookmark: (seconds, note, bookmark id)."""
+        self._marks.set_bookmarks(list(bookmarks))
+        self._sync_marks_geometry()
 
     def _update_marks(self) -> None:
         duration = self._duration if self._duration > 0 else self._fallback_duration

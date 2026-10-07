@@ -37,6 +37,7 @@ from ui.i18n_helpers import Retranslator
 from ui.library_view import display_name
 from ui.option_labels import recipe_label
 from ui.theme import get_theme
+from utils import format_duration
 
 # Extra item roles: the right-aligned hint (shortcut, date) and whether a
 # row is a group header (no payload, not selectable).
@@ -136,6 +137,7 @@ class CommandPalette(QDialog):
     record_requested = pyqtSignal(int, str)
     recipe_requested = pyqtSignal(str)
     retry_step_requested = pyqtSignal(str)
+    bookmark_requested = pyqtSignal(int, float)  # record id, seconds
 
     # Local copy of LibraryView's artifact-type labels (B7) — kept
     # independent rather than importing a private name from ui.library_view.
@@ -150,6 +152,7 @@ class CommandPalette(QDialog):
         super().__init__(parent)
         self._run_view = None
         self._actions: list = []
+        self._bookmarks_provider = None
         self._i18n = Retranslator()
         self.setWindowTitle(tr("command_palette_title"))
         self.setModal(True)
@@ -182,6 +185,32 @@ class CommandPalette(QDialog):
         time the palette refreshes — a plain reference, not a copy, so it
         always reflects whatever run is bound at query time."""
         self._run_view = run_view
+
+    def bind_bookmarks(self, provider) -> None:
+        """*provider()* returns the open record's bookmarks (R3), read at
+        query time like bind_run_view()."""
+        self._bookmarks_provider = provider
+
+    def _bookmark_rows(self, query: str, store) -> list:
+        rows = []
+        seen: set = set()
+        own = list(self._bookmarks_provider()) if self._bookmarks_provider is not None else []
+        for bookmark in own:
+            label = tr("command_bookmark", time=format_duration(bookmark.at_seconds), note=bookmark.note)
+            score = match_score(query, label)
+            if score is not None:
+                # The open record's bookmarks keep their time order.
+                rows.append((-bookmark.at_seconds / 1e6, label.strip(), "",
+                             ("bookmark", (bookmark.record_id, bookmark.at_seconds)), True))
+                seen.add(bookmark.id)
+        if query and store is not None:
+            for bookmark in store.search_bookmarks(query):
+                if bookmark.id in seen:
+                    continue
+                label = tr("command_bookmark", time=format_duration(bookmark.at_seconds), note=bookmark.note)
+                rows.append((-1.0, label.strip(), display_name(bookmark.record_name),
+                             ("bookmark", (bookmark.record_id, bookmark.at_seconds)), True))
+        return rows
 
     def bind_actions(self, actions) -> None:
         """QAction objects to list as generic commands (B12) — a plain
@@ -264,6 +293,7 @@ class CommandPalette(QDialog):
         query = query.strip()
         record_rows: list = []
         material_rows: list = []
+        store = None
         try:
             from core.history import get_history_store
 
@@ -290,17 +320,25 @@ class CommandPalette(QDialog):
 
         if query:
             self._add_group(tr("command_group_actions"), self._action_rows(query))
+            self._add_group(tr("command_group_bookmarks"), self._safe_bookmark_rows(query, store))
             self._add_group(tr("command_group_recipes"), self._recipe_rows(query))
             self._add_group(tr("command_group_steps"), self._step_rows(query))
             self._add_group(tr("command_group_records"), record_rows)
             self._add_group(tr("command_group_materials"), material_rows)
         else:
+            self._add_group(tr("command_group_bookmarks"), self._safe_bookmark_rows("", store))
             self._add_group(tr("command_group_recent"), record_rows)
             self._add_group(tr("command_group_actions"), self._action_rows(""))
             self._add_group(tr("command_group_recipes"), self._recipe_rows(""))
             self._add_group(tr("command_group_steps"), self._step_rows(""))
         self.results.setCurrentRow(-1)
         self.move_selection(1)
+
+    def _safe_bookmark_rows(self, query: str, store) -> list:
+        try:
+            return self._bookmark_rows(query, store)
+        except Exception:
+            return []
 
     def move_selection(self, step: int) -> None:
         """Move the current row by *step* selectable rows (headers and
@@ -346,5 +384,8 @@ class CommandPalette(QDialog):
             self.recipe_requested.emit(str(value))
         elif kind == "retry_step":
             self.retry_step_requested.emit(str(value))
+        elif kind == "bookmark":
+            record_id, seconds = value
+            self.bookmark_requested.emit(int(record_id), float(seconds))
         else:
             value.trigger()

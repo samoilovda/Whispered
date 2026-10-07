@@ -915,5 +915,13 @@
   "command_group_steps": "Retry a step",
   "command_group_records": "Records",
   "command_group_materials": "Materials",
-  "command_palette_footer": "↑↓ select · Enter open · Esc close"
+  "command_palette_footer": "↑↓ select · Enter open · Esc close",
+  "menu_add_bookmark": "Add bookmark",
+  "bookmark_needs_record": "Bookmarks need a saved record",
+  "bookmark_added": "Bookmarked {time} — right-click its marker to add a note",
+  "bookmark_edit_note": "Edit note…",
+  "bookmark_delete": "Delete bookmark",
+  "bookmark_note_prompt": "Note for the bookmark at {time}:",
+  "command_group_bookmarks": "Bookmarks",
+  "command_bookmark": "🔖 {time} {note}"
 }

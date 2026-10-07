@@ -659,3 +659,44 @@ class TestRecordTitle:
 
     def test_unknown_record_has_no_title(self, tmp_path):
         assert self._store(tmp_path).get_title(999) is None
+
+
+class TestBookmarks:
+    """Bookmarks per record (migration v9): add, list in time order,
+    edit the note, delete, search notes, and go away with the record."""
+
+    def _store(self, tmp_path):
+        from core.history import HistoryStore
+        return HistoryStore(db_path=tmp_path / "h.db")
+
+    def _add(self, store, name="a.m4a"):
+        from transcriber import Segment, TranscriptionResult
+        result = TranscriptionResult(segments=[Segment(0.0, 1.0, "x")], language="en", duration=1.0)
+        return store.add(result, source_path=f"/media/{name}", model="")
+
+    def test_listed_in_time_order_with_notes(self, tmp_path):
+        store = self._store(tmp_path)
+        rid = self._add(store)
+        store.add_bookmark(rid, 90.0, "  later  ")
+        first = store.add_bookmark(rid, 12.5)
+        marks = store.list_bookmarks(rid)
+        assert [(m.at_seconds, m.note) for m in marks] == [(12.5, ""), (90.0, "later")]
+        store.set_bookmark_note(first, "intro")
+        store.delete_bookmark(marks[1].id)
+        assert [(m.at_seconds, m.note) for m in store.list_bookmarks(rid)] == [(12.5, "intro")]
+
+    def test_search_notes_across_records(self, tmp_path):
+        store = self._store(tmp_path)
+        rid = self._add(store, "talk.m4a")
+        store.add_bookmark(rid, 30.0, "great quote about budgets")
+        store.add_bookmark(rid, 40.0, "")
+        hits = store.search_bookmarks("budget")
+        assert [(h.record_id, h.record_name, h.at_seconds) for h in hits] == [(rid, "talk.m4a", 30.0)]
+        assert store.search_bookmarks("") == []
+
+    def test_deleted_with_the_record(self, tmp_path):
+        store = self._store(tmp_path)
+        rid = self._add(store)
+        store.add_bookmark(rid, 5.0, "x")
+        store.delete(rid)
+        assert store.list_bookmarks(rid) == []

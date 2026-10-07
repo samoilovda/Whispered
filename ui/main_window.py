@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout,
     QLabel, QFileDialog, QMessageBox, QDialog,
     QApplication, QTabWidget,
-    QTextEdit, QLineEdit, QPlainTextEdit, QStackedWidget, QToolButton, QMenu,
+    QTextEdit, QLineEdit, QPlainTextEdit, QStackedWidget, QToolButton, QMenu, QInputDialog,
 )
 from PyQt6.QtCore import Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices, QKeySequence, QShortcut, QDragEnterEvent, QDropEvent
@@ -56,6 +56,7 @@ from utils import (
     WHISPER_LANGUAGES,
     PERFORMANCE_MODES,
     detect_gpu,
+    format_duration,
     get_thread_count,
     is_supported_format,
 )
@@ -229,6 +230,7 @@ class MainWindow(QMainWindow):
         self.transcriber = Transcriber()
         self._shutdownables.append(self.transcriber)
         self._cleaned_text: str | None = None
+        self._bookmarks: list = []
         self._clean_job: JobRunner | None = None
         self._article_job: JobRunner | None = None
         self._insights_job: JobRunner | None = None
@@ -306,6 +308,8 @@ class MainWindow(QMainWindow):
         self.command_palette.record_requested.connect(self._open_record_view)
         self.command_palette.recipe_requested.connect(self._select_recipe_from_palette)
         self.command_palette.retry_step_requested.connect(self._retry_recipe_step_from_palette)
+        self.command_palette.bind_bookmarks(self.open_record_bookmarks)
+        self.command_palette.bookmark_requested.connect(self._open_bookmark)
         self._connect_signals()
         self.setAcceptDrops(True)
         # Apply saved mic device
@@ -479,6 +483,7 @@ class MainWindow(QMainWindow):
             ("menu_playback", "menu_play_pause", "Space|K", self._space_play_pause, False),
             ("menu_playback", "menu_seek_back", "J", lambda: self._playback_key(lambda: self.player.seek_relative(-10)), True),
             ("menu_playback", "menu_seek_forward", "L", lambda: self._playback_key(lambda: self.player.seek_relative(10)), True),
+            ("menu_playback", "menu_add_bookmark", "B", lambda: self._playback_key(self._add_bookmark), True),
             ("menu_playback", _SEPARATOR, "", None, False),
             ("menu_playback", "menu_speed_down", "[", lambda: self._playback_key(lambda: self.player.speed_step(-1)), True),
             ("menu_playback", "menu_speed_up", "]", lambda: self._playback_key(lambda: self.player.speed_step(1)), True),
@@ -713,6 +718,7 @@ class MainWindow(QMainWindow):
 
         # Audio player (hidden when multimedia backend unavailable)
         self.player = PlayerWidget()
+        self.player.bookmark_menu_requested.connect(self._show_bookmark_menu)
 
         # Document tabs remain in the center; generated tools move to the inspector.
         self.main_tabs = QTabWidget()
@@ -1069,9 +1075,81 @@ class MainWindow(QMainWindow):
             logger.warning("Failed to delete record %s: %s", record_id, exc)
             return
         self._last_record_id = None
+        self._load_bookmarks()
         self.library_view.set_open_record(None)
         self.library_view.refresh()
         self._show_new_draft()
+
+    # ── Bookmarks (R3) ───────────────────────────────────────────────
+
+    def _load_bookmarks(self) -> None:
+        """Read the open record's bookmarks and show them on the player's
+        timeline and in the transcript."""
+        bookmarks: list = []
+        if self._last_record_id is not None:
+            try:
+                from core.history import get_history_store
+                bookmarks = get_history_store().list_bookmarks(self._last_record_id)
+            except Exception as exc:
+                logger.warning("Failed to load bookmarks: %s", exc)
+        self._bookmarks = bookmarks
+        self.player.set_bookmarks([(b.at_seconds, b.note, b.id) for b in bookmarks])
+        self.transcript_view.set_bookmarks([b.at_seconds for b in bookmarks])
+
+    def open_record_bookmarks(self) -> list:
+        """The open record's bookmarks (for the command palette)."""
+        return list(getattr(self, "_bookmarks", []))
+
+    def _add_bookmark(self, seconds: float | None = None, note: str = "") -> None:
+        """B: bookmark the player's position (or *seconds*) in the open
+        record."""
+        if self._last_record_id is None:
+            show_toast(self, tr("bookmark_needs_record"), kind="info")
+            return
+        at = self.player.current_position() if seconds is None else seconds
+        try:
+            from core.history import get_history_store
+            get_history_store().add_bookmark(self._last_record_id, at, note)
+        except Exception as exc:
+            logger.warning("Failed to add a bookmark: %s", exc)
+            return
+        self._load_bookmarks()
+        show_toast(self, tr("bookmark_added", time=format_duration(at)), kind="success")
+
+    def _show_bookmark_menu(self, bookmark_id: int, global_pos) -> None:
+        bookmark = next((b for b in self._bookmarks if b.id == bookmark_id), None)
+        if bookmark is None:
+            return
+        menu = QMenu(self)
+        edit = menu.addAction(tr("bookmark_edit_note"))
+        delete = menu.addAction(tr("bookmark_delete"))
+        chosen = menu.exec(global_pos)
+        from core.history import get_history_store
+
+        try:
+            if chosen is edit:
+                text, ok = QInputDialog.getText(
+                    self, tr("bookmark_edit_note"),
+                    tr("bookmark_note_prompt", time=format_duration(bookmark.at_seconds)),
+                    QLineEdit.EchoMode.Normal, bookmark.note,
+                )
+                if ok:
+                    get_history_store().set_bookmark_note(bookmark_id, text)
+            elif chosen is delete:
+                get_history_store().delete_bookmark(bookmark_id)
+            else:
+                return
+        except Exception as exc:
+            logger.warning("Failed to change bookmark %s: %s", bookmark_id, exc)
+        self._load_bookmarks()
+
+    def _open_bookmark(self, record_id: int, seconds: float) -> None:
+        """Command palette: open the record and play from the bookmark."""
+        if record_id != self._last_record_id:
+            self._open_record_view(record_id)
+        else:
+            self._stack.setCurrentIndex(self._record_index)
+        self.player.seek_to(seconds)
 
     def _on_record_renamed(self, record_id: int, title: str) -> None:
         """The Library renamed a record — the open one's header follows."""
@@ -1973,6 +2051,7 @@ class MainWindow(QMainWindow):
         self.record_view.set_title(title)
         self.record_view.set_has_result(True)
         self.record_view.set_has_record(self._last_record_id is not None)
+        self._load_bookmarks()
         self._revealed_tabs.clear()
         self._record_artifacts = set()
         self._schedule_tab_refresh()
@@ -2763,6 +2842,7 @@ class MainWindow(QMainWindow):
             self._record_artifacts = set(record.get("artifacts") or [])
             self._refresh_tab_visibility()
             self._refresh_run_chip()
+            self._load_bookmarks()
             return True
         except Exception as e:
             logger.warning("Failed to load history record %d: %s", record_id, e)

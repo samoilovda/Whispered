@@ -154,6 +154,22 @@ def _v8_add_record_title(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE transcripts ADD COLUMN title TEXT NOT NULL DEFAULT ''")
 
 
+def _v9_add_bookmarks(conn: sqlite3.Connection) -> None:
+    """Bookmarks (R3, docs/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md):
+    a moment in a record the user wants to come back to, with an
+    optional note. Kept per record; deleted with it."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS bookmarks (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            record_id   INTEGER NOT NULL,
+            at_seconds  REAL    NOT NULL,
+            note        TEXT    NOT NULL DEFAULT '',
+            created_at  TEXT    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_bookmarks_record ON bookmarks(record_id, at_seconds);
+    """)
+
+
 # Applied in order, tracked via SQLite's built-in `PRAGMA user_version`
 # (see HistoryStore._migrate). Append new migrations here — never edit or
 # reorder an existing one, since a database's user_version records exactly
@@ -167,6 +183,7 @@ _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _v6_add_artifact_texts,
     _v7_add_transcript_revisions,
     _v8_add_record_title,
+    _v9_add_bookmarks,
 )
 
 # FTS5 schema — created separately so failures (no FTS5 compile) are handled gracefully.
@@ -683,6 +700,7 @@ class HistoryStore:
         with self._connect() as conn:
             conn.execute("DELETE FROM artifact_texts WHERE record_id = ?", (record_id,))
             conn.execute("DELETE FROM transcript_revisions WHERE record_id = ?", (record_id,))
+            conn.execute("DELETE FROM bookmarks WHERE record_id = ?", (record_id,))
             cur = conn.execute("DELETE FROM transcripts WHERE id = ?", (record_id,))
             return cur.rowcount > 0
 
@@ -709,6 +727,7 @@ class HistoryStore:
                         "Artifact FTS5 rebuild after clear failed (non-critical): %s", exc
                     )
             conn.execute("DELETE FROM transcript_revisions")
+            conn.execute("DELETE FROM bookmarks")
             return cur.rowcount
 
     def search(self, text: str, limit: int = 100) -> List[HistoryRecord]:
@@ -856,6 +875,54 @@ class HistoryStore:
             rows = conn.execute(sql, (pattern, limit)).fetchall()
         return [ArtifactSearchResult(r) for r in rows]
 
+    # ------------------------------------------------------------------ bookmarks (R3)
+
+    def add_bookmark(self, record_id: int, at_seconds: float, note: str = "") -> int:
+        """Remember *at_seconds* in *record_id*; returns the bookmark id."""
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with self._connect() as conn:
+            cur = conn.execute(
+                "INSERT INTO bookmarks (record_id, at_seconds, note, created_at) VALUES (?, ?, ?, ?)",
+                (record_id, max(0.0, float(at_seconds)), note.strip(), now),
+            )
+            assert cur.lastrowid is not None
+            return cur.lastrowid
+
+    def list_bookmarks(self, record_id: int) -> List["Bookmark"]:
+        """A record's bookmarks in time order."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, record_id, at_seconds, note, created_at FROM bookmarks "
+                "WHERE record_id = ? ORDER BY at_seconds, id",
+                (record_id,),
+            ).fetchall()
+        return [Bookmark(r) for r in rows]
+
+    def set_bookmark_note(self, bookmark_id: int, note: str) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE bookmarks SET note = ? WHERE id = ?", (note.strip(), bookmark_id))
+
+    def delete_bookmark(self, bookmark_id: int) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM bookmarks WHERE id = ?", (bookmark_id,))
+
+    def search_bookmarks(self, text: str, limit: int = 20) -> List["Bookmark"]:
+        """Bookmarks whose note contains *text*, across records (for the
+        command palette), newest first; each carries its record's name."""
+        if not text.strip():
+            return []
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT b.id, b.record_id, b.at_seconds, b.note, b.created_at,
+                          COALESCE(NULLIF(t.title, ''), t.source_name) AS record_name
+                   FROM bookmarks b JOIN transcripts t ON t.id = b.record_id
+                   WHERE b.note LIKE ?
+                   ORDER BY b.created_at DESC, b.id DESC
+                   LIMIT ?""",
+                (f"%{text.strip()}%", limit),
+            ).fetchall()
+        return [Bookmark(r) for r in rows]
+
     # ------------------------------------------------------------------ transcript versions (B8)
 
     def add_transcript_revision(
@@ -981,6 +1048,20 @@ class TranscriptRevisionMeta:
         self.word_count = len(text.split())
         self.char_count = len(text)
         self.size_delta = 0
+
+
+class Bookmark:
+    """One row of the bookmarks table (R3)."""
+
+    __slots__ = ("id", "record_id", "at_seconds", "note", "created_at", "record_name")
+
+    def __init__(self, row: sqlite3.Row):
+        self.id          = row["id"]
+        self.record_id   = row["record_id"]
+        self.at_seconds  = float(row["at_seconds"])
+        self.note        = row["note"] or ""
+        self.created_at  = row["created_at"]
+        self.record_name = row["record_name"] if "record_name" in row.keys() else ""
 
 
 class ArtifactSearchResult:

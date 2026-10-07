@@ -53,6 +53,8 @@ _EDIT_LINE_RE = re.compile(
 _READING_WIDTH = 760
 _READING_FONT_PX = 15
 _FIND_HIGHLIGHT_CAP = 2000
+# Same amber as the player's bookmark markers (ui/player_widget.py).
+_BOOKMARK_COLOR = "#f59e0b"
 
 
 def _parse_vtt_to_seconds(ts: str) -> float:
@@ -181,6 +183,9 @@ class TranscriptView(QWidget):
         self._highlighted_index: int = -1
         self._find_matches: list[QTextCursor] = []
         self._find_current: int = -1
+        # Times of the record's bookmarks; the segments holding them get
+        # an amber underline.
+        self._bookmark_times: list[float] = []
         # Follow playback: the highlighted segment is kept on screen until
         # the user scrolls away from it; "Back to playback" resumes.
         self._follow = True
@@ -922,9 +927,36 @@ class TranscriptView(QWidget):
 
     # ------------------------------------------------------------------ highlights
 
+    def set_bookmarks(self, times: list[float]) -> None:
+        """Underline the segments that hold a bookmark."""
+        self._bookmark_times = sorted(times)
+        self._refresh_extra_selections()
+
+    def _bookmarked_spans(self) -> list[_Span]:
+        spans: list[_Span] = []
+        for seconds in self._bookmark_times:
+            index = bisect.bisect_right(self._segment_times, seconds) - 1
+            if 0 <= index < len(self._segment_spans):
+                span = self._segment_spans[index]
+                if not spans or spans[-1] is not span:
+                    spans.append(span)
+        return spans
+
     def _refresh_extra_selections(self) -> None:
         theme = get_theme()
         selections: list[QTextEdit.ExtraSelection] = []
+        if not self._edit_mode:
+            for span in self._bookmarked_spans():
+                sel = QTextEdit.ExtraSelection()
+                cursor = QTextCursor(self.text_edit.document())
+                cursor.setPosition(span.pos_from)
+                cursor.setPosition(span.pos_to, QTextCursor.MoveMode.KeepAnchor)
+                sel.cursor = cursor
+                fmt = QTextCharFormat()
+                fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SingleUnderline)
+                fmt.setUnderlineColor(QColor(_BOOKMARK_COLOR))
+                sel.format = fmt
+                selections.append(sel)
         if 0 <= self._highlighted_index < len(self._segment_spans) and not self._edit_mode:
             span = self._segment_spans[self._highlighted_index]
             sel = QTextEdit.ExtraSelection()
