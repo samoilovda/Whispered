@@ -485,12 +485,13 @@ def _insights_runner(context: StepContext) -> StepRunner:
         cache = context.params.get("insights_cache")
         language = context.params.get("language")
 
+        notes = _user_notes(context)
         payload: dict[str, Any] = {}
         for insight_type in _INSIGHTS_TYPES:
             payload[insight_type] = generate_insight(
                 insight_type, context.result.segments,
                 lm_url=lm_url, language=language, provider=provider, cache=cache,
-                is_cancelled=context.is_cancelled,
+                is_cancelled=context.is_cancelled, notes=notes,
             )
         insights_path = context.artifact_dir / "insights.json"
         _write_json(insights_path, payload)
@@ -499,6 +500,26 @@ def _insights_runner(context: StepContext) -> StepRunner:
         return payload
 
     return run
+
+
+def _user_notes(context: StepContext) -> str:
+    """The user's notes for this record (L1), or ""."""
+    from application.user_notes import load_notes
+
+    return load_notes(context.artifact_dir)
+
+
+def _insights_prompt_version(context: StepContext) -> str:
+    """Prompt version of the Insights step: its prompts plus, when the
+    user has notes, a fingerprint of them — edited notes make the next
+    run regenerate instead of reusing the cached result."""
+    version = _composite_prompt_version(*_INSIGHTS_TYPES)
+    notes = _user_notes(context)
+    if not notes.strip():
+        return version
+    from application.user_notes import notes_fingerprint
+
+    return f"{version}+notes:{notes_fingerprint(notes)}"
 
 
 def _insights_artifact(context: StepContext) -> Artifact:
@@ -511,7 +532,7 @@ def _insights_artifact(context: StepContext) -> Artifact:
         path=str(context.artifact_dir / "insights.json"),
         provider=_provider_label(context),
         model=_model_label(context),
-        prompt_version=_composite_prompt_version(*_INSIGHTS_TYPES),
+        prompt_version=_insights_prompt_version(context),
     )
 
 

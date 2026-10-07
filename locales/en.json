@@ -937,5 +937,11 @@
   "insights_none_chapters": "No chapters found",
   "insights_none_action_items": "No tasks found in this record",
   "insights_none_key_moments": "No key moments found",
-  "insights_regenerate": "Regenerate insights"
+  "insights_regenerate": "Regenerate insights",
+  "live_notes_title": "My notes",
+  "live_notes_placeholder": "Jot down what matters as the meeting goes. Ctrl/⌘+Enter starts a line with the current time. Notes are saved with the record and used for its insights.",
+  "insights_my_notes": "My notes",
+  "insights_notes_placeholder": "Your notes on this record — the next insights run takes them into account.",
+  "insights_notes_save_error": "Couldn't save the notes",
+  "library_chip_notes": "notes"
 }

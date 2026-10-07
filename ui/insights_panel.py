@@ -9,9 +9,9 @@ from typing import Optional
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel,
-    QPushButton, QFrame, QApplication,
+    QPushButton, QFrame, QApplication, QPlainTextEdit,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 
 from core.insights_export import format_insight_text, item_start
 from core.logger import get_logger
@@ -143,6 +143,9 @@ class InsightsPanel(QWidget):
         # Sections shown — and copied/saved (I1). What is *generated* is
         # the step's business, not this filter's.
         self._visible_sections: set[str] = set(_SECTIONS)
+        # The user's own notes (L1/I3): loaded per saved record, saved
+        # after a pause in typing.
+        self._notes_loaded = ""
         self._i18n = Retranslator()
         self._setup_ui()
         self._i18n.call(self._retranslate_insights)
@@ -152,6 +155,8 @@ class InsightsPanel(QWidget):
         self._save_btn.setText(tr("insights_save"))
         self._copy_btn.setText(tr("btn_copy"))
         self._ch_note.setText(tr("insights_chapters_shared"))
+        self._notes_header.setText(tr("insights_my_notes"))
+        self._notes_edit.setPlaceholderText(tr("insights_notes_placeholder"))
         self._render_section_meta()
         self._gen_btn.setText(
             tr("insights_generating") if self._generating else tr("insights_generate")
@@ -211,6 +216,23 @@ class InsightsPanel(QWidget):
             self._chip_buttons[key] = chip
         self._chips.setVisible(False)
         outer.addWidget(self._chips)
+
+        # My notes (L1/I3): the user's text, in the primary colour, above
+        # everything the model wrote (shown muted below). Given to the
+        # next Insights run as extra input.
+        self._notes_header = _SectionHeader(tr("insights_my_notes"))
+        outer.addWidget(self._notes_header)
+        self._notes_edit = QPlainTextEdit()
+        self._notes_edit.setProperty("role", "user-notes")
+        self._notes_edit.setPlaceholderText(tr("insights_notes_placeholder"))
+        self._notes_edit.setFixedHeight(96)
+        self._notes_edit.textChanged.connect(self._on_notes_edited)
+        outer.addWidget(self._notes_edit)
+        self._notes_timer = QTimer(self)
+        self._notes_timer.setSingleShot(True)
+        self._notes_timer.setInterval(700)
+        self._notes_timer.timeout.connect(self._save_notes)
+        self._set_notes_enabled(False)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -373,9 +395,64 @@ class InsightsPanel(QWidget):
 
     def set_provenance(self, record_id: int | None, source_path: str | None) -> None:
         """Called by MainWindow whenever the open transcript's identity
-        changes — recorded into each saved file's Artifact manifest."""
+        changes — recorded into each saved file's Artifact manifest, and
+        where the record's notes live."""
+        self._flush_notes()
         self._record_id = record_id
         self._source_path = source_path
+        self.reload_notes()
+
+    # ── My notes (L1/I3) ────────────────────────────────────────────
+
+    def _notes_folder(self):
+        from core.paths import artifact_dir
+
+        return artifact_dir(self._record_id, self._source_path or "recording")
+
+    def _set_notes_enabled(self, enabled: bool) -> None:
+        self._notes_edit.setEnabled(enabled)
+        self._notes_header.setVisible(enabled)
+        self._notes_edit.setVisible(enabled)
+
+    def reload_notes(self) -> None:
+        """Show the open record's notes (notes need a saved record)."""
+        from application.user_notes import load_notes
+
+        saved = isinstance(self._record_id, int)
+        text = load_notes(self._notes_folder()) if saved else ""
+        self._notes_loaded = text
+        self._notes_edit.blockSignals(True)
+        self._notes_edit.setPlainText(text)
+        self._notes_edit.blockSignals(False)
+        self._set_notes_enabled(saved)
+        self.content_changed.emit()
+
+    def notes(self) -> str:
+        return self._notes_edit.toPlainText()
+
+    def _on_notes_edited(self) -> None:
+        self._notes_timer.start()
+
+    def _flush_notes(self) -> None:
+        if self._notes_timer.isActive():
+            self._notes_timer.stop()
+            self._save_notes()
+
+    def _save_notes(self) -> None:
+        if not isinstance(self._record_id, int):
+            return
+        text = self._notes_edit.toPlainText()
+        if text == self._notes_loaded:
+            return
+        from application.user_notes import save_notes
+
+        try:
+            save_notes(self._notes_folder(), text, self._record_id)
+            self._notes_loaded = text
+        except OSError as exc:
+            logger.warning("Failed to save notes: %s", exc)
+            show_toast(self, tr("insights_notes_save_error"), kind="error")
+        self.content_changed.emit()
 
     def set_source_name(self, name: str) -> None:
         """Base filename (no extension) used when saving generated files."""
@@ -390,6 +467,7 @@ class InsightsPanel(QWidget):
         self.clear()
 
     def clear(self) -> None:
+        self._flush_notes()
         self._segments = []
         self._transcript_language = None
         self._generating = False
@@ -408,8 +486,12 @@ class InsightsPanel(QWidget):
         self.content_changed.emit()
 
     def has_content(self) -> bool:
-        """Results, a generation in progress, or a failure to report."""
-        return bool(self._results) or self._generating or self._error_message is not None
+        """Results, a generation in progress, a failure to report, or the
+        user's own notes."""
+        return (
+            bool(self._results) or self._generating or self._error_message is not None
+            or bool(self._notes_loaded.strip())
+        )
 
     # ── Generation ──────────────────────────────────────────────────
     # This panel no longer runs anything itself — generate_requested asks

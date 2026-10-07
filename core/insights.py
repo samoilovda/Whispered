@@ -145,6 +145,7 @@ def _build_prompt_text(
     segments,
     max_transcript_chars: int = _TRANSCRIPT_MAX_CHARS,
     language: Optional[str] = None,
+    notes: str = "",
 ) -> str:
     """Build the full prompt including the timestamped transcript.
 
@@ -154,7 +155,10 @@ def _build_prompt_text(
     a long recording's ending is still visible to the model (see
     ``core.llm_text.sample_lines_evenly``).
     If *language* is given, a directive is inserted after the system prompt
-    to force chapter titles into that language.
+    to force chapter titles into that language. *notes* — the user's own
+    notes about the record (application/user_notes.py) — go between the
+    instructions and the transcript, introduced by prompts/user_notes.md;
+    without notes the prompt is exactly what it was before.
     """
     system_prompt = load_prompt(insight_type, fallback="")
     lines = []
@@ -190,7 +194,11 @@ def _build_prompt_text(
     _flush()
     transcript = sample_lines_evenly(lines, max_transcript_chars)
     lang_directive = f"Write all output in {language}.\n" if language else ""
-    return system_prompt + "\n" + lang_directive + transcript
+    notes_block = ""
+    if notes.strip():
+        intro = load_prompt("user_notes", fallback="The user's own notes about this recording:")
+        notes_block = f"{intro.strip()}\n\nUSER NOTES:\n{notes.strip()}\n\n"
+    return system_prompt + "\n" + lang_directive + notes_block + transcript
 
 
 def _no_response_message(lm_url: str, provider: Optional["ProviderSettings"]) -> str:
@@ -214,6 +222,7 @@ def generate_insight(
     cache: Optional[InsightsCache] = None,
     is_cancelled: Callable[[], bool] = lambda: False,
     max_transcript_chars: Optional[int] = None,
+    notes: str = "",
 ):
     """Generate one insight type from a transcript, synchronously.
 
@@ -252,7 +261,8 @@ def generate_insight(
         )
 
     prompt = _build_prompt_text(
-        insight_type, segments, max_transcript_chars=max_transcript_chars, language=language
+        insight_type, segments, max_transcript_chars=max_transcript_chars, language=language,
+        notes=notes,
     )
 
     provider_id = provider.kind if provider else "lmstudio"

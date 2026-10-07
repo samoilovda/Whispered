@@ -146,6 +146,7 @@ class CommandPalette(QDialog):
         "insights": "library_chip_insights",
         "youtube": "library_chip_youtube",
         "book": "library_chip_book",
+        "notes": "library_chip_notes",
     }
 
     def __init__(self, parent=None) -> None:

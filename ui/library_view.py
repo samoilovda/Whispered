@@ -93,6 +93,7 @@ _ARTIFACT_LABEL_KEYS = {
     "article": "library_chip_article",
     "insights": "library_chip_insights",
     "book": "library_chip_book",
+    "notes": "library_chip_notes",
 }
 
 _KIND_ICONS = {"file": "music", "recorder": "microphone", "live": "radio"}

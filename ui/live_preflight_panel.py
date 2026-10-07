@@ -36,6 +36,10 @@ class LivePreflightPanel(FormSection):
         super().__init__(tr("live_ready_title"), tr("live_ready_required"), parent)
         self.setVisible(False)
 
+    def has_checks(self) -> bool:
+        """Whether a preflight has filled the panel (it starts hidden)."""
+        return self.body_layout.count() > 2
+
     def show_checks(self, checks: tuple[PreflightCheck, ...]) -> None:
         while self.body_layout.count() > 2:
             item = self.body_layout.takeAt(2)

@@ -937,5 +937,11 @@
   "insights_none_chapters": "Глав не нашлось",
   "insights_none_action_items": "Задач в записи не нашлось",
   "insights_none_key_moments": "Ключевых моментов не нашлось",
-  "insights_regenerate": "Пересоздать итоги"
+  "insights_regenerate": "Пересоздать итоги",
+  "live_notes_title": "Мои заметки",
+  "live_notes_placeholder": "Записывайте главное по ходу встречи. Ctrl/⌘+Enter — новая строка с текущим временем. Заметки сохранятся с записью и попадут в итоги.",
+  "insights_my_notes": "Мои заметки",
+  "insights_notes_placeholder": "Ваши заметки к этой записи — их учтут при следующем создании итогов.",
+  "insights_notes_save_error": "Не удалось сохранить заметки",
+  "library_chip_notes": "заметки"
 }

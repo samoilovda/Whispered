@@ -257,11 +257,19 @@ class StartView(QWidget):
         # recipe picker promised otherwise by being visible here, so it's
         # hidden for this source rather than offering a choice queued
         # files don't actually honour.
-        recipe_ui_applies = key != "folder"
+        recipe_ui_applies = key != "folder" and not getattr(self, "_live_active", False)
         self._recipe_card.setVisible(recipe_ui_applies)
         self._summary_row_widget.setVisible(recipe_ui_applies)
         self._render_launch_hint()
         self.source_changed.emit(key)
+
+    def set_live_session_active(self, active: bool) -> None:
+        """While a live session runs the recipe is already decided: its
+        card gives the screen to the transcript and notes until it ends."""
+        self._live_active = active
+        recipe_ui_applies = self.current_source() != "folder" and not active
+        self._recipe_card.setVisible(recipe_ui_applies)
+        self._summary_row_widget.setVisible(recipe_ui_applies)
 
     def set_process_enabled(self, enabled: bool) -> None:
         self.process_button.setEnabled(enabled)

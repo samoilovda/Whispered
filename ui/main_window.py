@@ -718,6 +718,11 @@ class MainWindow(QMainWindow):
         self.live_runtime.error_occurred.connect(self._on_live_error)
         self.live_runtime.finished.connect(self._on_live_finished)
         self.live_runtime.session_state_changed.connect(self.live_view.set_session_state)
+        self.live_runtime.session_state_changed.connect(
+            lambda state: self.start_view.set_live_session_active(
+                str(getattr(state, "value", state)) in {"starting", "running", "paused", "finalizing"}
+            )
+        )
         self.live_view.open_record_requested.connect(self._open_completed_live)
         self.live_view._timer.timeout.connect(self._update_live_metrics)
 
@@ -1325,6 +1330,7 @@ class MainWindow(QMainWindow):
                 self.library_view.refresh()
             except Exception as exc:
                 logger.warning("Failed to finalize live transcript history: %s", exc)
+            self._save_live_notes()
             self._on_finished(result, open_record=False, save_history=False)
         else:
             self._save_to_history(
@@ -1334,7 +1340,27 @@ class MainWindow(QMainWindow):
                 model=self._live_checkpoint.model_name,
                 speaker_names=getattr(result, "speaker_names", {}) or {},
             )
+            self._save_live_notes()
             self._on_finished(result, open_record=False, save_history=False)
+
+    def _save_live_notes(self) -> None:
+        """L1: the notes typed during the session become the new record's
+        notes — written before its recipe runs, so Insights can use them."""
+        notes = self.live_view.notes_text()
+        if not notes.strip() or self._last_record_id is None:
+            return
+        from application.user_notes import save_notes
+        from core.paths import artifact_dir
+
+        try:
+            save_notes(
+                artifact_dir(self._last_record_id, self._source_filepath or "recording"),
+                notes, self._last_record_id,
+            )
+        except OSError as exc:
+            logger.warning("Failed to save live notes: %s", exc)
+            return
+        self.live_view.clear_notes()
 
     def _on_course_lesson_saved(self, _record_id: int) -> None:
         """Course Capture panel saves each finished lesson to history itself
@@ -2113,6 +2139,7 @@ class MainWindow(QMainWindow):
     _ARTIFACT_TYPE_TO_TAB = {
         "article": "article_view",
         "insights": "insights_panel",
+        "notes": "insights_panel",
         "youtube": "youtube_panel",
         "book": "book_panel",
     }

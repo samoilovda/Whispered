@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -27,6 +29,25 @@ from utils import format_duration
 from core.platform_support import supports_live_system_audio
 
 
+class _NotesKeys(QObject):
+    """Ctrl/⌘+Enter in the notes field inserts the session's current time."""
+
+    def __init__(self, view: "LiveView") -> None:
+        super().__init__(view)
+        self._view = view
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        if (
+            event.type() == QEvent.Type.KeyPress
+            and isinstance(event, QKeyEvent)
+            and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+            and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+        ):
+            self._view.insert_time_mark()
+            return True
+        return False
+
+
 class LiveView(QWidget):
     preflight_requested = pyqtSignal()
     start_requested = pyqtSignal()
@@ -39,6 +60,7 @@ class LiveView(QWidget):
         self._preflight_valid = False
         self._state = "idle"
         self._source_states = {"mic": "idle", "system": "idle"}
+        self._elapsed_seconds = 0.0
         self._i18n = Retranslator()
         self._setup_ui()
         self._i18n.call(self._retranslate_live)
@@ -46,6 +68,8 @@ class LiveView(QWidget):
 
     def _retranslate_live(self) -> None:
         self.preflight_btn.setText(tr("live_preflight"))
+        self.notes_label.setText(tr("live_notes_title"))
+        self.notes_edit.setPlaceholderText(tr("live_notes_placeholder"))
         self.stop_btn.setText(tr("live_stop"))
         self.open_btn.setText(tr("live_open_record"))
         self.privacy_badge.set_status(tr("live_audio_not_saved"), "success")
@@ -106,6 +130,10 @@ class LiveView(QWidget):
         content.setContentsMargins(0, 0, 10, 0)
         content.setSpacing(12)
         scroll.setWidget(body)
+        # Never squeezed below what the session row, the transcript and
+        # the notes need: StartView's live page scrolls instead (it used to
+        # leave this area ~40px tall, cutting off Pause/Stop).
+        scroll.setMinimumHeight(420)
         root.addWidget(scroll, 1)
 
         # Setup, preflight and diagnostics are inspector content for a Live
@@ -121,7 +149,7 @@ class LiveView(QWidget):
         self.setup.setup_changed.connect(self.invalidate_preflight)
         options_layout.addWidget(self.setup)
 
-        actions_widget = QWidget()
+        actions_widget = self._actions_widget = QWidget()
         actions = QHBoxLayout()
         actions.setContentsMargins(0, 0, 0, 0)
         actions_widget.setLayout(actions)
@@ -182,6 +210,18 @@ class LiveView(QWidget):
         self.transcript = LiveTranscriptView()
         self.transcript.setMinimumHeight(180)
         content.addWidget(self.transcript, 1)
+
+        # L1: the user's own notes, saved with the record when the session
+        # ends and given to the Insights step. Typing here works before
+        # Start too; the field clears once its notes are saved.
+        self.notes_label = QLabel(tr("live_notes_title"))
+        self.notes_label.setProperty("role", "section-title")
+        content.addWidget(self.notes_label)
+        self.notes_edit = QPlainTextEdit()
+        self.notes_edit.setPlaceholderText(tr("live_notes_placeholder"))
+        self.notes_edit.setMinimumHeight(110)
+        self.notes_edit.installEventFilter(_NotesKeys(self))
+        content.addWidget(self.notes_edit)
         self.diagnostics = LiveDiagnosticsPanel()
         options_layout.addWidget(self.diagnostics)
         options_layout.addStretch()
@@ -249,6 +289,11 @@ class LiveView(QWidget):
         self._state = state
         active = state in {"starting", "running", "paused", "finalizing"}
         self.setup.set_locked(active)
+        # While a session runs, its setup and readiness checks give way to
+        # the transcript and notes; they come back when it ends.
+        self.setup.setVisible(not active)
+        self._actions_widget.setVisible(not active)
+        self.preflight_panel.setVisible(not active and self.preflight_panel.has_checks())
         self.preflight_btn.setEnabled(not active)
         self._set_start_enabled(state in {"ready", "failed"} and self._preflight_valid)
         self.pause_btn.setEnabled(state in {"running", "paused"})
@@ -291,14 +336,31 @@ class LiveView(QWidget):
         meter.setValue(min(100, max(0, int(value / 0.3 * 100))))
 
     def set_metrics(self, metrics) -> None:
+        self._elapsed_seconds = float(metrics.elapsed_seconds)
         self.elapsed_label.setText(format_duration(metrics.elapsed_seconds))
         self.diagnostics.set_metrics(metrics, self._state)
 
     def accept_update(self, update) -> None:
         self.transcript.accept_update(update)
 
+    def insert_time_mark(self) -> None:
+        """Start a new note line with the session time: "[12:34] "."""
+        cursor = self.notes_edit.textCursor()
+        prefix = "\n" if cursor.block().text().strip() else ""
+        cursor.movePosition(cursor.MoveOperation.EndOfBlock)
+        cursor.insertText(f"{prefix}[{format_duration(self._elapsed_seconds)}] ")
+        self.notes_edit.setTextCursor(cursor)
+        self.notes_edit.setFocus()
+
+    def notes_text(self) -> str:
+        return self.notes_edit.toPlainText()
+
+    def clear_notes(self) -> None:
+        self.notes_edit.clear()
+
     def reset_session(self) -> None:
         self.transcript.reset()
+        self._elapsed_seconds = 0.0
         self.elapsed_label.setText("00:00")
         self.mic_meter.setValue(0)
         self.system_meter.setValue(0)
