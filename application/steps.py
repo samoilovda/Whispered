@@ -910,6 +910,25 @@ def load_step_result(context: StepContext, name: str) -> Optional[Any]:
     return step.load_artifact(context)
 
 
+def step_artifact_is_stale(context: StepContext, name: str) -> bool:
+    """Whether step *name*'s saved result was made from a different
+    transcript revision than *context*'s — the transcript was edited
+    since (R1's "made from an older transcript" mark). False when there
+    is no saved result or its manifest records no revision."""
+    step = STEP_REGISTRY.get(name)
+    if step is None:
+        return False
+    artifact = step.make_artifact(context)
+    if artifact is None:
+        return False
+    from infrastructure.persistence import artifact_store
+
+    saved = artifact_store.load(artifact.path)
+    if saved is None or not saved.transcript_revision:
+        return False
+    return saved.transcript_revision != context.revision()
+
+
 def manifest_path_for_step(context: StepContext, name: str) -> Optional[Path]:
     """The provenance manifest ``build_cache_checks()`` would read for
     *name*, or ``None`` for an unknown step or one with no real Artifact

@@ -102,3 +102,32 @@ def test_run_chip_summarises_the_last_run(window, process_events):
     assert "✓ 1" in chip.text() and "✕ 1" in chip.text()
     assert "timed out" in chip.toolTip()
     assert chip.isEnabled()  # a failed run can be resumed from here
+
+
+def test_tabs_mark_a_failed_step_and_a_stale_material(window, process_events):
+    from application.job_engine import JobRun
+    from application.run_store import save_run
+    from application.steps import StepContext, build_job_spec  # noqa: F401
+    from core.paths import artifact_dir
+    from domain.artifact import Artifact
+    from domain.job import JobSpec, StepOutcome, StepSpec, StepStatus
+    from infrastructure.persistence import artifact_store
+
+    record = window._test_store.add(_result(), source_path="/media/a.mp4", model="")
+    run = JobRun(spec=JobSpec(name="meeting_notes", steps=(StepSpec("insights"),)))
+    run.outcomes["insights"] = StepOutcome("insights", StepStatus.FAILED, error="boom")
+    save_run(record, "meeting_notes", run, status="failed")
+    folder = artifact_dir(record, "/media/a.mp4")
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "clean.md").write_text("Cleaned.", encoding="utf-8")
+    artifact_store.save(Artifact(
+        record_id=str(record), source_hash="", source_path="/media/a.mp4",
+        transcript_revision="an-older-revision", type="clean", path=str(folder / "clean.md"),
+    ))
+
+    window._open_record_view(record)
+    process_events()
+    tabs = window.main_tabs
+    assert tabs.tabText(tabs.indexOf(window.insights_panel)).endswith("✕")
+    assert tabs.tabText(tabs.indexOf(window.cleaned_view)).endswith("◐")
+    assert tabs.tabToolTip(tabs.indexOf(window.cleaned_view))

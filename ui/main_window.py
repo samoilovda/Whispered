@@ -467,6 +467,8 @@ class MainWindow(QMainWindow):
             idx = self.main_tabs.indexOf(widget)
             if idx != -1:
                 self.main_tabs.setTabText(idx, tr(key))
+        if hasattr(self, "_add_tab_menu"):
+            self._refresh_tab_markers()
         if hasattr(self, "_folder_hint_label"):
             self._folder_hint_label.setText(tr("draft_folder_hint"))
         if hasattr(self, "_draft_queue_button"):
@@ -1039,12 +1041,55 @@ class MainWindow(QMainWindow):
                 hidden.append(widget)
         if not self.main_tabs.isTabVisible(self.main_tabs.currentIndex()):
             self.main_tabs.setCurrentIndex(0)
+        self._refresh_tab_markers()
         self._add_tab_menu.clear()
         for widget in hidden:
             label = self.main_tabs.tabText(self.main_tabs.indexOf(widget))
             action = self._add_tab_menu.addAction(label)
             action.triggered.connect(lambda _c=False, w=widget: self._show_tab(w))
         self._add_tab_btn.setVisible(bool(hidden))
+
+    _TAB_STEPS = {
+        "cleaned_view": "clean",
+        "article_view": "article",
+        "youtube_panel": "youtube_package",
+        "insights_panel": "insights",
+        "book_panel": "book",
+    }
+
+    def _refresh_tab_markers(self) -> None:
+        """R1: a glyph on a material's tab — ✕ its step failed in the
+        last run, ◐ it was made from an older version of the transcript
+        (edited since) — with the reason in the tab's tooltip."""
+        stale_context = None
+        if self._last_record_id is not None and self._current_result is not None:
+            from core.paths import artifact_dir
+
+            stale_context = StepContext(
+                source_path=self._source_filepath or "",
+                result=self._current_result,
+                record_id=self._last_record_id,
+                artifact_dir=artifact_dir(self._last_record_id, self._artifact_source()),
+            )
+        failed = getattr(self, "_last_run_failed_steps", set())
+        keys = dict((id(widget), key) for widget, key in self._i18n_doc_tabs)
+        for attr, step in self._TAB_STEPS.items():
+            widget = getattr(self, attr)
+            index = self.main_tabs.indexOf(widget)
+            label = tr(keys.get(id(widget), ""))
+            glyph, tip = "", ""
+            if step in failed:
+                glyph, tip = " ✕", tr("record_tab_failed")
+            elif stale_context is not None:
+                try:
+                    from application.steps import step_artifact_is_stale
+
+                    if step_artifact_is_stale(stale_context, step):
+                        glyph, tip = " ◐", tr("record_tab_stale")
+                except Exception as exc:  # noqa: BLE001 - a marker is never worth an error
+                    logger.debug("Stale check for %s failed: %s", step, exc)
+            self.main_tabs.setTabText(index, label + glyph)
+            self.main_tabs.setTabToolTip(index, tip)
 
     def _show_tab(self, widget) -> None:
         """Switch to *widget*'s tab, revealing it first if it was hidden."""
@@ -1068,6 +1113,7 @@ class MainWindow(QMainWindow):
             return
         record_id = self._last_record_id
         if record_id is None:
+            self._last_run_failed_steps = set()
             self.record_view.set_run_summary("")
             return
         try:
@@ -1076,6 +1122,11 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             logger.warning("Failed to load the last run for the header: %s", exc)
             stored = None
+        self._last_run_failed_steps = {
+            name for name, o in (stored.outcomes if stored else {}).items()
+            if o.get("status") == StepStatus.FAILED.value
+        }
+        self._refresh_tab_markers()
         if stored is None or not stored.outcomes:
             self.record_view.set_run_summary("")
             return
