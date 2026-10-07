@@ -200,7 +200,7 @@ def test_palette_lists_a_material_hit_and_emits_its_type(
     # results) rather than assuming row 0.
     match_row = next(
         i for i in range(palette.results.count())
-        if palette.results.item(i).data(Qt.ItemDataRole.UserRole)[0] == "material"
+        if (palette.results.item(i).data(Qt.ItemDataRole.UserRole) or ("",))[0] == "material"
     )
     palette.results.setCurrentRow(match_row)
     palette._activate_current()

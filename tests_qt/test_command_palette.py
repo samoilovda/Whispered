@@ -25,10 +25,11 @@ def _pin_english_locale():
 
 
 def _payloads(palette: CommandPalette) -> list:
-    return [
+    payloads = (
         palette.results.item(i).data(Qt.ItemDataRole.UserRole)
         for i in range(palette.results.count())
-    ]
+    )
+    return [payload for payload in payloads if payload is not None]  # skip headers
 
 
 def test_palette_lists_every_builtin_recipe(process_events):
@@ -227,3 +228,28 @@ def test_activating_a_retry_step_item_emits_retry_step_requested(process_events)
     palette._activate(item)
 
     assert seen == ["cover"]
+
+
+def test_rows_are_grouped_and_arrows_skip_headers(process_events):
+    palette = CommandPalette()
+    palette._refresh("")
+    headers = [
+        palette.results.item(i).text() for i in range(palette.results.count())
+        if palette.results.item(i).data(Qt.ItemDataRole.UserRole) is None
+    ]
+    assert tr("command_group_recipes") in headers
+    # The first selectable row is current, never a header.
+    current = palette.results.currentItem()
+    assert current is not None and current.data(Qt.ItemDataRole.UserRole) is not None
+    row = palette.results.currentRow()
+    palette.move_selection(1)
+    assert palette.results.currentRow() > row
+    assert palette.results.currentItem().data(Qt.ItemDataRole.UserRole) is not None
+
+
+def test_forgiving_match_finds_a_recipe_by_word_start(process_events):
+    palette = CommandPalette()
+    palette._refresh("book")
+    assert ("recipe", "book") in _payloads(palette)
+    palette._refresh("zzzz-nothing")
+    assert ("recipe", "book") not in _payloads(palette)

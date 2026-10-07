@@ -64,7 +64,6 @@
   "status_llm_unavailable": "LM Studio недоступен. Проверьте адрес и загруженную модель в настройках.",
   "command_palette_title": "Команды",
   "command_palette_placeholder": "Найти запись или действие…",
-  "command_record": "Запись: {name}",
   "command_material": "{type}: {name}",
   "command_run_recipe": "Запустить: {name}",
   "command_retry_step": "Перезапустить: {name}",
@@ -909,5 +908,12 @@
   "ready_fix_settings_ai": "Настроить ИИ",
   "ready_fix_settings_diarization": "Настроить",
   "ready_fix_settings_transcription": "Выбрать модель",
-  "ready_fix_ffmpeg": "Как установить"
+  "ready_fix_ffmpeg": "Как установить",
+  "command_group_recent": "Недавние записи",
+  "command_group_actions": "Действия",
+  "command_group_recipes": "Рецепты",
+  "command_group_steps": "Повторить шаг",
+  "command_group_records": "Записи",
+  "command_group_materials": "Материалы",
+  "command_palette_footer": "↑↓ выбрать · Enter открыть · Esc закрыть"
 }

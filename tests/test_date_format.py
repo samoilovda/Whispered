@@ -71,3 +71,12 @@ def test_tr_count():
     load_locale("en")
     assert tr_count("history_count", 1) == "1 record"
     assert tr_count("history_count", 3) == "3 records"
+
+
+def test_relative_stamp_names_today_and_yesterday():
+    from core.date_format import relative_stamp
+
+    load_locale("ru")
+    assert relative_stamp(datetime(2026, 10, 7, 9, 3), NOW) == "Сегодня, 09:03"
+    assert relative_stamp(datetime(2026, 10, 6, 18, 12), NOW) == "Вчера, 18:12"
+    assert relative_stamp(datetime(2026, 10, 5, 22, 5), NOW) == "5 окт., 22:05"

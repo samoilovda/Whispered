@@ -64,7 +64,6 @@
   "status_llm_unavailable": "LM Studio is unavailable. Check its URL and loaded model in Settings.",
   "command_palette_title": "Commands",
   "command_palette_placeholder": "Find a record or action…",
-  "command_record": "Record: {name}",
   "command_material": "{type}: {name}",
   "command_run_recipe": "Run: {name}",
   "command_retry_step": "Restart: {name}",
@@ -909,5 +908,12 @@
   "ready_fix_settings_ai": "Set up AI",
   "ready_fix_settings_diarization": "Set up",
   "ready_fix_settings_transcription": "Choose model",
-  "ready_fix_ffmpeg": "How to install"
+  "ready_fix_ffmpeg": "How to install",
+  "command_group_recent": "Recent records",
+  "command_group_actions": "Actions",
+  "command_group_recipes": "Recipes",
+  "command_group_steps": "Retry a step",
+  "command_group_records": "Records",
+  "command_group_materials": "Materials",
+  "command_palette_footer": "↑↓ select · Enter open · Esc close"
 }

@@ -80,3 +80,15 @@ def short_stamp(when: datetime, now: datetime) -> str:
     if when.year == now.year:
         return f"{_day_month(when.date())}, {clock}"
     return f"{_day_month(when.date())} {when.year}"
+
+
+def relative_stamp(when: datetime, now: datetime) -> str:
+    """Like short_stamp, but self-contained for a list without date
+    headers: "Today, 11:36" / "Yesterday, 18:12", else short_stamp."""
+    days = (now.date() - when.date()).days
+    clock = f"{when.hour:02d}:{when.minute:02d}"
+    if days == 0:
+        return f"{tr('date_today')}, {clock}"
+    if days == 1:
+        return f"{tr('date_yesterday')}, {clock}"
+    return short_stamp(when, now)

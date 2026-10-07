@@ -1,16 +1,122 @@
 """Ctrl+K command palette for records, recipes, run steps and existing
 application actions (B8, docs/UI_REDESIGN_PLAN_2026-09.ru.md): "the
 answer to 'many features, little space'" — rare functions live here
-instead of another chip or button."""
+instead of another chip or button.
+
+Rows are grouped under headers (recent records first when nothing is
+typed; actions first once something is), matched forgivingly
+(core/fuzzy.py: word starts, initials, letters in order) and ranked
+within their group. An action's keyboard shortcut is shown on its row,
+so the palette also teaches the keys. Up/Down move through the results
+without leaving the search field.
+"""
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QVBoxLayout
+from datetime import datetime
 
+from PyQt6.QtCore import QEvent, QObject, QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QFont, QKeyEvent, QKeySequence
+from PyQt6.QtWidgets import (
+    QDialog,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QStyle,
+    QStyledItemDelegate,
+    QVBoxLayout,
+)
+
+from config import get_config
+from core.date_format import parse_iso, relative_stamp
+from core.fuzzy import match_score
 from core.i18n import tr
+from domain.recipe import BUILTIN_RECIPES, Recipe
 from ui.i18n_helpers import Retranslator
-from domain.recipe import BUILTIN_RECIPES
+from ui.library_view import display_name
+from ui.option_labels import recipe_label
+from ui.theme import get_theme
+
+# Extra item roles: the right-aligned hint (shortcut, date) and whether a
+# row is a group header (no payload, not selectable).
+_HINT_ROLE = Qt.ItemDataRole.UserRole + 1
+_HEADER_ROLE = Qt.ItemDataRole.UserRole + 2
+
+_RECENT_RECORDS = 6
+_MAX_RECORDS = 20
+
+
+class _PaletteDelegate(QStyledItemDelegate):
+    """Paints group headers small and muted, and a row's hint (an
+    action's shortcut, a record's date) right-aligned in its row."""
+
+    def paint(self, painter, option, index) -> None:  # noqa: N802
+        theme = get_theme()
+        if index.data(_HEADER_ROLE):
+            painter.save()
+            font = QFont(option.font)
+            font.setPixelSize(11)
+            font.setWeight(QFont.Weight.DemiBold)
+            painter.setFont(font)
+            painter.setPen(QColor(theme.text_muted))
+            rect = option.rect.adjusted(8, 6, -8, 0)
+            painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                             index.data(Qt.ItemDataRole.DisplayRole))
+            painter.restore()
+            return
+        hint = index.data(_HINT_ROLE)
+        if hint:
+            # Leave room for the hint so a long label elides before it.
+            option = type(option)(option)
+            self.initStyleOption(option, index)
+            hint_width = option.fontMetrics.horizontalAdvance(hint) + 28
+            option.text = option.fontMetrics.elidedText(
+                option.text, Qt.TextElideMode.ElideRight,
+                max(0, option.rect.width() - hint_width - 16),
+            )
+            widget = option.widget
+            style = widget.style() if widget is not None else None
+            if style is not None:
+                style.drawControl(QStyle.ControlElement.CE_ItemViewItem, option, painter, widget)
+            else:
+                super().paint(painter, option, index)
+            painter.save()
+            selected = bool(option.state & QStyle.StateFlag.State_Selected)
+            painter.setPen(QColor("#ffffff" if selected else theme.text_muted))
+            painter.drawText(
+                option.rect.adjusted(0, 0, -12, 0),
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, hint,
+            )
+            painter.restore()
+            return
+        super().paint(painter, option, index)
+
+    def sizeHint(self, option, index) -> QSize:  # noqa: N802
+        size = super().sizeHint(option, index)
+        if index.data(_HEADER_ROLE):
+            return QSize(size.width(), size.height() + 4)
+        return QSize(size.width(), max(size.height(), 30))
+
+
+class _SearchKeys(QObject):
+    """Up/Down/PageUp/PageDown in the search field move the selection."""
+
+    def __init__(self, palette: "CommandPalette") -> None:
+        super().__init__(palette)
+        self._palette = palette
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        if event.type() == QEvent.Type.KeyPress and isinstance(event, QKeyEvent):
+            steps = {
+                Qt.Key.Key_Down: 1, Qt.Key.Key_Up: -1,
+                Qt.Key.Key_PageDown: 8, Qt.Key.Key_PageUp: -8,
+            }
+            step = steps.get(Qt.Key(event.key()))
+            if step is not None:
+                self._palette.move_selection(step)
+                return True
+        return False
 
 
 class CommandPalette(QDialog):
@@ -19,12 +125,9 @@ class CommandPalette(QDialog):
     Generic actions (as opposed to records/recipes/retriable steps) come
     from bind_actions() — the same QAction objects MainWindow._init_menu_bar
     (B12, docs/IMPROVEMENT_PLAN_2026-08.ru.md) put in the menu bar, marked
-    there as palette-eligible. This replaced a hardcoded _ACTIONS table
-    plus a string-keyed action_requested signal MainWindow decoded through
-    its own _run_palette_action handler dict — two lists of the same
-    actions that only stayed in sync by hand. A palette row now shows
-    exactly action.text() and activating it calls action.trigger(): the
-    same QAction, so it can't diverge from what the menu bar does.
+    there as palette-eligible. A palette row shows exactly action.text()
+    and activating it calls action.trigger(): the same QAction, so it
+    can't diverge from what the menu bar does.
     """
 
     # record id, artifact type ("" for the transcript itself — B7, matches
@@ -50,20 +153,28 @@ class CommandPalette(QDialog):
         self._i18n = Retranslator()
         self.setWindowTitle(tr("command_palette_title"))
         self.setModal(True)
-        self.resize(620, 420)
+        self.resize(640, 460)
         layout = QVBoxLayout(self)
+        layout.setSpacing(8)
         title = self._i18n.text(QLabel(), "command_palette_title")
         title.setProperty("role", "page-title")
         layout.addWidget(title)
         self.search = QLineEdit()
+        self.search.setProperty("role", "palette-search")
         self._i18n.text(self.search, "command_palette_placeholder", "setPlaceholderText")
         self._i18n.text(self, "command_palette_title", "setWindowTitle")
         self.search.textChanged.connect(self._refresh)
         self.search.returnPressed.connect(self._activate_current)
+        self.search.installEventFilter(_SearchKeys(self))
         layout.addWidget(self.search)
         self.results = QListWidget()
+        self.results.setItemDelegate(_PaletteDelegate(self.results))
+        self.results.setUniformItemSizes(False)
         self.results.itemActivated.connect(self._activate)
         layout.addWidget(self.results, stretch=1)
+        hint = self._i18n.text(QLabel(), "command_palette_footer")
+        hint.setProperty("role", "dim")
+        layout.addWidget(hint)
         self._i18n.bind()
 
     def bind_run_view(self, run_view) -> None:
@@ -87,60 +198,131 @@ class CommandPalette(QDialog):
         self.activateWindow()
         self.search.setFocus()
 
-    def _refresh(self, query: str) -> None:
-        self.results.clear()
-        needle = query.strip().casefold()
+    # ── building the list ────────────────────────────────────────────
+
+    def _add_header(self, text: str) -> None:
+        item = QListWidgetItem(text)
+        item.setData(_HEADER_ROLE, True)
+        item.setFlags(Qt.ItemFlag.NoItemFlags)
+        self.results.addItem(item)
+
+    def _add_group(self, title: str, rows: list) -> None:
+        """*rows*: (score, label, hint, payload, enabled) — best first."""
+        if not rows:
+            return
+        self._add_header(title)
+        for _score, label, hint, payload, enabled in sorted(rows, key=lambda r: -r[0]):
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, payload)
+            if hint:
+                item.setData(_HINT_ROLE, hint)
+            # Shown, not hidden — a user should see the function exists
+            # even when it isn't applicable right now (see
+            # docs/IMPROVEMENT_PLAN_2026-08.ru.md, B12 item 4).
+            if not enabled:
+                item.setFlags(
+                    item.flags() & ~Qt.ItemFlag.ItemIsEnabled & ~Qt.ItemFlag.ItemIsSelectable
+                )
+            self.results.addItem(item)
+
+    def _action_rows(self, query: str) -> list:
+        rows = []
         for action in self._actions:
             label = action.text()
-            if not needle or needle in label.casefold():
-                item = QListWidgetItem(label)
-                item.setData(Qt.ItemDataRole.UserRole, ("action", action))
-                # Shown, not hidden — a user should see the function
-                # exists even when it isn't applicable right now (see
-                # docs/IMPROVEMENT_PLAN_2026-08.ru.md, B12 item 4).
-                if not action.isEnabled():
-                    item.setFlags(
-                        item.flags()
-                        & ~Qt.ItemFlag.ItemIsEnabled
-                        & ~Qt.ItemFlag.ItemIsSelectable
-                    )
-                self.results.addItem(item)
-        for recipe in BUILTIN_RECIPES:
-            label = tr("command_run_recipe", name=tr(f"recipe_{recipe.builtin_key}"))
-            if not needle or needle in label.casefold():
-                item = QListWidgetItem(label)
-                item.setData(Qt.ItemDataRole.UserRole, ("recipe", recipe.builtin_key))
-                self.results.addItem(item)
-        if self._run_view is not None:
-            for name, step_label in self._run_view.retriable_steps():
-                label = tr("command_retry_step", name=step_label)
-                if not needle or needle in label.casefold():
-                    item = QListWidgetItem(label)
-                    item.setData(Qt.ItemDataRole.UserRole, ("retry_step", name))
-                    self.results.addItem(item)
+            score = match_score(query, label)
+            if score is None:
+                continue
+            shortcut = action.shortcut()
+            hint = shortcut.toString(QKeySequence.SequenceFormat.NativeText) if not shortcut.isEmpty() else ""
+            rows.append((score, label, hint, ("action", action), action.isEnabled()))
+        return rows
+
+    def _recipe_rows(self, query: str) -> list:
+        rows = []
+        recipes = list(BUILTIN_RECIPES) + [Recipe.from_dict(e) for e in get_config().recipes]
+        for recipe in recipes:
+            key = recipe.builtin_key or recipe.name
+            label = tr("command_run_recipe", name=recipe_label(recipe))
+            score = match_score(query, label)
+            if score is not None:
+                rows.append((score, label, "", ("recipe", key), True))
+        return rows
+
+    def _step_rows(self, query: str) -> list:
+        rows = []
+        if self._run_view is None:
+            return rows
+        for name, step_label in self._run_view.retriable_steps():
+            label = tr("command_retry_step", name=step_label)
+            score = match_score(query, label)
+            if score is not None:
+                rows.append((score, label, "", ("retry_step", name), True))
+        return rows
+
+    def _refresh(self, query: str) -> None:
+        self.results.clear()
+        query = query.strip()
+        record_rows: list = []
+        material_rows: list = []
         try:
             from core.history import get_history_store
 
             store = get_history_store()
-            records = store.search(query) if query.strip() else store.list(limit=12)
-            for record in records[:20]:
-                item = QListWidgetItem(tr("command_record", name=record.source_name))
-                item.setData(Qt.ItemDataRole.UserRole, ("record", record.id))
-                self.results.addItem(item)
+            now = datetime.now()
+            records = store.search(query) if query else store.list(limit=_RECENT_RECORDS)
+            for rank, record in enumerate(records[:_MAX_RECORDS]):
+                # Under its "Records" header the row is just the name.
+                name = display_name(getattr(record, "title", "") or record.source_name)
+                when = parse_iso(record.created_at)
+                hint = relative_stamp(when, now) if when is not None else ""
+                # Keep the store's own order (recency or FTS rank).
+                record_rows.append((-rank, name, hint, ("record", record.id), True))
             # Materials search (B7): only meaningful for an actual query —
             # search_artifacts("") returns nothing, same contract as the
             # Library's own scope toggle.
-            if query.strip():
-                for hit in store.search_artifacts(query)[:20]:
+            if query:
+                for rank, hit in enumerate(store.search_artifacts(query)[:_MAX_RECORDS]):
                     type_label = tr(self._MATERIAL_LABEL_KEYS.get(hit.type, hit.type))
                     label = tr("command_material", type=type_label, name=hit.source_name)
-                    item = QListWidgetItem(label)
-                    item.setData(Qt.ItemDataRole.UserRole, ("material", (hit.record_id, hit.type)))
-                    self.results.addItem(item)
+                    material_rows.append((-rank, label, "", ("material", (hit.record_id, hit.type)), True))
         except Exception:
             pass
-        if self.results.count():
-            self.results.setCurrentRow(0)
+
+        if query:
+            self._add_group(tr("command_group_actions"), self._action_rows(query))
+            self._add_group(tr("command_group_recipes"), self._recipe_rows(query))
+            self._add_group(tr("command_group_steps"), self._step_rows(query))
+            self._add_group(tr("command_group_records"), record_rows)
+            self._add_group(tr("command_group_materials"), material_rows)
+        else:
+            self._add_group(tr("command_group_recent"), record_rows)
+            self._add_group(tr("command_group_actions"), self._action_rows(""))
+            self._add_group(tr("command_group_recipes"), self._recipe_rows(""))
+            self._add_group(tr("command_group_steps"), self._step_rows(""))
+        self.results.setCurrentRow(-1)
+        self.move_selection(1)
+
+    def move_selection(self, step: int) -> None:
+        """Move the current row by *step* selectable rows (headers and
+        disabled rows are skipped), stopping at either end."""
+        count = self.results.count()
+        if not count:
+            return
+        row = self.results.currentRow()
+        direction = 1 if step > 0 else -1
+        remaining = abs(step)
+        candidate = row
+        target = row
+        while remaining:
+            candidate += direction
+            if candidate < 0 or candidate >= count:
+                break
+            if self.results.item(candidate).flags() & Qt.ItemFlag.ItemIsSelectable:
+                target = candidate
+                remaining -= 1
+        if target != row and target >= 0:
+            self.results.setCurrentRow(target)
+            self.results.scrollToItem(self.results.item(target))
 
     def _activate_current(self) -> None:
         item = self.results.currentItem()
@@ -148,7 +330,10 @@ class CommandPalette(QDialog):
             self._activate(item)
 
     def _activate(self, item: QListWidgetItem) -> None:
-        kind, value = item.data(Qt.ItemDataRole.UserRole)
+        payload = item.data(Qt.ItemDataRole.UserRole)
+        if payload is None:  # a group header
+            return
+        kind, value = payload
         if kind == "action" and not value.isEnabled():
             return
         self.accept()
