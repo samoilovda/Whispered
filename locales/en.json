@@ -923,5 +923,13 @@
   "bookmark_delete": "Delete bookmark",
   "bookmark_note_prompt": "Note for the bookmark at {time}:",
   "command_group_bookmarks": "Bookmarks",
-  "command_bookmark": "🔖 {time} {note}"
+  "command_bookmark": "🔖 {time} {note}",
+  "transcript_copy_with_time": "Copy with timecode",
+  "transcript_play_from_here": "Play from here",
+  "transcript_bookmark_here": "Bookmark here",
+  "transcript_chapter_here": "Start a chapter here…",
+  "transcript_chapter_here_unavailable": "Start a chapter here — create the YouTube package first",
+  "transcript_chapter_title_prompt": "Title of the chapter at {time}:",
+  "transcript_chapter_added": "Chapter at {time} added to the YouTube package",
+  "transcript_select_all": "Select all"
 }

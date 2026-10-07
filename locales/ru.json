@@ -923,5 +923,13 @@
   "bookmark_delete": "Удалить закладку",
   "bookmark_note_prompt": "Заметка к закладке на {time}:",
   "command_group_bookmarks": "Закладки",
-  "command_bookmark": "🔖 {time} {note}"
+  "command_bookmark": "🔖 {time} {note}",
+  "transcript_copy_with_time": "Копировать с таймкодом",
+  "transcript_play_from_here": "Воспроизвести отсюда",
+  "transcript_bookmark_here": "Добавить закладку здесь",
+  "transcript_chapter_here": "Начать главу здесь…",
+  "transcript_chapter_here_unavailable": "Начать главу здесь — сначала создайте YouTube-пакет",
+  "transcript_chapter_title_prompt": "Название главы с {time}:",
+  "transcript_chapter_added": "Глава с {time} добавлена в YouTube-пакет",
+  "transcript_select_all": "Выделить всё"
 }

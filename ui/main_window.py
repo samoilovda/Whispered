@@ -747,6 +747,9 @@ class MainWindow(QMainWindow):
 
         self.youtube_panel = YouTubePanel()
         self.youtube_panel.generate_requested.connect(self._start_youtube_job)
+        self.transcript_view.set_chapter_check(self.youtube_panel.can_add_chapter)
+        self.transcript_view.chapter_requested.connect(self._add_chapter_from_transcript)
+        self.transcript_view.bookmark_requested.connect(lambda seconds: self._add_bookmark(seconds))
         self._shutdownables.append(self.youtube_panel)
 
         # The five generator panels plus Cut/Chat used to live as inspector
@@ -1142,6 +1145,19 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             logger.warning("Failed to change bookmark %s: %s", bookmark_id, exc)
         self._load_bookmarks()
+
+    def _add_chapter_from_transcript(self, seconds: float, suggestion: str) -> None:
+        """Transcript context menu: start a YouTube chapter at a segment
+        (R4) — a user edit on the package's chapters (Y3 overlay)."""
+        title, ok = QInputDialog.getText(
+            self, tr("transcript_chapter_here"),
+            tr("transcript_chapter_title_prompt", time=format_duration(seconds)),
+            QLineEdit.EchoMode.Normal, suggestion,
+        )
+        if not ok or not title.strip():
+            return
+        if self.youtube_panel.add_chapter(seconds, title):
+            show_toast(self, tr("transcript_chapter_added", time=format_duration(seconds)), kind="success")
 
     def _open_bookmark(self, record_id: int, seconds: float) -> None:
         """Command palette: open the record and play from the bookmark."""

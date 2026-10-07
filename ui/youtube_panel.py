@@ -1019,6 +1019,38 @@ class YouTubePanel(QWidget):
         self._compose_description()
         self._render_chapter_editing()
 
+    def can_add_chapter(self) -> bool:
+        """Whether a chapter can be added from elsewhere (the transcript's
+        context menu): there is a package and its chapters aren't open in
+        the editor right now."""
+        return self._model_chapters is not None and not self._editing_chapters
+
+    def add_chapter(self, seconds: float, title: str) -> bool:
+        """Add (or retitle) the chapter starting at *seconds* — recording
+        time — as a user edit (Y3 overlay), exactly as if typed into the
+        chapter editor. Returns False when there is no package to edit."""
+        if not self.can_add_chapter() or not title.strip():
+            return False
+        start = max(0, int(seconds))
+        chapters = [
+            dict(item) for item in self._effective_chapters()
+            if isinstance(item, dict) and int(item.get("start", -1)) != start
+        ]
+        chapters.append({"start": start, "title": title.strip()})
+        chapters.sort(key=lambda item: item["start"])
+        normal, _ = parse_chapter_lines(format_chapter_lines(chapters))
+        model = self._model_chapters or []
+        model_normal, _ = parse_chapter_lines(format_chapter_lines(model))
+        if normal == model_normal:
+            overlay = drop_edit(self._overlay, "chapters")
+        else:
+            overlay = set_edit(self._overlay, "chapters", normal, model)
+        self._store_overlay(overlay)
+        self._apply_chapters()
+        self._compose_description()
+        self._render_chapter_editing()
+        return True
+
     def _insert_player_time(self) -> None:
         if self._position_provider is None:
             return

@@ -22,7 +22,7 @@ from typing import Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTextEdit, QLabel, QHBoxLayout,
     QPushButton, QLineEdit, QComboBox, QDialog, QFormLayout,
-    QDialogButtonBox
+    QDialogButtonBox, QMenu, QApplication,
 )
 from PyQt6.QtCore import QEvent, QObject, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
@@ -157,6 +157,10 @@ class TranscriptView(QWidget):
     copy_requested = pyqtSignal()
     seek_requested = pyqtSignal(float)  # user clicked a segment → seek to its start time
     result_changed = pyqtSignal(str)  # text / speakers / structure
+    # Context menu (R4): bookmark / start a chapter at a segment's start;
+    # the second argument of chapter_requested is a suggested title.
+    bookmark_requested = pyqtSignal(float)
+    chapter_requested = pyqtSignal(float, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -374,6 +378,11 @@ class TranscriptView(QWidget):
         self.text_edit.setProperty("role", "reading")
         self.text_edit.setPlaceholderText(tr("transcript_placeholder"))
         self.text_edit.viewport().installEventFilter(self)
+        self.text_edit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.text_edit.customContextMenuRequested.connect(self._show_context_menu)
+        # MainWindow says whether a chapter can be added right now (there
+        # is a YouTube package to add it to).
+        self._can_add_chapter = lambda: False
         self.text_edit.verticalScrollBar().valueChanged.connect(self._on_user_scroll)
         layout.addWidget(self.text_edit, stretch=1)
 
@@ -1079,6 +1088,83 @@ class TranscriptView(QWidget):
                 if pressed is not None and (event.position().toPoint() - pressed).manhattanLength() < 4:
                     QTimer.singleShot(0, lambda pos=pressed: self._seek_at_point(pos))
         return super().eventFilter(obj, event)
+
+    def set_chapter_check(self, can_add_chapter) -> None:
+        """*can_add_chapter()* — is "Start a chapter here" available now."""
+        self._can_add_chapter = can_add_chapter
+
+    def _target_span(self, point) -> Optional[_Span]:
+        """The segment a context menu is about: the start of the
+        selection if there is one, else the segment under the pointer."""
+        cursor = self.text_edit.textCursor()
+        position = (
+            cursor.selectionStart() if cursor.hasSelection()
+            else self.text_edit.cursorForPosition(point).position()
+        )
+        span = self._span_at(position)
+        if span is not None and span.index < 0:
+            # A paragraph time stamp: the segment right after it.
+            later = [s for s in self._segment_spans if s.pos_from >= span.pos_to]
+            span = later[0] if later else None
+        return span
+
+    def _show_context_menu(self, point) -> None:
+        if self._edit_mode:
+            menu = self.text_edit.createStandardContextMenu()
+            menu.exec(self.text_edit.viewport().mapToGlobal(point))
+            return
+        span = self._target_span(point)
+        cursor = self.text_edit.textCursor()
+        menu = QMenu(self)
+        copy = menu.addAction(tr("btn_copy"))
+        copy.setEnabled(cursor.hasSelection())
+        copy.triggered.connect(self.text_edit.copy)
+        copy_ts = menu.addAction(tr("transcript_copy_with_time"))
+        copy_ts.setEnabled(span is not None)
+        menu.addSeparator()
+        play = menu.addAction(tr("transcript_play_from_here"))
+        bookmark = menu.addAction(tr("transcript_bookmark_here"))
+        chapter = menu.addAction(tr("transcript_chapter_here"))
+        for action in (play, bookmark, chapter):
+            action.setEnabled(span is not None)
+        if span is not None and not self._can_add_chapter():
+            chapter.setEnabled(False)
+            chapter.setText(tr("transcript_chapter_here_unavailable"))
+        menu.addSeparator()
+        select_all = menu.addAction(tr("transcript_select_all"))
+        select_all.triggered.connect(self.text_edit.selectAll)
+        chosen = menu.exec(self.text_edit.viewport().mapToGlobal(point))
+        if span is None or chosen is None:
+            return
+        if chosen is copy_ts:
+            self._copy_with_time(span)
+        elif chosen is play:
+            self._follow = True
+            self.seek_requested.emit(span.seconds)
+        elif chosen is bookmark:
+            self.bookmark_requested.emit(span.seconds)
+        elif chosen is chapter:
+            self.chapter_requested.emit(span.seconds, self._chapter_suggestion(span))
+
+    def _copy_with_time(self, span: _Span) -> None:
+        """The selection (or the whole segment) prefixed with its time, the
+        way a quote is cited: "[12:34] text"."""
+        cursor = self.text_edit.textCursor()
+        if cursor.hasSelection():
+            text = cursor.selectedText().replace("\u2029", "\n").strip()
+        elif self._result is not None and 0 <= span.index < len(self._result.segments):
+            text = self._result.segments[span.index].text.strip()
+        else:
+            text = ""
+        QApplication.clipboard().setText(f"[{format_duration(span.seconds)}] {text}")
+
+    def _chapter_suggestion(self, span: _Span) -> str:
+        """The segment's first words, as a starting point for a title."""
+        if self._result is None or not 0 <= span.index < len(self._result.segments):
+            return ""
+        words = self._result.segments[span.index].text.strip().split()
+        title = " ".join(words[:7]).rstrip(".,;:!?…")
+        return title[:1].upper() + title[1:]
 
     def _seek_at_point(self, point) -> None:
         if self.text_edit.textCursor().hasSelection():
