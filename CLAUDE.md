@@ -12,7 +12,7 @@ the original development plan (`docs/archive/ROADMAP_full_2026-07.md`).
 | Application | `application/` | Coordination between UI widgets and engines, above `domain/` but below `ui/`. `document_session.py`: the single `DocumentSession.apply_result()` fan-out that `MainWindow` uses to hand a new/loaded/edited `TranscriptionResult` to every panel that needs it. `export_controller.py`: the Qt-free "what to export and whether it worked" decision behind the Export menu. `job_engine.py`: runs a `JobSpec`'s steps respecting dependency order, per-resource concurrency limits (e.g. `local_llm=1`), and `Artifact`-based cache-skip — **not yet wired into the preset chain or any generator**, see R8 in the audit plan. New panel dependencies/export formats register with the existing controllers instead of adding another hand-copied call site in `main_window.py` |
 | Infrastructure | `infrastructure/` | IO adapters below `application/`. Currently `persistence/artifact_store.py`: atomic read/write of an `Artifact`'s provenance manifest (`<path>.manifest.json`) next to the artifact file, and `is_cache_valid()` for reuse decisions. Generators (Cover, article, YouTube, insights, book) are not yet migrated onto it — see R5-full in the audit plan |
 | UI | `ui/` | PyQt6 widgets; `main_window.py` owns the preset chain; `ui/__init__.py` intentionally has no re-exports — import from concrete modules |
-| Workers | `core/` | `lm_client.py` (LM Studio, OpenAI-compatible), `ai_provider.py` (optional cloud), `insights_worker.py`, `history.py` (SQLite+FTS5), `i18n.py`, `logger.py`, `worker_registry.py` (lifecycle for background `QThread`s — see rule 3) |
+| Workers | `core/` | `lm_client.py` (LM Studio, OpenAI-compatible), `ai_provider.py` (optional cloud), `insights_worker.py`, `history.py` (SQLite+FTS5), `i18n.py`, `logger.py`, `worker_registry.py` (lifecycle for background `QThread`s — see rule 3), `youtube_oauth.py`/`youtube_upload.py`/`youtube_upload_worker.py` (opt-in upload to the user's YouTube channel; Qt-free client + `BaseWorker` wrapper) |
 | Engines | `transcriber.py` (whisper.cpp in a spawn child process; re-exports the domain DTOs for backward compatibility), `diarizer.py` (pyannote, lazy import), `article_generator.py`, `text_processor.py`, `batch_processor.py`, `book_pipeline.py` |
 | Covers | `covers/` | Declarative templates and QPainter renderer; frame/Zoom/ONNX/ComfyUI modules are experimental and not yet wired into the workspace |
 | Prompts | `prompts/*.md` | every LLM task is an editable Markdown prompt loaded via `core.prompts.load_prompt` |
@@ -25,8 +25,11 @@ call sites).
 
 1. **Offline first.** No cloud APIs, no telemetry. Network is allowed only
    to local LM Studio (`config.lm_studio_url`), for explicit user-requested
-   model downloads, and for the optional user-keyed cloud provider on the
-   YouTube tab (`core/ai_provider.py`, default stays `lmstudio`).
+   model downloads, for the optional user-keyed cloud provider on the
+   YouTube tab (`core/ai_provider.py`, default stays `lmstudio`), and for
+   uploading a video to the user's own YouTube channel only when they press
+   the button in the publish dialog (`core/youtube_oauth.py`,
+   `core/youtube_upload.py`; `Config.yt_publish_mode` is `off` by default).
 2. **Never block the UI.** Anything longer than ~100 ms goes to a `QThread`
    (pattern: `core/base_worker.py`) or a separate process (pattern:
    `transcriber.py`). UI communication only via Qt signals.
