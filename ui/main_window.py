@@ -2492,11 +2492,17 @@ class MainWindow(QMainWindow):
             return False
 
     def _refresh_record_chapters(self) -> None:
-        """Hand the record's chapters to every place that shows them: the
-        YouTube tab's (with the user's edits) when it has a package, else
-        the Insights step's own."""
+        """Hand the record's chapters to every place that shows them —
+        the Insights tab and the player's timeline: the YouTube tab's (with
+        the user's edits) when it has a package, else the Insights step's
+        own."""
         shared = self.youtube_panel.record_chapters()
         self.insights_panel.set_shared_chapters(shared or None)
+        # Ticks on the player's timeline; the transcript's end stands in
+        # for the duration until (or unless) the media reports its own.
+        result = self._current_result
+        duration = result.segments[-1].end if result is not None and result.segments else None
+        self.player.set_chapters(shared or self.insights_panel.own_chapters(), duration)
 
     def _restore_youtube_package(
         self, record_id: int, source_path: str, result: TranscriptionResult,

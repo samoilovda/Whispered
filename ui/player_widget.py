@@ -10,9 +10,10 @@ from typing import Optional
 
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel, QSlider,
-    QComboBox
+    QComboBox, QStyle, QStyleOptionSlider, QToolTip
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QUrl
+from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal, QTimer, QUrl
+from PyQt6.QtGui import QPainter
 
 from core.logger import get_logger
 from ui.i18n_helpers import Retranslator
@@ -31,6 +32,75 @@ except ImportError:
 
 def multimedia_available() -> bool:
     return _MULTIMEDIA_AVAILABLE
+
+
+class _ChapterMarks(QWidget):
+    """A thin strip under the position slider with a tick per chapter.
+    Hovering a tick names the chapter; clicking it seeks there. Lined up
+    with the slider's groove by PlayerWidget._sync_marks_geometry()."""
+
+    seek_requested = pyqtSignal(float)
+
+    _HIT_PX = 6          # how close the pointer must be to a tick
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(8)
+        self.setMouseTracking(True)
+        self._chapters: list[tuple[float, str]] = []
+        self._duration = 0.0
+        self._inset = 0              # half the slider handle: where 0 sits
+
+    def set_chapters(self, chapters: list[tuple[float, str]], duration: float) -> None:
+        self._chapters = chapters
+        self._duration = duration
+        self.setVisible(bool(chapters) and duration > 0)
+        self.update()
+
+    def set_inset(self, inset: int) -> None:
+        self._inset = inset
+        self.update()
+
+    def tick_x(self, start: float) -> int:
+        span = max(1, self.width() - 2 * self._inset)
+        frac = min(max(start / self._duration, 0.0), 1.0) if self._duration > 0 else 0.0
+        return self._inset + int(round(frac * span))
+
+    def chapter_at(self, x: int) -> Optional[tuple[float, str]]:
+        best = None
+        best_dist = self._HIT_PX + 1
+        for chapter in self._chapters:
+            dist = abs(self.tick_x(chapter[0]) - x)
+            if dist < best_dist:
+                best, best_dist = chapter, dist
+        return best
+
+    def paintEvent(self, event):  # noqa: N802 — Qt override
+        if not self._chapters or self._duration <= 0:
+            return
+        painter = QPainter(self)
+        color = self.palette().highlight().color()
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        for start, _title in self._chapters:
+            painter.drawRect(self.tick_x(start) - 1, 0, 2, self.height())
+        painter.end()
+
+    def mouseMoveEvent(self, event):  # noqa: N802 — Qt override
+        chapter = self.chapter_at(int(event.position().x()))
+        if chapter is None:
+            self.unsetCursor()
+            QToolTip.hideText()
+            return
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        QToolTip.showText(
+            event.globalPosition().toPoint(), f"{_fmt(chapter[0])}  {chapter[1]}", self,
+        )
+
+    def mousePressEvent(self, event):  # noqa: N802 — Qt override
+        chapter = self.chapter_at(int(event.position().x()))
+        if chapter is not None:
+            self.seek_requested.emit(float(chapter[0]))
 
 
 class PlayerWidget(QWidget):
@@ -111,6 +181,19 @@ class PlayerWidget(QWidget):
         controls.addWidget(self._time_label)
 
         layout.addLayout(controls)
+
+        # Chapter ticks under the slider (set_chapters), kept lined up with
+        # its groove whenever the slider moves or resizes.
+        self._marks = _ChapterMarks(self)
+        self._marks.setVisible(False)
+        self._marks.seek_requested.connect(self.seek_to)
+        self._marks_row = QHBoxLayout()
+        self._marks_row.setContentsMargins(0, 0, 0, 0)
+        self._marks_row.addWidget(self._marks)
+        layout.addLayout(self._marks_row)
+        self._fallback_duration = 0.0
+        self._chapter_marks: list[tuple[float, str]] = []
+        self._slider.installEventFilter(self)
 
         # Row 2: speed + volume
         row2 = QHBoxLayout()
@@ -195,6 +278,46 @@ class PlayerWidget(QWidget):
     def toggle_play(self):
         self._toggle_play()
 
+    def set_chapters(self, chapters: list, fallback_duration: float | None = None) -> None:
+        """Show a tick per chapter (``{"start", "title"}`` dicts) on the
+        timeline. *fallback_duration* places them before the media reports
+        its own duration (or when there is no media at all)."""
+        self._fallback_duration = float(fallback_duration or 0.0)
+        marks: list[tuple[float, str]] = []
+        for item in chapters:
+            try:
+                marks.append((float(item.get("start", 0)), str(item.get("title", ""))))
+            except (TypeError, ValueError, AttributeError):
+                continue
+        self._chapter_marks = marks
+        self._update_marks()
+
+    def _update_marks(self) -> None:
+        duration = self._duration if self._duration > 0 else self._fallback_duration
+        self._marks.set_chapters(self._chapter_marks, duration)
+        self._sync_marks_geometry()
+
+    def _sync_marks_geometry(self) -> None:
+        """Line the tick strip up with the slider's groove: same left and
+        right edges as the slider, inset by half its handle."""
+        geometry = self._slider.geometry()
+        if geometry.width() <= 0:
+            return
+        self._marks_row.setContentsMargins(
+            geometry.x(), 0, max(0, self.width() - geometry.right() - 1), 0,
+        )
+        option = QStyleOptionSlider()
+        self._slider.initStyleOption(option)
+        handle = self._slider.style().subControlRect(
+            QStyle.ComplexControl.CC_Slider, option, QStyle.SubControl.SC_SliderHandle, self._slider,
+        )
+        self._marks.set_inset(max(0, handle.width() // 2))
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802 — Qt override
+        if obj is self._slider and event.type() in (QEvent.Type.Resize, QEvent.Type.Move):
+            self._sync_marks_geometry()
+        return super().eventFilter(obj, event)
+
     def current_position(self) -> float:
         if not self._available or not self._player:
             return 0.0
@@ -224,6 +347,7 @@ class PlayerWidget(QWidget):
 
     def _on_duration_changed(self, ms: int):
         self._duration = ms / 1000.0
+        self._update_marks()
 
     def _on_error(self, error, error_string: str):
         logger.warning("Media player error %s: %s", error, error_string)
