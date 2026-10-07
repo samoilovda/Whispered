@@ -768,6 +768,9 @@ class YouTubePanel(QWidget):
 
         # Last, once text, chapters and questions are all in.
         self._compose_description()
+        # A package restored from disk arrives after clear() hid the
+        # sections, without begin_generating() to show them again.
+        self._tabs.setVisible(True)
         self._set_state("done")
         self._copy_btn.setEnabled(True)
         self._save_btn.setEnabled(True)

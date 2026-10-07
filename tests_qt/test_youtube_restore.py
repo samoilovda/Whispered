@@ -56,6 +56,8 @@ def test_opening_a_record_restores_its_package(window):
     assert panel._chapters_edit.toPlainText().startswith("0:00 Intro")
     assert panel.publish_texts()["titles"][0] == "Saved title"
     assert "Saved hook." in panel._desc_edit.toPlainText()
+    # The sections themselves are on screen, not just the status line.
+    assert not panel._tabs.isHidden()
 
 
 def test_record_without_a_package_offers_to_create_one(window):
