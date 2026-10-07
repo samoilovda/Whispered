@@ -293,9 +293,8 @@ def test_library_filter_chips_not_narrower_than_their_text(process_events):
     """Regression for docs/UI_UX_AUDIT_2026-08.md P1 item 8 / the clipped
     filter chips found in the 2026-09 gallery review ("Диктофон" -> "iктоф"
     at 1100x700): a chip must never be narrower than what its own label
-    needs, in either locale. Library's filter row now wraps to a second
-    row (ui.components.FlowLayout) instead of squeezing chips below their
-    sizeHint(), same as a QHBoxLayout would.
+    needs, in either locale. The filters now live in a menu; what is
+    active shows as chips in a wrapping row (ui.components.FlowLayout).
     """
     from core.i18n import load_locale
     from PyQt6.QtWidgets import QPushButton
@@ -307,11 +306,14 @@ def test_library_filter_chips_not_narrower_than_their_text(process_events):
         window.show()
         window.resize(1100, 700)
         process_events()
+        window.library_view._set_filter("recorder")
+        window.library_view._set_recipe_filter("meeting_notes")
+        process_events()
 
         chips = [
             button
             for button in window.library_view.findChildren(QPushButton)
-            if button.property("role") == "quick-chip"
+            if button.property("role") == "filter-chip" and button.isVisible()
         ]
         assert chips, "Library toolbar should expose its filter chips"
         for chip in chips:

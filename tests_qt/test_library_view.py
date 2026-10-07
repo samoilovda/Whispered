@@ -281,10 +281,7 @@ def test_recipe_filter_chips_exist_for_every_builtin_recipe(process_events):
     view = LibraryView()
     process_events()
 
-    labels = {
-        button.text() for button in view.findChildren(QPushButton)
-        if button.property("role") == "quick-chip"
-    }
+    labels = {action.text() for action in view._filter_menu.actions()}
     from core.i18n import tr
     from domain.recipe import BUILTIN_RECIPES
 
@@ -318,21 +315,21 @@ def test_refresh_recipe_filters_adds_and_removes_custom_chips(
     view = LibraryView()
     process_events()
 
-    assert "My custom" not in view._recipe_filter_buttons
+    assert "My custom" not in view._recipe_filter_actions
 
     cfg.recipes = [{"name": "My custom", "steps": ["transcribe", "clean"], "builtin_key": ""}]
     view.refresh_recipe_filters()
     process_events()
-    assert "My custom" in view._recipe_filter_buttons
-    added_button = view._recipe_filter_buttons["My custom"]
-    assert added_button.text() == "My custom"
-    assert added_button in view._recipe_filter_group.buttons()
+    assert "My custom" in view._recipe_filter_actions
+    added = view._recipe_filter_actions["My custom"]
+    assert added.text() == "My custom"
+    assert added in view._recipe_filter_group.actions()
 
     cfg.recipes = []
     view.refresh_recipe_filters()
     process_events()
-    assert "My custom" not in view._recipe_filter_buttons
-    assert added_button not in view._recipe_filter_group.buttons()
+    assert "My custom" not in view._recipe_filter_actions
+    assert added not in view._recipe_filter_group.actions()
 
     view.close()
 
@@ -359,24 +356,25 @@ def test_refresh_recipe_filters_falls_back_to_all_once_active_recipe_is_gone(
     process_events()
 
     assert view._active_recipe_filter == "all"
-    assert view._recipe_filter_all_btn.isChecked()
+    assert view._recipe_filter_all_action.isChecked()
 
     view.close()
 
 
-def test_both_filter_rows_are_labeled(process_events):
-    """Regression: two independent chip rows (source, recipe) each
-    defaulted to an unlabeled "All" chip — indistinguishable from each
-    other (see docs/IMPROVEMENT_PLAN_2026-08.ru.md, A2)."""
+def test_every_filter_group_is_labeled(process_events):
+    """Regression: independent filter groups (scope, source, recipe) each
+    default to an unlabeled "All" — indistinguishable from each other
+    without a heading (see docs/IMPROVEMENT_PLAN_2026-08.ru.md, A2)."""
     load_locale("en")
     from core.i18n import tr
 
     view = LibraryView()
     process_events()
 
-    texts = [label.text() for label in view.findChildren(QLabel)]
-    assert tr("library_filter_source_label") in texts
-    assert tr("library_filter_recipe_label") in texts
+    sections = [a.text() for a in view._filter_menu.actions() if a.isSeparator()]
+    assert tr("library_search_scope_section") in sections
+    assert tr("library_filter_source_label") in sections
+    assert tr("library_filter_recipe_label") in sections
 
     view.close()
 
@@ -448,10 +446,130 @@ def test_reset_button_clears_both_filters_and_the_search_text(
     assert view._active_filter == "all"
     assert view._active_recipe_filter == "all"
     assert view._search_edit.text() == ""
-    assert view._filter_all_btn.isChecked()
-    assert view._recipe_filter_all_btn.isChecked()
+    assert view._filter_all_action.isChecked()
+    assert view._recipe_filter_all_action.isChecked()
     assert _item_widget(view, yt_id) is not None
     assert _item_widget(view, book_id) is not None
     assert not view._reset_filters_btn.isVisibleTo(view)
+
+    view.close()
+
+
+def _record_rows(view):
+    return [
+        view._list.item(row) for row in range(view._list.count())
+        if view._list.item(row).data(Qt.ItemDataRole.UserRole) is not None
+    ]
+
+
+def test_browsing_groups_records_under_date_headers(monkeypatch, tmp_path, process_events):
+    load_locale("en")
+    store = _make_store(tmp_path)
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+    _add_record(store, "one.mp3")
+
+    view = LibraryView()
+    view.refresh()
+    process_events()
+
+    headers = [
+        view._list.itemWidget(view._list.item(row)).text()
+        for row in range(view._list.count())
+        if view._list.item(row).data(Qt.ItemDataRole.UserRole) is None
+    ]
+    assert headers == ["Today"]
+    # The media extension is dropped from the shown name.
+    widget = view._list.itemWidget(_record_rows(view)[0])
+    assert widget.title_label.full_text() == "one"
+
+    view._search_edit.setText("hello")
+    view._run_search()
+    process_events()
+    assert len(_record_rows(view)) == view._list.count()  # no headers in results
+
+    view.close()
+
+
+def test_a_single_click_opens_the_record(monkeypatch, tmp_path, process_events):
+    store = _make_store(tmp_path)
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+    record_id = _add_record(store, "one.mp3")
+
+    view = LibraryView()
+    view.refresh()
+    process_events()
+    opened = []
+    view.open_record.connect(lambda rid, kind: opened.append((rid, kind)))
+
+    view._list.itemClicked.emit(_record_rows(view)[0])
+    assert opened == [(record_id, "")]
+
+    view.close()
+
+
+def test_active_filters_show_as_removable_chips(monkeypatch, tmp_path, process_events):
+    load_locale("en")
+    store = _make_store(tmp_path)
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+    _add_record(store, "one.mp3")
+
+    view = LibraryView()
+    view.refresh()
+    process_events()
+    assert view._filter_btn.text() == ""
+
+    view._set_filter("recorder")
+    process_events()
+    chips = [
+        b for b in view._active_filters.findChildren(QPushButton)
+        if b.property("role") == "filter-chip" and not b.isHidden()
+    ]
+    assert [c.text().split()[0] for c in chips] == ["Recorder"]
+    assert view._filter_btn.text() == "1"
+
+    chips[0].click()
+    process_events()
+    assert view._active_filter == "all"
+    assert view._filter_all_action.isChecked()
+    assert view._filter_btn.text() == ""
+
+    view.close()
+
+
+def test_record_count_uses_plural_forms(monkeypatch, tmp_path, process_events):
+    load_locale("ru")
+    store = _make_store(tmp_path)
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+    for name in ("a.mp3", "b.mp3"):
+        _add_record(store, name)
+
+    view = LibraryView()
+    view.refresh()
+    process_events()
+    assert view._status.text() == "2 записи"
+
+    view.close()
+    load_locale("en")
+
+
+def test_renaming_a_record_shows_the_new_name(monkeypatch, tmp_path, process_events):
+    store = _make_store(tmp_path)
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+    record_id = _add_record(store, "audio123.m4a")
+    monkeypatch.setattr(
+        "ui.library_view.QInputDialog.getText", lambda *a, **k: ("Interview", True)
+    )
+
+    view = LibraryView()
+    view.refresh()
+    process_events()
+    renamed = []
+    view.record_renamed.connect(lambda rid, title: renamed.append((rid, title)))
+
+    view.rename_record(record_id)
+    process_events()
+    assert renamed == [(record_id, "Interview")]
+    widget = view._list.itemWidget(_record_rows(view)[0])
+    assert widget.title_label.full_text() == "Interview"
 
     view.close()

@@ -531,7 +531,7 @@ class MainWindow(QMainWindow):
     def _menu_focus_library(self) -> None:
         if getattr(get_config(), "library_collapsed", False):
             self.workspace_shell.set_library_collapsed(False)
-        self.library_view._search_edit.setFocus()
+        self.library_view.focus_search()
 
     def _menu_show_articles(self) -> None:
         self._stack.setCurrentIndex(self._record_index)
@@ -656,6 +656,7 @@ class MainWindow(QMainWindow):
         self.library_view.open_record.connect(self._open_record_view)
         self.library_view.resume_run.connect(self._resume_run)
         self.library_view.open_cover.connect(lambda: self._on_section_changed("cover"))
+        self.library_view.record_renamed.connect(self._on_record_renamed)
 
     def _build_queue_section(self) -> None:
         """Queue is mounted in the persistent status surface later."""
@@ -865,6 +866,11 @@ class MainWindow(QMainWindow):
         refresh the list in case anything changed while a record was open."""
         self._stack.setCurrentIndex(self._start_index)
         self.library_view.refresh()
+
+    def _on_record_renamed(self, record_id: int, title: str) -> None:
+        """The Library renamed a record — the open one's header follows."""
+        if record_id == self._last_record_id:
+            self.record_view.set_title(title)
 
     def _open_record_view(self, record_id: int, artifact_type: str = "") -> None:
         """Load a history record and switch to the Record page.
@@ -2488,7 +2494,10 @@ class MainWindow(QMainWindow):
             word_count = len(result.full_text.split())
             self.status_label.setText(tr("toast_loaded_history", words=word_count))
             self.main_tabs.setCurrentIndex(0)
-            self.record_view.set_title(Path(source_name).stem if source_name else tr("app_title"))
+            self.record_view.set_title(
+                record.get("title")
+                or (Path(source_name).stem if source_name else tr("app_title"))
+            )
             self.record_view.set_has_result(True)
             return True
         except Exception as e:

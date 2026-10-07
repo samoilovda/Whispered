@@ -145,6 +145,38 @@ def tr(key: str, **kwargs) -> str:
     return text
 
 
+def plural_form(count: int, lang: str | None = None) -> str:
+    """CLDR plural category for *count*: ``"one"``, ``"few"`` or ``"many"``.
+
+    Russian has three cardinal forms (1 запись, 2 записи, 5 записей);
+    English and anything else uses ``"one"`` for exactly 1 and ``"many"``
+    otherwise.
+    """
+    code = (lang or _CURRENT_LANG or "en").split("-")[0].lower()
+    n = abs(int(count))
+    if code == "ru":
+        if n % 10 == 1 and n % 100 != 11:
+            return "one"
+        if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+            return "few"
+        return "many"
+    return "one" if n == 1 else "many"
+
+
+def tr_count(key: str, count: int, **kwargs) -> str:
+    """Like tr(), choosing ``<key>_one`` / ``<key>_few`` / ``<key>_many``
+    by *count* (see plural_form). ``{count}`` is always available to the
+    string. A language without the ``_few`` form falls back to ``_many``."""
+    form = plural_form(count)
+    candidates = [f"{key}_{form}"]
+    if form == "few":
+        candidates.append(f"{key}_many")
+    for candidate in candidates:
+        if candidate in _STRINGS or candidate in _EN_STRINGS:
+            return tr(candidate, count=count, **kwargs)
+    return tr(key, count=count, **kwargs)
+
+
 def current_lang() -> str:
     """Return the active language code, e.g. 'en' or 'ru'."""
     return _CURRENT_LANG

@@ -465,9 +465,15 @@ def test_library_cover_button_is_icon_only(process_events):
     window.show()
     process_events()
 
-    btn = window.library_view._cover_btn
-    assert btn.text() == ""
-    assert btn.width() <= 32
+    view = window.library_view
+    # Covers moved into the Library's overflow menu; the tool row next to
+    # the search field holds only icon buttons.
+    assert view._cover_action in view._more_btn.menu().actions()
+    for btn in (view._filter_btn, view._more_btn):
+        if not btn.isVisible():  # the filter waits for a first record
+            continue
+        assert btn.text() == ""
+        assert btn.width() <= 36
 
     window.close()
     process_events()

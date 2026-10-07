@@ -192,6 +192,34 @@ ICONS = {
         <circle cx="12" cy="12" r="1.8" fill="currentColor"/>
         <circle cx="19" cy="12" r="1.8" fill="currentColor"/>
     </svg>''',
+
+    # Filter (funnel) — Library filter menu
+    'filter': '''<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M3 5H21L14 13V19L10 21V13L3 5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>''',
+
+    # Broadcast — live sessions
+    'radio': '''<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="12" cy="12" r="2.2" fill="currentColor"/>
+        <path d="M7.8 16.2A6 6 0 0 1 7.8 7.8M16.2 7.8A6 6 0 0 1 16.2 16.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <path d="M4.9 19.1A10 10 0 0 1 4.9 4.9M19.1 4.9A10 10 0 0 1 19.1 19.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </svg>''',
+
+    # Bookmark — transcript bookmarks
+    'bookmark': '''<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M19 21L12 16L5 21V5C5 3.9 5.9 3 7 3H17C18.1 3 19 3.9 19 5V21Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>''',
+
+    # Search (magnifier)
+    'search': '''<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/>
+        <path d="M20 20L16.5 16.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </svg>''',
+
+    # Plus
+    'plus': '''<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </svg>''',
 }
 
 

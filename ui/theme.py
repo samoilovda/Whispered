@@ -756,6 +756,71 @@ def build_stylesheet(t: Theme) -> str:
         background-color: {rgba(t.error, 0.14)};
         color: {t.error};
     }}
+    QToolButton[role="toolbar-icon"] {{
+        background-color: transparent;
+        border: 1px solid transparent;
+        border-radius: {t.radius_sm};
+        padding: 4px 6px;
+        color: {t.text_secondary};
+        font-size: {t.font_sm};
+    }}
+    QToolButton[role="toolbar-icon"]:hover {{
+        background-color: {t.bg_surface};
+        border-color: {t.border};
+        color: {t.text_primary};
+    }}
+    QToolButton[role="toolbar-icon"][active="true"] {{
+        background-color: {rgba(t.accent, 0.15)};
+        color: {t.accent};
+    }}
+    QToolButton[role="toolbar-icon"]::menu-indicator {{
+        image: none;
+        width: 0;
+    }}
+    QLabel[role="list-group-header"] {{
+        color: {t.text_muted};
+        font-size: {t.font_xs};
+        font-weight: 600;
+        padding: 10px 8px 2px 8px;
+        background: transparent;
+    }}
+    QPushButton[role="filter-chip"] {{
+        background-color: {rgba(t.accent, 0.15)};
+        color: {t.accent};
+        border: none;
+        border-radius: 10px;
+        padding: 3px 10px;
+        font-size: {t.font_xs};
+    }}
+    QPushButton[role="filter-chip"]:hover {{
+        background-color: {rgba(t.accent, 0.26)};
+    }}
+    QPushButton[role="filter-reset"] {{
+        padding: 3px 8px;
+        font-size: {t.font_xs};
+        border: none;
+        background: transparent;
+        color: {t.text_secondary};
+    }}
+    QPushButton[role="filter-reset"]:hover {{
+        color: {t.text_primary};
+        text-decoration: underline;
+    }}
+    QListWidget[role="library-list"] {{
+        background: transparent;
+        border: none;
+        padding: 0;
+    }}
+    QListWidget[role="library-list"]::item {{
+        border-radius: {t.radius_sm};
+        padding: 0;
+    }}
+    QListWidget[role="library-list"]::item:selected {{
+        background-color: {rgba(t.accent, 0.14)};
+    }}
+    QListWidget[role="library-list"]::item:hover:!selected {{
+        background-color: {t.bg_surface};
+    }}
     QToolButton[role="collapsible-header"] {{
         background: transparent;
         border: none;
@@ -918,7 +983,7 @@ def build_stylesheet(t: Theme) -> str:
     }}
 
     /* ── Library Card Widgets ── */
-    QWidget[role="library-item-card"] {{
+    QWidget[role="library-item-card"], QWidget[role="library-item-card"] QWidget {{
         background: transparent;
     }}
     QLabel[role="library-item-title"] {{
@@ -953,6 +1018,15 @@ def build_stylesheet(t: Theme) -> str:
         color: {t.success};
         border-radius: 9px;
         padding: 2px 8px;
+        font-size: {t.font_xs};
+        font-weight: bold;
+    }}
+    QLabel[role="badge-pill-insights"], QLabel[role="badge-pill-book"],
+    QLabel[role="badge-pill-youtube_upload"] {{
+        background-color: {rgba(t.info, 0.15)};
+        color: {t.info};
+        border-radius: 9px;
+        padding: 1px 7px;
         font-size: {t.font_xs};
         font-weight: bold;
     }}

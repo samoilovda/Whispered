@@ -29,6 +29,54 @@ from ui.theme import SPACE_2, SPACE_3, SPACE_4, mark_elides, set_role
 from utils import format_duration
 
 
+class ElidedLabel(QLabel):
+    """A one-line QLabel that elides its text to the width it is given and
+    shows the full text as a tooltip when anything was cut.
+
+    Size policy is horizontally Ignored: the label takes whatever width
+    the layout gives it instead of forcing the row as wide as the full
+    text (the Library list grew a horizontal scrollbar for long file
+    names). Marked with ``mark_elides`` so the UI gallery's clipping check
+    knows the truncation is deliberate.
+    """
+
+    def __init__(
+        self,
+        text: str = "",
+        parent: QWidget | None = None,
+        mode: Qt.TextElideMode = Qt.TextElideMode.ElideRight,
+    ) -> None:
+        super().__init__(parent)
+        self._full_text = ""
+        self._mode = mode
+        self.setMinimumWidth(1)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.setText(text)
+
+    def full_text(self) -> str:
+        return self._full_text
+
+    def setText(self, text: str | None) -> None:  # noqa: N802
+        self._full_text = text or ""
+        self._apply_elision()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._apply_elision()
+
+    def changeEvent(self, event) -> None:  # noqa: N802
+        super().changeEvent(event)
+        # A QSS font (e.g. a bold title role) arrives on polish, after the
+        # first elision was measured with the default font.
+        if event.type() in (event.Type.FontChange, event.Type.StyleChange):
+            self._apply_elision()
+
+    def _apply_elision(self) -> None:
+        shown = self.fontMetrics().elidedText(self._full_text, self._mode, max(0, self.width()))
+        super().setText(shown)
+        mark_elides(self, self._full_text if shown != self._full_text else "")
+
+
 class ElidingComboBox(QComboBox):
     """QComboBox whose closed-state label elides with an ellipsis instead
     of being hard-clipped when the box is narrower than its current item's

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import pytest
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QPushButton
 
 from core.history import HistoryStore
 from core.i18n import load_locale, tr
@@ -28,6 +27,14 @@ def _add_record(store, name: str) -> int:
     return store.add(result, source_path="", model="", source_name=name)
 
 
+def _first_row(view: LibraryView) -> int:
+    """The first record row — browsing puts a date header above it."""
+    for row in range(view._list.count()):
+        if view._list.item(row).data(Qt.ItemDataRole.UserRole) is not None:
+            return row
+    raise AssertionError("no record rows")
+
+
 def _item_widget_at(view: LibraryView, row: int):
     return view._list.itemWidget(view._list.item(row))
 
@@ -39,10 +46,7 @@ def test_scope_toggle_chips_exist_for_all_three_scopes(process_events):
     view = LibraryView()
     process_events()
 
-    labels = {
-        button.text() for button in view.findChildren(QPushButton)
-        if button.property("role") == "quick-chip"
-    }
+    labels = {action.text() for action in view._filter_menu.actions()}
     for key in ("all", "transcripts", "materials"):
         assert tr(f"library_search_scope_{key}") in labels
 
@@ -140,8 +144,7 @@ def test_opening_a_material_hit_emits_open_record_with_its_type(
     seen = []
     view.open_record.connect(lambda rid, atype: seen.append((rid, atype)))
 
-    widget = _item_widget_at(view, 0)
-    widget.open_button.click()
+    view._list.itemClicked.emit(view._list.item(_first_row(view)))
     process_events()
 
     assert seen == [(record_id, "insights")]
@@ -162,8 +165,7 @@ def test_opening_a_transcript_still_emits_an_empty_type(
 
     seen = []
     view.open_record.connect(lambda rid, atype: seen.append((rid, atype)))
-    widget = _item_widget_at(view, 0)
-    widget.open_button.click()
+    view._list.itemClicked.emit(view._list.item(_first_row(view)))
     process_events()
 
     assert seen == [(record_id, "")]
