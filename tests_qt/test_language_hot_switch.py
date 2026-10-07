@@ -79,7 +79,7 @@ def test_every_panel_survives_repeated_switches(process_events):
     window = MainWindow()
     process_events()
 
-    en_record_clean = window.record_view.clean_btn.text()
+    en_record_clean = window.cleaned_view.empty_state.action_button.text()
     en_start_launch = window.start_view.process_button.text()
 
     for lang in ("ru", "en", "ru"):
@@ -88,7 +88,7 @@ def test_every_panel_survives_repeated_switches(process_events):
 
     i18n.set_locale("ru")
     process_events()
-    assert window.record_view.clean_btn.text() != en_record_clean
+    assert window.cleaned_view.empty_state.action_button.text() != en_record_clean
     assert window.start_view.process_button.text() != en_start_launch
     assert window.transcript_view.copy_btn.text() == i18n.tr("btn_copy")
     assert window.status_bar.status_label.text() == i18n.tr("status_idle")

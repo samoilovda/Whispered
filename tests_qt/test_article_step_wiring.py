@@ -1,5 +1,5 @@
-"""Real-Qt test for MainWindow's "Articles" button (RecordView.articles_btn
--> articles_requested -> _start_generate_all), now routed through
+"""Real-Qt test for MainWindow's "Generate articles" action (the Articles
+tab's empty-state button: ArticleView.generate_requested -> _start_generate_all), now routed through
 application/steps.py's "article" step via JobRunner instead of the generic
 AIProcessingWorker (see docs/UI_REDESIGN_PLAN_2026-09.ru.md, B5b — the
 same migration B5a did for clean).

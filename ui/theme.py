@@ -777,12 +777,50 @@ def build_stylesheet(t: Theme) -> str:
         image: none;
         width: 0;
     }}
+    QLineEdit[role="title-edit"] {{
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: {t.radius_sm};
+        padding: 2px 6px;
+        margin-left: -6px;
+        font-size: 20px;
+        font-weight: 600;
+        color: {t.text_primary};
+    }}
+    QLineEdit[role="title-edit"]:hover {{
+        border-color: {t.border};
+    }}
+    QLineEdit[role="title-edit"]:focus {{
+        border-color: {t.accent};
+        background-color: {t.bg_deep};
+    }}
+    QLineEdit[role="title-edit"]:read-only:hover {{
+        border-color: transparent;
+    }}
+    QPushButton[role="run-chip"] {{
+        background-color: transparent;
+        border: 1px solid {t.border};
+        border-radius: 11px;
+        padding: 4px 12px;
+        color: {t.text_secondary};
+        font-size: {t.font_sm};
+    }}
+    QPushButton[role="run-chip"]:enabled:hover {{
+        border-color: {t.accent};
+        color: {t.text_primary};
+    }}
+    QPushButton[role="run-chip"]:disabled {{
+        color: {t.text_secondary};
+        background-color: transparent;
+        border: 1px solid {t.border};
+        border-radius: 11px;
+    }}
     QPushButton[role="floating-pill"] {{
         background-color: {t.bg_elevated};
         color: {t.accent};
         border: 1px solid {t.accent};
-        border-radius: 14px;
-        padding: 5px 14px;
+        border-radius: 12px;
+        padding: 4px 14px;
         font-size: {t.font_sm};
     }}
     QPushButton[role="floating-pill"]:hover {{

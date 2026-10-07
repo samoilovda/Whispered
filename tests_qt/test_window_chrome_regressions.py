@@ -430,8 +430,8 @@ def test_record_cover_button_opens_the_cover_workspace(process_events):
     window.record_view.set_has_result(True)
     process_events()
 
-    assert window.record_view.cover_btn.isEnabled()
-    window.record_view.cover_btn.click()
+    assert window.record_view.cover_action.isEnabled()
+    window.record_view.cover_action.trigger()
     process_events()
 
     assert window._stack.currentIndex() == window._cover_index
@@ -449,7 +449,7 @@ def test_record_cover_button_disabled_without_a_result(process_events):
 
     window.record_view.set_has_result(False)
     process_events()
-    assert not window.record_view.cover_btn.isEnabled()
+    assert not window.record_view.cover_action.isEnabled()
 
     window.close()
     process_events()

@@ -175,6 +175,8 @@ class YouTubePanel(QWidget):
     # The record's chapters (record_chapters()) may have changed: a new
     # package, an edit, back to the model's, or none any more.
     chapters_changed = pyqtSignal()
+    # Whether the panel has anything to show changed (see has_content()).
+    content_changed = pyqtSignal()
     publish_requested = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -1173,10 +1175,17 @@ class YouTubePanel(QWidget):
         return "; ".join(parts)
 
     def _set_state(self, state: str) -> None:
+        changed = state != self._state
         self._state = state
         if state != "error":
             self._error_reason = ""
         self._render_state()
+        if changed:
+            self.content_changed.emit()
+
+    def has_content(self) -> bool:
+        """A package, one being made, or a failed attempt to report."""
+        return self._state in ("generating", "error", "done")
 
     def _render_state(self) -> None:
         """Placeholder and state row for the current ``_state`` — also

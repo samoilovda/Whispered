@@ -4,7 +4,8 @@ Display and export generated articles with tabbed interface
 """
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QToolBox, QTextEdit, QPushButton, QLabel, QFileDialog, QApplication, QMessageBox
+    QWidget, QVBoxLayout, QHBoxLayout, QToolBox, QTextEdit, QPushButton, QLabel, QFileDialog,
+    QApplication, QMessageBox, QStackedWidget,
 )
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QFont
@@ -18,6 +19,7 @@ from article_generator import (
     export_article_md, export_article_html, export_all_articles
 )
 from core.i18n import tr
+from ui.empty_state import EmptyStateWidget
 from ui.i18n_helpers import Retranslator
 from ui.icons import get_icon
 from ui.theme import IconColors
@@ -235,10 +237,17 @@ class ArticleTab(QWidget):
 
 
 class ArticleView(QWidget):
-    """Tabbed view for displaying multiple article formats."""
+    """Tabbed view for displaying multiple article formats.
+
+    Without articles it shows an empty state whose button is the one way
+    to generate them for the open record (``generate_requested``; the
+    record header no longer carries a second "Generate articles" button).
+    """
 
     copy_done = pyqtSignal()
     export_done = pyqtSignal(str)  # filename
+    generate_requested = pyqtSignal()
+    content_changed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -250,6 +259,7 @@ class ArticleView(QWidget):
         self._source_path: str | None = None
         self._segments: list = []
         self._transcript_language: str = ""
+        self._busy = False
         self._i18n = Retranslator()
         self._setup_ui()
         self._i18n.call(self._retranslate_articleview)
@@ -260,11 +270,26 @@ class ArticleView(QWidget):
             info = ARTICLE_FORMAT_INFO[fmt]
             self.tabs.setItemText(i, f"{info['icon']} {tr(_FORMAT_LABEL_KEYS[fmt])}")
         self.export_all_btn.setText(tr("article_export_all"))
+        self._render_empty_state()
 
     def _setup_ui(self):
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        self._pages = QStackedWidget()
+        outer.addWidget(self._pages)
+
+        self.empty_state = EmptyStateWidget(
+            "file", tr("articles_empty_title"), tr("articles_empty_hint"),
+            tr("record_articles_action"),
+        )
+        self.empty_state.action_button.clicked.connect(self.generate_requested.emit)
+        self._pages.addWidget(self.empty_state)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+        self._pages.addWidget(content)
 
         # Tab widget for different formats
         self.tabs = QToolBox()
@@ -296,6 +321,25 @@ class ArticleView(QWidget):
 
         layout.addLayout(export_all_layout)
 
+    def _render_empty_state(self) -> None:
+        busy = self._busy
+        self.empty_state.set_texts(
+            tr("articles_generating") if busy else tr("articles_empty_title"),
+            tr("articles_empty_hint"),
+            tr("articles_generating_short") if busy else tr("record_articles_action"),
+        )
+        self.empty_state.action_button.setEnabled(not busy)
+        self._pages.setCurrentIndex(1 if self._articles else 0)
+
+    def set_busy(self, busy: bool) -> None:
+        """A generation for the open record started (True) or ended."""
+        self._busy = busy
+        self._render_empty_state()
+        self.content_changed.emit()
+
+    def is_busy(self) -> bool:
+        return self._busy
+
     def set_article(self, article: Article):
         """Set a single article (adds to the appropriate tab)."""
         self._articles[article.format] = article
@@ -307,6 +351,8 @@ class ArticleView(QWidget):
             self.tabs.setCurrentIndex(tab_index)
 
         self._update_export_all_button()
+        self._render_empty_state()
+        self.content_changed.emit()
 
     def set_articles(self, articles: list[Article]):
         """Set multiple articles at once."""
@@ -316,6 +362,8 @@ class ArticleView(QWidget):
                 self.format_tabs[article.format].set_article(article)
 
         self._update_export_all_button()
+        self._render_empty_state()
+        self.content_changed.emit()
 
     def clear(self):
         """Clear all articles."""
@@ -323,6 +371,8 @@ class ArticleView(QWidget):
         for tab in self.format_tabs.values():
             tab.clear()
         self.export_all_btn.setEnabled(False)
+        self._render_empty_state()
+        self.content_changed.emit()
 
     def get_articles(self) -> list[Article]:
         """Get all current articles."""
@@ -380,13 +430,20 @@ class ArticleView(QWidget):
 
 
 class CleanedTextView(QWidget):
-    """View for displaying cleaned/processed text."""
+    """View for displaying cleaned/processed text.
+
+    Without cleaned text it shows an empty state whose button is the one
+    way to clean the open record's transcript (``generate_requested``).
+    """
 
     copy_requested = pyqtSignal()
+    generate_requested = pyqtSignal()
+    content_changed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._cleaned_text = ""
+        self._busy = False
         self._i18n = Retranslator()
         self._setup_ui()
         self._i18n.call(self._retranslate_cleaned)
@@ -396,11 +453,26 @@ class CleanedTextView(QWidget):
         self.copy_btn.setText(tr("cleaned_copy"))
         if not self._cleaned_text:
             self.stats_label.setText(tr("cleaned_empty"))
+        self._render_empty_state()
 
     def _setup_ui(self):
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        self._pages = QStackedWidget()
+        outer.addWidget(self._pages)
+
+        self.empty_state = EmptyStateWidget(
+            "leaf", tr("cleaned_empty_title"), tr("cleaned_empty_hint"),
+            tr("record_clean_action"),
+        )
+        self.empty_state.action_button.clicked.connect(self.generate_requested.emit)
+        self._pages.addWidget(self.empty_state)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 8, 0, 0)
         layout.setSpacing(8)
+        self._pages.addWidget(content)
 
         # Stats row
         stats = QHBoxLayout()
@@ -457,6 +529,8 @@ class CleanedTextView(QWidget):
             ))
 
         self.copy_btn.setEnabled(True)
+        self._render_empty_state()
+        self.content_changed.emit()
 
     def clear(self):
         """Clear the view."""
@@ -465,6 +539,30 @@ class CleanedTextView(QWidget):
         self.stats_label.setText(tr("cleaned_empty"))
         self.improvement_label.setText("")
         self.copy_btn.setEnabled(False)
+        self._render_empty_state()
+        self.content_changed.emit()
+
+    def _render_empty_state(self) -> None:
+        busy = self._busy
+        self.empty_state.set_texts(
+            tr("cleaned_busy_title") if busy else tr("cleaned_empty_title"),
+            tr("cleaned_empty_hint"),
+            tr("cleaned_busy_short") if busy else tr("record_clean_action"),
+        )
+        self.empty_state.action_button.setEnabled(not busy)
+        self._pages.setCurrentIndex(1 if self._cleaned_text else 0)
+
+    def set_busy(self, busy: bool) -> None:
+        """Cleaning for the open record started (True) or ended."""
+        self._busy = busy
+        self._render_empty_state()
+        self.content_changed.emit()
+
+    def is_busy(self) -> bool:
+        return self._busy
+
+    def has_content(self) -> bool:
+        return bool(self._cleaned_text)
 
     def get_text(self) -> str:
         """Get the cleaned text."""

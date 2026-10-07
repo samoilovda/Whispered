@@ -42,12 +42,12 @@ def window(monkeypatch, tmp_path, process_events):
 
 
 def test_versions_button_disabled_until_a_result_is_loaded(window, process_events):
-    assert not window.record_view.versions_btn.isEnabled()
+    assert not window.record_view.versions_action.isEnabled()
 
     window.record_view.set_has_result(True)
     process_events()
 
-    assert window.record_view.versions_btn.isEnabled()
+    assert window.record_view.versions_action.isEnabled()
 
 
 def test_first_version_is_written_when_a_result_is_saved_to_history(

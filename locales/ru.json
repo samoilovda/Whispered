@@ -867,5 +867,22 @@
   "find_close_tooltip": "Закрыть поиск (Esc)",
   "find_no_matches": "Нет совпадений",
   "find_position": "{current} из {total}",
-  "transcript_follow_playback": "↓ К месту воспроизведения"
+  "transcript_follow_playback": "↓ К месту воспроизведения",
+  "record_title_tooltip": "Нажмите, чтобы переименовать запись",
+  "record_reveal_files": "Показать файлы",
+  "record_more_actions": "Действия с записью",
+  "record_add_tab_tooltip": "Добавить материал",
+  "record_run_running": "Идёт прогон…",
+  "record_run_open_tooltip": "Открыть экран прогона",
+  "record_run_resume_tooltip": "Нажмите, чтобы продолжить с места остановки.",
+  "record_no_files_yet": "У записи пока нет файлов",
+  "articles_empty_title": "Статей пока нет",
+  "articles_empty_hint": "Блог-пост, FAQ, список, краткое содержание и пост для соцсетей — из этой расшифровки, локальной моделью в LM Studio.",
+  "articles_generating": "Создаю статьи…",
+  "articles_generating_short": "Создаю…",
+  "cleaned_empty_title": "Очищенного текста пока нет",
+  "cleaned_empty_hint": "Без слов-паразитов и повторов, разбитый на абзацы — для чтения и публикации. Делает локальная модель в LM Studio.",
+  "cleaned_busy_title": "Очищаю текст…",
+  "cleaned_busy_short": "Очищаю…",
+  "status_cleaned": "Текст очищен за {seconds} с — убрано слов-паразитов: {fillers}"
 }

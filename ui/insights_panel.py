@@ -86,6 +86,8 @@ class InsightsPanel(QWidget):
     # Its own (generated) chapters may have changed — see own_chapters().
     chapters_changed = pyqtSignal()
     generation_finished = pyqtSignal(bool)
+    # Whether the panel has anything to show changed (see has_content()).
+    content_changed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -251,6 +253,11 @@ class InsightsPanel(QWidget):
         self.chapters_changed.emit()
         self._placeholder.setText(tr("insights_placeholder"))
         self._placeholder.show()
+        self.content_changed.emit()
+
+    def has_content(self) -> bool:
+        """Results, a generation in progress, or a failure to report."""
+        return bool(self._results) or self._generating or self._error_message is not None
 
     # ── Generation ──────────────────────────────────────────────────
     # This panel no longer runs anything itself — generate_requested asks
@@ -269,6 +276,7 @@ class InsightsPanel(QWidget):
         self._gen_btn.setText(tr("insights_generating"))
         self._placeholder.hide()
         self._save_btn.setEnabled(False)
+        self.content_changed.emit()
 
     def set_result(self, payload: dict) -> None:
         """*payload* is application/steps.py's "insights" step output:
@@ -285,6 +293,7 @@ class InsightsPanel(QWidget):
         self._clear_section(self._km_layout)
         self._render_key_moments(list(payload.get("key_moments") or []))
         self.chapters_changed.emit()
+        self.content_changed.emit()
         self.generation_finished.emit(True)
 
     def set_error(self, message: str) -> None:
@@ -294,6 +303,7 @@ class InsightsPanel(QWidget):
         self._gen_btn.setText(tr("insights_generate"))
         self._placeholder.setText(f"{tr('insights_error')} {message}")
         self._placeholder.show()
+        self.content_changed.emit()
         self.generation_finished.emit(False)
 
     # ── Chapters shared with the YouTube tab (Y6) ───────────────────

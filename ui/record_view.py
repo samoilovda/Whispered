@@ -1,18 +1,28 @@
 """
 Whispered – Record View
-Detail screen for one open transcription: player, result tabs, and an
-Export menu (replaces the old always-visible 7 format checkboxes).
+Detail screen for one open transcription: header, result tabs, player.
+
+Header, left to right: the record's name (click to rename in place), a
+chip summarising its last recipe run, Export, and an overflow menu for
+the rarer record actions (transcript versions, cover, rename, show the
+files, delete). Generation is not started from here: each material's own
+tab offers to create it while it doesn't exist yet.
 """
 
 from __future__ import annotations
 
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QAction, QFocusEvent, QKeyEvent
 from PyQt6.QtWidgets import (
     QHBoxLayout,
-    QLabel,
+    QLineEdit,
+    QMenu,
+    QPushButton,
+    QSizePolicy,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
-from PyQt6.QtCore import pyqtSignal
 
 from config import get_config, save_config
 from core.i18n import tr
@@ -29,37 +39,83 @@ from ui.components import KeepOpenMenu
 _FORMAT_KEYS = ("txt", "txt_ts", "srt", "vtt", "json", "md", "html", "docx", "pdf")
 
 
+class _TitleEdit(QLineEdit):
+    """The record's name as a page title that becomes a text field on
+    click: Enter commits, Escape (or leaving an unchanged field) reverts."""
+
+    committed = pyqtSignal(str)
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setProperty("role", "title-edit")
+        self.setFrame(False)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._shown = ""
+        self.editingFinished.connect(self._commit)
+
+    def set_shown_text(self, text: str) -> None:
+        self._shown = text
+        self.setText(text)
+        self.setCursorPosition(0)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
+        if event.key() == Qt.Key.Key_Escape:
+            self.setText(self._shown)
+            self.clearFocus()
+            return
+        super().keyPressEvent(event)
+
+    def focusOutEvent(self, event: QFocusEvent) -> None:  # noqa: N802
+        super().focusOutEvent(event)
+        self.setCursorPosition(0)
+
+    def _commit(self) -> None:
+        text = self.text().strip()
+        if not text:
+            self.setText(self._shown)
+        elif text != self._shown:
+            self._shown = text
+            self.committed.emit(text)
+        self.clearFocus()
+
+
 class RecordView(QWidget):
     """Hosts the player + result tabs for one open transcription record.
 
-    MainWindow still owns the actual player/tabs widgets and adds them to
-    this view's layout (they're created once in MainWindow and reused
-    across records, same as before the redesign) — RecordView itself only
-    owns the header chrome: back button, title, and the Export menu.
+    MainWindow owns the actual player/tabs widgets and adds them to this
+    view's layout (created once and reused across records) — RecordView
+    owns only the header chrome.
     """
 
     back_requested = pyqtSignal()
     export_requested = pyqtSignal()
     export_preset_requested = pyqtSignal(str)  # ExportPreset.key
-    clean_requested = pyqtSignal()
-    articles_requested = pyqtSignal()
     cover_requested = pyqtSignal()
     versions_requested = pyqtSignal()
+    rename_requested = pyqtSignal(str)
+    reveal_requested = pyqtSignal()
+    delete_requested = pyqtSignal()
+    run_summary_clicked = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._initial_split_done = False
         self._has_result = False
+        self._has_record = False
         self._i18n = Retranslator()
         self._setup_ui()
         self._i18n.call(self._retranslate_record)
         self._i18n.bind()
 
     def _retranslate_record(self) -> None:
-        self.clean_btn.setText(tr("record_clean_action"))
-        self.articles_btn.setText(tr("record_articles_action"))
-        self.cover_btn.setText(tr("record_cover_action"))
-        self.versions_btn.setText(tr("record_versions_action"))
+        self.title_edit.setToolTip(tr("record_title_tooltip"))
+        self.cover_action.setText(tr("record_cover_action"))
+        self.versions_action.setText(tr("record_versions_action"))
+        self.rename_action.setText(tr("library_rename"))
+        self.reveal_action.setText(tr("record_reveal_files"))
+        self.delete_action.setText(tr("history_delete_title"))
+        self.more_btn.setToolTip(tr("record_more_actions"))
+        self.more_btn.setAccessibleName(tr("record_more_actions"))
         self.export_btn.setText(tr("record_export_menu"))
         self.set_has_result(self._has_result)
         self._build_export_menu()
@@ -72,46 +128,51 @@ class RecordView(QWidget):
         header = QHBoxLayout()
         header.setSpacing(8)
 
-        self.title_label = QLabel("")
-        self.title_label.setProperty("role", "page-title")
-        header.addWidget(self.title_label, stretch=1)
+        self.title_edit = _TitleEdit()
+        self.title_edit.committed.connect(self.rename_requested.emit)
+        header.addWidget(self.title_edit, stretch=1)
 
-        self.clean_btn = AnimatedButton(tr("record_clean_action"))
-        self.clean_btn.setEnabled(False)
-        self.clean_btn.setToolTip(tr("tooltip_record_actions_disabled"))
-        self.clean_btn.clicked.connect(self.clean_requested.emit)
-        header.addWidget(self.clean_btn)
-
-        self.articles_btn = AnimatedButton(tr("record_articles_action"))
-        self.articles_btn.setEnabled(False)
-        self.articles_btn.setToolTip(tr("tooltip_record_actions_disabled"))
-        self.articles_btn.clicked.connect(self.articles_requested.emit)
-        header.addWidget(self.articles_btn)
-
-        # Third entrance to the Cover workspace (docs/IMPROVEMENT_PLAN_2026-08.ru.md,
-        # A5) — the other two are the Library panel's own button and
-        # Go > Covers on the menu bar. This one opens it with the open
-        # record's segments already loaded, since Cover is made *for* a
-        # record rather than being its own destination.
-        self.cover_btn = AnimatedButton(tr("record_cover_action"))
-        self.cover_btn.setEnabled(False)
-        self.cover_btn.setToolTip(tr("tooltip_record_actions_disabled"))
-        self.cover_btn.clicked.connect(self.cover_requested.emit)
-        header.addWidget(self.cover_btn)
-
-        # B8, docs/IMPROVEMENT_PLAN_2026-08.ru.md: non-destructive
-        # transcript edit history — opens TranscriptVersionsDialog
-        # (MainWindow owns the actual dialog/restore wiring).
-        self.versions_btn = AnimatedButton(tr("record_versions_action"))
-        self.versions_btn.setEnabled(False)
-        self.versions_btn.setToolTip(tr("tooltip_record_actions_disabled"))
-        self.versions_btn.clicked.connect(self.versions_requested.emit)
-        header.addWidget(self.versions_btn)
+        # Last run of a recipe on this record: what succeeded, what failed.
+        self.run_chip = QPushButton()
+        self.run_chip.setProperty("role", "run-chip")
+        self.run_chip.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.run_chip.clicked.connect(self.run_summary_clicked.emit)
+        self.run_chip.setVisible(False)
+        header.addWidget(self.run_chip)
 
         self.export_btn = AnimatedButton(tr("record_export_menu"))
         self.export_btn.setIcon(get_icon('save', IconColors.default(), 14))
         self._build_export_menu()
         header.addWidget(self.export_btn)
+
+        self.more_btn = QToolButton()
+        self.more_btn.setProperty("role", "toolbar-icon")
+        self.more_btn.setIcon(get_icon("more_horizontal", IconColors.default(), 16))
+        self.more_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        more = QMenu(self.more_btn)
+        # B8, docs/IMPROVEMENT_PLAN_2026-08.ru.md: non-destructive
+        # transcript edit history (MainWindow owns the dialog/restore).
+        self.versions_action = QAction(tr("record_versions_action"), more)
+        self.versions_action.triggered.connect(self.versions_requested.emit)
+        more.addAction(self.versions_action)
+        # The Cover workspace opened with this record's segments loaded
+        # (docs/IMPROVEMENT_PLAN_2026-08.ru.md, A5).
+        self.cover_action = QAction(tr("record_cover_action"), more)
+        self.cover_action.triggered.connect(self.cover_requested.emit)
+        more.addAction(self.cover_action)
+        more.addSeparator()
+        self.rename_action = QAction(tr("library_rename"), more)
+        self.rename_action.triggered.connect(self.start_rename)
+        more.addAction(self.rename_action)
+        self.reveal_action = QAction(tr("record_reveal_files"), more)
+        self.reveal_action.triggered.connect(self.reveal_requested.emit)
+        more.addAction(self.reveal_action)
+        more.addSeparator()
+        self.delete_action = QAction(tr("history_delete_title"), more)
+        self.delete_action.triggered.connect(self.delete_requested.emit)
+        more.addAction(self.delete_action)
+        self.more_btn.setMenu(more)
+        header.addWidget(self.more_btn)
 
         self._layout.addLayout(header)
 
@@ -123,6 +184,8 @@ class RecordView(QWidget):
         self._left_layout.setSpacing(4)
 
         self._layout.addWidget(self._left_widget, stretch=1)
+        self.set_has_result(False)
+        self.set_has_record(False)
 
     def _build_export_menu(self) -> None:
         cfg = get_config()
@@ -180,19 +243,42 @@ class RecordView(QWidget):
         self._left_layout.addWidget(container)
 
     def set_title(self, name: str) -> None:
-        self.title_label.setText(name)
+        self.title_edit.set_shown_text(name)
+
+    def title(self) -> str:
+        return self.title_edit.text()
+
+    def start_rename(self) -> None:
+        self.title_edit.setFocus(Qt.FocusReason.OtherFocusReason)
+        self.title_edit.selectAll()
+
+    def set_run_summary(self, text: str, tooltip: str = "", clickable: bool = False) -> None:
+        """Show the last-run chip (empty *text* hides it). *clickable*
+        when clicking leads somewhere (an active run, or one to resume)."""
+        self.run_chip.setText(text)
+        self.run_chip.setToolTip(tooltip)
+        self.run_chip.setVisible(bool(text))
+        self.run_chip.setEnabled(clickable)
+        self.run_chip.setCursor(
+            Qt.CursorShape.PointingHandCursor if clickable else Qt.CursorShape.ArrowCursor
+        )
+
+    def set_has_record(self, has_record: bool) -> None:
+        """Whether the open result is a saved history record — renaming,
+        showing its files and deleting need one."""
+        self._has_record = has_record
+        self.title_edit.setReadOnly(not has_record)
+        self.rename_action.setEnabled(has_record)
+        self.reveal_action.setEnabled(has_record)
+        self.delete_action.setEnabled(has_record)
 
     def set_has_result(self, has_result: bool) -> None:
         self._has_result = has_result
-        self.clean_btn.setEnabled(has_result)
-        self.articles_btn.setEnabled(has_result)
-        self.cover_btn.setEnabled(has_result)
-        self.versions_btn.setEnabled(has_result)
+        self.cover_action.setEnabled(has_result)
+        self.versions_action.setEnabled(has_result)
+        self.export_btn.setEnabled(has_result)
         disabled_tip = "" if has_result else tr("tooltip_record_actions_disabled")
-        self.clean_btn.setToolTip(disabled_tip)
-        self.articles_btn.setToolTip(disabled_tip)
-        self.cover_btn.setToolTip(disabled_tip)
-        self.versions_btn.setToolTip(disabled_tip)
+        self.export_btn.setToolTip(disabled_tip)
 
     def get_export_formats(self) -> list[str]:
         """Currently-checked formats, falling back to ['txt'] if none."""

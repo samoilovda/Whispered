@@ -867,5 +867,22 @@
   "find_close_tooltip": "Close search (Esc)",
   "find_no_matches": "No matches",
   "find_position": "{current} of {total}",
-  "transcript_follow_playback": "↓ Back to playback"
+  "transcript_follow_playback": "↓ Back to playback",
+  "record_title_tooltip": "Click to rename the record",
+  "record_reveal_files": "Show files",
+  "record_more_actions": "Record actions",
+  "record_add_tab_tooltip": "Add material",
+  "record_run_running": "Run in progress…",
+  "record_run_open_tooltip": "Open the run screen",
+  "record_run_resume_tooltip": "Click to continue where it stopped.",
+  "record_no_files_yet": "This record has no files yet",
+  "articles_empty_title": "No articles yet",
+  "articles_empty_hint": "A blog post, FAQ, listicle, summary and social post from this transcript, made by the local model in LM Studio.",
+  "articles_generating": "Generating articles…",
+  "articles_generating_short": "Generating…",
+  "cleaned_empty_title": "No cleaned text yet",
+  "cleaned_empty_hint": "Without filler words and repetitions, split into paragraphs — for reading and publishing. Done by the local model in LM Studio.",
+  "cleaned_busy_title": "Cleaning the text…",
+  "cleaned_busy_short": "Cleaning…",
+  "status_cleaned": "Cleaned in {seconds} s — {fillers} filler words removed"
 }
