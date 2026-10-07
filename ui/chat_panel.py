@@ -11,8 +11,10 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel,
     QLineEdit, QPushButton, QFrame, QSizePolicy, QMessageBox
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont
+
+from core.llm_text import link_citations
 
 from core.logger import get_logger
 from core.i18n import tr
@@ -43,16 +45,32 @@ def _quick_questions() -> list[str]:
 
 
 class _Bubble(QLabel):
-    """Single chat message bubble."""
+    """Single chat message bubble. An assistant's "[12:34]" citations are
+    links (seek:<seconds>) — see ChatPanel.seek_requested."""
 
     def __init__(self, text: str, role: str, parent=None):
         super().__init__(parent)
+        self._role = role
+        self._raw = ""
         self.setWordWrap(True)
         self.setTextFormat(Qt.TextFormat.MarkdownText)
+        self.setOpenExternalLinks(False)
+        self.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.LinksAccessibleByMouse
+        )
         self.setText(text)
         self.setFont(QFont("Sans", 10))
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         self.setProperty("role", "chat-bubble-user" if role == "user" else "chat-bubble-assistant")
+
+    def setText(self, text: str | None) -> None:  # noqa: N802
+        self._raw = text or ""
+        shown = link_citations(self._raw) if self._role != "user" else self._raw
+        super().setText(shown)
+
+    def text(self) -> str:  # noqa: D102 - the message as written, not as linked
+        return self._raw
 
 
 class _ChatRow(QWidget):
@@ -80,9 +98,13 @@ class _ChatRow(QWidget):
 class ChatPanel(QWidget):
     """Chat tab — 'Ask your recording.'"""
 
+    # A citation in an answer was clicked: seconds into the recording.
+    seek_requested = pyqtSignal(float)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._transcript: str = ""
+        self._context_lines: list[str] | None = None
         self._history: list[dict] = []   # [{role, content}, …]
         self._worker = None
         self._registry = WorkerRegistry(parent=self)
@@ -180,8 +202,13 @@ class ChatPanel(QWidget):
 
     # ------------------------------------------------------------------ public
 
-    def set_transcript(self, text: str) -> None:
-        """Update the transcript context. Optionally ask to reset history."""
+    def set_transcript(self, text: str, segments=None) -> None:
+        """Update the transcript context. With *segments*, the model gets
+        time-stamped blocks it can cite (core.llm_text.timestamped_blocks)."""
+        if segments is not None:
+            from core.llm_text import timestamped_blocks
+
+            self._context_lines = timestamped_blocks(segments)
         if text == self._transcript:
             return
         if self._history:
@@ -192,6 +219,7 @@ class ChatPanel(QWidget):
 
     def clear_transcript(self) -> None:
         self._transcript = ""
+        self._context_lines = None
         self._clear_chat(confirm=False)
         self._placeholder.setText(tr("chat_placeholder"))
 
@@ -247,7 +275,9 @@ class ChatPanel(QWidget):
 
         from core.chat_worker import _build_system_prompt, _CONTEXT_CHARS
         context_chars = getattr(cfg, "chat_context_chars", _CONTEXT_CHARS)
-        sys_prompt = _build_system_prompt(self._transcript, max_chars=context_chars)
+        sys_prompt = _build_system_prompt(
+            self._transcript, max_chars=context_chars, lines=self._context_lines,
+        )
 
         # Build message list: system + history + new user turn
         messages: list[dict] = [{"role": "system", "content": sys_prompt}]
@@ -330,11 +360,19 @@ class ChatPanel(QWidget):
 
     def _add_bubble(self, text: str, role: str) -> _Bubble:
         row = _ChatRow(text, role, self._msg_container)
+        row.bubble.linkActivated.connect(self._on_link)
         # Insert before the trailing stretch (last item)
         count = self._msg_layout.count()
         self._msg_layout.insertWidget(count - 1, row)
         QTimer.singleShot(0, self._scroll_to_bottom)
         return row.bubble
+
+    def _on_link(self, href: str) -> None:
+        if href.startswith("seek:"):
+            try:
+                self.seek_requested.emit(float(href[5:]))
+            except ValueError:
+                pass
 
     def _scroll_to_bottom(self):
         sb = self._scroll.verticalScrollBar()

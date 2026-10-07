@@ -2,10 +2,68 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
 
 _GAP_MARKER = "[... transcript continues, sampled for length ...]"
+
+_CITE_RE = re.compile(r"\[((?:\d{1,2}:)?\d{1,2}:\d{2})\]")
+
+
+def clock(seconds: float) -> str:
+    """"12:34" or "1:02:03" — the citation format the chat asks for."""
+    total = max(0, int(seconds))
+    hours, rest = divmod(total, 3600)
+    minutes, secs = divmod(rest, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes:02d}:{secs:02d}"
+
+
+def timestamped_blocks(segments: Sequence, block_seconds: int = 25) -> list[str]:
+    """The transcript as ~*block_seconds* blocks, each led by its start
+    time — "[12:34] text" (with "Speaker: " when known). One marker per
+    block keeps every word while leaving the model something to cite."""
+    lines: list[str] = []
+    start: float | None = None
+    speaker = ""
+    texts: list[str] = []
+
+    def flush() -> None:
+        if texts and start is not None:
+            prefix = f"[{clock(start)}] " + (f"{speaker}: " if speaker else "")
+            lines.append(prefix + " ".join(texts))
+
+    for seg in segments:
+        text = seg.text.strip()
+        if not text:
+            continue
+        seg_speaker = seg.speaker or ""
+        if start is None or seg_speaker != speaker or seg.start - start >= block_seconds:
+            flush()
+            start, speaker, texts = seg.start, seg_speaker, [text]
+        else:
+            texts.append(text)
+    flush()
+    return lines
+
+
+def cited_seconds(stamp: str) -> int:
+    """Seconds of a cited "12:34" / "1:02:03"."""
+    parts = [int(p) for p in stamp.split(":")]
+    total = 0
+    for part in parts:
+        total = total * 60 + part
+    return total
+
+
+def link_citations(markdown: str) -> str:
+    """Turn "[12:34]" citations into markdown links "[12:34](seek:754)"
+    the chat bubble can make clickable. Existing links are left alone."""
+    return _CITE_RE.sub(
+        lambda m: f"[{m.group(1)}](seek:{cited_seconds(m.group(1))})"
+        if not markdown[m.end():m.end() + 1] == "(" else m.group(0),
+        markdown,
+    )
 
 
 def sample_lines_evenly(

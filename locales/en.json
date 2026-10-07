@@ -966,5 +966,6 @@
   "shortcut_live_note_time": "Note line with the current time (live session)",
   "record_tab_failed": "This step failed in the last run — retry it on the run screen or with Ctrl+K.",
   "record_tab_stale": "Made from an older version of the transcript — it was edited since. Rerun the step to update.",
-  "library_running": "processing"
+  "library_running": "processing",
+  "chat_system_prompt_timed": "You are a helpful assistant. Answer questions ONLY based on the transcription provided below. If the answer is not in the transcription, say so clearly. The transcription is split into blocks, each starting with its time [MM:SS]. When you refer to a moment in the recording, give its time in square brackets exactly like [12:34] — the user can jump there with one click.\n\nTRANSCRIPTION:\n{transcript}"
 }

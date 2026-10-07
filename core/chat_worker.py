@@ -17,7 +17,20 @@ logger = get_logger(__name__)
 
 _CONTEXT_CHARS = 48_000   # default: ~ 12 k tokens
 
-def _build_system_prompt(transcript: str, max_chars: int = _CONTEXT_CHARS) -> str:
+def _build_system_prompt(
+    transcript: str, max_chars: int = _CONTEXT_CHARS, lines: list[str] | None = None,
+) -> str:
+    """The chat's system prompt. With *lines* (core.llm_text.
+    timestamped_blocks) the model sees "[MM:SS]" blocks sampled evenly
+    across the whole recording and is asked to cite times; with plain
+    *transcript* only, the head that fits (the old behaviour)."""
+    if lines:
+        from core.llm_text import sample_lines_evenly
+
+        body = sample_lines_evenly(lines, max_chars)
+        sampled = len("\n".join(lines)) > max_chars
+        suffix = "\n\n" + tr("chat_transcript_truncated") if sampled else ""
+        return tr("chat_system_prompt_timed", transcript=body) + suffix
     if len(transcript) > max_chars:
         transcript = transcript[:max_chars]
         suffix = "\n\n" + tr("chat_transcript_truncated")

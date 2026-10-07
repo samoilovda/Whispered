@@ -1501,7 +1501,7 @@ class MainWindow(QMainWindow):
         their own call sites.
         """
         self._document_session.register_consumer(
-            lambda result: self.chat_panel.set_transcript(result.full_text)
+            lambda result: self.chat_panel.set_transcript(result.full_text, result.segments)
         )
         self._document_session.register_consumer(
             lambda result: self.insights_panel.set_segments(
@@ -1545,6 +1545,7 @@ class MainWindow(QMainWindow):
 
         # Insights panel
         self.insights_panel.seek_requested.connect(self.player.seek_to)
+        self.chat_panel.seek_requested.connect(self.player.seek_to)
         self.youtube_panel.seek_requested.connect(self.player.seek_to)
         self.youtube_panel.set_position_provider(self.player.current_position)
         # One chapter list per record (Y6): the YouTube tab's (edits

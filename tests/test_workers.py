@@ -112,3 +112,27 @@ class TestBuildSystemPrompt:
     def test_custom_max_chars(self):
         prompt = _build_system_prompt("a" * 1000, max_chars=100)
         assert tr("chat_transcript_truncated") in prompt
+
+
+def test_chat_prompt_with_timestamped_blocks_covers_the_whole_recording():
+    from core.chat_worker import _build_system_prompt
+    from core.llm_text import timestamped_blocks
+    from domain.transcription import Segment
+
+    segments = [Segment(i * 10.0, i * 10.0 + 9, f"part {i}.") for i in range(400)]
+    lines = timestamped_blocks(segments)
+    assert lines[0].startswith("[00:00] part 0.")
+    assert lines[1].startswith("[00:30]")
+    prompt = _build_system_prompt("", max_chars=2000, lines=lines)
+    assert "[00:00]" in prompt and "part 399." in prompt  # the end survives
+    assert "[12:34]" in prompt  # the instruction to cite
+
+
+def test_citations_become_seek_links():
+    from core.llm_text import link_citations
+
+    assert link_citations("See [12:34] and [1:02:03].") == (
+        "See [12:34](seek:754) and [1:02:03](seek:3723)."
+    )
+    assert link_citations("[12:34](seek:754)") == "[12:34](seek:754)"
+    assert link_citations("[note] stays") == "[note] stays"
