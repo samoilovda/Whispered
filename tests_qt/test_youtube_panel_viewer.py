@@ -137,3 +137,45 @@ def test_settings_load_and_save_provider_and_language(dialog, monkeypatch):
     assert dialog._yt_privacy_notice.isHidden()
     dialog._save_values()
     assert (cfg.yt_provider, cfg.yt_language) == ("lmstudio", "")
+
+
+def test_changing_the_language_in_settings_regenerates_instead_of_reusing_the_cache(
+    monkeypatch, process_events,
+):
+    calls = []
+
+    def _fake(insight_type, segments, **kwargs):
+        calls.append(kwargs.get("language"))
+        return _PAYLOAD[insight_type]
+
+    monkeypatch.setattr("core.insights.generate_insight", _fake)
+    from config import get_config
+    from ui.main_window import MainWindow
+
+    cfg = get_config()
+    original = cfg.yt_language
+    cfg.yt_language = ""
+    try:
+        window = MainWindow()
+        cfg.lm_studio_url = "http://127.0.0.1:1234"
+        cfg.yt_provider = "lmstudio"
+        window._document_session.apply_result(TranscriptionResult(
+            segments=[Segment(0.0, 1.0, "привет")], language="ru", duration=1.0,
+        ))
+        window._last_record_id = None
+        window._source_filepath = None
+
+        window.youtube_panel.generate_requested.emit()
+        assert window._youtube_job.wait(2000)
+        process_events()
+        first_run = len(calls)
+
+        cfg.yt_language = "English"
+        window.youtube_panel.generate_requested.emit()
+        assert window._youtube_job.wait(2000)
+        process_events()
+
+        assert calls[first_run:] and set(calls[first_run:]) == {"English"}
+        window.close()
+    finally:
+        cfg.yt_language = original

@@ -535,9 +535,7 @@ def _youtube_package_runner(context: StepContext) -> StepRunner:
         lm_url = context.params.get("lm_url", "") or ""
         provider = context.params.get("provider")
         cache = context.params.get("insights_cache")
-        # Config.yt_language overrides the recording's language for this
-        # step only; empty means "follow the recording".
-        language = context.params.get("yt_language") or context.params.get("language")
+        language = _youtube_language(context)
 
         payload: dict[str, Any] = {}
         for insight_type in _YOUTUBE_TYPES:
@@ -555,6 +553,20 @@ def _youtube_package_runner(context: StepContext) -> StepRunner:
     return run
 
 
+def _youtube_language(context: StepContext) -> Any:
+    """Config.yt_language overrides the recording's language for this step
+    only; empty means "follow the recording"."""
+    return context.params.get("yt_language") or context.params.get("language")
+
+
+def _youtube_package_prompt_version(context: StepContext) -> str:
+    """The prompts' version plus the output language: the package is
+    written in that language, so a different one is a different result —
+    without this a language change in Settings was answered from cache."""
+    joined = f"{_composite_prompt_version(*_YOUTUBE_TYPES)}|lang={_youtube_language(context) or ''}"
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()[:16]
+
+
 def _youtube_package_artifact(context: StepContext) -> Artifact:
     return Artifact(
         record_id=context.record_id_str(),
@@ -565,7 +577,7 @@ def _youtube_package_artifact(context: StepContext) -> Artifact:
         path=str(context.artifact_dir / "youtube_package.json"),
         provider=_provider_label(context),
         model=_model_label(context),
-        prompt_version=_composite_prompt_version(*_YOUTUBE_TYPES),
+        prompt_version=_youtube_package_prompt_version(context),
     )
 
 
