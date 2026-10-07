@@ -26,6 +26,15 @@ The original long-form development plan (2026-07) is preserved in
 - **Library** — transcription history with SQLite FTS5 full-text search,
   built-in audio player synced to the transcript, editable transcript with
   speaker renaming.
+- **UI concept 2026-10** — a Library that lists records (filters in one
+  menu, date groups, rename); a transcript that reads as paragraphs, follows
+  playback, marks uncertain passages and has a context menu (copy with
+  timecode, bookmark, chapter, cut); bookmarks; record tabs that appear with
+  their material and a header with the last run; a one-row player with
+  playback keys; a start screen that says whether the recipe can run; the
+  user's own notes feeding Insights; a grouped forgiving `Ctrl+K`; a
+  menu-bar icon; a shortcuts sheet
+  (docs/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md).
 - **Recipes** — five built-in step sets (transcript-only, YouTube video,
   podcast article, meeting notes, book) plus one user-editable custom
   slot, replacing the old Inspector checklist/preset chain: transcribe →
