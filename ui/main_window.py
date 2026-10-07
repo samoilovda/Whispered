@@ -2463,11 +2463,15 @@ class MainWindow(QMainWindow):
                 self.file_selector._clear_selection()
                 self.player.load("")
 
-            # The YouTube tab otherwise keeps the previous record's package
-            # — and since its chapter/title edits are saved per record,
-            # editing it here would write them into this record's folder.
+            # The YouTube and Insights tabs otherwise keep the previous
+            # record's results — and the YouTube tab's edits are saved per
+            # record, so editing a stale one would write them into this
+            # record's folder. A single-step job still running for the
+            # previous record is cancelled so its result can't land here.
             self._cancel_youtube_job()
             self.youtube_panel.clear()
+            self._cancel_insights_job()
+            self.insights_panel.clear()
             self._document_session.apply_result(result)
             self.cover_view.set_provenance(record_id, source_path or None)
             self.cover_view.set_video_source(source_path if has_media else None)
@@ -2479,7 +2483,7 @@ class MainWindow(QMainWindow):
             stem = Path(source_path or source_name).stem if (source_path or source_name) else ""
             self.youtube_panel.set_source_name(stem)
             self.insights_panel.set_source_name(stem)
-            self._restore_youtube_package(record_id, source_path, result)
+            self._restore_saved_results(record_id, source_path, result)
             self.cut_view.video_panel.set_has_transcript(has_media)
             word_count = len(result.full_text.split())
             self.status_label.setText(tr("toast_loaded_history", words=word_count))
@@ -2504,29 +2508,32 @@ class MainWindow(QMainWindow):
         duration = result.segments[-1].end if result is not None and result.segments else None
         self.player.set_chapters(shared or self.insights_panel.own_chapters(), duration)
 
-    def _restore_youtube_package(
+    def _restore_saved_results(
         self, record_id: int, source_path: str, result: TranscriptionResult,
     ) -> None:
-        """Show the record's own saved YouTube package, if it has one, so
-        its chapters, edits, title choice and offset are there on opening —
-        not only after running the step again. Read from the same folder the
-        youtube_package step writes to; a missing or unreadable package
-        leaves the tab offering to create one."""
+        """Show the record's own saved Insights and YouTube package, if it
+        has them — the package with its chapter/title/description edits and
+        offset — on opening, not only after running the steps again. Read
+        from the same folder the steps write to; a missing or unreadable
+        result leaves its tab empty, offering to create one."""
         from core.paths import artifact_dir
 
-        try:
-            context = StepContext(
-                source_path=source_path,
-                result=result,
-                record_id=record_id,
-                artifact_dir=artifact_dir(record_id, source_path or "recording"),
-            )
-            package = load_step_result(context, "youtube_package")
-        except Exception as exc:
-            logger.warning("Could not restore the YouTube package of record %d: %s", record_id, exc)
-            return
-        if isinstance(package, dict):
-            self.youtube_panel.set_result(package)
+        context = StepContext(
+            source_path=source_path,
+            result=result,
+            record_id=record_id,
+            artifact_dir=artifact_dir(record_id, source_path or "recording"),
+        )
+        # Insights first: the YouTube package's chapters, when present,
+        # then take over the shared chapter list (_refresh_record_chapters).
+        for name, panel in (("insights", self.insights_panel), ("youtube_package", self.youtube_panel)):
+            try:
+                saved = load_step_result(context, name)
+            except Exception as exc:
+                logger.warning("Could not restore %s of record %d: %s", name, record_id, exc)
+                continue
+            if isinstance(saved, dict):
+                panel.set_result(saved)
 
     def _on_error(self, error_message: str):
         """Handle transcription error."""
