@@ -1,6 +1,6 @@
 [project]
 name = "whispered"
-version = "0.1.0"
+version = "0.11.0"
 description = "Local-first transcription workspace: whisper.cpp, speaker diarization, and an offline-friendly content pipeline."
 requires-python = ">=3.11"
 
