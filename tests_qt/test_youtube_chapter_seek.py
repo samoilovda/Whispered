@@ -95,3 +95,13 @@ def test_main_window_moves_the_player(monkeypatch):
     _rows(window.youtube_panel)[2].findChild(QPushButton).click()
     assert seen == [120]
     window.close()
+
+
+def test_questions_keep_their_own_times():
+    panel = _panel()
+    panel.set_result({"chapters": [], "yt_questions": [
+        {"start": 165, "title": "Why offline?"},
+        {"start": 170, "title": "And speed?"},
+    ]})
+    assert panel._questions_edit.toPlainText() == "2:45 Why offline?\n2:50 And speed?"
+    panel.close()

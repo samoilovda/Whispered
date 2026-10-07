@@ -131,6 +131,7 @@ class YouTubePanel(QWidget):
         # it (application/user_edits.py — youtube_package.user.json). What
         # is shown, copied and published is the edit when there is one.
         self._model_chapters: list | None = None
+        self._questions: list = []
         self._overlay: dict[str, Any] = {}
         self._editing_chapters = False
         self._bad_chapter_lines: list[int] = []
@@ -442,9 +443,15 @@ class YouTubePanel(QWidget):
 
         questions = payload.get("yt_questions")
         if isinstance(questions, list):
-            text = format_youtube_description(questions)
+            # Questions are not chapters: keep each one's own time — the
+            # chapter formatter would move the first to 0:00 and drop the
+            # ones closer than 10 s, and a 0:00-led list in the description
+            # could be taken by YouTube for chapters.
+            self._questions = questions
+            text = format_chapter_lines(questions)
             self._questions_edit.setPlainText(text or tr("youtube_empty"))
         else:
+            self._questions = []
             self._questions_edit.setPlainText(str(questions) if questions else tr("youtube_empty"))
 
         self._set_state("done")
