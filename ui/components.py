@@ -378,15 +378,23 @@ class ChapterRow(QWidget):
 
     seek_requested = pyqtSignal(int)
 
-    def __init__(self, start: int, title: str, parent=None):
+    def __init__(self, start: int, title: str, parent=None, label: str | None = None):
+        """*label* replaces the default ``format_duration(start)`` caption
+        (the YouTube tab shows times the way YouTube prints them)."""
         super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 1, 0, 1)
         layout.setSpacing(8)
 
-        ts = format_duration(start)
+        ts = label if label is not None else format_duration(start)
         ts_btn = QPushButton(ts)
-        ts_btn.setFixedWidth(48)
+        if label is None:
+            ts_btn.setFixedWidth(48)
+        else:
+            # A caller-supplied caption can be longer ("1:02:03"): keep the
+            # column's usual width as a floor but never cut the time off.
+            ts_btn.setMinimumWidth(48)
+            ts_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         ts_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         ts_btn.setProperty("role", "timestamp-link")
         ts_btn.setStyleSheet("font-size: 11px;")

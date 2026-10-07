@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QPlainTextEdit, QApplication, QToolBox,
+    QPushButton, QPlainTextEdit, QApplication, QToolBox, QScrollArea, QFrame,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -35,6 +35,7 @@ from core.youtube_description import (
     format_youtube_description,
     format_youtube_timestamp,
 )
+from ui.components import ChapterRow
 from ui.theme import set_role
 from ui.toast import show_toast
 
@@ -99,6 +100,8 @@ class YouTubePanel(QWidget):
     # JobRunner has settled.
     generate_requested = pyqtSignal()
     generation_finished = pyqtSignal(bool)
+    # A chapter's time was clicked: seconds to move the player to.
+    seek_requested = pyqtSignal(int)
     publish_requested = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -214,13 +217,59 @@ class YouTubePanel(QWidget):
             if spec.mono:
                 edit.setFont(mono)
             setattr(self, spec.edit_attr, edit)
-            self._tabs.addItem(edit, tr(spec.label_key))
+            if spec.insight_type == "chapters":
+                self._tabs.addItem(self._build_chapters_section(edit), tr(spec.label_key))
+            else:
+                self._tabs.addItem(edit, tr(spec.label_key))
 
         layout.addWidget(self._tabs, stretch=1)
         # Takes the slack only while the sections are hidden, so the state
         # row sits under the buttons instead of floating mid-panel; once the
         # sections show, their stretch factor wins.
         layout.addStretch()
+
+    def _build_chapters_section(self, edit: QPlainTextEdit) -> QWidget:
+        """Clickable chapter rows (as YouTube will list them) over the
+        plain-text form. The rows show whenever there are chapters; the
+        text edit stays the source for Copy/Save and is what shows instead
+        when there is only a message (no chapters, an error)."""
+        self._chapter_rows = QWidget()
+        self._chapter_rows_layout = QVBoxLayout(self._chapter_rows)
+        self._chapter_rows_layout.setContentsMargins(4, 4, 4, 4)
+        self._chapter_rows_layout.setSpacing(0)
+        self._chapter_rows_layout.addStretch()
+
+        self._chapter_scroll = QScrollArea()
+        self._chapter_scroll.setWidgetResizable(True)
+        self._chapter_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._chapter_scroll.setWidget(self._chapter_rows)
+        self._chapter_scroll.setVisible(False)
+
+        section = QWidget()
+        box = QVBoxLayout(section)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.addWidget(self._chapter_scroll)
+        box.addWidget(edit)
+        return section
+
+    def _render_chapter_rows(self) -> None:
+        layout = self._chapter_rows_layout
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                # Detach now: deleteLater() alone leaves the old row in the
+                # tree (and in findChildren) until the event loop runs.
+                widget.setParent(None)
+                widget.deleteLater()
+        chapters = self._chapter_check.chapters if self._chapter_check else ()
+        for start, title in chapters:
+            row = ChapterRow(start, title, self._chapter_rows, label=format_youtube_timestamp(start))
+            row.seek_requested.connect(self.seek_requested)
+            layout.addWidget(row)
+        layout.addStretch()
+        self._chapter_scroll.setVisible(bool(chapters))
+        self._chapters_edit.setVisible(not chapters)
 
     # ── Public API ──────────────────────────────────────────────────
 
@@ -401,6 +450,7 @@ class YouTubePanel(QWidget):
     ) -> None:
         self._chapter_check = check
         self._chapter_duration = duration
+        self._render_chapter_rows()
         self._render_chapter_status()
 
     def _render_chapter_status(self) -> None:
