@@ -48,6 +48,16 @@ def no_real_lm_studio_probes(monkeypatch):
     monkeypatch.setattr(
         LMStudioClient, "probe", lambda self, timeout=5: (False, "stubbed-offline")
     )
+    # Generation too: a recipe run in a test (clean, article, insights…)
+    # otherwise reaches a real LM Studio when one happens to be running on
+    # the developer's machine — the run then waits on a real model and the
+    # test's bounded wait() times out (four test_recipe_retry tests failed
+    # that way locally while passing in CI). Offline: "no response".
+    monkeypatch.setattr(LMStudioClient, "check_connection", lambda self, timeout=5: False)
+    monkeypatch.setattr(LMStudioClient, "get_loaded_model", lambda self, timeout=5: None)
+    monkeypatch.setattr(LMStudioClient, "complete", lambda self, *a, **k: None)
+    monkeypatch.setattr(LMStudioClient, "chat_completion", lambda self, *a, **k: None)
+    monkeypatch.setattr(LMStudioClient, "chat_completion_stream", lambda self, *a, **k: None)
 
 
 @pytest.fixture
