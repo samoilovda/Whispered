@@ -847,6 +847,20 @@ def build_stylesheet(t: Theme) -> str:
         font-size: {t.font_sm};
         font-family: "SF Mono", "Menlo", "Consolas", monospace;
     }}
+    QWidget[role="transparent"] {{
+        background: transparent;
+    }}
+    QPushButton[role="inline-link"] {{
+        background: transparent;
+        border: none;
+        padding: 0 2px;
+        color: {t.accent};
+        font-size: {t.font_sm};
+        text-decoration: underline;
+    }}
+    QPushButton[role="inline-link"]:hover {{
+        color: {t.accent_hover};
+    }}
     QPushButton[role="floating-pill"] {{
         background-color: {t.bg_elevated};
         color: {t.accent};

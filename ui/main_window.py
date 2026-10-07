@@ -792,6 +792,7 @@ class MainWindow(QMainWindow):
         )
         self.start_view.process_requested.connect(self._start_transcription)
         self.start_view.configure_recipe_requested.connect(self._open_recipe_editor)
+        self.start_view.fix_requested.connect(self._on_readiness_fix)
         self._start_index = self._stack.addWidget(self.start_view)
         self._record_index = self._stack.addWidget(self.record_view)
         self.cover_view = CoverView(insights_cache=self._insights_cache)
@@ -841,6 +842,7 @@ class MainWindow(QMainWindow):
         # opt-in gate rather than shipping ahead of it.
         self.status_bar.set_course_available(get_config().live_transcription_enabled)
         self.book_panel.connection_changed.connect(self.status_bar.set_llm_status)
+        self.book_panel.connection_changed.connect(self.start_view.set_llm_status)
         self.progress_timeline = ProgressTimeline()
         self._timeline_stage_keys = (
             "timeline_select", "timeline_extract", "timeline_transcribe",
@@ -1377,12 +1379,33 @@ class MainWindow(QMainWindow):
         self.device_btn.style().unpolish(self.device_btn)
         self.device_btn.style().polish(self.device_btn)
 
-    def _open_settings(self):
-        """Open the Settings dialog and apply any changes to the live UI."""
+    def _open_settings(self, category: str = ""):
+        """Open the Settings dialog (on *category*, a settings_category_*
+        key, when given) and apply any changes to the live UI."""
         from ui.settings_dialog import SettingsDialog
         dlg = SettingsDialog(self)
+        if category:
+            dlg.open_category(category)
         dlg.settings_applied.connect(self._on_settings_applied)
         dlg.exec()
+
+    def _on_readiness_fix(self, fix: str) -> None:
+        """A readiness check's link on the start screen (S1)."""
+        from application import readiness
+
+        if fix == readiness.FIX_SETTINGS_AI:
+            self._open_settings("settings_category_ai")
+        elif fix == readiness.FIX_SETTINGS_DIARIZATION:
+            self._open_settings("settings_category_diarization")
+        elif fix == readiness.FIX_SETTINGS_TRANSCRIPTION:
+            self._open_recipe_editor()
+        elif fix == readiness.FIX_FFMPEG:
+            from core.external_tools import ffmpeg_install_hint
+
+            QMessageBox.information(
+                self, tr("ready_ffmpeg_missing"),
+                tr("ready_ffmpeg_install", command=ffmpeg_install_hint()),
+            )
 
     def _on_settings_applied(self) -> None:
         """Apply saved preferences without requiring an application restart."""
@@ -1399,6 +1422,7 @@ class MainWindow(QMainWindow):
         self.transcribe_options.refresh_model_state()
         self.course_capture_panel.setup.refresh_model_state()
         self.live_view.setup.refresh_model_state()
+        self.start_view.refresh_readiness()
 
     def _apply_watch_folder_config(self) -> None:
         """Point _watch_folder_service at Config.watch_folder, or stop it

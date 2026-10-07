@@ -239,6 +239,11 @@ class SettingsDialog(QDialog):
 
     # ------------------------------------------------------------------ tabs
 
+    def open_category(self, key: str) -> None:
+        """Show the page for *key* (a settings_category_* i18n key)."""
+        if key in self._category_keys:
+            self._categories.setCurrentRow(self._category_keys.index(key))
+
     def _build_general_tab(self) -> QWidget:
         tab = QWidget()
         tab_layout = QVBoxLayout(tab)
