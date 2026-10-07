@@ -146,3 +146,16 @@ def test_cleaned_text_and_articles_follow_the_opened_record(window, process_even
     assert window.cleaned_view.get_text() == ""
     assert not window.article_view.has_articles()
     assert window._get_text_for_ai() == "beta"
+
+
+def test_a_record_with_moved_media_keeps_one_output_folder(window, process_events):
+    """Its media gone, a record's output folder is still the one named
+    after its stored source — where Clean/Articles write and where
+    reopening looks — not a separate "recording-<id>" folder."""
+    from core.paths import artifact_dir
+
+    record = window._test_store.add(_result("gamma"), source_path="/gone/talk.mp4", model="")
+    window._open_record_view(record)
+    process_events()
+    assert window._source_filepath is None  # the media isn't there
+    assert artifact_dir(record, window._artifact_source()) == artifact_dir(record, "/gone/talk.mp4")

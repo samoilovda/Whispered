@@ -251,6 +251,10 @@ class MainWindow(QMainWindow):
         self.transcriber = Transcriber()
         self._shutdownables.append(self.transcriber)
         self._cleaned_text: str | None = None
+        # The open record's source path as stored in history — what its
+        # output folder is named after (core.paths.artifact_dir), even when
+        # that media file has since moved and _source_filepath is None.
+        self._record_source_path: str | None = None
         self._bookmarks: list = []
         self._tray = None
         self._clean_job: JobRunner | None = None
@@ -1135,7 +1139,7 @@ class MainWindow(QMainWindow):
             return
         target = None
         try:
-            folder = artifact_dir(record_id, self._source_filepath or "recording")
+            folder = artifact_dir(record_id, self._artifact_source())
             if folder.is_dir():
                 target = folder
         except Exception as exc:
@@ -1362,6 +1366,7 @@ class MainWindow(QMainWindow):
     def _on_live_finished(self, result: TranscriptionResult, source_path: str):
         self.live_view._timer.stop()
         self._source_filepath = source_path or None
+        self._record_source_path = None
         self._source_kind = "live"
         self._transcription_start = self.live_runtime._started_at
         if self._live_checkpoint.history_record_id is not None:
@@ -1410,7 +1415,7 @@ class MainWindow(QMainWindow):
 
         try:
             save_notes(
-                artifact_dir(self._last_record_id, self._source_filepath or "recording"),
+                artifact_dir(self._last_record_id, self._artifact_source()),
                 notes, self._last_record_id,
             )
         except OSError as exc:
@@ -2347,7 +2352,6 @@ class MainWindow(QMainWindow):
         cfg = get_config()
         provider = provider_from_config(cfg)
         record_id = self._last_record_id if self._last_record_id is not None else "unsaved"
-        stem = Path(self._source_filepath).stem if self._source_filepath else "recording"
 
         self._recipe_run = run
         self._recipe_spec = spec
@@ -2356,7 +2360,7 @@ class MainWindow(QMainWindow):
             source_path=self._source_filepath or "",
             result=result,
             record_id=record_id,
-            artifact_dir=artifact_dir(record_id, self._source_filepath or stem),
+            artifact_dir=artifact_dir(record_id, self._artifact_source()),
             params={
                 "lm_url": cfg.lm_studio_url,
                 "language": language_name_for_code(result.language),
@@ -2427,7 +2431,6 @@ class MainWindow(QMainWindow):
 
         cfg = get_config()
         provider = provider_from_config(cfg)
-        stem = Path(self._source_filepath).stem if self._source_filepath else "recording"
 
         self._recipe_run = run
         self._recipe_spec = spec
@@ -2436,7 +2439,7 @@ class MainWindow(QMainWindow):
             source_path=self._source_filepath or "",
             result=result,
             record_id=record_id,
-            artifact_dir=artifact_dir(record_id, self._source_filepath or stem),
+            artifact_dir=artifact_dir(record_id, self._artifact_source()),
             params={
                 "lm_url": cfg.lm_studio_url,
                 "language": language_name_for_code(result.language),
@@ -2851,6 +2854,7 @@ class MainWindow(QMainWindow):
         row id in self._last_record_id so a preset chain (Phase C.3) that
         runs afterward can attach its artifacts to the right record."""
         self._last_record_id = None
+        self._record_source_path = source_path or None
         cfg = get_config()
         if not getattr(cfg, "history_enabled", True):
             return
@@ -2908,6 +2912,7 @@ class MainWindow(QMainWindow):
             payload = record["payload"]
             source_name = record["source_name"] or ""
             source_path = record["source_path"] or ""
+            self._record_source_path = source_path or None
 
             result = _result_from_payload(payload)
             self._last_record_id = record_id
@@ -3168,6 +3173,12 @@ class MainWindow(QMainWindow):
 
     # ===== AI Processing Methods =====
 
+    def _artifact_source(self) -> str:
+        """What the open record's output folder is named after: the source
+        path stored with the record, else the loaded media, else
+        "recording" (live and unsaved results)."""
+        return self._record_source_path or self._source_filepath or "recording"
+
     def _get_text_for_ai(self) -> str | None:
         """Get text to use for AI processing (cleaned if available, else raw)."""
         if self._cleaned_text:
@@ -3197,8 +3208,7 @@ class MainWindow(QMainWindow):
         from core.paths import artifact_dir
 
         record_id = self._last_record_id if self._last_record_id is not None else "unsaved"
-        stem = Path(self._source_filepath).stem if self._source_filepath else "recording"
-        out_dir = artifact_dir(record_id, self._source_filepath or stem)
+        out_dir = artifact_dir(record_id, self._artifact_source())
 
         spec = build_job_spec("clean-only", ("clean",))
         self._clean_job = JobRunner(spec)
@@ -3254,8 +3264,7 @@ class MainWindow(QMainWindow):
         from core.paths import artifact_dir
 
         record_id = self._last_record_id if self._last_record_id is not None else "unsaved"
-        stem = Path(self._source_filepath).stem if self._source_filepath else "recording"
-        out_dir = artifact_dir(record_id, self._source_filepath or stem)
+        out_dir = artifact_dir(record_id, self._artifact_source())
 
         cleaned_stub = None
         if self._cleaned_text:
@@ -3325,8 +3334,7 @@ class MainWindow(QMainWindow):
         from utils import language_name_for_code
 
         record_id = self._last_record_id if self._last_record_id is not None else "unsaved"
-        stem = Path(self._source_filepath).stem if self._source_filepath else "recording"
-        out_dir = artifact_dir(record_id, self._source_filepath or stem)
+        out_dir = artifact_dir(record_id, self._artifact_source())
 
         spec = build_job_spec("insights-only", ("insights",))
         self._insights_job = JobRunner(spec)
@@ -3439,8 +3447,7 @@ class MainWindow(QMainWindow):
         from utils import language_name_for_code
 
         record_id = self._last_record_id if self._last_record_id is not None else "unsaved"
-        stem = Path(self._source_filepath).stem if self._source_filepath else "recording"
-        out_dir = artifact_dir(record_id, self._source_filepath or stem)
+        out_dir = artifact_dir(record_id, self._artifact_source())
 
         # An empty Config.yt_language falls back to the transcript's own
         # detected language rather than sending no directive at all — an
@@ -3751,8 +3758,7 @@ class MainWindow(QMainWindow):
         from core.paths import artifact_dir
 
         record_id = self._last_record_id if self._last_record_id is not None else "unsaved"
-        stem = Path(self._source_filepath).stem if self._source_filepath else "recording"
-        out_dir = artifact_dir(record_id, self._source_filepath or stem)
+        out_dir = artifact_dir(record_id, self._artifact_source())
 
         spec = build_job_spec("book-only", ("book",))
         self._book_job = JobRunner(spec)
