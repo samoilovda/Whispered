@@ -187,6 +187,9 @@ class TranscriptView(QWidget):
         # Segment spans by segment index, and their start times for bisect.
         self._segment_spans: list[_Span] = []
         self._segment_times: list[float] = []
+        # Character ranges of the speaker names in paragraph headers — a
+        # click there opens the rename dialog.
+        self._speaker_spans: list[tuple[int, int]] = []
         self._highlighted_index: int = -1
         self._find_matches: list[QTextCursor] = []
         self._find_current: int = -1
@@ -594,6 +597,7 @@ class TranscriptView(QWidget):
         self._render_uncertain()
 
     def _clear_spans(self) -> None:
+        self._speaker_spans = []
         self._spans = []
         self._span_starts = []
         self._segment_spans = []
@@ -634,6 +638,7 @@ class TranscriptView(QWidget):
         self._clear_spans()
         spans: list[_Span] = []
         segment_spans: list[_Span] = []
+        speaker_spans: list[tuple[int, int]] = []
         segments = self._result.segments
         first_block = True
 
@@ -654,7 +659,9 @@ class TranscriptView(QWidget):
                     name_fmt.setForeground(QColor(self._get_speaker_color(speaker)))
                     name_fmt.setFontWeight(QFont.Weight.DemiBold)
                     name_fmt.setFontPointSize(11)
+                    name_from = cursor.position()
                     cursor.insertText(self._get_display_name(speaker), name_fmt)
+                    speaker_spans.append((name_from, cursor.position()))
                 if self._show_timestamps:
                     if speaker:
                         cursor.insertText("   ", stamp_fmt)
@@ -677,6 +684,7 @@ class TranscriptView(QWidget):
         self._spans = sorted(spans, key=lambda s: s.pos_from)
         self._span_starts = [s.pos_from for s in self._spans]
         self._segment_spans = segment_spans
+        self._speaker_spans = speaker_spans
         self._segment_times = [s.seconds for s in segment_spans]
         self._apply_reading_margins()
         self.text_edit.verticalScrollBar().setValue(scroll)
@@ -1272,7 +1280,11 @@ class TranscriptView(QWidget):
         if self.text_edit.textCursor().hasSelection():
             return
         cursor = self.text_edit.cursorForPosition(point)
-        span = self._span_at(cursor.position())
+        position = cursor.position()
+        if any(start <= position <= end for start, end in self._speaker_spans):
+            self._rename_speakers()
+            return
+        span = self._span_at(position)
         if span is None:
             return
         self._follow = True

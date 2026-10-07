@@ -87,3 +87,21 @@ def test_replace_one_changes_the_segment_with_the_current_match(process_events):
     assert [s.text for s in view.get_result().segments][3] == "Another hi."
     assert view.get_result().segments[0].text == "Hello there."
     view.close()
+
+
+def test_clicking_a_speaker_name_opens_the_rename_dialog(monkeypatch, process_events):
+    view = TranscriptView()
+    view.resize(900, 600)
+    view.show()
+    view.set_result(TranscriptionResult(
+        segments=[Segment(0.0, 2.0, "Hi there.", speaker="Speaker 1")], language="en", duration=2.0,
+    ))
+    process_events()
+    opened = []
+    monkeypatch.setattr(view, "_rename_speakers", lambda: opened.append(True))
+    start, _end = view._speaker_spans[0]
+    cursor = view.text_edit.textCursor()
+    cursor.setPosition(start + 1)
+    view._seek_at_point(view.text_edit.cursorRect(cursor).center())
+    assert opened == [True]
+    view.close()
