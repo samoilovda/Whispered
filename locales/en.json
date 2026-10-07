@@ -931,5 +931,7 @@
   "transcript_chapter_here_unavailable": "Start a chapter here — create the YouTube package first",
   "transcript_chapter_title_prompt": "Title of the chapter at {time}:",
   "transcript_chapter_added": "Chapter at {time} added to the YouTube package",
-  "transcript_select_all": "Select all"
+  "transcript_select_all": "Select all",
+  "transcript_cut_from_edit": "Cut from the edit",
+  "transcript_keep_in_edit": "Keep in the edit"
 }

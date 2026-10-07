@@ -750,6 +750,10 @@ class MainWindow(QMainWindow):
         self.transcript_view.set_chapter_check(self.youtube_panel.can_add_chapter)
         self.transcript_view.chapter_requested.connect(self._add_chapter_from_transcript)
         self.transcript_view.bookmark_requested.connect(lambda seconds: self._add_bookmark(seconds))
+        self.transcript_view.cut_requested.connect(self.cut_view.set_cut)
+        self.cut_view.cut_changed.connect(
+            lambda: self.transcript_view.set_cut_indices(self.cut_view.cut_indices())
+        )
         self._shutdownables.append(self.youtube_panel)
 
         # The five generator panels plus Cut/Chat used to live as inspector

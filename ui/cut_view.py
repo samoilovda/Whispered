@@ -13,7 +13,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 
 from core.i18n import tr
 from ui.i18n_helpers import Retranslator
-from utils import format_timestamp_vtt
+from utils import format_duration, format_timestamp_vtt
 from ui.video_panel import VideoPanel
 
 
@@ -24,6 +24,9 @@ class CutView(QWidget):
     here alongside the segments they operate on."""
 
     seek_requested = pyqtSignal(float)
+    # Which segments are cut changed (checkbox, Select all/none, marked
+    # pauses, or the transcript's context menu via set_cut()).
+    cut_changed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -120,12 +123,27 @@ class CutView(QWidget):
 
     def mark_indices(self, indices: list[int]) -> None:
         """Uncheck the given segment indices (e.g. detected pauses/fillers)."""
+        self.set_cut(indices, True)
+
+    def set_cut(self, indices, cut: bool) -> None:
+        """Cut (uncheck) or keep (check) the segments at *indices* — the
+        transcript's "Cut"/"Keep" (R5) and marked pauses use this."""
+        state = Qt.CheckState.Unchecked if cut else Qt.CheckState.Checked
         self._list.blockSignals(True)
         for i in indices:
             if 0 <= i < self._list.count():
-                self._list.item(i).setCheckState(Qt.CheckState.Unchecked)
+                self._list.item(i).setCheckState(state)
+                self._style_item(self._list.item(i))
         self._list.blockSignals(False)
         self._update_count()
+        self.cut_changed.emit()
+
+    def cut_indices(self) -> set[int]:
+        """Indices of the segments that are cut (unchecked)."""
+        return {
+            i for i in range(self._list.count())
+            if self._list.item(i).checkState() != Qt.CheckState.Checked
+        }
 
 
 
@@ -136,6 +154,7 @@ class CutView(QWidget):
         self._count_label.setText("")
         self._placeholder.show()
         self._list.hide()
+        self.cut_changed.emit()
 
     # ------------------------------------------------------------------ internal
 
@@ -143,10 +162,12 @@ class CutView(QWidget):
         self._list.blockSignals(True)
         self._list.clear()
         for seg in self._segments:
-            ts = f"[{format_timestamp_vtt(seg.start)} → {format_timestamp_vtt(seg.end)}]"
             text = seg.text.strip()
-            label = f"{ts}  {text}"
+            label = f"{format_duration(seg.start)}   {text}"
             item = QListWidgetItem(label)
+            item.setToolTip(
+                f"{format_timestamp_vtt(seg.start)} → {format_timestamp_vtt(seg.end)}\n{text}"
+            )
             item.setFlags(
                 Qt.ItemFlag.ItemIsEnabled
                 | Qt.ItemFlag.ItemIsSelectable
@@ -164,6 +185,14 @@ class CutView(QWidget):
             self._list.hide()
 
         self._update_count()
+        self.cut_changed.emit()
+
+    def _style_item(self, item: QListWidgetItem) -> None:
+        """A cut segment reads struck through here too, as in the
+        transcript — the checkbox is not the only signal."""
+        font = item.font()
+        font.setStrikeOut(item.checkState() != Qt.CheckState.Checked)
+        item.setFont(font)
 
     def _update_count(self):
         total = self._list.count()
@@ -179,8 +208,12 @@ class CutView(QWidget):
         dur_str = f"{mins}:{secs:02d}"
         self._count_label.setText(tr("cut_count", kept=kept, total=total, duration=dur_str))
 
-    def _on_item_changed(self, _item):
+    def _on_item_changed(self, item):
+        self._list.blockSignals(True)
+        self._style_item(item)
+        self._list.blockSignals(False)
         self._update_count()
+        self.cut_changed.emit()
 
     def _on_double_click(self, item):
         idx = self._list.row(item)
@@ -188,15 +221,7 @@ class CutView(QWidget):
             self.seek_requested.emit(self._segments[idx].start)
 
     def _select_all(self):
-        self._list.blockSignals(True)
-        for i in range(self._list.count()):
-            self._list.item(i).setCheckState(Qt.CheckState.Checked)
-        self._list.blockSignals(False)
-        self._update_count()
+        self.set_cut(range(self._list.count()), False)
 
     def _select_none(self):
-        self._list.blockSignals(True)
-        for i in range(self._list.count()):
-            self._list.item(i).setCheckState(Qt.CheckState.Unchecked)
-        self._list.blockSignals(False)
-        self._update_count()
+        self.set_cut(range(self._list.count()), True)

@@ -931,5 +931,7 @@
   "transcript_chapter_here_unavailable": "Начать главу здесь — сначала создайте YouTube-пакет",
   "transcript_chapter_title_prompt": "Название главы с {time}:",
   "transcript_chapter_added": "Глава с {time} добавлена в YouTube-пакет",
-  "transcript_select_all": "Выделить всё"
+  "transcript_select_all": "Выделить всё",
+  "transcript_cut_from_edit": "Вырезать из монтажа",
+  "transcript_keep_in_edit": "Вернуть в монтаж"
 }

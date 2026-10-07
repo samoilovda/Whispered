@@ -161,6 +161,8 @@ class TranscriptView(QWidget):
     # the second argument of chapter_requested is a suggested title.
     bookmark_requested = pyqtSignal(float)
     chapter_requested = pyqtSignal(float, str)
+    # R5: cut (True) or keep (False) these segment indices in the edit.
+    cut_requested = pyqtSignal(list, bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -190,6 +192,8 @@ class TranscriptView(QWidget):
         # Times of the record's bookmarks; the segments holding them get
         # an amber underline.
         self._bookmark_times: list[float] = []
+        # Segments cut from the edit (Cut tab), shown struck through.
+        self._cut_indices: set[int] = set()
         # Follow playback: the highlighted segment is kept on screen until
         # the user scrolls away from it; "Back to playback" resumes.
         self._follow = True
@@ -936,6 +940,22 @@ class TranscriptView(QWidget):
 
     # ------------------------------------------------------------------ highlights
 
+    def set_cut_indices(self, indices: set[int]) -> None:
+        """Strike through the segments cut from the edit (R5)."""
+        self._cut_indices = set(indices)
+        self._refresh_extra_selections()
+
+    def _indices_in_selection(self, fallback: Optional[_Span]) -> list[int]:
+        """Segment indices the selection touches, else *fallback*'s."""
+        cursor = self.text_edit.textCursor()
+        if cursor.hasSelection():
+            start, end = cursor.selectionStart(), cursor.selectionEnd()
+            return [
+                s.index for s in self._segment_spans
+                if s.pos_to > start and s.pos_from < end
+            ]
+        return [fallback.index] if fallback is not None and fallback.index >= 0 else []
+
     def set_bookmarks(self, times: list[float]) -> None:
         """Underline the segments that hold a bookmark."""
         self._bookmark_times = sorted(times)
@@ -954,6 +974,20 @@ class TranscriptView(QWidget):
     def _refresh_extra_selections(self) -> None:
         theme = get_theme()
         selections: list[QTextEdit.ExtraSelection] = []
+        if not self._edit_mode and self._cut_indices:
+            muted = QColor(theme.text_muted)
+            for span in self._segment_spans:
+                if span.index in self._cut_indices:
+                    sel = QTextEdit.ExtraSelection()
+                    cursor = QTextCursor(self.text_edit.document())
+                    cursor.setPosition(span.pos_from)
+                    cursor.setPosition(span.pos_to, QTextCursor.MoveMode.KeepAnchor)
+                    sel.cursor = cursor
+                    fmt = QTextCharFormat()
+                    fmt.setFontStrikeOut(True)
+                    fmt.setForeground(muted)
+                    sel.format = fmt
+                    selections.append(sel)
         if not self._edit_mode:
             for span in self._bookmarked_spans():
                 sel = QTextEdit.ExtraSelection()
@@ -1131,9 +1165,17 @@ class TranscriptView(QWidget):
             chapter.setEnabled(False)
             chapter.setText(tr("transcript_chapter_here_unavailable"))
         menu.addSeparator()
+        targets = self._indices_in_selection(span)
+        all_cut = bool(targets) and all(i in self._cut_indices for i in targets)
+        cut = menu.addAction(tr("transcript_keep_in_edit" if all_cut else "transcript_cut_from_edit"))
+        cut.setEnabled(bool(targets))
+        menu.addSeparator()
         select_all = menu.addAction(tr("transcript_select_all"))
         select_all.triggered.connect(self.text_edit.selectAll)
         chosen = menu.exec(self.text_edit.viewport().mapToGlobal(point))
+        if chosen is cut and targets:
+            self.cut_requested.emit(targets, not all_cut)
+            return
         if span is None or chosen is None:
             return
         if chosen is copy_ts:
