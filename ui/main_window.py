@@ -387,6 +387,11 @@ class MainWindow(QMainWindow):
             shutdownable.shutdown()
         event.accept()
 
+    def _open_shortcuts(self) -> None:
+        from ui.shortcuts_dialog import ShortcutsDialog
+
+        ShortcutsDialog(self.menuBar(), self).exec()
+
     def _apply_tray_config(self) -> None:
         """Show or hide the menu-bar / tray icon per Config.tray_icon_enabled."""
         from ui.tray import TrayController
@@ -567,6 +572,7 @@ class MainWindow(QMainWindow):
             ("menu_library", _SEPARATOR, "", None, False),
             ("menu_library", "menu_clear_history", "", lambda: self.library_view.clear_all(), False),
 
+            ("menu_help", "menu_shortcuts", "Ctrl+/", self._open_shortcuts, True),
             ("menu_help", "menu_help_docs", "", self._open_help_docs, False),
         )
 

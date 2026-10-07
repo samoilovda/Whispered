@@ -902,6 +902,15 @@ def build_stylesheet(t: Theme) -> str:
     QPushButton[role="uncertain-link"]:hover {{
         text-decoration: underline;
     }}
+    QLabel[role="kbd"] {{
+        background-color: {t.bg_surface};
+        border: 1px solid {t.border_input};
+        border-radius: 4px;
+        padding: 1px 6px;
+        color: {t.text_primary};
+        font-family: "SF Mono", "Menlo", "Consolas", monospace;
+        font-size: {t.font_sm};
+    }}
     QWidget[role="transparent"] {{
         background: transparent;
     }}

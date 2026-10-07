@@ -956,5 +956,12 @@
   "transcript_uncertain_one": "{count} неуверенный фрагмент",
   "transcript_uncertain_few": "{count} неуверенных фрагмента",
   "transcript_uncertain_many": "{count} неуверенных фрагментов",
-  "transcript_uncertain_tooltip": "Здесь распознавание не уверено — подчёркнуто точками. Нажмите, чтобы перейти к следующему и послушать."
+  "transcript_uncertain_tooltip": "Здесь распознавание не уверено — подчёркнуто точками. Нажмите, чтобы перейти к следующему и послушать.",
+  "menu_shortcuts": "Горячие клавиши",
+  "shortcuts_title": "Горячие клавиши",
+  "shortcuts_elsewhere": "Вне меню",
+  "shortcut_palette": "Команды и поиск (Ctrl+K)",
+  "shortcut_find_in_transcript": "Поиск в транскрипте",
+  "shortcut_launch": "Запустить обработку на стартовом экране",
+  "shortcut_live_note_time": "Заметка с текущим временем (живая встреча)"
 }

@@ -956,5 +956,12 @@
   "transcript_uncertain_one": "{count} uncertain passage",
   "transcript_uncertain_few": "{count} uncertain passages",
   "transcript_uncertain_many": "{count} uncertain passages",
-  "transcript_uncertain_tooltip": "Recognition was unsure here — dotted underline. Click to go to the next one and listen."
+  "transcript_uncertain_tooltip": "Recognition was unsure here — dotted underline. Click to go to the next one and listen.",
+  "menu_shortcuts": "Keyboard shortcuts",
+  "shortcuts_title": "Keyboard shortcuts",
+  "shortcuts_elsewhere": "Outside the menus",
+  "shortcut_palette": "Commands and search",
+  "shortcut_find_in_transcript": "Find in the transcript",
+  "shortcut_launch": "Launch on the start screen",
+  "shortcut_live_note_time": "Note line with the current time (live session)"
 }
