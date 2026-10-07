@@ -1,10 +1,22 @@
 """
 Whispered UI - Transcript View Widget
 Display, edit and search transcription results with timestamp and speaker support.
+
+Reading mode lays the transcript out as paragraphs (domain/paragraphs.py)
+in a proportional font at a comfortable measure, the way a document
+reads — not one subtitle line per segment. Each segment keeps its own
+character range in the document, so a click seeks to the segment under
+the pointer and playback highlights the segment being spoken without
+touching the text cursor or the user's selection.
+
+Edit mode is unchanged: one "[HH:MM:SS.mmm] [Speaker] text" line per
+segment in a monospace font, parsed back into segments on save.
 """
 
-import html
+import bisect
 import re
+import time
+from dataclasses import dataclass
 from typing import Optional
 
 from PyQt6.QtWidgets import (
@@ -12,16 +24,18 @@ from PyQt6.QtWidgets import (
     QPushButton, QLineEdit, QComboBox, QDialog, QFormLayout,
     QDialogButtonBox
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
-    QFont, QTextCharFormat, QColor, QTextCursor, QKeySequence, QShortcut
+    QColor, QFont, QFontDatabase, QKeyEvent, QKeySequence, QShortcut, QTextBlockFormat,
+    QTextCharFormat, QTextCursor, QTextDocument, QTextFrameFormat,
 )
 
+from domain.paragraphs import group_paragraphs
 from transcriber import TranscriptionResult
-from utils import format_timestamp_vtt
+from utils import format_duration, format_timestamp_vtt
 from ui.icons import get_icon, IconColors
 from ui.theme import SPEAKER_PALETTE, get_theme
-from core.i18n import tr
+from core.i18n import tr, tr_count
 from ui.i18n_helpers import Retranslator
 
 # Speaker color palette (keyed by original speaker id)
@@ -34,6 +48,12 @@ _EDIT_LINE_RE = re.compile(
     r"^\[(\d{2}:\d{2}:\d{2}\.\d{3})\](?:\s*\[([^\]]*)\])?\s*(.*)"
 )
 
+# Reading measure: lines longer than this are hard to track back to their
+# start; the text column centres in a wider viewport instead.
+_READING_WIDTH = 760
+_READING_FONT_PX = 15
+_FIND_HIGHLIGHT_CAP = 2000
+
 
 def _parse_vtt_to_seconds(ts: str) -> float:
     """Parse HH:MM:SS.mmm → float seconds."""
@@ -43,6 +63,19 @@ def _parse_vtt_to_seconds(ts: str) -> float:
         return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
     except Exception:
         return 0.0
+
+
+@dataclass(frozen=True)
+class _Span:
+    """A clickable stretch of the reading document: a segment's text or a
+    paragraph's timestamp. ``index`` is the segment index (-1 for a
+    paragraph header)."""
+
+    pos_from: int
+    pos_to: int
+    seconds: float
+    end: float
+    index: int
 
 
 class _SpeakerRenameDialog(QDialog):
@@ -94,6 +127,28 @@ class _SpeakerRenameDialog(QDialog):
         }
 
 
+class _FindKeys(QObject):
+    """Shift+Enter = previous match, Escape = close, in the find field."""
+
+    def __init__(self, view: "TranscriptView") -> None:
+        super().__init__(view)
+        self._view = view
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        if event.type() == QEvent.Type.KeyPress and isinstance(event, QKeyEvent):
+            key = event.key()
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                    self._view._find_previous()
+                else:
+                    self._view._find_next()
+                return True
+            if key == Qt.Key.Key_Escape:
+                self._view._close_find()
+                return True
+        return False
+
+
 class TranscriptView(QWidget):
     """Widget to display, edit and search transcription results."""
 
@@ -116,9 +171,25 @@ class TranscriptView(QWidget):
         self._edit_mode = False
         # speaker_id → display name (e.g. {"Speaker 1": "Alice"})
         self._speaker_names: dict[str, str] = {}
-        # segment positions for player sync: (start_sec, end_sec, block_pos)
-        self._segment_positions: list[tuple[float, float, int]] = []
-        self._highlighted_block: int = -1
+        # Reading-document spans, sorted by position: every segment's text
+        # and every paragraph timestamp (see _Span).
+        self._spans: list[_Span] = []
+        self._span_starts: list[int] = []
+        # Segment spans by segment index, and their start times for bisect.
+        self._segment_spans: list[_Span] = []
+        self._segment_times: list[float] = []
+        self._highlighted_index: int = -1
+        self._find_matches: list[QTextCursor] = []
+        self._find_current: int = -1
+        # Follow playback: the highlighted segment is kept on screen until
+        # the user scrolls away from it; "Back to playback" resumes.
+        self._follow = True
+        self._auto_scrolling = False
+        # The player ticks its position ~5 times a second whether or not
+        # it plays; "playing" is inferred from the position moving.
+        self._last_tick_seconds: Optional[float] = None
+        self._playing_until = 0.0
+        self._press_pos = None
         self._header_compact = False
         self._i18n = Retranslator()
         self._setup_ui()
@@ -146,16 +217,13 @@ class TranscriptView(QWidget):
         self._replace_edit.setPlaceholderText(tr("replace_placeholder"))
         for btn, key in self._find_button_keys.items():
             btn.setText(tr(key))
+        self._find_prev_btn.setToolTip(tr("find_previous_tooltip"))
+        self._find_next_btn.setToolTip(tr("find_next_tooltip"))
+        self._close_find_btn.setToolTip(tr("find_close_tooltip"))
+        self._follow_btn.setText(tr("transcript_follow_playback"))
         self._edit_hint.setText(tr("edit_hint"))
-        result = self._result
-        if result is not None:
-            word_count = len(result.full_text.split())
-            self.stats_label.setText(tr(
-                "transcript_stats",
-                segments=len(result.segments),
-                words=word_count,
-                minutes=f"{result.duration / 60:.1f}",
-            ))
+        self._render_stats()
+        self._update_find_count()
 
     # ------------------------------------------------------------------ UI setup
 
@@ -170,9 +238,12 @@ class TranscriptView(QWidget):
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(6)
 
-        # No title label here — the enclosing QTabWidget's own tab label
-        # ("Транскрипт") already names this view directly above it;
-        # repeating it here just duplicated the same word twice.
+        # Stats on the left of the toolbar: what used to be a separate
+        # line under the text, which cost a row of reading space.
+        self.stats_label = QLabel()
+        self.stats_label.setProperty("role", "muted")
+        self.stats_label.setProperty("size", "small")
+        header_layout.addWidget(self.stats_label)
         header_layout.addStretch()
 
         # Timestamps toggle
@@ -234,15 +305,8 @@ class TranscriptView(QWidget):
 
         layout.addWidget(header)
 
-        # ── Text area ────────────────────────────────────────────
-        self.text_edit = QTextEdit()
-        self.text_edit.setReadOnly(True)
-        self.text_edit.setFont(QFont("Monospace", 11))
-        self.text_edit.setPlaceholderText(tr("transcript_placeholder"))
-        self.text_edit.mousePressEvent = self._on_click
-        layout.addWidget(self.text_edit, stretch=1)
-
         # ── Find/Replace bar (hidden by default) ─────────────────
+        # Above the text, where the eye already is when Ctrl+F is pressed.
         self._find_bar = QWidget()
         find_layout = QHBoxLayout(self._find_bar)
         find_layout.setContentsMargins(0, 0, 0, 0)
@@ -250,16 +314,32 @@ class TranscriptView(QWidget):
 
         self._find_edit = QLineEdit()
         self._find_edit.setPlaceholderText(tr("find_placeholder"))
-        self._find_edit.returnPressed.connect(self._find_next)
-        find_layout.addWidget(self._find_edit, stretch=1)
+        self._find_edit.setClearButtonEnabled(True)
+        self._find_edit.addAction(
+            get_icon("search", IconColors.muted(), 14),
+            QLineEdit.ActionPosition.LeadingPosition,
+        )
+        self._find_edit.textChanged.connect(self._on_find_text_changed)
+        self._find_edit.installEventFilter(_FindKeys(self))
+        find_layout.addWidget(self._find_edit, stretch=2)
+
+        self._find_count = QLabel("")
+        self._find_count.setProperty("role", "muted")
+        self._find_count.setProperty("size", "small")
+        find_layout.addWidget(self._find_count)
+
+        self._find_prev_btn = QPushButton("↑")
+        self._find_prev_btn.setProperty("role", "icon-button")
+        self._find_prev_btn.clicked.connect(self._find_previous)
+        find_layout.addWidget(self._find_prev_btn)
+        self._find_next_btn = QPushButton("↓")
+        self._find_next_btn.setProperty("role", "icon-button")
+        self._find_next_btn.clicked.connect(self._find_next)
+        find_layout.addWidget(self._find_next_btn)
 
         self._replace_edit = QLineEdit()
         self._replace_edit.setPlaceholderText(tr("replace_placeholder"))
         find_layout.addWidget(self._replace_edit, stretch=1)
-
-        find_next_btn = QPushButton(tr("find_btn_next"))
-        find_next_btn.clicked.connect(self._find_next)
-        find_layout.addWidget(find_next_btn)
 
         replace_btn = QPushButton(tr("find_btn_replace"))
         replace_btn.clicked.connect(self._replace_one)
@@ -270,47 +350,58 @@ class TranscriptView(QWidget):
         find_layout.addWidget(replace_all_btn)
 
         self._find_button_keys = {
-            find_next_btn: "find_btn_next",
             replace_btn: "find_btn_replace",
             replace_all_btn: "find_btn_all",
         }
 
-        self._find_count = QLabel("")
-        self._find_count.setProperty("role", "muted")
-        self._find_count.setProperty("size", "small")
-        find_layout.addWidget(self._find_count)
-
-        close_find_btn = QPushButton("×")
-        close_find_btn.setFixedSize(22, 22)
-        close_find_btn.clicked.connect(lambda: self._find_bar.setVisible(False))
-        find_layout.addWidget(close_find_btn)
+        self._close_find_btn = QPushButton("×")
+        self._close_find_btn.setProperty("role", "icon-button")
+        self._close_find_btn.setFixedSize(24, 24)
+        self._close_find_btn.clicked.connect(self._close_find)
+        find_layout.addWidget(self._close_find_btn)
 
         self._find_bar.setVisible(False)
         layout.addWidget(self._find_bar)
 
-        # ── Stats bar ─────────────────────────────────────────────
+        # ── Text area ────────────────────────────────────────────
+        self.text_edit = QTextEdit()
+        self.text_edit.setReadOnly(True)
+        self.text_edit.setProperty("role", "reading")
+        self.text_edit.setPlaceholderText(tr("transcript_placeholder"))
+        self.text_edit.viewport().installEventFilter(self)
+        self.text_edit.verticalScrollBar().valueChanged.connect(self._on_user_scroll)
+        layout.addWidget(self.text_edit, stretch=1)
+
+        # Floating over the bottom of the text while the user has scrolled
+        # away from the segment being played.
+        self._follow_btn = QPushButton(tr("transcript_follow_playback"), self.text_edit)
+        self._follow_btn.setProperty("role", "floating-pill")
+        self._follow_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._follow_btn.clicked.connect(self._resume_follow)
+        self._follow_btn.setVisible(False)
+
+        # ── Edit-mode hint ────────────────────────────────────────
         self.stats_bar = QWidget()
         self.stats_bar.setVisible(False)
         stats_layout = QHBoxLayout(self.stats_bar)
         stats_layout.setContentsMargins(0, 0, 0, 0)
-
-        self.stats_label = QLabel()
-        self.stats_label.setProperty("role", "muted")
-        self.stats_label.setProperty("size", "small")
-        stats_layout.addWidget(self.stats_label)
         stats_layout.addStretch()
-
         self._edit_hint = QLabel(tr("edit_hint"))
         self._edit_hint.setProperty("role", "warning-text")
         self._edit_hint.setProperty("size", "small")
-        self._edit_hint.setVisible(False)
         stats_layout.addWidget(self._edit_hint)
-
         layout.addWidget(self.stats_bar)
 
         # Keyboard shortcuts
         find_sc = QShortcut(QKeySequence("Ctrl+F"), self)
         find_sc.activated.connect(self._open_find)
+
+        # Re-centring the reading column on resize re-lays out the whole
+        # document; once per resize burst is enough.
+        self._margin_timer = QTimer(self)
+        self._margin_timer.setSingleShot(True)
+        self._margin_timer.setInterval(60)
+        self._margin_timer.timeout.connect(self._apply_reading_margins)
 
         self._set_buttons_enabled(False)
 
@@ -324,24 +415,19 @@ class TranscriptView(QWidget):
         speakers = sorted({seg.speaker for seg in result.segments if seg.speaker})
         self._speaker_names = {s: existing.get(s, s) for s in speakers}
         result.speaker_names = dict(self._speaker_names)
+        self._follow = True
         self._update_display()
         self._set_buttons_enabled(True)
-
-        word_count = len(result.full_text.split())
-        self.stats_label.setText(tr(
-            "transcript_stats",
-            segments=len(result.segments),
-            words=word_count,
-            minutes=f"{result.duration / 60:.1f}",
-        ))
-        self.stats_bar.setVisible(True)
+        self._render_stats()
 
     def clear(self):
         self._result = None
         self._speaker_names = {}
         self.text_edit.clear()
+        self._clear_spans()
         self._set_buttons_enabled(False)
-        self.stats_bar.setVisible(False)
+        self.stats_label.setText("")
+        self._follow_btn.setVisible(False)
         if self._edit_mode:
             self._exit_edit_mode(save=False)
 
@@ -367,14 +453,16 @@ class TranscriptView(QWidget):
             self._update_display()
         self._update_header_compact()
 
-    # Below this width the header row (title + up to 5 buttons) no longer
+    # Below this width the header row (stats + up to 5 buttons) no longer
     # fits and gets clipped by the splitter edge in RecordView — same
     # threshold class as FileSelector.set_compact()'s height check.
-    _HEADER_COMPACT_WIDTH = 650
+    _HEADER_COMPACT_WIDTH = 760
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._update_header_compact()
+        self._place_follow_button()
+        self._margin_timer.start()
 
     def _update_header_compact(self) -> None:
         compact = self.width() < self._HEADER_COMPACT_WIDTH
@@ -399,6 +487,18 @@ class TranscriptView(QWidget):
             self._update_display()
 
     # ------------------------------------------------------------------ display
+
+    def _render_stats(self) -> None:
+        result = self._result
+        if result is None:
+            self.stats_label.setText("")
+            return
+        word_count = len(result.full_text.split())
+        self.stats_label.setText(tr(
+            "transcript_stats",
+            words=tr_count("word_count", word_count),
+            duration=format_duration(result.duration),
+        ))
 
     def _set_buttons_enabled(self, enabled: bool):
         self.copy_btn.setEnabled(enabled)
@@ -431,55 +531,116 @@ class TranscriptView(QWidget):
         has_speakers = any(seg.speaker for seg in self._result.segments)
         self.speakers_btn.setVisible(has_speakers)
         self.rename_btn.setVisible(has_speakers)
+        self._render_reading(with_speakers=has_speakers and self._show_speakers)
 
-        if has_speakers and self._show_speakers:
-            self._render_with_speakers()
-        else:
-            self._render_plain()
+    def _clear_spans(self) -> None:
+        self._spans = []
+        self._span_starts = []
+        self._segment_spans = []
+        self._segment_times = []
+        self._highlighted_index = -1
+        self._find_matches = []
+        self._find_current = -1
 
-    def _render_plain(self):
-        lines = []
-        if self._show_timestamps:
-            for seg in self._result.segments:
-                ts = format_timestamp_vtt(seg.start)
-                lines.append(f"[{ts}]  {seg.text.strip()}")
-        else:
-            for seg in self._result.segments:
-                lines.append(seg.text.strip())
-        self.text_edit.setPlainText('\n'.join(lines))
-        self._highlighted_block = -1
-        self._build_segment_map()
+    def _reading_font(self) -> QFont:
+        font = QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont)
+        font.setPixelSize(_READING_FONT_PX)
+        return font
 
-    def _render_with_speakers(self):
+    def _render_reading(self, with_speakers: bool) -> None:
+        """Lay the transcript out as paragraphs and record every segment's
+        character range (see module docstring)."""
+        assert self._result is not None
         theme = get_theme()
-        html_lines = []
-        for seg in self._result.segments:
-            ts = format_timestamp_vtt(seg.start)
-            name = html.escape(self._get_display_name(seg.speaker)) if seg.speaker else ""
-            color = self._get_speaker_color(seg.speaker) if seg.speaker else theme.text_secondary
-            text = html.escape(seg.text.strip())
+        scroll = self.text_edit.verticalScrollBar().value()
+        self.text_edit.setFont(self._reading_font())
+        doc = QTextDocument(self.text_edit)
+        doc.setDefaultFont(self._reading_font())
+        doc.setDocumentMargin(4)
+        cursor = QTextCursor(doc)
 
-            header = ""
-            if self._show_timestamps or seg.speaker:
-                name_span = f'<span style="color:{color};font-weight:500;font-size:{theme.font_sm};">{name}</span>' if name else ""
-                ts_span = f'<span style="color:{theme.text_muted};font-size:{theme.font_xs};">[{ts}]</span>' if self._show_timestamps else ""
-                space = "&nbsp;&nbsp;" if name and self._show_timestamps else ""
-                header = f'{name_span}{space}{ts_span}<br>'
+        body = QTextCharFormat()
+        body.setForeground(QColor(theme.text_primary))
+        stamp_fmt = QTextCharFormat()
+        stamp_fmt.setForeground(QColor(theme.text_muted))
+        stamp_fmt.setFontPointSize(10)
+        para_fmt = QTextBlockFormat()
+        para_fmt.setLineHeight(150.0, 1)  # QTextBlockFormat.LineHeightTypes.ProportionalHeight
+        para_fmt.setBottomMargin(16)
+        head_fmt = QTextBlockFormat()
+        head_fmt.setTopMargin(6)
+        head_fmt.setBottomMargin(2)
 
-            # QTextEdit has limited CSS support, so we use a table for the bubble background
-            bubble = f"""
-            <table width="100%" cellpadding="10" cellspacing="0" style="margin-bottom: 8px;">
-            <tr><td style="background-color: {theme.bg_base}; border: 1px solid {theme.border_input};">
-                {header}
-                <span style="color:{theme.text_primary}; font-size: {theme.font_md};">{text}</span>
-            </td></tr>
-            </table>
-            """
-            html_lines.append(bubble)
+        self._clear_spans()
+        spans: list[_Span] = []
+        segment_spans: list[_Span] = []
+        segments = self._result.segments
+        first_block = True
 
-        self.text_edit.setHtml('<br>'.join(html_lines))
-        self._highlighted_block = -1
-        self._build_segment_map()
+        def new_block(fmt: QTextBlockFormat) -> None:
+            nonlocal first_block
+            if first_block:
+                cursor.setBlockFormat(fmt)
+                first_block = False
+            else:
+                cursor.insertBlock(fmt)
+
+        for para in group_paragraphs(segments, by_speaker=with_speakers):
+            speaker = para.speaker if with_speakers else None
+            if speaker or self._show_timestamps:
+                new_block(head_fmt)
+                if speaker:
+                    name_fmt = QTextCharFormat()
+                    name_fmt.setForeground(QColor(self._get_speaker_color(speaker)))
+                    name_fmt.setFontWeight(QFont.Weight.DemiBold)
+                    name_fmt.setFontPointSize(11)
+                    cursor.insertText(self._get_display_name(speaker), name_fmt)
+                if self._show_timestamps:
+                    if speaker:
+                        cursor.insertText("   ", stamp_fmt)
+                    pos = cursor.position()
+                    cursor.insertText(format_duration(para.start), stamp_fmt)
+                    spans.append(_Span(pos, cursor.position(), para.start, para.end, -1))
+            new_block(para_fmt)
+            for n, index in enumerate(para.indices):
+                segment = segments[index]
+                text = segment.text.strip()
+                if n and text:
+                    cursor.insertText(" ", body)
+                pos = cursor.position()
+                cursor.insertText(text, body)
+                span = _Span(pos, cursor.position(), segment.start, segment.end, index)
+                spans.append(span)
+                segment_spans.append(span)
+
+        self.text_edit.setDocument(doc)
+        self._spans = sorted(spans, key=lambda s: s.pos_from)
+        self._span_starts = [s.pos_from for s in self._spans]
+        self._segment_spans = segment_spans
+        self._segment_times = [s.seconds for s in segment_spans]
+        self._apply_reading_margins()
+        self.text_edit.verticalScrollBar().setValue(scroll)
+        if self._find_bar.isVisible():
+            self._run_find(keep_position=True)
+        else:
+            self._refresh_extra_selections()
+
+    def _apply_reading_margins(self) -> None:
+        """Centre the text in a column of at most _READING_WIDTH pixels."""
+        if self._edit_mode:
+            return
+        doc = self.text_edit.document()
+        width = self.text_edit.viewport().width()
+        side = max(12, (width - _READING_WIDTH) // 2)
+        root = doc.rootFrame()
+        fmt: QTextFrameFormat = root.frameFormat()
+        if int(fmt.leftMargin()) == side and int(fmt.rightMargin()) == side:
+            return
+        fmt.setLeftMargin(side)
+        fmt.setRightMargin(side)
+        fmt.setTopMargin(12)
+        fmt.setBottomMargin(24)
+        root.setFrameFormat(fmt)
 
     # ------------------------------------------------------------------ edit mode
 
@@ -492,7 +653,8 @@ class TranscriptView(QWidget):
     def _enter_edit_mode(self):
         self._edit_mode = True
         self.edit_btn.setChecked(True)
-        self._edit_hint.setVisible(True)
+        self.stats_bar.setVisible(True)
+        self._follow_btn.setVisible(False)
 
         if not self._result:
             return
@@ -506,13 +668,21 @@ class TranscriptView(QWidget):
             else:
                 lines.append(f"[{ts}] {seg.text.strip()}")
 
+        self._clear_spans()
+        self.text_edit.setExtraSelections([])
+        doc = QTextDocument(self.text_edit)
+        mono = QFont("Monospace")
+        mono.setStyleHint(QFont.StyleHint.Monospace)
+        mono.setPointSize(11)
+        doc.setDefaultFont(mono)
+        doc.setPlainText('\n'.join(lines))
+        self.text_edit.setDocument(doc)
         self.text_edit.setReadOnly(False)
-        self.text_edit.setPlainText('\n'.join(lines))
 
     def _exit_edit_mode(self, save: bool = True):
         self._edit_mode = False
         self.edit_btn.setChecked(False)
-        self._edit_hint.setVisible(False)
+        self.stats_bar.setVisible(False)
         self.text_edit.setReadOnly(True)
 
         if save and self._result:
@@ -527,6 +697,7 @@ class TranscriptView(QWidget):
                 self._result.speaker_names = dict(self._speaker_names)
             if changed:
                 self.result_changed.emit("structure")
+                self._render_stats()
 
         self._update_display()
 
@@ -626,19 +797,64 @@ class TranscriptView(QWidget):
         self._find_bar.setVisible(True)
         self._find_edit.setFocus()
         self._find_edit.selectAll()
+        if self._find_edit.text():
+            self._run_find(keep_position=True)
+
+    def _close_find(self) -> None:
+        self._find_bar.setVisible(False)
+        self._find_matches = []
+        self._find_current = -1
+        self._refresh_extra_selections()
+        self.text_edit.setFocus()
+
+    def _on_find_text_changed(self, _text: str) -> None:
+        self._run_find(keep_position=False)
+
+    def _run_find(self, keep_position: bool) -> None:
+        """Collect every match in the shown document and highlight them;
+        the current match is the first at or after the text cursor."""
+        query = self._find_edit.text()
+        doc = self.text_edit.document()
+        matches: list[QTextCursor] = []
+        if query:
+            cursor = QTextCursor(doc)
+            while len(matches) < _FIND_HIGHLIGHT_CAP:
+                cursor = doc.find(query, cursor)
+                if cursor.isNull():
+                    break
+                matches.append(QTextCursor(cursor))
+        self._find_matches = matches
+        if not matches:
+            self._find_current = -1
+        else:
+            anchor = self.text_edit.textCursor().selectionStart() if keep_position else 0
+            starts = [m.selectionStart() for m in matches]
+            self._find_current = min(bisect.bisect_left(starts, anchor), len(matches) - 1)
+            self._show_current_match()
+        self._update_find_count()
+        self._refresh_extra_selections()
+
+    def _show_current_match(self) -> None:
+        if 0 <= self._find_current < len(self._find_matches):
+            self.text_edit.setTextCursor(self._find_matches[self._find_current])
+            self.text_edit.ensureCursorVisible()
+
+    def _step_find(self, delta: int) -> None:
+        if not self._find_matches:
+            self._run_find(keep_position=True)
+            if not self._find_matches:
+                return
+        else:
+            self._find_current = (self._find_current + delta) % len(self._find_matches)
+            self._show_current_match()
+        self._update_find_count()
+        self._refresh_extra_selections()
 
     def _find_next(self):
-        query = self._find_edit.text()
-        if not query:
-            return
-        found = self.text_edit.find(query)
-        if not found:
-            # Wrap around
-            cursor = self.text_edit.textCursor()
-            cursor.movePosition(QTextCursor.MoveOperation.Start)
-            self.text_edit.setTextCursor(cursor)
-            found = self.text_edit.find(query)
-        self._update_find_count(query)
+        self._step_find(1)
+
+    def _find_previous(self) -> None:
+        self._step_find(-1)
 
     def _replace_one(self):
         query = self._find_edit.text()
@@ -651,17 +867,22 @@ class TranscriptView(QWidget):
                 cursor.insertText(replacement)
                 if self._parse_edited_text():
                     self.result_changed.emit("text")
-            self._find_next()
+            self._run_find(keep_position=True)
             return
         if not self._result:
             return
-        for segment in self._result.segments:
-            if query in segment.text:
-                segment.text = segment.text.replace(query, replacement, 1)
-                self._update_display()
-                self.result_changed.emit("text")
-                break
-        self._find_next()
+        # The segment holding the current match, else the first that has one.
+        target = None
+        if 0 <= self._find_current < len(self._find_matches):
+            span = self._span_at(self._find_matches[self._find_current].selectionStart())
+            if span is not None and span.index >= 0:
+                target = self._result.segments[span.index]
+        if target is None or query not in target.text:
+            target = next((s for s in self._result.segments if query in s.text), None)
+        if target is not None:
+            target.text = target.text.replace(query, replacement, 1)
+            self._update_display()
+            self.result_changed.emit("text")
 
     def _replace_all(self):
         query = self._find_edit.text()
@@ -681,7 +902,7 @@ class TranscriptView(QWidget):
             return
         count = sum(segment.text.count(query) for segment in self._result.segments)
         if count == 0:
-            self._find_count.setText(tr("find_count_plural", count=0))
+            self._find_count.setText(tr("find_no_matches"))
             return
         for segment in self._result.segments:
             segment.text = segment.text.replace(query, replacement)
@@ -689,84 +910,160 @@ class TranscriptView(QWidget):
         self.result_changed.emit("text")
         self._find_count.setText(tr("find_replaced", count=count))
 
-    def _update_find_count(self, query: str):
-        text = self.text_edit.document().toPlainText()
-        count = text.count(query)
-        key = "find_count" if count == 1 else "find_count_plural"
-        self._find_count.setText(tr(key, count=count))
+    def _update_find_count(self) -> None:
+        if not self._find_edit.text():
+            self._find_count.setText("")
+        elif not self._find_matches:
+            self._find_count.setText(tr("find_no_matches"))
+        else:
+            self._find_count.setText(tr(
+                "find_position", current=self._find_current + 1, total=len(self._find_matches)
+            ))
+
+    # ------------------------------------------------------------------ highlights
+
+    def _refresh_extra_selections(self) -> None:
+        theme = get_theme()
+        selections: list[QTextEdit.ExtraSelection] = []
+        if 0 <= self._highlighted_index < len(self._segment_spans) and not self._edit_mode:
+            span = self._segment_spans[self._highlighted_index]
+            sel = QTextEdit.ExtraSelection()
+            cursor = QTextCursor(self.text_edit.document())
+            cursor.setPosition(span.pos_from)
+            cursor.setPosition(span.pos_to, QTextCursor.MoveMode.KeepAnchor)
+            sel.cursor = cursor
+            fmt = QTextCharFormat()
+            fmt.setBackground(_qcolor_alpha(theme.accent, 0.22))
+            sel.format = fmt
+            selections.append(sel)
+        for n, match in enumerate(self._find_matches):
+            sel = QTextEdit.ExtraSelection()
+            sel.cursor = match
+            fmt = QTextCharFormat()
+            current = n == self._find_current
+            fmt.setBackground(_qcolor_alpha(theme.warning, 0.75 if current else 0.30))
+            if current:
+                fmt.setForeground(QColor("#1a1a1a"))
+            sel.format = fmt
+            selections.append(sel)
+        self.text_edit.setExtraSelections(selections)
 
     # ------------------------------------------------------------------ player sync
 
     def highlight_at(self, seconds: float):
         """Highlight the segment covering *seconds* (called by player ticker)."""
-        if self._edit_mode or not self._segment_positions or not self._result:
+        if self._edit_mode or not self._segment_spans or not self._result:
             return
 
-        target_block = -1
-        for start, end, block_pos in self._segment_positions:
-            if start <= seconds < end:
-                target_block = block_pos
-                break
-
-        if target_block == self._highlighted_block:
+        moved = self._last_tick_seconds is not None and abs(seconds - self._last_tick_seconds) > 0.01
+        self._last_tick_seconds = seconds
+        if moved:
+            self._playing_until = time.monotonic() + 1.0
+        elif not self._is_playing() and self._follow_btn.isVisible():
+            self._follow_btn.setVisible(False)
+        if not moved and self._highlighted_index < 0:
+            # Nothing has played or been sought yet: a freshly opened
+            # record isn't "at" its first sentence.
             return
 
-        doc = self.text_edit.document()
-
-        if self._highlighted_block >= 0:
-            prev = doc.findBlock(self._highlighted_block)
-            if prev.isValid():
-                fmt = QTextCharFormat()
-                fmt.setBackground(QColor("transparent"))
-                c = QTextCursor(prev)
-                c.select(QTextCursor.SelectionType.BlockUnderCursor)
-                c.mergeCharFormat(fmt)
-
-        self._highlighted_block = target_block
-        if target_block >= 0:
-            block = doc.findBlock(target_block)
-            if block.isValid():
-                fmt = QTextCharFormat()
-                fmt.setBackground(QColor(99, 102, 241, 40))
-                c = QTextCursor(block)
-                c.select(QTextCursor.SelectionType.BlockUnderCursor)
-                c.mergeCharFormat(fmt)
-                self.text_edit.setTextCursor(QTextCursor(block))
-                self.text_edit.ensureCursorVisible()
-
-    def _on_click(self, event):
-        QTextEdit.mousePressEvent(self.text_edit, event)
-        if self._edit_mode:
+        index = bisect.bisect_right(self._segment_times, seconds) - 1
+        if index >= 0 and seconds >= self._segment_spans[index].end:
+            # In a pause after this segment: keep it lit until the next
+            # starts rather than flickering off between lines.
+            if index + 1 < len(self._segment_spans):
+                index = index if seconds - self._segment_spans[index].end < 1.5 else -1
+        if index == self._highlighted_index:
             return
-        cursor = self.text_edit.cursorForPosition(event.pos())
-        block_pos = cursor.block().position()
-        for start, _end, seg_block_pos in self._segment_positions:
-            if seg_block_pos == block_pos:
-                self.seek_requested.emit(start)
-                break
+        self._highlighted_index = index
+        self._refresh_extra_selections()
+        if index >= 0 and moved:
+            if self._follow:
+                self._scroll_to_span(self._segment_spans[index])
+            else:
+                self._place_follow_button()
+                self._follow_btn.setVisible(True)
 
-    def _build_segment_map(self):
-        if not self._result:
-            self._segment_positions = []
+    def _is_playing(self) -> bool:
+        return time.monotonic() < self._playing_until
+
+    def _scroll_to_span(self, span: _Span) -> None:
+        """Bring *span* into the middle third of the viewport if it isn't
+        already comfortably visible — a reader tracking the highlight sees
+        the text move in calm steps, not a line at a time."""
+        cursor = QTextCursor(self.text_edit.document())
+        cursor.setPosition(span.pos_from)
+        rect = self.text_edit.cursorRect(cursor)
+        height = self.text_edit.viewport().height()
+        if height / 6 <= rect.top() <= height * 2 / 3:
             return
-        self._segment_positions = []
-        doc = self.text_edit.document()
-        block = doc.begin()
-        seg_idx = 0
-        segments = self._result.segments
-        while block.isValid() and seg_idx < len(segments):
-            text = block.text()
-            seg = segments[seg_idx]
-            fragment = seg.text.strip()[:20]
-            if not fragment:
-                # Segment with empty text: map to current block and move on.
-                self._segment_positions.append((seg.start, seg.end, block.position()))
-                seg_idx += 1
-            elif fragment in text:
-                self._segment_positions.append((seg.start, seg.end, block.position()))
-                seg_idx += 1
-            elif not text.strip():
-                # Skip blank document blocks (e.g. HTML paragraph separators).
-                block = block.next()
-                continue
-            block = block.next()
+        bar = self.text_edit.verticalScrollBar()
+        self._auto_scrolling = True
+        try:
+            bar.setValue(bar.value() + rect.top() - height // 3)
+        finally:
+            self._auto_scrolling = False
+
+    def _on_user_scroll(self, _value: int) -> None:
+        if self._auto_scrolling or self._highlighted_index < 0 or not self._is_playing():
+            return
+        # The user moved the text while it plays: stop pulling it back to
+        # the playhead until they ask for it.
+        self._follow = False
+        self._place_follow_button()
+        self._follow_btn.setVisible(not self._edit_mode)
+
+    def _resume_follow(self) -> None:
+        self._follow = True
+        self._follow_btn.setVisible(False)
+        if 0 <= self._highlighted_index < len(self._segment_spans):
+            self._scroll_to_span(self._segment_spans[self._highlighted_index])
+
+    def _place_follow_button(self) -> None:
+        btn = self._follow_btn
+        btn.adjustSize()
+        area = self.text_edit.rect()
+        btn.move(
+            (area.width() - btn.width()) // 2,
+            area.height() - btn.height() - 14,
+        )
+        btn.raise_()
+
+    def _span_at(self, position: int) -> Optional[_Span]:
+        index = bisect.bisect_right(self._span_starts, position) - 1
+        if index < 0:
+            return None
+        span = self._spans[index]
+        return span if position <= span.pos_to else None
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        """Click (press and release without dragging a selection) on a
+        segment or paragraph time seeks the player there."""
+        if obj is self.text_edit.viewport() and not self._edit_mode:
+            etype = event.type()
+            if etype == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                self._press_pos = event.position().toPoint()
+            elif etype == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
+                pressed, self._press_pos = self._press_pos, None
+                if pressed is not None and (event.position().toPoint() - pressed).manhattanLength() < 4:
+                    QTimer.singleShot(0, lambda pos=pressed: self._seek_at_point(pos))
+        return super().eventFilter(obj, event)
+
+    def _seek_at_point(self, point) -> None:
+        if self.text_edit.textCursor().hasSelection():
+            return
+        cursor = self.text_edit.cursorForPosition(point)
+        span = self._span_at(cursor.position())
+        if span is None:
+            return
+        self._follow = True
+        self._follow_btn.setVisible(False)
+        if span.index >= 0:
+            self._highlighted_index = self._segment_spans.index(span) if span in self._segment_spans else -1
+            self._refresh_extra_selections()
+        self.seek_requested.emit(span.seconds)
+
+
+def _qcolor_alpha(hex_color: str, alpha: float) -> QColor:
+    color = QColor(hex_color)
+    color.setAlphaF(alpha)
+    return color

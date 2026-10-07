@@ -777,6 +777,17 @@ def build_stylesheet(t: Theme) -> str:
         image: none;
         width: 0;
     }}
+    QPushButton[role="floating-pill"] {{
+        background-color: {t.bg_elevated};
+        color: {t.accent};
+        border: 1px solid {t.accent};
+        border-radius: 14px;
+        padding: 5px 14px;
+        font-size: {t.font_sm};
+    }}
+    QPushButton[role="floating-pill"]:hover {{
+        background-color: {t.bg_surface};
+    }}
     QLabel[role="list-group-header"] {{
         color: {t.text_muted};
         font-size: {t.font_xs};
