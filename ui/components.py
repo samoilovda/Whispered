@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QColor, QFontMetrics
 
 from ui.theme import SPACE_2, SPACE_3, SPACE_4, mark_elides, set_role
+from utils import format_duration
 
 
 class ElidingComboBox(QComboBox):
@@ -369,3 +370,30 @@ def apply_soft_shadow(widget: QWidget) -> None:
     shadow.setYOffset(8)
     shadow.setColor(QColor(0, 0, 0, 15))
     widget.setGraphicsEffect(shadow)
+
+
+class ChapterRow(QWidget):
+    """One chapter: a clickable timestamp that asks to seek the player
+    there, and the chapter title. Shared by the Insights and YouTube tabs."""
+
+    seek_requested = pyqtSignal(int)
+
+    def __init__(self, start: int, title: str, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 1, 0, 1)
+        layout.setSpacing(8)
+
+        ts = format_duration(start)
+        ts_btn = QPushButton(ts)
+        ts_btn.setFixedWidth(48)
+        ts_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        ts_btn.setProperty("role", "timestamp-link")
+        ts_btn.setStyleSheet("font-size: 11px;")
+        ts_btn.clicked.connect(lambda: self.seek_requested.emit(start))
+        layout.addWidget(ts_btn)
+
+        title_lbl = QLabel(title)
+        title_lbl.setWordWrap(True)
+        title_lbl.setStyleSheet("font-size: 12px;")
+        layout.addWidget(title_lbl, stretch=1)

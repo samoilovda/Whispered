@@ -16,6 +16,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from core.insights_export import format_insight_text
 from core.logger import get_logger
 from core.i18n import tr
+from ui.components import ChapterRow
 from ui.i18n_helpers import Retranslator
 from core.paths import output_dir
 from ui.toast import show_toast
@@ -29,30 +30,6 @@ class _SectionHeader(QLabel):
         super().__init__(text, parent)
         self.setProperty("role", "heading")
         self.setStyleSheet("padding: 6px 0 2px 0;")
-
-
-class _ChapterRow(QWidget):
-    seek_requested = pyqtSignal(int)
-
-    def __init__(self, start: int, title: str, parent=None):
-        super().__init__(parent)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 1, 0, 1)
-        layout.setSpacing(8)
-
-        ts = format_duration(start)
-        ts_btn = QPushButton(ts)
-        ts_btn.setFixedWidth(48)
-        ts_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        ts_btn.setProperty("role", "timestamp-link")
-        ts_btn.setStyleSheet("font-size: 11px;")
-        ts_btn.clicked.connect(lambda: self.seek_requested.emit(start))
-        layout.addWidget(ts_btn)
-
-        title_lbl = QLabel(title)
-        title_lbl.setWordWrap(True)
-        title_lbl.setStyleSheet("font-size: 12px;")
-        layout.addWidget(title_lbl, stretch=1)
 
 
 class _ActionRow(QLabel):
@@ -369,7 +346,7 @@ class InsightsPanel(QWidget):
                 title = str(item.get("title", ""))
                 if not title:
                     continue
-                row = _ChapterRow(start, title, self._ch_container)
+                row = ChapterRow(start, title, self._ch_container)
                 row.seek_requested.connect(self.seek_requested)
                 self._ch_layout.addWidget(row)
             except Exception:
