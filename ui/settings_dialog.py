@@ -25,6 +25,7 @@ from ui.option_labels import (
 )
 from ui.theme import apply_theme, set_role
 from core.lm_status_worker import LMStatusWorker
+from core.youtube_oauth_worker import YouTubeLoginWorker
 from core.worker_registry import WorkerRegistry
 from core.logger import get_logger
 from core.i18n import on_language_changed, set_locale, tr
@@ -41,6 +42,7 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self._cfg = get_config()
         self._checker: Optional[LMStatusWorker] = None
+        self._yt_login: Optional[YouTubeLoginWorker] = None
         self._registry = WorkerRegistry(parent=self)
         self._pending_theme: Optional[str] = None
         self._lang_changed: bool = False
@@ -123,6 +125,7 @@ class SettingsDialog(QDialog):
                 apply_combo()
             for i in range(self._categories.count()):
                 self._categories.item(i).setText(tr(self._category_keys[i]))
+            self._refresh_yt_status()
         finally:
             self._retranslating = False
 
@@ -529,6 +532,34 @@ class SettingsDialog(QDialog):
         ])
         self._row(layout, "settings_yt_publish_mode", self._yt_publish_combo)
 
+        # YouTube account (own Google Cloud OAuth client) for API uploads
+        yt_row = QHBoxLayout()
+        self._yt_import_btn = QPushButton()
+        self._tt(self._yt_import_btn, "settings_yt_import")
+        self._yt_import_btn.clicked.connect(self._import_yt_client)
+        yt_row.addWidget(self._yt_import_btn)
+        self._yt_connect_btn = QPushButton()
+        self._tt(self._yt_connect_btn, "settings_yt_connect")
+        self._yt_connect_btn.clicked.connect(self._connect_youtube)
+        yt_row.addWidget(self._yt_connect_btn)
+        self._yt_disconnect_btn = QPushButton()
+        self._tt(self._yt_disconnect_btn, "settings_yt_disconnect")
+        self._yt_disconnect_btn.clicked.connect(self._disconnect_youtube)
+        yt_row.addWidget(self._yt_disconnect_btn)
+        yt_row.addStretch(1)
+        yt_container = QWidget()
+        yt_container.setLayout(yt_row)
+        self._yt_status = QLabel("")
+        self._yt_status.setWordWrap(True)
+        self._yt_status.setProperty("size", "small")
+        yt_box = QVBoxLayout()
+        yt_box.addWidget(yt_container)
+        yt_box.addWidget(self._yt_status)
+        yt_widget = QWidget()
+        yt_widget.setLayout(yt_box)
+        self._row(layout, "settings_yt_account", yt_widget)
+        self._refresh_yt_status()
+
         return tab
 
     # ------------------------------------------------------------------ helpers
@@ -690,6 +721,86 @@ class SettingsDialog(QDialog):
         self._apply_language_change()
         self.accept()
 
+    # ------------------------------------------------------------ YouTube account
+
+    def _refresh_yt_status(self) -> None:
+        """Rebuild the account line + button states from config/keyring."""
+        from core import youtube_oauth
+        cfg = self._cfg
+        configured = bool(cfg.yt_oauth_client_id and cfg.yt_oauth_client_secret)
+        connected = configured and youtube_oauth.is_connected()
+        busy = self._yt_login is not None
+        if busy:
+            text, role = tr("settings_yt_connecting"), "muted"
+        elif connected:
+            text, role = tr("settings_yt_connected", channel=cfg.yt_channel_title or "\u2014"), "success-text"
+        elif configured:
+            text, role = tr("settings_yt_not_connected"), "muted"
+        else:
+            text, role = tr("settings_yt_no_client"), "muted"
+        self._yt_status.setText(text)
+        set_role(self._yt_status, role)
+        self._yt_status.setProperty("size", "small")
+        self._yt_import_btn.setEnabled(not busy)
+        self._yt_connect_btn.setEnabled(configured and not connected and not busy)
+        self._yt_disconnect_btn.setEnabled(connected and not busy)
+
+    def _import_yt_client(self) -> None:
+        from core.youtube_oauth import parse_client_secret_json
+        path, _ = QFileDialog.getOpenFileName(
+            self, tr("settings_yt_import_title"), "", "JSON (*.json);;All Files (*)")
+        if not path:
+            return
+        try:
+            with open(path, encoding="utf-8") as fh:
+                client_id, client_secret = parse_client_secret_json(fh.read())
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(
+                self, tr("settings_yt_import_title"), tr("settings_yt_import_failed", detail=str(exc)))
+            return
+        self._cfg.yt_oauth_client_id = client_id
+        self._cfg.yt_oauth_client_secret = client_secret
+        save_config()
+        self._refresh_yt_status()
+
+    def _connect_youtube(self) -> None:
+        if self._yt_login is not None:
+            return
+        self._yt_login = YouTubeLoginWorker(
+            self._cfg.yt_oauth_client_id, self._cfg.yt_oauth_client_secret, parent=self)
+        self._yt_login.connected.connect(self._on_yt_connected)
+        self._yt_login.cancelled.connect(self._on_yt_login_ended)
+        self._yt_login.failed.connect(self._on_yt_login_failed)
+        self._registry.register(self._yt_login, name="youtube_login")
+        self._refresh_yt_status()
+        self._yt_login.start()
+
+    def _on_yt_connected(self, channel_title: str) -> None:
+        self._cfg.yt_channel_title = channel_title
+        save_config()
+        self._on_yt_login_ended()
+
+    def _on_yt_login_failed(self, message: str) -> None:
+        self._on_yt_login_ended()
+        QMessageBox.warning(
+            self, tr("settings_yt_connect"), tr("settings_yt_connect_failed", detail=message))
+
+    def _on_yt_login_ended(self) -> None:
+        self._yt_login = None
+        self._refresh_yt_status()
+
+    def _disconnect_youtube(self) -> None:
+        from core import youtube_oauth
+        youtube_oauth.disconnect()
+        self._cfg.yt_channel_title = ""
+        save_config()
+        self._refresh_yt_status()
+
+    def _stop_yt_login(self) -> None:
+        if self._yt_login is not None:
+            self._registry.retire(self._yt_login)
+            self._yt_login = None
+
     def _stop_checker(self) -> None:
         """Retire any in-flight connection check through ``WorkerRegistry``.
 
@@ -705,6 +816,7 @@ class SettingsDialog(QDialog):
         if self._checker is not None:
             self._registry.retire(self._checker)
             self._checker = None
+        self._stop_yt_login()
 
     def reject(self):
         """Cancel: revert theme preview and stop any running connection check."""

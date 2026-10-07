@@ -289,6 +289,14 @@ class TestConfigKeyringIntegration:
         assert on_disk["hf_token"] == config_module.secrets_store.KEYRING_SENTINEL
         assert fake_keyring.store["hf_token"] == "hf_" + "x" * 40
 
+    def test_youtube_oauth_client_secret_goes_to_the_keyring(self, fake_keyring):
+        Config(yt_oauth_client_id="cid", yt_oauth_client_secret="csec").save()
+
+        on_disk = json.loads(config_module.CONFIG_FILE.read_text())
+        assert on_disk["yt_oauth_client_id"] == "cid"
+        assert on_disk["yt_oauth_client_secret"] == config_module.secrets_store.KEYRING_SENTINEL
+        assert Config.load().yt_oauth_client_secret == "csec"
+
     def test_secret_resolves_from_keyring_on_load(self, fake_keyring):
         cfg = Config(yt_anthropic_api_key="ak-test")
         cfg.save()

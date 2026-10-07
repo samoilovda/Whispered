@@ -24,7 +24,9 @@ CONFIG_FILE = config_path()
 # core/secrets_store.py). Config.hf_token/yt_openai_api_key/
 # yt_anthropic_api_key hold the real value in memory either way — this
 # only changes where save()/load() persist it.
-_SECRET_FIELDS = ("hf_token", "yt_openai_api_key", "yt_anthropic_api_key")
+_SECRET_FIELDS = (
+    "hf_token", "yt_openai_api_key", "yt_anthropic_api_key", "yt_oauth_client_secret",
+)
 
 # Current schema version written to config.json under "schema_version".
 # Increment when load() gains a new migration step.
@@ -144,6 +146,11 @@ class Config:
     # hand-off dialog (copy text, reveal video, open Studio), or also allow
     # uploading through the YouTube Data API.
     yt_publish_mode: str = "off"                         # "off" | "handoff" | "api"
+    # The user's own Google Cloud OAuth client ("Desktop app"); the refresh
+    # token itself lives in the OS keyring (core/youtube_oauth.py).
+    yt_oauth_client_id: str = ""
+    yt_oauth_client_secret: str = ""
+    yt_channel_title: str = ""                           # display only
 
     # Cover generator
     cover_template: str = "prosvet_16x9"

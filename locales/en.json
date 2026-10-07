@@ -745,5 +745,16 @@
   "settings_yt_publish_off": "Do nothing",
   "settings_yt_publish_handoff": "Open the publish dialog",
   "run_publish": "Publish to YouTube",
-  "yt_publish_nothing": "Generate the YouTube package first — there is nothing to publish yet."
+  "yt_publish_nothing": "Generate the YouTube package first — there is nothing to publish yet.",
+  "settings_yt_account": "YouTube account",
+  "settings_yt_import": "Import client_secret.json…",
+  "settings_yt_connect": "Connect account",
+  "settings_yt_disconnect": "Disconnect",
+  "settings_yt_import_title": "Google Cloud OAuth client",
+  "settings_yt_import_failed": "Could not read the OAuth client file: {detail}",
+  "settings_yt_no_client": "Import the OAuth client (type \"Desktop app\") from your Google Cloud project first.",
+  "settings_yt_not_connected": "Client imported. Connect your account to upload videos.",
+  "settings_yt_connecting": "Waiting for you to finish signing in in the browser…",
+  "settings_yt_connected": "Connected: {channel}",
+  "settings_yt_connect_failed": "Could not connect the account: {detail}"
 }

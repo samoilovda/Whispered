@@ -745,5 +745,16 @@
   "settings_yt_publish_off": "Ничего не делать",
   "settings_yt_publish_handoff": "Открыть диалог публикации",
   "run_publish": "Опубликовать на YouTube",
-  "yt_publish_nothing": "Сначала создайте пакет для YouTube — публиковать пока нечего."
+  "yt_publish_nothing": "Сначала создайте пакет для YouTube — публиковать пока нечего.",
+  "settings_yt_account": "Аккаунт YouTube",
+  "settings_yt_import": "Импортировать client_secret.json…",
+  "settings_yt_connect": "Подключить аккаунт",
+  "settings_yt_disconnect": "Отключить",
+  "settings_yt_import_title": "OAuth-клиент Google Cloud",
+  "settings_yt_import_failed": "Не удалось прочитать файл OAuth-клиента: {detail}",
+  "settings_yt_no_client": "Сначала импортируйте OAuth-клиент (тип «Desktop app») из вашего проекта Google Cloud.",
+  "settings_yt_not_connected": "Клиент импортирован. Подключите аккаунт, чтобы загружать видео.",
+  "settings_yt_connecting": "Завершите вход в браузере…",
+  "settings_yt_connected": "Подключено: {channel}",
+  "settings_yt_connect_failed": "Не удалось подключить аккаунт: {detail}"
 }
