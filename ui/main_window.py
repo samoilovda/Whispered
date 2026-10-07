@@ -288,6 +288,10 @@ class MainWindow(QMainWindow):
         # application/run_store.py) — None until there's a real history
         # record to attach it to.
         self._recipe_run_id: int | None = None
+        # The record the current recipe run belongs to — fixed when the run
+        # starts. The user may open another record while it runs; its
+        # results, run row and badges must still go to this one.
+        self._recipe_record_id: int | None = None
         self._gpu_worker: GPUDetectionWorker | None = None
         # YouTube upload (core/youtube_upload_worker.py): the worker outlives
         # the publish dialog that started it.
@@ -2434,6 +2438,7 @@ class MainWindow(QMainWindow):
         )
 
         self._recipe_run_id = None
+        self._recipe_record_id = self._last_record_id
         self.run_view.bind_run(run)
         self.run_view.set_recipe_name(recipe_label(recipe))
         self.run_view.set_finished(False)
@@ -2507,6 +2512,7 @@ class MainWindow(QMainWindow):
         )
 
         self._recipe_run_id = stored.id
+        self._recipe_record_id = record_id
         self.run_view.bind_run(run)
         name = recipe_label(recipe)
         if set(stored.outcomes) - set(recipe.steps):
@@ -2532,13 +2538,13 @@ class MainWindow(QMainWindow):
         history record to attach the run to. Reuses self._recipe_run_id
         across calls so this updates one row instead of inserting a new
         one for every step/retry."""
-        if self._last_record_id is None or self._recipe_run is None or self._recipe_spec is None:
+        if self._recipe_record_id is None or self._recipe_run is None or self._recipe_spec is None:
             return
         from application import run_store
 
         try:
             self._recipe_run_id = run_store.save_run(
-                self._last_record_id, self._recipe_spec.name, self._recipe_run,
+                self._recipe_record_id, self._recipe_spec.name, self._recipe_run,
                 run_id=self._recipe_run_id, status=status,
             )
         except Exception as exc:
@@ -2662,6 +2668,11 @@ class MainWindow(QMainWindow):
         reconstruction _recipe_get_result() uses to feed dependent steps.
         """
         self._save_recipe_run("running")
+        if self._recipe_record_id != self._last_record_id:
+            # Another record is open now. The result is on disk in the
+            # run's own record folder and comes back when that record is
+            # opened; it must not land in this record's tabs.
+            return
         if outcome.status is StepStatus.FAILED:
             # Only these two panels have a set_error()/retry affordance of
             # their own (ui/youtube_panel.py, ui/insights_panel.py) — a
@@ -2730,13 +2741,13 @@ class MainWindow(QMainWindow):
             self._STEP_TO_ARTIFACT_TYPE[name]
             for name in succeeded if name in self._STEP_TO_ARTIFACT_TYPE
         }
-        if self._last_record_id is not None and artifact_types:
+        if self._recipe_record_id is not None and artifact_types:
             try:
                 from core.history import get_history_store
                 store = get_history_store()
-                current = store.get_record(self._last_record_id) or {}
+                current = store.get_record(self._recipe_record_id) or {}
                 artifacts = {"transcript", *artifact_types, *current.get("artifacts", [])}
-                store.set_artifacts(self._last_record_id, sorted(artifacts))
+                store.set_artifacts(self._recipe_record_id, sorted(artifacts))
             except Exception as exc:
                 logger.warning("Failed to persist recipe run artifacts: %s", exc)
 
@@ -2758,7 +2769,10 @@ class MainWindow(QMainWindow):
                 self, tr("toast_chain_done", count=len(artifact_types)), kind="success"
             )
 
-        can_publish = "youtube_package" in succeeded
+        # Publishing reads the YouTube tab — only the run's own record's.
+        can_publish = (
+            "youtube_package" in succeeded and self._recipe_record_id == self._last_record_id
+        )
         self.run_view.set_publish_available(can_publish)
         if can_publish and get_config().yt_publish_mode != "off":
             QTimer.singleShot(0, self._open_publish_dialog)
