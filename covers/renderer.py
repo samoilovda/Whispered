@@ -27,6 +27,7 @@ from covers.text_layout import fit_text
 _FONTS_REGISTERED = False
 _FONT_WARNINGS: list[str] = []
 _FONT_FAMILIES: dict[str, str] = {}
+_PREFERRED: dict[tuple[str, tuple[str, ...]], str | None] = {}
 
 
 def _register_fonts(template: CoverTemplate) -> list[str]:
@@ -126,8 +127,34 @@ def _parse_path(value: str) -> QPainterPath:
     return path
 
 
+def _layer_text(layer: Any, slots: dict[str, Any]) -> str:
+    """The text a ``text`` layer shows: its slot value (or fixed ``value``),
+    upper-cased when the layer asks for ``"transform": "upper"`` — the
+    brand style sets speaker names in capitals whatever the user typed."""
+    text = str(slots.get(layer.get("slot"), layer.get("value", "")))
+    return text.upper() if layer.get("transform") == "upper" else text
+
+
+def _preferred_family(template: CoverTemplate, role: str) -> str | None:
+    """The first of the role's ``prefer`` families installed on this machine.
+
+    The brand face (Templegarten) cannot be bundled, so a template lists it
+    under ``prefer`` and falls back to the bundled OFL font when it is absent.
+    """
+    preferred = template.fonts.get(role, {}).get("prefer") or []
+    if not preferred:
+        return None
+    key = (role, tuple(preferred))
+    if key not in _PREFERRED:
+        installed = set(QFontDatabase.families())
+        _PREFERRED[key] = next((name for name in preferred if name in installed), None)
+    return _PREFERRED[key]
+
+
 def _font(template: CoverTemplate, role: str, size: float) -> QFont:
-    family = _FONT_FAMILIES.get(role, template.fonts.get(role, {}).get("family", ""))
+    family = _preferred_family(template, role) or _FONT_FAMILIES.get(
+        role, template.fonts.get(role, {}).get("family", "")
+    )
     if family and family in QFontDatabase.families():
         result = QFont(family)
     else:
@@ -142,8 +169,10 @@ def render(
     variant: str,
     slots: dict[str, Any],
     size: QSize | tuple[int, int],
+    decor_set: str | None = None,
 ) -> tuple[QImage, list[str]]:
-    """Render a template and return the image plus non-fatal warnings."""
+    """Render a template and return the image plus non-fatal warnings.
+    *decor_set* picks the leaf arrangement (see ``CoverTemplate.resolve``)."""
     if isinstance(size, tuple):
         size = QSize(*size)
     image = QImage(size, QImage.Format.Format_ARGB32_Premultiplied)
@@ -161,7 +190,7 @@ def render(
     def box(layer) -> QRectF:
         return QRectF(*(float(value) for value in layer.get("box")))
 
-    resolved_layers = template.resolve(layout, variant)
+    resolved_layers = template.resolve(layout, variant, decor_set)
     for layer in resolved_layers:
         kind = layer.type
         if kind == "background_image":
@@ -191,7 +220,7 @@ def render(
                     padding = float(layer.get("grow_padding", 0)) * 2
                     desired = min(
                         template.canvas[0],
-                        metrics.horizontalAdvance(str(slots.get(grow_slot, "")))
+                        metrics.horizontalAdvance(_layer_text(text_layer, slots))
                         + padding,
                     )
                     center_x = rect.center().x()
@@ -215,15 +244,15 @@ def render(
             value = _asset(template, "decor", f"{layer.get('path')}.path").read_text(
                 encoding="utf-8"
             )
+            # Decor paths are in the unit square of the source shape's
+            # frame (tools/pptx_to_template.py divides by the path w/h), so
+            # the box maps that square — not the curve's tighter bounding
+            # rect, which would stretch a leaf that doesn't touch every edge.
             path = _parse_path(value)
-            bounds, rect = path.boundingRect(), box(layer)
+            rect = box(layer)
             transform = QTransform()
             transform.translate(rect.x(), rect.y())
-            if bounds.width() and bounds.height():
-                transform.scale(
-                    rect.width() / bounds.width(), rect.height() / bounds.height()
-                )
-                transform.translate(-bounds.x(), -bounds.y())
+            transform.scale(rect.width(), rect.height())
             painter.fillPath(transform.map(path), _color(layer.get("fill")))
         elif kind in {"photo", "image"}:
             # A distinct name from the `value: str` inferred a few
@@ -272,7 +301,7 @@ def render(
                 )
                 painter.restore()
         elif kind == "text":
-            text = str(slots.get(layer.get("slot"), layer.get("value", "")))
+            text = _layer_text(layer, slots)
             rect = box(layer)
             styles = layer.get("line_styles") or [{"size": layer.get("size", 36)}]
             sizes = [float(style.get("size", 36)) for style in styles]

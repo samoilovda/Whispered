@@ -75,6 +75,12 @@ def custom_geometry(node: ET.Element) -> str:
     return " ".join(commands)
 
 
+def _fill_color(node: ET.Element) -> str | None:
+    """The shape's own solid fill as ``#RRGGBB`` (``None`` for none/scheme)."""
+    color = node.find("p:spPr/a:solidFill/a:srgbClr", NS)
+    return f"#{color.get('val', '').upper()}" if color is not None else None
+
+
 def _transform(node: ET.Element, mapping=None) -> list[float] | None:
     xfrm = node.find(".//a:xfrm", NS)
     if xfrm is None:
@@ -155,9 +161,11 @@ def extract_slide(archive: zipfile.ZipFile, slide: int, decor_dir: Path) -> list
                 name = f"leaf_{digest}"
                 decor_dir.mkdir(parents=True, exist_ok=True)
                 (decor_dir / f"{name}.path").write_text(value + "\n", encoding="utf-8")
-                layers.append(
-                    {"type": "decor", "path": name, "box": box, "fill": "variant.decor"}
-                )
+                layer = {"type": "decor", "path": name, "box": box, "fill": "variant.decor"}
+                color = _fill_color(node)
+                if color:
+                    layer["source_color"] = color
+                layers.append(layer)
             elif tag == "pic":
                 layers.append({"type": "image", "box": box, "source": "TODO"})
             else:
@@ -167,13 +175,59 @@ def extract_slide(archive: zipfile.ZipFile, slide: int, decor_dir: Path) -> list
     return layers
 
 
+def decor_set(layers: list[dict]) -> list[dict]:
+    """Keep a slide's decor layers as a reusable set. The slide's dominant
+    leaf colour becomes ``variant.decor`` and any other colour
+    ``variant.decor_alt`` — several slides alternate two colours (mint and
+    orange leaves on teal), and every palette defines both roles."""
+    decor = [dict(layer) for layer in layers if layer["type"] == "decor"]
+    colors = [layer.get("source_color") for layer in decor]
+    main_color = max(set(colors), key=colors.count) if colors else None
+    for layer in decor:
+        color = layer.pop("source_color", None)
+        layer["fill"] = (
+            "variant.decor" if color == main_color else "variant.decor_alt"
+        )
+    return decor
+
+
+def write_decor_sets(pptx: Path, slides: list[int], out: Path) -> None:
+    """Add every distinct leaf arrangement among *slides* to ``decor_sets``
+    of the template at *out*; layouts pick one through a ``decor_set``
+    layer, so covers vary without hand-placing each leaf."""
+    result = json.loads(out.read_text(encoding="utf-8"))
+    sets: dict[str, list[dict]] = {}
+    seen: set[str] = set()
+    with zipfile.ZipFile(pptx) as archive:
+        for slide in slides:
+            layers = decor_set(extract_slide(archive, slide, out.parent.parent / "decor"))
+            key = json.dumps(layers, sort_keys=True)
+            if layers and key not in seen:
+                seen.add(key)
+                sets[f"slide_{slide:02d}"] = layers
+    result["decor_sets"] = sets
+    out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"Wrote {len(sets)} decor sets to {out}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("pptx", type=Path)
-    parser.add_argument("--slide", type=int, required=True)
-    parser.add_argument("--layout", required=True)
+    parser.add_argument("--slide", type=int)
+    parser.add_argument("--layout")
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument(
+        "--decor-sets", metavar="SLIDES",
+        help="comma-separated slide numbers whose leaves become decor_sets",
+    )
     args = parser.parse_args()
+    if args.decor_sets:
+        write_decor_sets(
+            args.pptx, [int(n) for n in args.decor_sets.split(",")], args.out
+        )
+        return
+    if args.slide is None or not args.layout:
+        parser.error("--slide and --layout are required without --decor-sets")
     if args.out.exists():
         result = json.loads(args.out.read_text(encoding="utf-8"))
     else:

@@ -169,7 +169,7 @@ class Config:
 
     # Cover generator
     cover_template: str = "prosvet_16x9"
-    cover_variant: str = "mint"
+    cover_variant: str = "auto"
     cover_layout: str = "duo"
     cover_host_photo: str = ""
     cover_host_name: str = ""

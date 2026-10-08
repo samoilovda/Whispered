@@ -123,6 +123,17 @@ CI mirrors all of the above (`.github/workflows/ci.yml`).
 - The PPTX converter drops shapes fully outside the slide. Decorative
   `custGeom` paths accept only `moveTo`, `cubicBezTo`, and `close`; unknown
   geometry commands are errors rather than silently degraded output.
+- Decor `.path` files are in the unit square of the source shape's frame;
+  the renderer maps that square onto the layer box (not the curve's
+  bounding rect). Leaf arrangements live in a template's `decor_sets` and
+  enter a layout through a `{"type": "decor_set"}` layer.
+- `"auto"` cover styling (`covers/style.py`) is seeded by the title (the
+  source name when untitled): resolve it once and pass the concrete
+  variant/decor set on, so preview, export and the recipe's `cover.png`
+  match.
+- The YouTube publish wizard's approved cover is rendered through
+  `STEP_REGISTRY["cover"]` (not a separate save path), so its PNG and
+  manifest match what the recipe's cover step would cache-check.
 - Bellota Bold is the default OFL-licensed replacement for Templegarten;
   Poiret One remains an optional lighter alternative. Keep each font's OFL
   file with its TTF and preserve the generic fallback path.

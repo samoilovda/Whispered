@@ -3,16 +3,86 @@
   "version": 1,
   "canvas": {"w": 1280, "h": 720},
   "fonts": {
-    "display": {"file": "Bellota-Bold.ttf", "family": "Bellota"},
+    "display": {"file": "Bellota-Bold.ttf", "family": "Bellota", "prefer": ["Templegarten"]},
     "body": {"file": "Forum-Regular.ttf", "family": "Forum"}
   },
   "palette": {
     "yellow": "#F9B913", "sand": "#CCB999", "orange": "#EE7227",
-    "mint": "#B6DCCD", "teal": "#1B8E88", "brown": "#726858", "white": "#FFFFFF"
+    "mint": "#B6DCCD", "teal": "#1B8E88", "brown": "#726858", "white": "#FFFFFF",
+    "sand_light": "#D8C8AD", "ink": "#1E1A16"
   },
   "variants": {
-    "mint": {"label": "Мятный", "background": "bg_hands.jpg", "veil": {"color": "white", "alpha": 0.80}, "decor": "mint", "band": "yellow", "band_text": "white", "frame": "mint"},
-    "warm": {"label": "Тёплый", "background": "bg_hands.jpg", "veil": {"color": "brown", "alpha": 0.80}, "decor": "orange", "band": "teal", "band_text": "white", "frame": "orange"}
+    "sand": {"label": "Песочный", "background": "bg_hands.jpg", "veil": {"color": "sand_light", "alpha": 1.0}, "decor": "orange", "decor_alt": "orange", "band": {"color": "brown", "alpha": 0.97}, "band_text": "white", "frame": "orange", "brand_text": "ink"},
+    "mint": {"label": "Мятный", "background": "bg_hands.jpg", "veil": {"color": "white", "alpha": 0.8}, "decor": "mint", "decor_alt": "mint", "band": "yellow", "band_text": "white", "frame": "mint", "brand_text": "brown"},
+    "latte": {"label": "Кофе с молоком", "background": "bg_02.jpg", "veil": {"color": "sand", "alpha": 0.8}, "decor": "sand", "decor_alt": "sand", "band": "brown", "band_text": "white", "frame": "brown", "brand_text": "ink"},
+    "honey": {"label": "Медовый", "background": "bg_02.jpg", "veil": {"color": "brown", "alpha": 0.8}, "decor": "yellow", "decor_alt": "yellow", "band": "brown", "band_text": "white", "frame": "yellow", "brand_text": "white"},
+    "lagoon": {"label": "Лагуна", "background": "bg_03.jpg", "veil": {"color": "mint", "alpha": 0.8}, "decor": "mint", "decor_alt": "mint", "band": "teal", "band_text": "white", "frame": "teal", "brand_text": "ink"},
+    "teal": {"label": "Бирюзовый", "background": "bg_03.jpg", "veil": {"color": "teal", "alpha": 0.8}, "decor": "mint", "decor_alt": "orange", "band": "teal", "band_text": "white", "frame": "orange", "brand_text": "white"},
+    "warm": {"label": "Тёплый", "background": "bg_03.jpg", "veil": {"color": "brown", "alpha": 0.8}, "decor": "mint", "decor_alt": "orange", "band": "teal", "band_text": "white", "frame": "orange", "brand_text": "white"},
+    "cocoa": {"label": "Какао", "background": "bg_hands.jpg", "veil": {"color": "brown", "alpha": 0.8}, "decor": "brown", "decor_alt": "orange", "band": "teal", "band_text": "white", "frame": "orange", "brand_text": "white"},
+    "coral": {"label": "Коралловый", "background": "bg_hands.jpg", "veil": {"color": "mint", "alpha": 0.8}, "decor": "teal", "decor_alt": "orange", "band": "orange", "band_text": "white", "frame": "orange", "brand_text": "ink"}
+  },
+  "decor_sets": {
+    "slide_01": [
+      {"type": "decor", "path": "leaf_98b7b5ee2f", "box": [-72.84, 347.74, 489.96, 498.05], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_90c7ee9d5f", "box": [-132.31, -267.91, 473.87, 490.73], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_48656edc6e", "box": [837.49, 277.09, 327.4, 277.3], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_df89350564", "box": [964.43, 586.36, 187.28, 212.16], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_63d76c6820", "box": [906.61, 31.79, 346.42, 150.22], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_87e4d3b598", "box": [901.87, -134.54, 508.45, 510.63], "fill": "variant.decor"}
+    ],
+    "slide_02": [
+      {"type": "decor", "path": "leaf_98b7b5ee2f", "box": [-34.0, 359.64, 614.61, 624.75], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_90c7ee9d5f", "box": [-47.92, -280.0, 576.64, 597.15], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_fed095c004", "box": [911.31, 607.76, 148.37, 270.13], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_d9bc51e1e3", "box": [790.84, 266.88, 150.37, 255.47], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_5639e10b9a", "box": [1049.38, 120.38, 348.62, 964.2], "fill": "variant.decor"}
+    ],
+    "slide_09": [
+      {"type": "decor", "path": "leaf_98b7b5ee2f", "box": [-29.88, 438.53, 614.61, 624.75], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_fed095c004", "box": [845.15, 623.53, 148.37, 270.13], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_d9bc51e1e3", "box": [724.68, 271.38, 150.37, 270.13], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_5639e10b9a", "box": [983.22, 136.14, 348.62, 964.2], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_90c7ee9d5f", "box": [-51.61, -390.47, 576.64, 597.15], "fill": "variant.decor"}
+    ],
+    "slide_10": [
+      {"type": "decor", "path": "leaf_98b7b5ee2f", "box": [-29.88, 438.53, 614.61, 624.75], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_90c7ee9d5f", "box": [-51.61, -390.47, 576.64, 597.15], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_e75ee7b33a", "box": [1134.09, 575.72, 269.23, 334.76], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_60bf88c5de", "box": [776.61, 583.7, 309.22, 375.97], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_f693012ec8", "box": [956.1, 301.8, 407.97, 241.06], "fill": "variant.decor"}
+    ],
+    "slide_13": [
+      {"type": "decor", "path": "leaf_98b7b5ee2f", "box": [-29.88, 438.53, 614.61, 624.75], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_fed095c004", "box": [845.15, 623.53, 148.37, 270.13], "fill": "variant.decor_alt"},
+      {"type": "decor", "path": "leaf_d9bc51e1e3", "box": [884.83, 323.84, 150.37, 255.47], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_90c7ee9d5f", "box": [-51.61, -390.47, 576.64, 597.15], "fill": "variant.decor_alt"},
+      {"type": "decor", "path": "leaf_f693012ec8", "box": [915.65, 414.06, 570.19, 290.17], "fill": "variant.decor_alt"}
+    ],
+    "slide_14": [
+      {"type": "decor", "path": "leaf_98b7b5ee2f", "box": [-29.88, 438.53, 614.61, 624.75], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_90c7ee9d5f", "box": [-51.61, -390.47, 576.64, 597.15], "fill": "variant.decor_alt"},
+      {"type": "decor", "path": "leaf_48656edc6e", "box": [1028.34, 658.03, 327.4, 277.3], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_df89350564", "box": [1065.75, 438.5, 187.28, 212.16], "fill": "variant.decor_alt"},
+      {"type": "decor", "path": "leaf_63d76c6820", "box": [524.82, 579.17, 346.42, 150.22], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_87e4d3b598", "box": [529.83, 439.66, 508.45, 510.63], "fill": "variant.decor"}
+    ],
+    "slide_16": [
+      {"type": "decor", "path": "leaf_98b7b5ee2f", "box": [-29.88, 438.53, 614.61, 624.75], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_90c7ee9d5f", "box": [-51.61, -390.47, 576.64, 597.15], "fill": "variant.decor_alt"},
+      {"type": "decor", "path": "leaf_48656edc6e", "box": [1028.34, 658.03, 327.4, 277.3], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_df89350564", "box": [1065.75, 438.5, 187.28, 212.16], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_63d76c6820", "box": [524.82, 579.17, 346.42, 150.22], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_87e4d3b598", "box": [529.83, 439.66, 508.45, 510.63], "fill": "variant.decor"}
+    ],
+    "slide_17": [
+      {"type": "decor", "path": "leaf_98b7b5ee2f", "box": [-29.88, 438.53, 614.61, 624.75], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_90c7ee9d5f", "box": [-51.61, -390.47, 576.64, 597.15], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_48656edc6e", "box": [1028.34, 658.03, 327.4, 277.3], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_df89350564", "box": [1065.75, 438.5, 187.28, 212.16], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_63d76c6820", "box": [524.82, 579.17, 346.42, 150.22], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_87e4d3b598", "box": [529.83, 439.66, 508.45, 510.63], "fill": "variant.decor"}
+    ]
   },
   "layouts": {
     "duo": {
@@ -20,21 +90,17 @@
       "layers": [
         {"type": "background_image", "source": "variant.background", "fit": "cover_width_center"},
         {"type": "rect", "box": [0, 0, 1280, 720], "fill": "variant.veil"},
-        {"type": "decor", "path": "leaf_06", "box": [-34, 360, 614, 625], "fill": "variant.decor"},
-        {"type": "decor", "path": "leaf_13", "box": [-48, -280, 577, 597], "fill": "variant.decor"},
-        {"type": "decor", "path": "leaf_12", "box": [911, 608, 149, 270], "fill": "variant.decor"},
-        {"type": "decor", "path": "leaf_23", "box": [791, 267, 150, 256], "fill": "variant.decor"},
-        {"type": "decor", "path": "leaf_24", "box": [1049, 121, 349, 965], "fill": "variant.decor"},
-        {"type": "round_rect", "box": [189, 92, 392, 393], "radius_ratio": 0.16667, "stroke": {"color": "variant.frame", "width": 4.5}},
-        {"type": "photo", "slot": "photo_a", "box": [211, 113, 392, 392], "radius_ratio": 0.16667, "fit": "cover"},
-        {"type": "round_rect", "box": [694, 129, 392, 393], "radius_ratio": 0.16667, "stroke": {"color": "variant.frame", "width": 4.5}},
-        {"type": "photo", "slot": "photo_b", "box": [671, 113, 392, 392], "radius_ratio": 0.16667, "fit": "cover"},
-        {"type": "round_rect", "box": [300, 19, 680, 51], "radius_ratio": 0.16667, "fill": "variant.band", "grow_with": "names", "grow_padding": 28},
-        {"type": "text", "slot": "names", "box": [300, 19, 680, 51], "font": "display", "size": 36, "color": "variant.band_text", "align": "center", "vertical": "center", "autofit": {"min_size": 24, "max_lines": 1}},
-        {"type": "round_rect", "box": [30, 542, 1219, 157], "radius_ratio": 0.16667, "fill": "variant.band"},
-        {"type": "text", "slot": "title", "box": [40, 531, 1199, 162], "font": "display", "color": "variant.band_text", "align": "center", "vertical": "center", "line_styles": [{"size": 80}, {"size": 48}], "autofit": {"min_size": 30, "max_lines": 3, "step": 2}},
-        {"type": "image", "box": [1123, 11, 116, 120], "source": "logo_butterfly.png"},
-        {"type": "text", "box": [1128, 135, 128, 41], "value": "ПРОСВЕТ", "font": "display", "size": 22, "color": "variant.band_text", "align": "center"}
+        {"type": "decor_set"},
+        {"type": "round_rect", "box": [150, 108, 386, 380], "radius_ratio": 0.16667, "stroke": {"color": "variant.frame", "width": 4.5}},
+        {"type": "photo", "slot": "photo_a", "box": [165, 96, 386, 380], "radius_ratio": 0.16667, "fit": "cover"},
+        {"type": "round_rect", "box": [688, 94, 398, 394], "radius_ratio": 0.16667, "stroke": {"color": "variant.frame", "width": 4.5}},
+        {"type": "photo", "slot": "photo_b", "box": [706, 100, 366, 386], "radius_ratio": 0.16667, "fit": "cover"},
+        {"type": "round_rect", "box": [140, 20, 1000, 51], "radius_ratio": 0.16667, "fill": "variant.band", "grow_with": "names", "grow_padding": 28},
+        {"type": "text", "slot": "names", "box": [140, 20, 1000, 51], "font": "display", "size": 34, "color": "variant.band_text", "align": "center", "transform": "upper", "autofit": {"min_size": 22, "max_lines": 1}},
+        {"type": "round_rect", "box": [25, 514, 1230, 168], "radius_ratio": 0.16667, "fill": "variant.band"},
+        {"type": "text", "slot": "title", "box": [60, 518, 1160, 160], "font": "display", "color": "variant.band_text", "align": "center", "size": 70, "autofit": {"min_size": 34, "max_size": 110, "max_lines": 3, "step": 2}},
+        {"type": "image", "box": [1120, 8, 110, 114], "source": "logo_butterfly.png"},
+        {"type": "text", "box": [1105, 124, 140, 34], "value": "ПРОСВЕТ", "font": "display", "size": 24, "color": "variant.brand_text", "align": "center"}
       ]
     },
     "solo": {
@@ -42,14 +108,13 @@
       "layers": [
         {"type": "background_image", "source": "variant.background", "fit": "cover_width_center"},
         {"type": "rect", "box": [0, 0, 1280, 720], "fill": "variant.veil"},
-        {"type": "decor", "path": "leaf_13", "box": [-120, -100, 600, 620], "fill": "variant.decor"},
-        {"type": "decor", "path": "leaf_24", "box": [1000, 120, 360, 800], "fill": "variant.decor"},
+        {"type": "decor_set"},
         {"type": "round_rect", "box": [424, 40, 432, 432], "radius_ratio": 0.16667, "stroke": {"color": "variant.frame", "width": 5}},
         {"type": "photo", "slot": "photo_a", "box": [442, 58, 432, 432], "radius_ratio": 0.16667, "fit": "cover"},
         {"type": "round_rect", "box": [230, 492, 820, 54], "radius_ratio": 0.16667, "fill": "variant.band"},
-        {"type": "text", "slot": "names", "box": [240, 492, 800, 54], "font": "display", "size": 34, "color": "variant.band_text", "align": "center", "autofit": {"min_size": 22, "max_lines": 1}},
+        {"type": "text", "slot": "names", "box": [240, 492, 800, 54], "font": "display", "size": 34, "color": "variant.band_text", "align": "center", "transform": "upper", "autofit": {"min_size": 22, "max_lines": 1}},
         {"type": "round_rect", "box": [30, 558, 1220, 132], "radius_ratio": 0.16667, "fill": "variant.band"},
-        {"type": "text", "slot": "title", "box": [45, 552, 1190, 138], "font": "display", "color": "variant.band_text", "align": "center", "line_styles": [{"size": 66}, {"size": 44}], "autofit": {"min_size": 28, "max_lines": 3, "step": 2}},
+        {"type": "text", "slot": "title", "box": [45, 552, 1190, 138], "font": "display", "color": "variant.band_text", "align": "center", "size": 58, "autofit": {"min_size": 28, "max_size": 96, "max_lines": 3, "step": 2}},
         {"type": "image", "box": [1123, 11, 116, 120], "source": "logo_butterfly.png"}
       ]
     },
@@ -58,10 +123,9 @@
       "layers": [
         {"type": "background_image", "source": "variant.background", "fit": "cover_width_center"},
         {"type": "rect", "box": [0, 0, 1280, 720], "fill": "variant.veil"},
-        {"type": "decor", "path": "leaf_06", "box": [-80, 250, 650, 660], "fill": "variant.decor"},
-        {"type": "decor", "path": "leaf_24", "box": [950, -80, 430, 950], "fill": "variant.decor"},
+        {"type": "decor_set"},
         {"type": "round_rect", "box": [70, 210, 1140, 300], "radius_ratio": 0.12, "fill": "variant.band"},
-        {"type": "text", "slot": "title", "box": [100, 220, 1080, 280], "font": "display", "color": "variant.band_text", "align": "center", "line_styles": [{"size": 92}, {"size": 62}], "autofit": {"min_size": 32, "max_lines": 4, "step": 2}},
+        {"type": "text", "slot": "title", "box": [100, 220, 1080, 280], "font": "display", "color": "variant.band_text", "align": "center", "size": 80, "autofit": {"min_size": 32, "max_size": 130, "max_lines": 4, "step": 2}},
         {"type": "image", "box": [1123, 11, 116, 120], "source": "logo_butterfly.png"}
       ]
     }

@@ -4,6 +4,22 @@ from core.i18n import tr
 from utils import PERFORMANCE_MODES, WHISPER_LANGUAGES, WHISPER_MODELS
 
 
+# (translation key, template variant id) for the cover colour combos — the
+# Cover workspace and Settings list the same palettes, "auto" first.
+COVER_VARIANT_CHOICES: list[tuple[str, str]] = [
+    ("cover_variant_auto", "auto"),
+    ("cover_variant_sand", "sand"),
+    ("cover_variant_mint", "mint"),
+    ("cover_variant_latte", "latte"),
+    ("cover_variant_honey", "honey"),
+    ("cover_variant_lagoon", "lagoon"),
+    ("cover_variant_teal", "teal"),
+    ("cover_variant_warm", "warm"),
+    ("cover_variant_cocoa", "cocoa"),
+    ("cover_variant_coral", "coral"),
+]
+
+
 def whisper_model_options() -> list[tuple[str, str]]:
     return [(key, tr(f"whisper_model_{key.replace('-', '_')}")) for key, _ in WHISPER_MODELS]
 

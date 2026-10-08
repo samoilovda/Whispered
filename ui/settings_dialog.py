@@ -19,6 +19,7 @@ from PyQt6.QtCore import pyqtSignal
 from config import get_config, save_config
 from utils import get_models_dir
 from ui.option_labels import (
+    COVER_VARIANT_CHOICES,
     performance_mode_options,
     whisper_language_options,
     whisper_model_options,
@@ -421,10 +422,7 @@ class SettingsDialog(QDialog):
             ("cover_layout_text", "text_only"),
         ])
         self._cover_variant_combo = QComboBox()
-        self._combo_items(self._cover_variant_combo, [
-            ("cover_variant_mint", "mint"),
-            ("cover_variant_warm", "warm"),
-        ])
+        self._combo_items(self._cover_variant_combo, COVER_VARIANT_CHOICES)
         self._cover_host_name_edit = QLineEdit()
         self._cover_host_photo_edit = QLineEdit()
         self._cover_provider_combo = QComboBox()
@@ -721,7 +719,7 @@ class SettingsDialog(QDialog):
         cfg.yt_channel_signature = self._yt_signature_edit.toPlainText().strip()
 
         cfg.cover_layout = self._cover_layout_combo.currentData() or "duo"
-        cfg.cover_variant = self._cover_variant_combo.currentData() or "mint"
+        cfg.cover_variant = self._cover_variant_combo.currentData() or "auto"
         cfg.cover_host_name = self._cover_host_name_edit.text().strip()
         cfg.cover_host_photo = self._cover_host_photo_edit.text().strip()
         cfg.cover_image_provider = self._cover_provider_combo.currentData() or "local"

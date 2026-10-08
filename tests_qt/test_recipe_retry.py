@@ -237,7 +237,7 @@ def test_recipe_run_renders_the_cover_the_workspace_is_set_to(window, monkeypatc
 
     window.cover_view.inspector.title_edit.setPlainText("A title")
     window.cover_view.inspector.names_edit.setText("Two hosts")
-    layout, variant, _ = window.cover_view.inspector.state()
+    expected = window.cover_view.render_params()
 
     seen = {}
     real_build = steps.build_runners
@@ -253,8 +253,12 @@ def test_recipe_run_renders_the_cover_the_workspace_is_set_to(window, monkeypatc
         window._recipe_job.wait(5000)
     process_events()
 
-    assert seen["cover_layout"] == layout
-    assert seen["cover_variant"] == variant
+    # "auto" is resolved by the workspace, so the recipe gets the exact
+    # palette and leaves the preview shows rather than re-picking them.
+    assert seen["cover_layout"] == expected["cover_layout"]
+    assert seen["cover_variant"] == expected["cover_variant"]
+    assert seen["cover_variant"] in window.cover_view.template.variants
+    assert seen["cover_decor_set"] == expected["cover_decor_set"]
     assert seen["cover_template"] == window.cover_view.template.id
     assert seen["cover_slots"]["title"] == "A title"
     assert seen["cover_slots"]["names"] == "Two hosts"

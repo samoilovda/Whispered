@@ -11,3 +11,10 @@
   `assets/fonts/Bellota-OFL.txt`. Poiret One remains bundled as an alternative.
 - Brand palette: yellow `#F9B913`, sand `#CCB999`, orange `#EE7227`, mint
   `#B6DCCD`, teal `#1B8E88`, brown `#726858`.
+- Each template variant reproduces one slide's colour scheme from the deck
+  (`sand` is the hand-made reference cover); `decor_alt` is the second leaf
+  colour on slides that alternate two.
+- `decor/leaf_<hash>.path` are the deck's own leaf outlines and the
+  `decor_sets` in `prosvet_16x9.json` its per-slide leaf arrangements,
+  regenerated with
+  `python tools/pptx_to_template.py "input/Просвет 16-9.pptx" --decor-sets 1,2,6,9,10,13,14,16,17 --out <template>`.

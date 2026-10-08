@@ -1,25 +1,32 @@
 {
   "id": "prosvet_9x16", "version": 1,
   "canvas": {"w": 1080, "h": 1920},
-  "fonts": {"display": {"file": "Bellota-Bold.ttf", "family": "Bellota"}, "body": {"file": "Forum-Regular.ttf", "family": "Forum"}},
-  "palette": {"yellow": "#F9B913", "sand": "#CCB999", "orange": "#EE7227", "mint": "#B6DCCD", "teal": "#1B8E88", "brown": "#726858", "white": "#FFFFFF"},
+  "fonts": {"display": {"file": "Bellota-Bold.ttf", "family": "Bellota", "prefer": ["Templegarten"]}, "body": {"file": "Forum-Regular.ttf", "family": "Forum"}},
+  "palette": {"yellow": "#F9B913", "sand": "#CCB999", "orange": "#EE7227", "mint": "#B6DCCD", "teal": "#1B8E88", "brown": "#726858", "white": "#FFFFFF", "sand_light": "#D8C8AD", "ink": "#1E1A16"},
   "variants": {
-    "mint": {"label": "Мятный", "background": "bg_hands.jpg", "veil": {"color": "white", "alpha": 0.8}, "decor": "mint", "band": "yellow", "band_text": "white", "frame": "mint"},
-    "warm": {"label": "Тёплый", "background": "bg_hands.jpg", "veil": {"color": "brown", "alpha": 0.8}, "decor": "orange", "band": "teal", "band_text": "white", "frame": "orange"}
+    "sand": {"label": "Песочный", "background": "bg_hands.jpg", "veil": {"color": "sand_light", "alpha": 1.0}, "decor": "orange", "decor_alt": "orange", "band": {"color": "brown", "alpha": 0.97}, "band_text": "white", "frame": "orange", "brand_text": "ink"},
+    "mint": {"label": "Мятный", "background": "bg_hands.jpg", "veil": {"color": "white", "alpha": 0.8}, "decor": "mint", "decor_alt": "mint", "band": "yellow", "band_text": "white", "frame": "mint", "brand_text": "brown"},
+    "latte": {"label": "Кофе с молоком", "background": "bg_02.jpg", "veil": {"color": "sand", "alpha": 0.8}, "decor": "sand", "decor_alt": "sand", "band": "brown", "band_text": "white", "frame": "brown", "brand_text": "ink"},
+    "honey": {"label": "Медовый", "background": "bg_02.jpg", "veil": {"color": "brown", "alpha": 0.8}, "decor": "yellow", "decor_alt": "yellow", "band": "brown", "band_text": "white", "frame": "yellow", "brand_text": "white"},
+    "lagoon": {"label": "Лагуна", "background": "bg_03.jpg", "veil": {"color": "mint", "alpha": 0.8}, "decor": "mint", "decor_alt": "mint", "band": "teal", "band_text": "white", "frame": "teal", "brand_text": "ink"},
+    "teal": {"label": "Бирюзовый", "background": "bg_03.jpg", "veil": {"color": "teal", "alpha": 0.8}, "decor": "mint", "decor_alt": "orange", "band": "teal", "band_text": "white", "frame": "orange", "brand_text": "white"},
+    "warm": {"label": "Тёплый", "background": "bg_03.jpg", "veil": {"color": "brown", "alpha": 0.8}, "decor": "mint", "decor_alt": "orange", "band": "teal", "band_text": "white", "frame": "orange", "brand_text": "white"},
+    "cocoa": {"label": "Какао", "background": "bg_hands.jpg", "veil": {"color": "brown", "alpha": 0.8}, "decor": "brown", "decor_alt": "orange", "band": "teal", "band_text": "white", "frame": "orange", "brand_text": "white"},
+    "coral": {"label": "Коралловый", "background": "bg_hands.jpg", "veil": {"color": "mint", "alpha": 0.8}, "decor": "teal", "decor_alt": "orange", "band": "orange", "band_text": "white", "frame": "orange", "brand_text": "ink"}
   },
   "layouts": {
     "duo": {"label": "Двое", "slots": ["title", "names", "photo_a", "photo_b"], "layers": [
       {"type": "background_image", "source": "variant.background", "fit": "cover_height_center"},
       {"type": "rect", "box": [0, 0, 1080, 1920], "fill": "variant.veil"},
-      {"type": "decor", "path": "leaf_13", "box": [-150, -80, 650, 700], "fill": "variant.decor"},
+      {"type": "decor", "path": "leaf_90c7ee9d5f", "box": [-150, -80, 650, 700], "fill": "variant.decor"},
       {"type": "round_rect", "box": [72, 182, 880, 700], "radius_ratio": 0.12, "stroke": {"color": "variant.frame", "width": 8}},
       {"type": "photo", "slot": "photo_a", "box": [100, 210, 880, 700], "radius_ratio": 0.12, "fit": "cover"},
       {"type": "round_rect", "box": [128, 900, 880, 700], "radius_ratio": 0.12, "stroke": {"color": "variant.frame", "width": 8}},
       {"type": "photo", "slot": "photo_b", "box": [100, 872, 880, 700], "radius_ratio": 0.12, "fit": "cover"},
       {"type": "round_rect", "box": [90, 70, 760, 90], "radius_ratio": 0.17, "fill": "variant.band"},
-      {"type": "text", "slot": "names", "box": [100, 70, 740, 90], "font": "display", "size": 52, "color": "variant.band_text", "align": "center", "autofit": {"min_size": 34, "max_lines": 1}},
+      {"type": "text", "slot": "names", "box": [100, 70, 740, 90], "font": "display", "size": 52, "color": "variant.band_text", "align": "center", "transform": "upper", "autofit": {"min_size": 34, "max_lines": 1}},
       {"type": "round_rect", "box": [30, 1600, 1020, 280], "radius_ratio": 0.12, "fill": "variant.band"},
-      {"type": "text", "slot": "title", "box": [55, 1605, 970, 265], "font": "display", "color": "variant.band_text", "align": "center", "line_styles": [{"size": 120}, {"size": 72}], "autofit": {"min_size": 48, "max_lines": 3, "step": 3}},
+      {"type": "text", "slot": "title", "box": [55, 1605, 970, 265], "font": "display", "color": "variant.band_text", "align": "center", "size": 96, "autofit": {"min_size": 48, "max_size": 140, "max_lines": 4, "step": 3}},
       {"type": "image", "box": [870, 25, 160, 165], "source": "logo_butterfly.png"}
     ]},
     "solo": {"label": "Один", "slots": ["title", "names", "photo_a"], "layers": [
@@ -27,16 +34,16 @@
       {"type": "rect", "box": [0, 0, 1080, 1920], "fill": "variant.veil"},
       {"type": "photo", "slot": "photo_a", "box": [100, 230, 880, 1050], "radius_ratio": 0.12, "fit": "cover"},
       {"type": "round_rect", "box": [80, 1320, 920, 100], "radius_ratio": 0.16, "fill": "variant.band"},
-      {"type": "text", "slot": "names", "box": [100, 1320, 880, 100], "font": "display", "size": 58, "color": "variant.band_text", "align": "center", "autofit": {"min_size": 36, "max_lines": 1}},
+      {"type": "text", "slot": "names", "box": [100, 1320, 880, 100], "font": "display", "size": 58, "color": "variant.band_text", "align": "center", "transform": "upper", "autofit": {"min_size": 36, "max_lines": 1}},
       {"type": "round_rect", "box": [30, 1460, 1020, 400], "radius_ratio": 0.12, "fill": "variant.band"},
-      {"type": "text", "slot": "title", "box": [55, 1480, 970, 360], "font": "display", "color": "variant.band_text", "align": "center", "line_styles": [{"size": 120}, {"size": 72}], "autofit": {"min_size": 48, "max_lines": 4, "step": 3}},
+      {"type": "text", "slot": "title", "box": [55, 1480, 970, 360], "font": "display", "color": "variant.band_text", "align": "center", "size": 96, "autofit": {"min_size": 48, "max_size": 140, "max_lines": 4, "step": 3}},
       {"type": "image", "box": [870, 25, 160, 165], "source": "logo_butterfly.png"}
     ]},
     "text_only": {"label": "Текст", "slots": ["title"], "layers": [
       {"type": "background_image", "source": "variant.background", "fit": "cover_height_center"},
       {"type": "rect", "box": [0, 0, 1080, 1920], "fill": "variant.veil"},
       {"type": "round_rect", "box": [30, 570, 1020, 780], "radius_ratio": 0.12, "fill": "variant.band"},
-      {"type": "text", "slot": "title", "box": [70, 610, 940, 700], "font": "display", "color": "variant.band_text", "align": "center", "line_styles": [{"size": 130}, {"size": 82}], "autofit": {"min_size": 50, "max_lines": 5, "step": 3}},
+      {"type": "text", "slot": "title", "box": [70, 610, 940, 700], "font": "display", "color": "variant.band_text", "align": "center", "size": 112, "autofit": {"min_size": 50, "max_size": 170, "max_lines": 5, "step": 3}},
       {"type": "image", "box": [870, 25, 160, 165], "source": "logo_butterfly.png"}
     ]}
   }

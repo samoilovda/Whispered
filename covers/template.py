@@ -65,13 +65,16 @@ class CoverTemplate:
     id: str
     version: int
     canvas: tuple[int, int]
-    fonts: dict[str, dict[str, str]]
+    fonts: dict[str, dict[str, Any]]
     palette: dict[str, str]
     variants: dict[str, Variant]
     layouts: dict[str, Layout]
     root: Path
     source: Path
     slots: dict[str, Slot] = field(default_factory=dict)
+    # Interchangeable leaf arrangements (one per slide of the source deck);
+    # a layout's ``decor_set`` layer is replaced by the chosen one.
+    decor_sets: dict[str, tuple[Layer, ...]] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any], source: Path) -> "CoverTemplate":
@@ -94,6 +97,13 @@ class CoverTemplate:
                         for item in value["layers"]
                     ),
                 )
+            decor_sets = {
+                name: tuple(
+                    Layer(item["type"], {k: v for k, v in item.items() if k != "type"})
+                    for item in items
+                )
+                for name, items in raw.get("decor_sets", {}).items()
+            }
             slot_defs = {
                 name: Slot(name, value.get("kind", "text"), value.get("required", True))
                 for name, value in raw.get("slots", {}).items()
@@ -109,6 +119,7 @@ class CoverTemplate:
                 root=source.parent.parent,
                 source=source,
                 slots=slot_defs,
+                decor_sets=decor_sets,
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise TemplateError(f"Invalid template {source}: {exc}") from exc
@@ -126,26 +137,35 @@ class CoverTemplate:
             "photo",
             "image",
             "text",
+            "decor_set",
         }
-        for layout in self.layouts.values():
-            for layer in layout.layers:
+        for name, layers in self.decor_sets.items():
+            for layer in layers:
+                if layer.type != "decor":
+                    raise TemplateError(
+                        f"decor set {name}: only decor layers allowed, got {layer.type}"
+                    )
+        groups = [(layout.name, layout.layers) for layout in self.layouts.values()]
+        groups += [(f"decor set {name}", layers) for name, layers in self.decor_sets.items()]
+        for group_name, layers in groups:
+            for layer in layers:
                 if layer.type not in known:
                     raise TemplateError(f"unknown layer type: {layer.type}")
                 box = layer.get("box")
                 if box is not None:
                     if not isinstance(box, list) or len(box) != 4:
                         raise TemplateError(
-                            f"{layout.name}: box must contain four numbers"
+                            f"{group_name}: box must contain four numbers"
                         )
                     x, y, w, h = (float(value) for value in box)
                     if w < 0 or h < 0:
                         raise TemplateError(
-                            f"{layout.name}: box size cannot be negative"
+                            f"{group_name}: box size cannot be negative"
                         )
                     cw, ch = self.canvas
                     if x + w < -cw or y + h < -ch or x > 2 * cw or y > 2 * ch:
                         raise TemplateError(
-                            f"{layout.name}: box is more than one canvas outside"
+                            f"{group_name}: box is more than one canvas outside"
                         )
                 radius = layer.get("radius_ratio")
                 if radius is not None and not 0 <= float(radius) <= 0.5:
@@ -208,15 +228,29 @@ class CoverTemplate:
             return [self._resolve_value(child, variant) for child in value]
         return value
 
-    def resolve(self, layout: str, variant: str) -> list[ResolvedLayer]:
+    def resolve(
+        self, layout: str, variant: str, decor_set: str | None = None
+    ) -> list[ResolvedLayer]:
+        """Layers of *layout* with *variant*'s colours filled in. A
+        ``decor_set`` layer expands to the leaves of *decor_set* (the first
+        set when ``None``; nothing when the template has no sets)."""
         if layout not in self.layouts:
             raise TemplateError(f"unknown layout: {layout}")
         if variant not in self.variants:
             raise TemplateError(f"unknown variant: {variant}")
+        if decor_set is not None and decor_set not in self.decor_sets:
+            raise TemplateError(f"unknown decor set: {decor_set}")
         selected = self.variants[variant]
+        chosen = decor_set or next(iter(self.decor_sets), None)
+        layers: list[Layer] = []
+        for layer in self.layouts[layout].layers:
+            if layer.type == "decor_set":
+                layers.extend(self.decor_sets[chosen] if chosen else ())
+            else:
+                layers.append(layer)
         return [
             ResolvedLayer(layer.type, self._resolve_value(layer.data, selected))
-            for layer in self.layouts[layout].layers
+            for layer in layers
         ]
 
 

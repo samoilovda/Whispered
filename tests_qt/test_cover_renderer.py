@@ -37,7 +37,7 @@ def test_renderer_is_deterministic_and_export_obeys_budget(tmp_path):
     assert first.size() == QSize(1280, 720)
     assert _max_channel_delta(cold, first) <= 48
     assert _bytes(first) == _bytes(second)
-    assert first.pixelColor(640, 620).name().upper() == "#F9B913"
+    assert first.pixelColor(40, 600).name().upper() == "#F9B913"  # title band, clear of text
     files = export(first, None, tmp_path, "test", state={"template": template.id}, jpeg_max_bytes=100_000)
     assert len(files) == 3
     assert (tmp_path / "test.jpg").stat().st_size <= 100_000

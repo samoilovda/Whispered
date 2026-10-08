@@ -1,11 +1,17 @@
 """
 Whispered UI - YouTube publish dialog.
 
-Shown after a "Video for YouTube" run (or from the YouTube tab): the final
-title / description / tags / cover, validated against YouTube's limits, with
-hand-off actions — copy each field, show the video in the file manager,
-save everything as a folder, open YouTube Studio's upload page. Nothing is
-sent over the network from here.
+Shown after a "Video for YouTube" run (or from the YouTube tab) as a
+three-step wizard:
+
+1. Texts — the generated title / description (chapter timecodes folded in)
+   / tags to correct, plus the speakers' names for the cover.
+2. Cover — rendered from those texts through the Cover workspace (palette,
+   leaves, photos), with "Regenerate" and a photo for the second speaker;
+   "Approve" writes the final ``cover.png``.
+3. Publish — validated against YouTube's limits; hand-off actions (copy,
+   show the video, save as a folder, open Studio) and, in API mode, the
+   upload itself. Nothing is sent over the network from here.
 
 Opened with ``.exec()`` and rebuilt each time, so (per CLAUDE.md's i18n
 notes) it is deliberately not retranslated live.
@@ -15,14 +21,14 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Protocol
 
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices, QImage, QPixmap
 from PyQt6.QtWidgets import (
-    QApplication, QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel,
-    QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
-    QVBoxLayout, QWidget,
+    QApplication, QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout,
+    QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
+    QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from application.youtube_publish import (
@@ -43,8 +49,25 @@ STUDIO_UPLOAD_URL = "https://www.youtube.com/upload"
 STUDIO_EDIT_URL = "https://studio.youtube.com/video/{video_id}/edit"
 
 
+PAGE_TEXTS, PAGE_COVER, PAGE_PUBLISH = range(3)
+_COVER_PREVIEW_WIDTH = 640
+
+
 def studio_edit_url(video_id: str) -> str:
     return STUDIO_EDIT_URL.format(video_id=video_id)
+
+
+class CoverStudio(Protocol):
+    """What the wizard's cover step drives — ``ui.cover_view.CoverView``.
+    ``preview_changed`` (a bound pyqtSignal) carries each re-render's QImage."""
+
+    preview_changed: object
+
+    def set_cover_texts(self, title: str, host: str, guest: str) -> None: ...
+    def shuffle(self) -> None: ...
+    def choose_photo(self, slot: str) -> None: ...
+    def grab_frame(self, slot: str) -> None: ...
+    def has_video(self) -> bool: ...
 
 
 class YouTubePublishDialog(QDialog):
@@ -62,10 +85,16 @@ class YouTubePublishDialog(QDialog):
     ``set_upload_progress`` / ``set_upload_done`` / ``set_upload_failed`` /
     ``set_upload_cancelled``. *record_path* / *pending_path* are the
     artifact-dir files of a finished / interrupted upload of this record.
+
+    *cover_studio* (the Cover workspace) enables the cover step: without it
+    the step just shows *cover_path*. *host_name* pre-fills the host.
     """
 
     upload_requested = pyqtSignal(object)
     upload_cancel_requested = pyqtSignal()
+    # "Approve cover": the owner renders the final cover.png in the
+    # background and answers with set_cover_ready() / set_cover_failed().
+    cover_render_requested = pyqtSignal()
 
     def __init__(
         self,
@@ -78,11 +107,13 @@ class YouTubePublishDialog(QDialog):
         upload_enabled: bool = False,
         record_path: Optional[Path] = None,
         pending_path: Optional[Path] = None,
+        cover_studio: Optional[CoverStudio] = None,
+        host_name: str = "",
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(tr("yt_publish_title"))
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(720)
         self._video_path = video_path
         self._cover_path = cover_path
         self._source_name = source_name or "youtube"
@@ -91,6 +122,9 @@ class YouTubePublishDialog(QDialog):
         self._record_path = record_path
         self._pending_path = pending_path
         self._uploading = False
+        self._cover_studio = cover_studio
+        self._host_name = host_name
+        self._cover_busy = False
         self._language: Optional[str] = texts.get("language")
         self._chapter_check = texts.get("chapter_check")
         self._build_ui(texts)
@@ -101,13 +135,43 @@ class YouTubePublishDialog(QDialog):
     def _build_ui(self, texts: dict) -> None:
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
+        self._step_label = QLabel()
+        set_role(self._step_label, "section-title")
+        layout.addWidget(self._step_label)
+        self._pages = QStackedWidget()
+        self._pages.addWidget(self._texts_page(texts))
+        self._pages.addWidget(self._cover_page())
+        self._pages.addWidget(self._publish_page())
+        layout.addWidget(self._pages, 1)
 
-        intro = QLabel(tr("yt_publish_intro"))
+        self._issues_label = QLabel()
+        self._issues_label.setWordWrap(True)
+        self._issues_label.setTextFormat(Qt.TextFormat.PlainText)
+        layout.addWidget(self._issues_label)
+
+        nav = QHBoxLayout()
+        self._back_btn = QPushButton(tr("yt_wizard_back"))
+        self._back_btn.clicked.connect(self._go_back)
+        nav.addWidget(self._back_btn)
+        nav.addStretch(1)
+        close_btn = QPushButton(tr("yt_publish_close"))
+        close_btn.clicked.connect(self.reject)
+        nav.addWidget(close_btn)
+        self._next_btn = QPushButton()
+        self._next_btn.setProperty("variant", "primary")
+        self._next_btn.clicked.connect(self._go_next)
+        nav.addWidget(self._next_btn)
+        layout.addLayout(nav)
+        self._show_page(PAGE_TEXTS)
+
+    def _texts_page(self, texts: dict) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        intro = QLabel(tr("yt_wizard_intro"))
         intro.setWordWrap(True)
         set_role(intro, "dim")
         layout.addWidget(intro)
-
-        layout.addLayout(self._video_row())
 
         self._title_combo = QComboBox()
         self._title_combo.setEditable(True)
@@ -121,6 +185,7 @@ class YouTubePublishDialog(QDialog):
 
         self._desc_edit = QPlainTextEdit(texts.get("description") or "")
         self._desc_edit.setMinimumHeight(140)
+        self._desc_edit.setToolTip(tr("yt_wizard_description_tip"))
         self._desc_edit.textChanged.connect(self._refresh)
         self._desc_counter = QLabel()
         layout.addLayout(self._field_row(
@@ -136,16 +201,65 @@ class YouTubePublishDialog(QDialog):
             tr("yt_publish_copy_tags"), self._copy_tags,
         ))
 
+        speakers = QFormLayout()
+        self._host_edit = QLineEdit(self._host_name)
+        speakers.addRow(tr("yt_wizard_host"), self._host_edit)
+        self._guest_edit = QLineEdit()
+        self._guest_edit.setPlaceholderText(tr("yt_wizard_guest_placeholder"))
+        speakers.addRow(tr("yt_wizard_guest"), self._guest_edit)
+        self._cover_text_edit = QLineEdit()
+        self._cover_text_edit.setPlaceholderText(tr("yt_wizard_cover_text_placeholder"))
+        speakers.addRow(tr("yt_wizard_cover_text"), self._cover_text_edit)
+        layout.addLayout(speakers)
+        return page
+
+    def _cover_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self._cover_preview = QLabel()
+        self._cover_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._cover_preview.setMinimumSize(_COVER_PREVIEW_WIDTH, _COVER_PREVIEW_WIDTH * 9 // 16)
+        layout.addWidget(self._cover_preview, 1)
+        self._cover_status = QLabel()
+        self._cover_status.setWordWrap(True)
+        set_role(self._cover_status, "dim")
+        layout.addWidget(self._cover_status)
+        row = QHBoxLayout()
+        self._regenerate_btn = QPushButton(tr("yt_wizard_regenerate"))
+        self._regenerate_btn.setToolTip(tr("cover_shuffle_tip"))
+        self._regenerate_btn.clicked.connect(self._regenerate_cover)
+        row.addWidget(self._regenerate_btn)
+        self._guest_photo_btn = QPushButton(tr("yt_wizard_guest_photo"))
+        self._guest_photo_btn.clicked.connect(
+            lambda: self._cover_studio and self._cover_studio.choose_photo("photo_b"))
+        row.addWidget(self._guest_photo_btn)
+        self._guest_frame_btn = QPushButton(tr("cover_frame_from_video"))
+        self._guest_frame_btn.clicked.connect(
+            lambda: self._cover_studio and self._cover_studio.grab_frame("photo_b"))
+        row.addWidget(self._guest_frame_btn)
+        row.addStretch(1)
+        layout.addLayout(row)
+        if self._cover_studio is not None:
+            self._cover_studio.preview_changed.connect(self._show_cover_image)  # type: ignore[attr-defined]
+        else:
+            for button in (self._regenerate_btn, self._guest_photo_btn, self._guest_frame_btn):
+                button.setVisible(False)
+            self._show_cover_file()
+        return page
+
+    def _publish_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addLayout(self._video_row())
         layout.addLayout(self._cover_row())
-
-        self._issues_label = QLabel()
-        self._issues_label.setWordWrap(True)
-        self._issues_label.setTextFormat(Qt.TextFormat.PlainText)
-        layout.addWidget(self._issues_label)
-
+        summary = QLabel(tr("yt_wizard_publish_hint"))
+        summary.setWordWrap(True)
+        set_role(summary, "dim")
+        layout.addWidget(summary)
         if self._upload_enabled:
             layout.addLayout(self._upload_row())
-
         actions = QHBoxLayout()
         self._reveal_btn = QPushButton(tr("yt_publish_reveal"))
         self._reveal_btn.clicked.connect(self._reveal_video)
@@ -159,10 +273,100 @@ class YouTubePublishDialog(QDialog):
             self._studio_btn.setProperty("variant", "primary")
         self._studio_btn.clicked.connect(self._open_studio)
         actions.addWidget(self._studio_btn)
-        close_btn = QPushButton(tr("yt_publish_close"))
-        close_btn.clicked.connect(self.reject)
-        actions.addWidget(close_btn)
         layout.addLayout(actions)
+        layout.addStretch(1)
+        return page
+
+    # ------------------------------------------------------------- wizard
+
+    def current_page(self) -> int:
+        return self._pages.currentIndex()
+
+    def _show_page(self, index: int) -> None:
+        self._pages.setCurrentIndex(index)
+        names = (tr("yt_wizard_step_texts"), tr("yt_wizard_step_cover"),
+                 tr("yt_wizard_step_publish"))
+        self._step_label.setText(
+            tr("yt_wizard_step", n=index + 1, total=len(names), name=names[index]))
+        self._back_btn.setVisible(index > PAGE_TEXTS)
+        self._next_btn.setVisible(index < PAGE_PUBLISH)
+        self._next_btn.setText(
+            tr("yt_wizard_to_cover") if index == PAGE_TEXTS else tr("yt_wizard_approve_cover"))
+        self._refresh_wizard_buttons()
+
+    def _refresh_wizard_buttons(self) -> None:
+        page = self._pages.currentIndex()
+        busy = self._cover_busy
+        self._next_btn.setEnabled(not busy and not (
+            page == PAGE_TEXTS and not self.current_title()))
+        self._back_btn.setEnabled(not busy and not self._uploading)
+        for button in (self._regenerate_btn, self._guest_photo_btn):
+            button.setEnabled(not busy)
+        self._guest_frame_btn.setEnabled(
+            not busy and self._cover_studio is not None and self._cover_studio.has_video())
+
+    def _go_back(self) -> None:
+        if self._pages.currentIndex() > PAGE_TEXTS:
+            self._show_page(self._pages.currentIndex() - 1)
+
+    def _go_next(self) -> None:
+        page = self._pages.currentIndex()
+        if page == PAGE_TEXTS:
+            self._show_page(PAGE_COVER)
+            if self._cover_studio is not None:
+                self._cover_status.setText("")
+                self._cover_studio.set_cover_texts(
+                    self.cover_text(), self.host_name(), self.guest_name())
+        elif page == PAGE_COVER:
+            if self._cover_studio is None:
+                self._show_page(PAGE_PUBLISH)
+                return
+            self._cover_busy = True
+            self._cover_status.setText(tr("yt_wizard_cover_saving"))
+            self._refresh_wizard_buttons()
+            self.cover_render_requested.emit()
+
+    def cover_text(self) -> str:
+        """What the cover says: its own line if typed, else the video title."""
+        return self._cover_text_edit.text().strip() or self.current_title()
+
+    def host_name(self) -> str:
+        return self._host_edit.text().strip()
+
+    def guest_name(self) -> str:
+        return self._guest_edit.text().strip()
+
+    def _regenerate_cover(self) -> None:
+        if self._cover_studio is not None:
+            self._cover_studio.shuffle()
+
+    def _show_cover_image(self, image: object) -> None:
+        if not isinstance(image, QImage) or image.isNull():
+            return
+        self._cover_preview.setPixmap(QPixmap.fromImage(image).scaledToWidth(
+            _COVER_PREVIEW_WIDTH, Qt.TransformationMode.SmoothTransformation))
+
+    def _show_cover_file(self) -> None:
+        pixmap = QPixmap(str(self._cover_path)) if self._cover_path else QPixmap()
+        if pixmap.isNull():
+            self._cover_preview.setText(tr("yt_publish_no_cover"))
+        else:
+            self._cover_preview.setPixmap(pixmap.scaledToWidth(
+                _COVER_PREVIEW_WIDTH, Qt.TransformationMode.SmoothTransformation))
+
+    def set_cover_ready(self, path: Path) -> None:
+        """The approved cover is saved at *path*: use it and move on."""
+        self._cover_busy = False
+        self._cover_path = path
+        self._cover_status.setText("")
+        self._update_cover_thumb()
+        self._show_page(PAGE_PUBLISH)
+        self._refresh()
+
+    def set_cover_failed(self, message: str) -> None:
+        self._cover_busy = False
+        self._cover_status.setText(tr("yt_wizard_cover_failed", detail=message))
+        self._refresh_wizard_buttons()
 
     def _upload_row(self) -> QVBoxLayout:
         box = QVBoxLayout()
@@ -212,6 +416,11 @@ class YouTubePublishDialog(QDialog):
         row = QHBoxLayout()
         row.addWidget(QLabel(tr("yt_publish_label_cover")))
         self._cover_label = QLabel()
+        row.addWidget(self._cover_label, 1)
+        self._update_cover_thumb()
+        return row
+
+    def _update_cover_thumb(self) -> None:
         pixmap = QPixmap(str(self._cover_path)) if self._cover_path else QPixmap()
         if pixmap.isNull():
             self._cover_label.setText(tr("yt_publish_no_cover"))
@@ -219,8 +428,6 @@ class YouTubePublishDialog(QDialog):
         else:
             self._cover_label.setPixmap(pixmap.scaledToWidth(
                 200, Qt.TransformationMode.SmoothTransformation))
-        row.addWidget(self._cover_label, 1)
-        return row
 
     def _field_row(self, caption: str, widget: QWidget, counter: QLabel,
                    copy_text: str, copy_slot) -> QVBoxLayout:
@@ -286,6 +493,8 @@ class YouTubePublishDialog(QDialog):
         set_role(self._issues_label, "warning-text")
         if self._upload_enabled:
             self._refresh_upload_button()
+        if hasattr(self, "_next_btn"):
+            self._refresh_wizard_buttons()
 
     # -------------------------------------------------------------- actions
 
@@ -424,6 +633,7 @@ class YouTubePublishDialog(QDialog):
         self._upload_progress.setValue(0)
         self._upload_progress.setVisible(True)
         self._show_upload_status("", None)
+        self._refresh_wizard_buttons()
         self.upload_requested.emit(self.upload_package())
 
     def _show_upload_status(self, text: str, role: Optional[str]) -> None:
@@ -438,6 +648,7 @@ class YouTubePublishDialog(QDialog):
         self._cancel_upload_btn.setVisible(False)
         self._upload_progress.setVisible(False)
         self._refresh_upload_button()
+        self._refresh_wizard_buttons()
 
     def set_upload_progress(self, percent: int, sent: object = None, total: object = None) -> None:
         self._upload_progress.setValue(int(percent))

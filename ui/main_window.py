@@ -64,6 +64,7 @@ from application.document_session import DocumentSession
 from application.job_engine import JobRun
 from application.steps import (
     STEP_DEFINITIONS,
+    STEP_REGISTRY,
     StepContext,
     build_cache_checks,
     build_job_spec,
@@ -2812,7 +2813,12 @@ class MainWindow(QMainWindow):
             upload_enabled=art_dir is not None and self._youtube_upload_ready(),
             record_path=record_path,
             pending_path=pending_path,
+            cover_studio=self.cover_view,
+            host_name=get_config().cover_host_name,
             parent=self,
+        )
+        dialog.cover_render_requested.connect(
+            lambda: self._render_publish_cover(dialog, record_id, source_path, art_dir)
         )
         dialog.upload_requested.connect(
             lambda pkg: self._start_youtube_upload(pkg, record_id, record_path, pending_path)
@@ -2826,6 +2832,45 @@ class MainWindow(QMainWindow):
             # then just stop reaching it.
             self._yt_dialog = None
             dialog.deleteLater()
+
+    def _render_publish_cover(self, dialog, record_id, source_path, art_dir) -> None:
+        """The publish wizard approved its cover: render it through the
+        recipe's own "cover" step (same PNG + provenance manifest, so the
+        next recipe run reuses it rather than redrawing) on a worker."""
+        from core.cover_worker import CoverWorker
+
+        result = self._current_result
+        if art_dir is None or result is None:
+            dialog.set_cover_failed(tr("yt_publish_nothing"))
+            return
+        host = dialog.host_name()
+        cfg = get_config()
+        if host and host != cfg.cover_host_name:
+            # Remembered as the default host for the next episodes.
+            cfg.cover_host_name = host
+            save_config()
+        context = StepContext(
+            source_path=source_path or "",
+            result=result,
+            record_id=record_id,
+            artifact_dir=art_dir,
+            params=self.cover_view.render_params(),
+        )
+        runner = STEP_REGISTRY["cover"].make_runner(context)
+        worker = CoverWorker(lambda **_ignored: runner(), parent=self)
+
+        def done(payload) -> None:
+            if self._yt_dialog is dialog:
+                dialog.set_cover_ready(Path(payload["path"]))
+
+        def failed(message: str) -> None:
+            if self._yt_dialog is dialog:
+                dialog.set_cover_failed(message)
+
+        worker.result.connect(done)
+        worker.error.connect(failed)
+        self._registry.register(worker, name=f"publish_cover_{id(worker)}")
+        worker.start()
 
     # ------------------------------------------------------------ YouTube upload
 

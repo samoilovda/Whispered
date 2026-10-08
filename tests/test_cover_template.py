@@ -90,3 +90,49 @@ class TestPathContainment:
         big_file.write_text(payload, encoding="utf-8")
         with pytest.raises(TemplateError, match="too large"):
             load_template(big_file)
+
+
+@pytest.mark.parametrize("name", ["prosvet_16x9", "prosvet_9x16"])
+def test_every_palette_defines_every_colour_role(name):
+    # Each palette comes from one slide of the brand deck; a role missing
+    # in one of them would only surface when "auto" happened to pick it.
+    template = load_template(name)
+    roles = set().union(*(variant.values for variant in template.variants.values()))
+    for variant in template.variants.values():
+        assert roles <= set(variant.values), variant.name
+        for layout in template.layouts:
+            template.resolve(layout, variant.name)
+
+
+def test_both_formats_share_the_palettes():
+    # The Shorts export reuses the variant picked for the 16:9 cover.
+    assert list(load_template("prosvet_16x9").variants) == list(
+        load_template("prosvet_9x16").variants
+    )
+
+
+def test_decor_set_layer_expands_to_the_chosen_leaves():
+    template = load_template("prosvet_16x9")
+    assert len(template.decor_sets) >= 5
+    for set_name, leaves in template.decor_sets.items():
+        layers = template.resolve("duo", "teal", set_name)
+        decor = [layer for layer in layers if layer.type == "decor"]
+        assert [layer.get("path") for layer in decor] == [
+            leaf.get("path") for leaf in leaves
+        ]
+        assert not any(layer.type == "decor_set" for layer in layers)
+    with pytest.raises(TemplateError, match="unknown decor set"):
+        template.resolve("duo", "teal", "slide_99")
+
+
+def test_decor_sets_accept_only_decor_layers(tmp_path):
+    source = tmp_path / "templates" / "bad.json"
+    source.parent.mkdir()
+    raw = {
+        "id": "bad", "canvas": {"w": 1280, "h": 720}, "fonts": {},
+        "palette": {"white": "#fff"}, "variants": {"mint": {}},
+        "decor_sets": {"one": [{"type": "rect", "box": [0, 0, 1, 1], "fill": "white"}]},
+        "layouts": {"duo": {"layers": [{"type": "decor_set"}]}},
+    }
+    with pytest.raises(TemplateError, match="only decor layers"):
+        CoverTemplate.from_dict(raw, source)

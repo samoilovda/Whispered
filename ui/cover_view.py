@@ -6,7 +6,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QFileDialog,
@@ -27,6 +27,7 @@ from core.prompts import prompt_version
 from core.worker_registry import WorkerRegistry
 from covers.export import export
 from covers.renderer import render
+from covers.style import pick_style
 from covers.template import load_template
 from domain.artifact import Artifact
 from infrastructure.persistence import artifact_store
@@ -43,7 +44,19 @@ _VIDEO_EXTS = frozenset(
 )
 
 
+def _style_seed(slots: dict, source_path: str | None) -> str:
+    """What "auto" styling is seeded by: the title, or — before one is
+    typed — the source file name, so untitled episodes still differ.
+    application/steps.py's cover step uses the same rule."""
+    title = str(slots.get("title") or "").strip()
+    return title or (Path(source_path).stem if source_path else "")
+
+
 class CoverView(QWidget):
+    # The freshly rendered 1280x720 preview (QImage) — the YouTube publish
+    # wizard shows it while the user tunes the cover there.
+    preview_changed = pyqtSignal(object)
+
     def __init__(self, parent=None, insights_cache=None):
         super().__init__(parent)
         self.template = load_template(get_config().cover_template)
@@ -51,6 +64,9 @@ class CoverView(QWidget):
         # Per-slot focal point (normalised 0..1) for cover-fit cropping.
         self._focus: dict[str, tuple[float, float]] = {}
         self.last_image = None
+        # How many times "Shuffle" was pressed; with the title it seeds the
+        # "auto" palette/leaf pick (covers/style.py).
+        self._shuffle = 0
         self._workers: list = []
         self._registry = WorkerRegistry(parent=self)
         # Shared with YouTube/Insights panels by MainWindow — see
@@ -92,6 +108,15 @@ class CoverView(QWidget):
         self.inspector = CoverInspector()
         root.addWidget(self.inspector)
         cfg = get_config()
+        # The Settings dialog's default layout/variant — without this the
+        # combos always opened on their first item whatever was saved.
+        for combo, value in (
+            (self.inspector.layout_combo, cfg.cover_layout),
+            (self.inspector.variant_combo, cfg.cover_variant),
+        ):
+            index = combo.findData(value)
+            if index >= 0:
+                combo.setCurrentIndex(index)
         self.inspector.title_edit.setPlainText("")
         self.inspector.names_edit.setText(cfg.cover_host_name)
         if cfg.cover_host_photo:
@@ -106,6 +131,7 @@ class CoverView(QWidget):
         self.inspector.focus_changed.connect(self._on_focus_changed)
         self.inspector.export_requested.connect(self._export)
         self.inspector.suggest_requested.connect(self._suggest_title)
+        self.inspector.shuffle_requested.connect(self._on_shuffle)
         self._i18n.bind()
         self.render_preview()
 
@@ -194,8 +220,52 @@ class CoverView(QWidget):
         assigns a record id) — recorded into each export's Artifact
         manifest so a cover file can answer "which transcript/source
         produced this" later."""
+        previous = self._source_path
         self._record_id = record_id
         self._source_path = source_path
+        if previous and source_path != previous:
+            self._reset_episode()
+        # An untitled cover's "auto" style is seeded by the source name.
+        self._timer.start()
+
+    def _reset_episode(self) -> None:
+        """Drop what belonged to the previous recording — its title, guest
+        name and photo, shuffle count — so another episode's cover never
+        goes out with them. The host's name/photo from Settings stay."""
+        cfg = get_config()
+        self._shuffle = 0
+        self.photos.pop("photo_b", None)
+        self._focus.pop("photo_b", None)
+        if cfg.cover_host_photo:
+            self.photos["photo_a"] = cfg.cover_host_photo
+        self.inspector.title_edit.setPlainText("")
+        self.inspector.names_edit.setText(cfg.cover_host_name)
+
+    # ----------------------------------------------- publish-wizard API
+
+    def set_cover_texts(self, title: str, host: str, guest: str) -> None:
+        """Title and speakers as agreed in the publish wizard. A guest
+        switches to the two-person layout, no guest to the solo one."""
+        names = tr("cover_names_join", host=host, guest=guest) if guest else host
+        self.inspector.title_edit.setPlainText(title)
+        self.inspector.names_edit.setText(names)
+        index = self.inspector.layout_combo.findData("duo" if guest else "solo")
+        if index >= 0:
+            self.inspector.layout_combo.setCurrentIndex(index)
+        self.render_preview()
+
+    def shuffle(self) -> None:
+        """Next palette/leaf combination (the "Shuffle" button)."""
+        self._on_shuffle()
+
+    def choose_photo(self, slot: str) -> None:
+        self._choose_photo(slot)
+
+    def grab_frame(self, slot: str) -> None:
+        self._grab_frame(slot)
+
+    def has_video(self) -> bool:
+        return bool(self._video)
 
     def _suggest_title(self) -> None:
         if not self._segments:
@@ -223,6 +293,23 @@ class CoverView(QWidget):
             self.inspector.title_edit.setPlainText(suggestions[0].text)
             self.warning.setText(" · ".join(suggestions[0].warnings))
 
+    def _on_shuffle(self) -> None:
+        self._shuffle += 1
+        self.render_preview()
+
+    def _state(self) -> tuple[str, str, str | None, dict]:
+        """Layout, concrete variant, decor set and slots as rendered now —
+        ``"auto"`` resolved once here so the preview, the export and the
+        recipe's cover step all draw the same cover."""
+        layout, variant, slots = self.inspector.state()
+        slots.update(self._photo_slots())
+        variant, decor_set = pick_style(
+            list(self.template.variants), list(self.template.decor_sets),
+            variant=variant, title=_style_seed(slots, self._source_path),
+            shuffle=self._shuffle,
+        )
+        return layout, variant, decor_set, slots
+
     def render_params(self) -> dict:
         """This workspace's current selections as ``application/steps.py``'s
         ``cover_*`` StepContext params.
@@ -233,21 +320,20 @@ class CoverView(QWidget):
         runner falls back to its own hardcoded defaults and silently
         ignores what they chose.
         """
-        layout, variant, slots = self.inspector.state()
-        slots.update(self._photo_slots())
+        layout, variant, decor_set, slots = self._state()
         return {
             "cover_template": self.template.id,
             "cover_layout": layout,
             "cover_variant": variant,
+            "cover_decor_set": decor_set,
             "cover_slots": slots,
         }
 
     def render_preview(self) -> None:
-        layout, variant, slots = self.inspector.state()
-        slots.update(self._photo_slots())
         try:
+            layout, variant, decor_set, slots = self._state()
             self.last_image, warnings = render(
-                self.template, layout, variant, slots, (1280, 720)
+                self.template, layout, variant, slots, (1280, 720), decor_set
             )
             pixmap = QPixmap.fromImage(self.last_image)
             self.preview.setPixmap(
@@ -258,6 +344,7 @@ class CoverView(QWidget):
                 )
             )
             self.warning.setText(" · ".join(dict.fromkeys(warnings)))
+            self.preview_changed.emit(self.last_image)
         except Exception as exc:
             self.warning.setText(str(exc))
 
@@ -272,14 +359,15 @@ class CoverView(QWidget):
         if not directory:
             return
         try:
-            layout, variant, slots = self.inspector.state()
-            slots.update(self._photo_slots())
+            layout, variant, decor_set, slots = self._state()
             cfg = get_config()
             shorts_image = None
             if cfg.cover_export_shorts:
                 vertical = load_template("prosvet_9x16")
+                # The vertical template has its own (fixed) leaves.
                 shorts_image, shorts_warnings = render(
-                    vertical, layout, variant, slots, (1080, 1920)
+                    vertical, layout, variant, slots, (1080, 1920),
+                    decor_set if decor_set in vertical.decor_sets else None,
                 )
                 if shorts_warnings:
                     self.warning.setText(" · ".join(dict.fromkeys(shorts_warnings)))
@@ -292,6 +380,7 @@ class CoverView(QWidget):
                     "template": self.template.id,
                     "layout": layout,
                     "variant": variant,
+                    "decor_set": decor_set,
                     "slots": slots,
                 },
                 jpeg_max_bytes=cfg.cover_jpeg_max_bytes,

@@ -8,6 +8,7 @@ real Qt painting, and no real whisper/pyannote involvement.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import sys
 import types
@@ -68,7 +69,8 @@ def test_dependency_graph_matches_the_plan():
     assert deps["insights"] == {"transcribe"}
     assert deps["youtube_package"] == {"transcribe"}
     assert deps["book"] == {"clean"}
-    assert deps["cover"] == {"transcribe"}
+    # The cover takes its title from youtube_package when none was typed.
+    assert deps["cover"] == {"transcribe", "youtube_package"}
 
 
 @pytest.mark.parametrize(
@@ -328,6 +330,13 @@ def test_book_runner_calls_book_pipeline_and_writes_final_text(tmp_path, monkeyp
     assert written.read_text(encoding="utf-8") == "Final book text."
 
 
+# The cover runner only reads a template's variant and decor-set names
+# (to resolve "auto") before handing it to the stubbed renderer.
+_FAKE_TEMPLATE = types.SimpleNamespace(
+    variants={"sand": None, "mint": None}, decor_sets={"slide_01": None}
+)
+
+
 def test_cover_runner_calls_renderer_and_saves_image(tmp_path, monkeypatch):
     # covers.renderer imports real PyQt6 QPointF/QRectF/QSize that the
     # PyQt6 stand-ins in tests/conftest.py don't provide, so — unlike the
@@ -346,21 +355,25 @@ def test_cover_runner_calls_renderer_and_saves_image(tmp_path, monkeypatch):
             Path(path).write_bytes(b"fake-png")
             return True
 
-    def _fake_render(template, layout, variant, slots, size):
+    def _fake_render(template, layout, variant, slots, size, decor_set=None):
         calls["layout"] = layout
         calls["variant"] = variant
+        calls["decor_set"] = decor_set
         return _FakeImage(), ["a warning"]
 
     renderer_stub = types.ModuleType("covers.renderer")
     renderer_stub.render = _fake_render
     monkeypatch.setitem(sys.modules, "covers.renderer", renderer_stub)
-    monkeypatch.setattr("covers.template.load_template", lambda name: object())
+    monkeypatch.setattr("covers.template.load_template", lambda name: _FAKE_TEMPLATE)
 
     context = _context(tmp_path, provider=None, model="m", cover_layout="duo")
     runner = STEP_REGISTRY["cover"].make_runner(context)
     result = runner()
 
     assert calls["layout"] == "duo"
+    # No variant passed: "auto" resolves to one of the template's own.
+    assert calls["variant"] in _FAKE_TEMPLATE.variants
+    assert calls["decor_set"] in _FAKE_TEMPLATE.decor_sets
     assert result["warnings"] == ["a warning"]
     written = context.artifact_dir / "cover.png"
     assert written.exists()
@@ -512,13 +525,13 @@ def test_cover_load_recovers_the_saved_path(tmp_path, monkeypatch):
             Path(path).write_bytes(b"fake-png")
             return True
 
-    def _fake_render(template, layout, variant, slots, size):
+    def _fake_render(template, layout, variant, slots, size, decor_set=None):
         return _FakeImage(), ["a warning"]
 
     renderer_stub = types.ModuleType("covers.renderer")
     renderer_stub.render = _fake_render
     monkeypatch.setitem(sys.modules, "covers.renderer", renderer_stub)
-    monkeypatch.setattr("covers.template.load_template", lambda name: object())
+    monkeypatch.setattr("covers.template.load_template", lambda name: _FAKE_TEMPLATE)
 
     context = _context(tmp_path, provider=None, model="m", cover_layout="duo")
     STEP_REGISTRY["cover"].make_runner(context)()
@@ -881,3 +894,79 @@ def test_reindex_artifacts_skips_a_missing_file_without_raising(tmp_path, monkey
 
     from application.steps import reindex_artifacts
     assert reindex_artifacts() == 0
+
+
+# ------------------------------------------------------------------ cover inputs
+
+def _stub_cover_render(monkeypatch):
+    """Replace the Qt renderer (see the runner test above) and record the
+    slots it was asked to draw."""
+    seen = {}
+
+    class _FakeImage:
+        def save(self, path, fmt):
+            from pathlib import Path
+            Path(path).write_bytes(b"fake-png")
+            return True
+
+    def _fake_render(template, layout, variant, slots, size, decor_set=None):
+        seen["slots"] = dict(slots)
+        return _FakeImage(), []
+
+    renderer_stub = types.ModuleType("covers.renderer")
+    renderer_stub.render = _fake_render
+    monkeypatch.setitem(sys.modules, "covers.renderer", renderer_stub)
+    monkeypatch.setattr("covers.template.load_template", lambda name: _FAKE_TEMPLATE)
+    return seen
+
+
+def test_cover_takes_the_generated_title_when_none_was_typed(tmp_path, monkeypatch):
+    seen = _stub_cover_render(monkeypatch)
+    context = dataclasses.replace(
+        _context(tmp_path, cover_slots={"title": "", "names": "Ведущий"}),
+        get_result=lambda name: (
+            {"yt_titles": ["1. «Почему психологу трудно»", "2. Другое"]}
+            if name == "youtube_package" else None
+        ),
+    )
+    result = STEP_REGISTRY["cover"].make_runner(context)()
+    assert seen["slots"]["title"] == "Почему психологу трудно"
+    assert result["title"] == "Почему психологу трудно"
+
+
+def test_a_typed_cover_title_wins_over_the_generated_one(tmp_path, monkeypatch):
+    seen = _stub_cover_render(monkeypatch)
+    context = dataclasses.replace(
+        _context(tmp_path, cover_slots={"title": "Своё название"}),
+        get_result=lambda name: {"yt_titles": ["Сгенерированное"]},
+    )
+    STEP_REGISTRY["cover"].make_runner(context)()
+    assert seen["slots"]["title"] == "Своё название"
+
+
+def test_cover_cache_key_follows_what_the_cover_is_drawn_from(tmp_path):
+    def key(**params):
+        return STEP_REGISTRY["cover"].make_artifact(_context(tmp_path, **params)).cache_key()
+
+    base = {"cover_layout": "duo", "cover_variant": "sand",
+            "cover_slots": {"title": "A", "names": "B"}}
+    assert key(**base) == key(**base)
+    assert key(**base) != key(**{**base, "cover_slots": {"title": "A2", "names": "B"}})
+    assert key(**base) != key(**{**base, "cover_variant": "mint"})
+    assert key(**base) != key(**{**base, "cover_layout": "solo"})
+
+
+def test_cover_cache_key_tracks_a_replaced_photo_file(tmp_path):
+    photo = tmp_path / "speaker.jpg"
+    photo.write_bytes(b"one")
+    params = {"cover_slots": {"title": "A", "photo_b": str(photo)}}
+    before = STEP_REGISTRY["cover"].make_artifact(_context(tmp_path, **params)).cache_key()
+    photo.write_bytes(b"a different picture")
+    after = STEP_REGISTRY["cover"].make_artifact(_context(tmp_path, **params)).cache_key()
+    assert before != after
+
+
+def test_cover_without_youtube_package_still_schedules(tmp_path):
+    spec = build_job_spec("custom", ("transcribe", "cover"))
+    cover = next(step for step in spec.steps if step.name == "cover")
+    assert set(cover.depends_on) == {"transcribe"}

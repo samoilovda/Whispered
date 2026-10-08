@@ -687,6 +687,63 @@ def _book_load(context: StepContext) -> Optional[Any]:
 
 # ---------------------------------------------------------------- cover
 
+# Bumped when the renderer/templates change what the same inputs draw, so
+# covers cached by an older version are redrawn (v2: brand-deck palettes,
+# leaf sets and box-filling title layout).
+_COVER_RENDER_VERSION = 2
+
+
+def _cover_title(context: StepContext, slots: dict) -> str:
+    """The title the cover shows: the one typed in the Cover workspace, else
+    the first title the ``youtube_package`` step generated (a recipe started
+    on a fresh recording has nothing typed yet)."""
+    typed = str(slots.get("title") or "").strip()
+    if typed:
+        return typed
+    from application.youtube_publish import normalize_titles
+
+    package = context.get_result("youtube_package")
+    if isinstance(package, dict):
+        titles = normalize_titles(package.get("yt_titles"))
+        if titles:
+            return titles[0]
+    return ""
+
+
+def _cover_inputs(context: StepContext) -> str:
+    """Fingerprint of everything a cover is drawn from — template, layout,
+    palette, leaves, slot texts, photo files (path, size, mtime) and size.
+    It goes into the artifact's cache key, so a changed title or palette is
+    redrawn instead of being answered with the previous ``cover.png``."""
+    slots = dict(context.params.get("cover_slots") or {})
+    files: dict[str, list[int] | None] = {}
+    for name, value in slots.items():
+        path = value.get("file") if isinstance(value, dict) else value
+        if isinstance(path, str) and path:
+            try:
+                stat = Path(path).stat()
+                files[name] = [stat.st_size, stat.st_mtime_ns]
+            except OSError:
+                files[name] = None
+    inputs = {
+        "version": _COVER_RENDER_VERSION,
+        "params": {
+            key: context.params.get(key)
+            for key in (
+                "cover_template", "cover_layout", "cover_variant",
+                "cover_decor_set", "cover_size",
+            )
+        },
+        "slots": slots,
+        "files": files,
+    }
+    if not str(slots.get("title") or "").strip():
+        # The title will come from youtube_package — key on what produced it.
+        inputs["title_from"] = _youtube_package_prompt_version(context)
+    payload = json.dumps(inputs, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
 def _cover_runner(context: StepContext) -> StepRunner:
     def run():
         # Qt-dependent (QImage/QPainter) — imported here, not at module
@@ -694,22 +751,35 @@ def _cover_runner(context: StepContext) -> StepRunner:
         # stubbed) PyQt6 install just to build the registry (see CLAUDE.md
         # rule 7 on lazy imports for heavy/optional deps).
         from covers.renderer import render
+        from covers.style import pick_style
         from covers.template import load_template
 
         template_name = str(context.params.get("cover_template", "prosvet_16x9"))
         layout = str(context.params.get("cover_layout", "solo"))
-        variant = str(context.params.get("cover_variant", "mint"))
         slots = dict(context.params.get("cover_slots") or {})
+        slots["title"] = _cover_title(context, slots)
         size = context.params.get("cover_size", (1280, 720))
 
         template = load_template(template_name)
-        image, warnings = render(template, layout, variant, slots, size)
+        # The Cover workspace passes an already-resolved variant/decor set;
+        # without one (or with "auto") pick from the title the same way.
+        variant, decor_set = pick_style(
+            list(template.variants), list(template.decor_sets),
+            variant=str(context.params.get("cover_variant", "auto")),
+            decor_set=str(context.params.get("cover_decor_set") or "auto"),
+            title=str(slots.get("title") or "").strip()
+            or Path(context.source_path or "").stem,
+        )
+        image, warnings = render(template, layout, variant, slots, size, decor_set)
         path = context.artifact_dir / "cover.png"
         path.parent.mkdir(parents=True, exist_ok=True)
         if not image.save(str(path), "PNG"):
             raise RuntimeError(f"Failed to save cover image to {path}")
         _save_artifact(context, _cover_artifact(context))
-        return {"path": str(path), "warnings": warnings}
+        return {
+            "path": str(path), "warnings": warnings,
+            "variant": variant, "decor_set": decor_set, "title": slots["title"],
+        }
 
     return run
 
@@ -724,7 +794,7 @@ def _cover_artifact(context: StepContext) -> Artifact:
         path=str(context.artifact_dir / "cover.png"),
         provider=_provider_label(context),
         model=_model_label(context),
-        prompt_version=prompt_version("thumb_title"),
+        prompt_version=f"{prompt_version('thumb_title')}+{_cover_inputs(context)}",
     )
 
 
@@ -816,7 +886,9 @@ STEP_DEFINITIONS: tuple = (
         name="cover",
         label_key="step_cover",
         resource="default",
-        depends_on=("transcribe",),
+        # youtube_package supplies the title when none was typed; recipes
+        # without it drop the edge (see build_job_spec).
+        depends_on=("transcribe", "youtube_package"),
         viewer="cover",
         make_runner=_cover_runner,
         make_artifact=_cover_artifact,

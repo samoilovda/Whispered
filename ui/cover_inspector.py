@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ui.i18n_helpers import Retranslator
+from ui.option_labels import COVER_VARIANT_CHOICES
 
 # Discrete focal points for cropping a photo slot (normalised 0..1), in the
 # same spirit as CSS ``object-position``. Keeps the crop control to a combo
@@ -35,6 +36,7 @@ class CoverInspector(QWidget):
     focus_changed = pyqtSignal(str, float, float)
     export_requested = pyqtSignal()
     suggest_requested = pyqtSignal()
+    shuffle_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -50,10 +52,7 @@ class CoverInspector(QWidget):
             ("cover_layout_text", "text_only"),
         ])
         self.variant_combo = QComboBox()
-        self._i18n.combo_items(self.variant_combo, [
-            ("cover_variant_mint", "mint"),
-            ("cover_variant_warm", "warm"),
-        ])
+        self._i18n.combo_items(self.variant_combo, COVER_VARIANT_CHOICES)
         self.title_edit = QPlainTextEdit()
         self.title_edit.setMaximumHeight(100)
         self.names_edit = QLineEdit()
@@ -62,6 +61,11 @@ class CoverInspector(QWidget):
         self._i18n.form_row(form, "cover_title", self.title_edit)
         self._i18n.form_row(form, "cover_names", self.names_edit)
         layout.addLayout(form)
+        self.shuffle_button = self._i18n.text(
+            QPushButton(), "cover_shuffle", tooltip="cover_shuffle_tip"
+        )
+        self.shuffle_button.clicked.connect(self.shuffle_requested.emit)
+        layout.addWidget(self.shuffle_button)
         self.suggest_button = self._i18n.text(QPushButton(), "cover_suggest_title")
         self.suggest_button.clicked.connect(self.suggest_requested.emit)
         layout.addWidget(self.suggest_button)
