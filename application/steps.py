@@ -780,6 +780,7 @@ def _cover_runner(context: StepContext) -> StepRunner:
             or Path(context.source_path or "").stem,
         )
         image, warnings = render(template, layout, variant, slots, size, decor_set)
+        _prepare_speaker_photos(context)
         path = context.artifact_dir / "cover.png"
         path.parent.mkdir(parents=True, exist_ok=True)
         if not image.save(str(path), "PNG"):
@@ -791,6 +792,29 @@ def _cover_runner(context: StepContext) -> StepRunner:
         }
 
     return run
+
+
+def _prepare_speaker_photos(context: StepContext) -> None:
+    """Have the Cover workspace's speaker photo variants ready
+    (covers.speaker_photos) when the recording has a video: a few seconds
+    here, so "Photo variants" opens instantly. Kept variants are reused;
+    a failure only means the workspace searches when asked."""
+    from application.youtube_publish import find_video_source
+    from covers.speaker_photos import CANDIDATE_DIR, find_candidates, load_candidates
+
+    video = find_video_source(context.source_path)
+    duration = float(getattr(context.result, "duration", 0) or 0)
+    if video is None or duration <= 0 or context.is_cancelled():
+        return
+    out_dir = context.artifact_dir / CANDIDATE_DIR
+    if load_candidates(out_dir, video) is not None:
+        return
+    try:
+        find_candidates(video, out_dir, duration=duration, cancel=context.is_cancelled)
+    except Exception as exc:  # optional extra: never fail the cover step
+        from core.logger import get_logger
+
+        get_logger(__name__).warning("Could not prepare speaker photos for %s: %s", video, exc)
 
 
 def _cover_artifact(context: StepContext) -> Artifact:

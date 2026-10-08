@@ -379,6 +379,43 @@ def test_cover_runner_calls_renderer_and_saves_image(tmp_path, monkeypatch):
     assert written.exists()
 
 
+def test_cover_step_prepares_speaker_photos_once(tmp_path, monkeypatch):
+    from application import steps
+
+    found = []
+    monkeypatch.setattr(
+        "application.youtube_publish.find_video_source", lambda source: tmp_path / "video.mp4"
+    )
+    monkeypatch.setattr(
+        "covers.speaker_photos.find_candidates",
+        lambda video, out_dir, **kw: found.append((video, out_dir, kw["duration"])),
+    )
+    cached = []
+    monkeypatch.setattr("covers.speaker_photos.load_candidates", lambda out_dir, video: cached or None)
+    context = _context(tmp_path)
+    steps._prepare_speaker_photos(context)
+    assert found == [(tmp_path / "video.mp4", context.artifact_dir / "cover_candidates",
+                      context.result.duration)]
+    cached.append("kept")
+    steps._prepare_speaker_photos(context)
+    assert len(found) == 1     # kept variants are reused
+
+
+def test_cover_step_never_fails_on_speaker_photos(tmp_path, monkeypatch):
+    from application import steps
+
+    monkeypatch.setattr(
+        "application.youtube_publish.find_video_source", lambda source: tmp_path / "video.mp4"
+    )
+    monkeypatch.setattr("covers.speaker_photos.load_candidates", lambda out_dir, video: None)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("FFmpeg is not installed")
+
+    monkeypatch.setattr("covers.speaker_photos.find_candidates", boom)
+    steps._prepare_speaker_photos(_context(tmp_path))   # no exception
+
+
 # ------------------------------------------------------------------ load_artifact round-trips
 #
 # What a cache-skip needs load_step_result() to recover — run the real
