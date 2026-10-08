@@ -86,3 +86,16 @@ def test_companion_video_same_name_and_unrelated_audio(tmp_path):
     other = _touch(tmp_path / "other.mp3", 1)
     assert find_video_source(talk) == clip
     assert find_video_source(other) is None
+
+
+def test_companion_video_for_zoom_numbered_pair(tmp_path):
+    # Zoom's local recording: audio<N>.m4a with video<N>.mp4, plus the
+    # per-speaker tracks in "Audio Record/" that have no picture.
+    from application.youtube_publish import find_video_source
+
+    audio = _touch(tmp_path / "rec" / "audio1823529780.m4a", 1)
+    video = _touch(tmp_path / "rec" / "video1823529780.mp4", 1)
+    _touch(tmp_path / "rec" / "video999.mp4", 1, b"bigger")
+    track = _touch(tmp_path / "rec" / "Audio Record" / "audioDen11823529780.m4a", 1)
+    assert find_video_source(audio) == video
+    assert find_video_source(track) is None

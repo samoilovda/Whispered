@@ -10,6 +10,7 @@ to transcribe from the most recently modified entry.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Container, Iterator, Optional
 
@@ -91,12 +92,16 @@ def find_latest_media(root: str | Path, extensions: Container[str]) -> Optional[
     return None
 
 
+_ZOOM_NUMBERED = re.compile(r"audio(\d+)", re.IGNORECASE)
+
+
 def find_companion_video(
     source: str | Path, video_extensions: Container[str]
 ) -> Optional[Path]:
     """The video recorded together with an audio *source*, if any: a video
-    next to it with the same name, or — for a Zoom-style ``audio_only``
-    mix — the largest video in the same recording folder. Any other audio
+    next to it with the same name, Zoom's numbered pair (``audio<N>.m4a``
+    → ``video<N>.mp4``), or — for a Zoom-style ``audio_only`` mix — the
+    largest video in the same recording folder. Any other audio
     file is left alone: an unrelated video in the same folder is not its
     picture."""
     path = Path(source)
@@ -112,6 +117,13 @@ def find_companion_video(
     same_name = [p for p in videos if p.stem == path.stem]
     if same_name:
         return same_name[0]
+    # Zoom's local recordings name the pair after one meeting number:
+    # audio1823529780.m4a next to video1823529780.mp4.
+    zoom_pair = _ZOOM_NUMBERED.fullmatch(path.stem)
+    if zoom_pair:
+        for video in videos:
+            if video.stem.lower() == f"video{zoom_pair.group(1)}":
+                return video
     if path.stem.lower().startswith("audio_only") and videos:
         return max(videos, key=lambda p: p.stat().st_size)
     return None
