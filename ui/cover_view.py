@@ -198,9 +198,27 @@ class CoverView(QWidget):
         return merged
 
     def _on_frame_ready(self, slot: str, path: str) -> None:
-        self.photos[slot] = path
+        self.photos[slot] = self._pick_speaker(slot, path)
         self.warning.clear()
         self.render_preview()
+
+    def _pick_speaker(self, slot: str, path: str) -> str:
+        """A still from a video call shows everyone: when it holds several
+        participants, ask whose picture this slot gets and keep just that
+        crop. A single view (or "whole frame") keeps the still as is."""
+        from PyQt6.QtGui import QImage
+
+        from ui.cover_tile_dialog import SpeakerTileDialog, save_crop, speaker_crops
+
+        image = QImage(path)
+        tiles = speaker_crops(image)
+        if len(tiles) < 2:
+            return path
+        dialog = SpeakerTileDialog(image, tiles, parent=self)
+        if dialog.exec() != SpeakerTileDialog.DialogCode.Accepted or dialog.selected is None:
+            return path
+        target = Path(path).with_name(f"{Path(path).stem}_{slot}.png")
+        return str(save_crop(image, tiles[dialog.selected], target))
 
     def set_video_source(self, path: str | None) -> None:
         """Called by MainWindow when the loaded media changes. A non-video

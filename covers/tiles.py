@@ -165,3 +165,111 @@ def pick_tile(
 def score_frame(image_rgb: np.ndarray, faces: Iterable[Rect] = ()) -> float:
     gray = image_rgb[..., :3].astype(np.float32).mean(axis=2)
     return _sharpness(gray) * (2.0 if list(faces) else 1.0)
+
+
+def _seam_cells(strength: np.ndarray, length: int, minimum: int) -> list[tuple[int, int]]:
+    """Cells between seams: *strength* marks positions where the picture
+    changes along the whole other axis (a tile edge, not an object edge)."""
+    seams = [int(i) + 1 for i in np.flatnonzero(strength)]
+    edges = [0]
+    for seam in seams:
+        if seam - edges[-1] >= minimum:
+            edges.append(seam)
+    if length - edges[-1] < minimum and len(edges) > 1:
+        edges.pop()
+    edges.append(length)
+    return [(edges[i], edges[i + 1]) for i in range(len(edges) - 1)]
+
+
+def _content_span(active: np.ndarray) -> tuple[int, int] | None:
+    indices = np.flatnonzero(active)
+    if indices.size == 0:
+        return None
+    return int(indices[0]), int(indices[-1]) + 1
+
+
+def _trim(gray: np.ndarray, tile: Rect) -> Rect:
+    """Shrink *tile* to the picture inside it, dropping flat margins such as
+    the grey pillarbox around a phone's portrait video. A row/column counts
+    as picture when a good share of it differs from the margin colour, so a
+    small name label in the corner does not keep a margin."""
+    crop = gray[tile.y : tile.y + tile.h, tile.x : tile.x + tile.w]
+    if crop.size == 0:
+        return tile
+    border = np.r_[crop[0, :], crop[-1, :], crop[:, 0], crop[:, -1]]
+    background = float(np.median(border))
+    differs = np.abs(crop - background) > 12
+    columns = _content_span(differs.mean(axis=0) > 0.25)
+    rows = _content_span(differs.mean(axis=1) > 0.25)
+    if columns is None or rows is None:
+        return tile
+    trimmed = Rect(
+        tile.x + columns[0], tile.y + rows[0],
+        columns[1] - columns[0], rows[1] - rows[0],
+    )
+    return trimmed if trimmed.area >= tile.area * 0.08 else tile
+
+
+def _wide(flat: np.ndarray, minimum: int = 8) -> np.ndarray:
+    """Keep only runs of at least *minimum* flat lines — a tile's
+    background band, not a thin uniform stripe inside a picture."""
+    result = np.zeros_like(flat)
+    for start, end in _runs(flat, minimum):
+        result[start:end] = True
+    return result
+
+
+def _has_picture(cell: np.ndarray) -> bool:
+    """More than a flat background with a name label in the corner."""
+    if cell.size == 0:
+        return False
+    return bool((np.abs(cell - np.median(cell)) > 12).mean() > 0.15)
+
+
+def speaker_tiles(image_rgb: np.ndarray) -> list[Rect]:
+    """Each participant's picture in a video-call frame, left to right and
+    top to bottom, trimmed to the picture itself.
+
+    Gallery views with uniform gutters go through ``detect_tiles``; tiles
+    that touch (Zoom's side-by-side view: a grey tile with a phone's
+    portrait video next to a full-bleed camera) are split at seams — rows
+    or columns where the picture changes across nearly the whole frame —
+    after cutting off the outer letterbox. One speaker returns one rect.
+    """
+    if image_rgb.ndim != 3 or image_rgb.shape[2] < 3:
+        raise ValueError("image_rgb must have shape H×W×3")
+    gray = image_rgb[..., :3].astype(np.float32).mean(axis=2)
+    height, width = gray.shape
+    tiles = detect_tiles(image_rgb)
+    if len(tiles) == 1:
+        # Outer letterbox: flat rows/columns at the frame's edges.
+        rows = _content_span(gray.var(axis=1) > 4.0)
+        columns = _content_span(gray.var(axis=0) > 4.0)
+        if rows is None or columns is None:
+            return [Rect(0, 0, width, height)]
+        y0, y1 = rows
+        x0, x1 = columns
+        area = gray[y0:y1, x0:x1]
+        # A seam is a change along most of the other axis with a flat
+        # (single-colour) line on at least one side: a tile's background
+        # meeting a picture. Edges inside a picture (a door frame) have
+        # texture on both sides and are not split on.
+        flat_cols = _wide(area.std(axis=0) < 4.0)
+        flat_rows = _wide(area.std(axis=1) < 4.0)
+        across = (np.abs(np.diff(area, axis=1)) > 12).mean(axis=0) > 0.6
+        down = (np.abs(np.diff(area, axis=0)) > 12).mean(axis=1) > 0.6
+        across &= flat_cols[:-1] | flat_cols[1:]
+        down &= flat_rows[:-1] | flat_rows[1:]
+        min_w, min_h = max(8, (x1 - x0) // 10), max(8, (y1 - y0) // 10)
+        col_cells = _seam_cells(across, x1 - x0, min_w)
+        row_cells = _seam_cells(down, y1 - y0, min_h)
+        tiles = [
+            Rect(x0 + cx0, y0 + cy0, cx1 - cx0, cy1 - cy0)
+            for cy0, cy1 in row_cells
+            for cx0, cx1 in col_cells
+            # A cell that is all background (the grey beside a portrait
+            # video) is not a participant.
+            if _has_picture(area[cy0:cy1, cx0:cx1])
+        ] or [Rect(x0, y0, x1 - x0, y1 - y0)]
+    trimmed = [_trim(gray, tile) for tile in tiles]
+    return sorted(trimmed, key=lambda rect: (rect.y // max(1, height // 4), rect.x))
