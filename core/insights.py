@@ -43,6 +43,14 @@ _TRANSCRIPT_MAX_CHARS = 48_000   # ~12 k tokens; matches chat_worker._CONTEXT_CH
 # request over a ~48K-char transcript the old 8000 ran out mid-reasoning
 # and the visible response came back empty.
 _RESPONSE_MAX_TOKENS = 16_000
+# Hidden reasoning a local model may spend per insight type, sent to LM
+# Studio as reasoning_effort ("none" turns thinking off). A type absent
+# here keeps the model's default. Cloud providers never get the field.
+# Measured on a 45-minute recording with gemma-4-12b: thinking was 90% of
+# the generated tokens and the YouTube package took 753 s; without it,
+# 137 s, with chapters/titles/descriptions/tags/questions of the same
+# quality (the chapters prompt already asks not to deliberate).
+_LOCAL_REASONING_EFFORT: dict[str, str] = {name: "none" for name in _INSIGHT_TYPES}
 # Socket-read timeout per stream. The client default (300s) fired on long
 # prefills/reasoning stretches where LM Studio sends no content deltas.
 _STREAM_TIMEOUT_S = 600
@@ -306,6 +314,10 @@ def generate_insight(
         client = LMStudioClient(lm_url)
 
     messages = [{"role": "user", "content": prompt}]
+    # Only LM Studio understands reasoning_effort="none"; the Anthropic
+    # client doesn't take the argument at all.
+    effort = None if provider else _LOCAL_REASONING_EFFORT.get(insight_type)
+    extra = {"reasoning_effort": effort} if effort is not None else {}
 
     raw = client.chat_completion_stream(
         messages=messages,
@@ -313,6 +325,7 @@ def generate_insight(
         temperature=0.2,
         max_tokens=_RESPONSE_MAX_TOKENS,
         timeout=_STREAM_TIMEOUT_S,
+        **extra,
     )
     if is_cancelled():
         return []
@@ -340,6 +353,7 @@ def generate_insight(
             temperature=0.1,
             max_tokens=_RESPONSE_MAX_TOKENS,
             timeout=_STREAM_TIMEOUT_S,
+            **extra,
         )
         if raw2:
             result = _parse_json_response(raw2)

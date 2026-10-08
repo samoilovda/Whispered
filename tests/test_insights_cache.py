@@ -73,12 +73,14 @@ class _CountingLMStudioClient:
     YouTubePanel and InsightsPanel each construct their own client)."""
 
     call_count = 0
+    last_kwargs: dict = {}
 
     def __init__(self, base_url="http://localhost:1234/v1", api_key="", model=""):
         self.base_url = base_url
 
     def chat_completion_stream(self, **kwargs):
         type(self).call_count += 1
+        type(self).last_kwargs = kwargs
         return '[{"start": 0, "title": "Intro"}]'
 
 
@@ -197,3 +199,26 @@ def test_cancelled_result_is_not_cached():
     # actual chapters result.
     InsightsWorker("chapters", _segments(), "http://localhost:1234/v1", cache=cache)._execute()
     assert _CountingLMStudioClient.call_count == 2
+
+
+def test_local_insights_turn_model_reasoning_off():
+    """A local reasoning model spent ~90% of its tokens thinking on these
+    extraction tasks; LM Studio gets reasoning_effort="none"."""
+    from core.insights import generate_insight
+
+    generate_insight("chapters", _segments(), lm_url="http://localhost:1234/v1",
+                     max_transcript_chars=1000)
+    assert _CountingLMStudioClient.last_kwargs["reasoning_effort"] == "none"
+
+
+def test_cloud_provider_gets_no_reasoning_effort(monkeypatch):
+    from core import ai_provider
+    from core.insights import generate_insight
+
+    monkeypatch.setattr(ai_provider, "create_client", lambda ps: _CountingLMStudioClient())
+    generate_insight(
+        "chapters", _segments(), lm_url="",
+        provider=ai_provider.ProviderSettings(kind="openai", model="gpt-4o-mini"),
+        max_transcript_chars=1000,
+    )
+    assert "reasoning_effort" not in _CountingLMStudioClient.last_kwargs
