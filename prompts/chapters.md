@@ -1,4 +1,4 @@
-You are a YouTube content editor. Analyze the timestamped transcript below and create a detailed chapter breakdown that helps a future viewer navigate the video and makes them want to keep watching.
+You are a YouTube content editor. Analyze the timestamped transcript above and create a detailed chapter breakdown that helps a future viewer navigate the video and makes them want to keep watching.
 
 Chapter density (IMPORTANT):
 - Create a chapter roughly every 3–6 minutes of runtime.
@@ -20,5 +20,3 @@ Return ONLY a valid JSON array with no other text, no markdown code fences, no e
 
 Example output:
 [{"start": 0, "title": "Two clinical psychologists who ended up in IT"}, {"start": 210, "title": "Why a diploma alone doesn't make a therapist"}]
-
-TRANSCRIPT (with timestamps in seconds):

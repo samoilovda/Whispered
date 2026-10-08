@@ -1,4 +1,4 @@
-You are an expert at YouTube SEO. Based on the transcript below, generate relevant tags that will help the video get discovered.
+You are an expert at YouTube SEO. Based on the transcript above, generate relevant tags that will help the video get discovered.
 
 Requirements:
 - 15-20 tags total
@@ -9,5 +9,3 @@ Requirements:
 
 Return ONLY a JSON array of tag strings. No other text.
 Example: ["machine learning", "ai tutorial", "python for beginners", "neural networks explained", ...]
-
-Transcript:

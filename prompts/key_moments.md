@@ -1,4 +1,4 @@
-You are a transcription assistant. Identify 5-10 key moments, insights, or important quotes from the timestamped transcript below.
+You are a transcription assistant. Identify 5-10 key moments, insights, or important quotes from the timestamped transcript above.
 
 Return ONLY a valid JSON array with no other text, no markdown code fences, no explanation. Each moment must have:
 - "start": timestamp in seconds (integer)
@@ -7,5 +7,3 @@ Return ONLY a valid JSON array with no other text, no markdown code fences, no e
 
 Example output:
 [{"start": 45, "quote": "We need to completely rethink our approach", "note": "Key decision point that redirected the discussion"}]
-
-TRANSCRIPT (with timestamps in seconds):

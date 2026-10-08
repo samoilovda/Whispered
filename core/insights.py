@@ -154,11 +154,11 @@ def _build_prompt_text(
     evenly across the whole recording rather than truncating the tail, so
     a long recording's ending is still visible to the model (see
     ``core.llm_text.sample_lines_evenly``).
-    If *language* is given, a directive is inserted after the system prompt
-    to force chapter titles into that language. *notes* — the user's own
-    notes about the record (application/user_notes.py) — go between the
-    instructions and the transcript, introduced by prompts/user_notes.md;
-    without notes the prompt is exactly what it was before.
+    If *language* is given, a directive is appended
+    after the task instructions to force the output into that language.
+    *notes* — the user's own notes about the record
+    (application/user_notes.py) — go between the transcript and the task
+    instructions, introduced by prompts/user_notes.md.
     """
     system_prompt = load_prompt(insight_type, fallback="")
     lines = []
@@ -198,7 +198,29 @@ def _build_prompt_text(
     if notes.strip():
         intro = load_prompt("user_notes", fallback="The user's own notes about this recording:")
         notes_block = f"{intro.strip()}\n\nUSER NOTES:\n{notes.strip()}\n\n"
-    return system_prompt + "\n" + lang_directive + notes_block + transcript
+    # Transcript first, task last: every insight type of a record then
+    # starts with the same tokens, so LM Studio's prompt cache reads the
+    # transcript once and each further type only prefills its own
+    # instructions — with the task first, all of them re-read it in full.
+    return (
+        _TRANSCRIPT_HEADER + "\n" + transcript + "\n\n"
+        + notes_block + _task_instructions(system_prompt) + "\n" + lang_directive
+    )
+
+
+_TRANSCRIPT_HEADER = "TRANSCRIPT (with timestamps in seconds):"
+# The trailing "TRANSCRIPT:" line (or "{transcript}" slot) a prompt file
+# ends with from when the transcript was appended after it.
+_TRAILING_TRANSCRIPT_SLOT = re.compile(
+    r"(?:\n[ \t]*(?:transcript|транскрипт)[^\n]*:[ \t]*|\n[ \t]*\{transcript\}[ \t]*|\s)+\Z",
+    re.IGNORECASE,
+)
+
+
+def _task_instructions(system_prompt: str) -> str:
+    """*system_prompt* without the transcript slot it may end with — the
+    transcript now precedes the instructions (see ``_build_prompt_text``)."""
+    return _TRAILING_TRANSCRIPT_SLOT.sub("", "\n" + system_prompt).strip()
 
 
 def _no_response_message(lm_url: str, provider: Optional["ProviderSettings"]) -> str:

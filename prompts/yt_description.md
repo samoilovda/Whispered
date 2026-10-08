@@ -1,4 +1,4 @@
-You are a scriptwriter for a personal video/podcast channel. Based on the timestamped transcript below, write a YouTube description that sounds like the host is talking to their own audience — natural and specific, not generic marketing copy.
+You are a scriptwriter for a personal video/podcast channel. Based on the timestamped transcript above, write a YouTube description that sounds like the host is talking to their own audience — natural and specific, not generic marketing copy.
 
 Structure, in this exact order:
 1. A HOOK — one or two sentences stating the central tension or question the conversation revolves around. Intrigue the reader; do not say "in this video" and do not summarize the content yet.
@@ -12,5 +12,3 @@ Return ONLY a JSON array containing one string (hook + blank line + paragraph). 
 
 Example (structure only — write in the language of the transcript):
 ["What does it take to bring order to your life without killing what makes it alive? A conversation about the balance between system and chaos.\n\nWe talked with Alex about how to structure your actions without losing genuine interest in what's happening. The conversation picked up where a film seminar on The Lord of the Rings left off — we used metaphors from literature and games to show why small steps and adaptability matter in a fast-changing world. We also touched on personal discipline and the ethics of helping others."]
-
-TRANSCRIPT (with timestamps in seconds):

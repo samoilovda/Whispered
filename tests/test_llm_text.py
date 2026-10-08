@@ -77,12 +77,33 @@ def test_build_prompt_text_truncates_long_transcript(monkeypatch):
     segs = _make_segments(100, chars_each=100)   # 10 000 chars of transcript
     prompt = _build_prompt_text("chapters", segs, max_transcript_chars=max_chars)
 
-    # System prompt must survive intact
-    assert prompt.startswith("SYS\n")
+    # Task instructions must survive intact, after the transcript
+    header = "TRANSCRIPT (with timestamps in seconds):\n"
+    assert prompt.startswith(header)
+    assert prompt.endswith("\n\nSYS\n")
 
     # Transcript part must not exceed limit
-    transcript_part = prompt[len("SYS\n"):]
+    transcript_part = prompt[len(header):-len("\n\nSYS\n")]
     assert len(transcript_part) <= max_chars
+
+
+def test_build_prompt_text_puts_shared_transcript_first(monkeypatch):
+    """Every insight type of one record starts with the same transcript,
+    so the server's prompt cache reads it once; a trailing transcript slot
+    left in a prompt file is dropped from the task instructions."""
+    from core.insights import _build_prompt_text
+    prompts = {"chapters": "Make chapters.\n\nTRANSCRIPT (with timestamps in seconds):\n",
+               "thumb_title": "Сделай заголовок.\n\nТранскрипт:\n\n{transcript}\n"}
+    monkeypatch.setattr("core.insights.load_prompt", lambda name, **kw: prompts[name])
+
+    segs = _make_segments(5, chars_each=20)
+    chapters = _build_prompt_text("chapters", segs, language="Russian")
+    thumb = _build_prompt_text("thumb_title", segs, language="Russian")
+    transcript_end = chapters.index("Make chapters.")
+    assert thumb[:transcript_end] == chapters[:transcript_end]
+    assert chapters.endswith("Make chapters.\nWrite all output in Russian.\n")
+    assert thumb.endswith("Сделай заголовок.\nWrite all output in Russian.\n")
+    assert chapters.count("TRANSCRIPT") == 1 and "{transcript}" not in thumb
 
 
 def test_build_prompt_text_short_transcript_unchanged(monkeypatch):
@@ -110,7 +131,8 @@ def test_build_prompt_text_covers_both_ends_of_long_recording(monkeypatch):
     max_chars = 5000
     prompt = _build_prompt_text("chapters", segs, max_transcript_chars=max_chars)
 
-    transcript_part = prompt[len("SYS\n"):]
+    header = "TRANSCRIPT (with timestamps in seconds):\n"
+    transcript_part = prompt[len(header):-len("\n\nSYS\n")]
     assert len(transcript_part) <= max_chars
     assert "segment 0 content" in transcript_part
     # Last segment starts at 7190s; its text must survive too.

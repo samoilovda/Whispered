@@ -19,7 +19,9 @@ def test_prompt_unchanged_without_notes_and_carries_them_with():
     assert _build_prompt_text("action_items", segs, notes="  ") == plain
     with_notes = _build_prompt_text("action_items", segs, notes="call the bank")
     assert "USER NOTES:\ncall the bank" in with_notes
-    assert with_notes.index("call the bank") < with_notes.index("hello there")
+    # Notes follow the shared transcript and precede the task instructions.
+    assert with_notes.index("hello there") < with_notes.index("call the bank")
+    assert with_notes.index("call the bank") < with_notes.index("action items")
 
 
 def test_fingerprint_ignores_surrounding_whitespace():
