@@ -340,8 +340,10 @@ def _clean_runner(context: StepContext) -> StepRunner:
 
 # Bumped when text_processor changes what the same prompts produce, so a
 # clean.md made by the older pipeline is redone (v2: chunks no longer
-# overlap, paragraphs are organized per chunk instead of timing out).
-_CLEAN_PIPELINE_VERSION = 2
+# overlap, paragraphs are organized per chunk instead of timing out;
+# v3: the AI clean answers instead of thinking until max_tokens, and
+# paragraphs it already wrote are kept rather than rewritten).
+_CLEAN_PIPELINE_VERSION = 3
 
 
 def _clean_artifact(context: StepContext) -> Artifact:

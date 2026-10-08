@@ -247,6 +247,15 @@ class TestLongTextRegressions:
         CoherenceProcessor(lm_client=client).process("\n\n".join(_long_text(60) for _ in range(3)))
         assert client.reasoning and set(client.reasoning) == {"none"}
 
+    def test_coherence_keeps_text_the_clean_already_split(self):
+        # The AI clean already writes paragraphs; asking the model to
+        # rewrite them again doubled the step's time for no gain.
+        text = "\n\n".join(_long_text(10) for _ in range(30))
+        client = _EchoLMClient()
+        result = CoherenceProcessor(lm_client=client).process(text)
+        assert client.calls == []
+        assert len(result.paragraphs) == 30
+
     def test_a_cut_off_coherence_answer_keeps_the_text(self, caplog):
         text = "\n\n".join(_long_text(60) for _ in range(12))
         client = _EchoLMClient(reply="Обрезанный ответ")

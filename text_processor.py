@@ -32,6 +32,10 @@ _MIN_RESULT_SHARE = 0.6
 # chunk fell back to the rule-based clean. "none" turns thinking off in
 # LM Studio; models without a reasoning mode ignore it.
 _NO_REASONING = "none"
+# The cleaning prompt already asks for paragraph breaks every 3-5
+# sentences (~400-500 chars of Russian speech). A longer block is a wall
+# of text the coherence pass still has to split.
+_MAX_PARAGRAPH_CHARS = 1500
 
 
 # ============================================================================
@@ -295,6 +299,13 @@ def _usable(result: Optional[str], source: str) -> bool:
     return bool(result and len(result.strip()) >= len(source.strip()) * _MIN_RESULT_SHARE)
 
 
+def _already_paragraphed(text: str) -> bool:
+    """Whether *text* already reads as paragraphs — none of them longer
+    than ``_MAX_PARAGRAPH_CHARS`` — so the coherence pass can keep it."""
+    paragraphs = [p for p in text.split("\n\n") if p.strip()]
+    return bool(paragraphs) and all(len(p) <= _MAX_PARAGRAPH_CHARS for p in paragraphs)
+
+
 def _paragraph_chunks(text: str, size: int) -> list[str]:
     """Back-to-back chunks of whole paragraphs up to *size* characters; a
     paragraph longer than that is split at sentence ends."""
@@ -390,6 +401,11 @@ class CoherenceProcessor:
         chunks = _paragraph_chunks(text, TEXT_CHUNK_SIZE)
         organized = []
         for index, chunk in enumerate(chunks):
+            if _already_paragraphed(chunk):
+                # The AI clean already split this part into paragraphs;
+                # rewriting it again cost as much as the clean itself.
+                organized.append(chunk.strip())
+                continue
             if on_progress:
                 on_progress(
                     int(30 + 60 * index / len(chunks)),
