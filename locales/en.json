@@ -741,6 +741,7 @@
   "cover_focus_bottom": "Crop: bottom",
   "cover_focus_left": "Crop: left",
   "cover_focus_right": "Crop: right",
+  "cover_zoom": "Zoom",
   "settings_category_covers": "Covers",
   "settings_cover_host_name": "Host name",
   "settings_cover_host_photo": "Host portrait",

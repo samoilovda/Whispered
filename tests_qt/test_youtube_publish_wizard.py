@@ -49,6 +49,12 @@ class _FakeStudio(QObject):
     def has_video(self):
         return self._video
 
+    def photo_framing(self, slot):
+        return (0.5, 0.15), 1.5
+
+    def set_photo_framing(self, slot, focus, zoom):
+        self.calls.append(("framing", slot, focus, zoom))
+
 
 @pytest.fixture
 def video(tmp_path: Path) -> Path:
@@ -110,6 +116,20 @@ def test_regenerate_and_guest_photo_drive_the_studio(video, tmp_path):
     assert ("shuffle",) in studio.calls
     assert ("photo", "photo_b") in studio.calls
     assert ("frame", "photo_b") in studio.calls
+
+
+def test_guest_photo_framing_drives_the_studio(video, tmp_path):
+    studio = _FakeStudio()
+    dlg = _wizard(video, tmp_path, studio)
+    dlg._next_btn.click()
+    framing = dlg._guest_framing
+    # Opens on the workspace's current crop for the second speaker.
+    assert framing.framing() == ((0.5, 0.15), 1.5)
+    assert not any(call[0] == "framing" for call in studio.calls)
+    framing.zoom_slider.setValue(220)
+    assert studio.calls[-1] == ("framing", "photo_b", (0.5, 0.15), 2.2)
+    framing.focus_combo.setCurrentIndex(0)  # "center"
+    assert studio.calls[-1] == ("framing", "photo_b", (0.5, 0.5), 2.2)
 
 
 def test_frame_button_needs_a_video(video, tmp_path):

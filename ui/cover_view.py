@@ -61,8 +61,10 @@ class CoverView(QWidget):
         super().__init__(parent)
         self.template = load_template(get_config().cover_template)
         self.photos: dict[str, str] = {}
-        # Per-slot focal point (normalised 0..1) for cover-fit cropping.
+        # Per-slot focal point (normalised 0..1) and zoom (1.0 = plain
+        # cover fit) for cropping a photo.
         self._focus: dict[str, tuple[float, float]] = {}
+        self._zoom: dict[str, float] = {}
         self.last_image = None
         # How many times "Shuffle" was pressed; with the title it seeds the
         # "auto" palette/leaf pick (covers/style.py).
@@ -128,7 +130,7 @@ class CoverView(QWidget):
         self.inspector.changed.connect(lambda: self._timer.start())
         self.inspector.choose_photo.connect(self._choose_photo)
         self.inspector.grab_frame.connect(self._grab_frame)
-        self.inspector.focus_changed.connect(self._on_focus_changed)
+        self.inspector.framing_changed.connect(self._on_framing_changed)
         self.inspector.export_requested.connect(self._export)
         self.inspector.suggest_requested.connect(self._suggest_title)
         self.inspector.shuffle_requested.connect(self._on_shuffle)
@@ -179,22 +181,30 @@ class CoverView(QWidget):
         self.warning.setText(tr("cover_frame_extracting"))
         worker.start()
 
-    def _on_focus_changed(self, slot: str, fx: float, fy: float) -> None:
+    def _on_framing_changed(
+        self, slot: str, fx: float, fy: float, zoom: float
+    ) -> None:
         self._focus[slot] = (fx, fy)
+        self._zoom[slot] = zoom
         self.render_preview()
 
     def _photo_slots(self) -> dict[str, object]:
-        """Merge chosen photo paths with their focal point so the renderer
-        crops toward it (a plain path stays a plain path)."""
+        """Merge chosen photo paths with their focal point and zoom so the
+        renderer crops toward it (a plain path stays a plain path, and an
+        unzoomed slot carries no ``zoom`` key — its cache key is unchanged)."""
         merged: dict[str, object] = {}
         for slot, path in self.photos.items():
-            focus = self._focus.get(slot)
-            if focus and focus != (0.5, 0.5):
-                merged[slot] = {
-                    "file": path, "focus_x": focus[0], "focus_y": focus[1]
-                }
-            else:
+            focus = self._focus.get(slot) or (0.5, 0.5)
+            zoom = self._zoom.get(slot, 1.0)
+            if focus == (0.5, 0.5) and zoom == 1.0:
                 merged[slot] = path
+                continue
+            value: dict[str, object] = {
+                "file": path, "focus_x": focus[0], "focus_y": focus[1]
+            }
+            if zoom != 1.0:
+                value["zoom"] = zoom
+            merged[slot] = value
         return merged
 
     def _on_frame_ready(self, slot: str, path: str) -> None:
@@ -254,6 +264,8 @@ class CoverView(QWidget):
         self._shuffle = 0
         self.photos.pop("photo_b", None)
         self._focus.pop("photo_b", None)
+        self._zoom.pop("photo_b", None)
+        self.inspector.framing["photo_b"].set_framing((0.5, 0.5), 1.0)
         if cfg.cover_host_photo:
             self.photos["photo_a"] = cfg.cover_host_photo
         self.inspector.title_edit.setPlainText("")
@@ -286,6 +298,18 @@ class CoverView(QWidget):
 
     def has_video(self) -> bool:
         return bool(self._video)
+
+    def photo_framing(self, slot: str) -> tuple[tuple[float, float], float]:
+        """The slot's focal point and zoom, as the wizard's controls show them."""
+        return self._focus.get(slot) or (0.5, 0.5), self._zoom.get(slot, 1.0)
+
+    def set_photo_framing(
+        self, slot: str, focus: tuple[float, float], zoom: float
+    ) -> None:
+        """Framing chosen in the publish wizard; mirrored into this
+        workspace's inspector so both show the same crop."""
+        self.inspector.framing[slot].set_framing(focus, zoom)
+        self._on_framing_changed(slot, focus[0], focus[1], zoom)
 
     def _suggest_title(self) -> None:
         if not self._segments:

@@ -966,6 +966,18 @@ def test_cover_cache_key_tracks_a_replaced_photo_file(tmp_path):
     assert before != after
 
 
+def test_cover_cache_key_follows_a_photo_zoom(tmp_path):
+    def key(photo):
+        return STEP_REGISTRY["cover"].make_artifact(
+            _context(tmp_path, cover_slots={"title": "A", "photo_b": photo})
+        ).cache_key()
+
+    framed = {"file": "/guest.png", "focus_x": 0.5, "focus_y": 0.15}
+    assert key(framed) == key(dict(framed))
+    assert key(framed) != key({**framed, "zoom": 1.8})
+    assert key({**framed, "zoom": 1.8}) != key({**framed, "zoom": 2.2})
+
+
 def test_cover_without_youtube_package_still_schedules(tmp_path):
     spec = build_job_spec("custom", ("transcribe", "cover"))
     cover = next(step for step in spec.steps if step.name == "cover")

@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
     QFormLayout,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
+    QSlider,
     QVBoxLayout,
     QWidget,
 )
+
+from covers.renderer import MAX_PHOTO_ZOOM
 
 from ui.i18n_helpers import Retranslator
 from ui.option_labels import COVER_VARIANT_CHOICES
@@ -29,11 +33,72 @@ _FOCUS_CHOICES: list[tuple[str, tuple[float, float]]] = [
 ]
 
 
+class PhotoFraming(QWidget):
+    """Focal point + zoom for one photo slot: the focus combo and a 100…250 %
+    slider that enlarges the cover-fit crop around that point — enough to
+    frame a small face from a video-call tile. Shared by the Cover
+    workspace inspector and the YouTube publish wizard's cover step."""
+
+    framing_changed = pyqtSignal(float, float, float)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._i18n = Retranslator()
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        self.focus_combo = QComboBox()
+        self._i18n.combo_items(self.focus_combo, _FOCUS_CHOICES)
+        row.addWidget(self.focus_combo)
+        row.addWidget(self._i18n.text(QLabel(), "cover_zoom"))
+        self.zoom_slider = QSlider(Qt.Orientation.Horizontal)
+        self.zoom_slider.setRange(100, round(MAX_PHOTO_ZOOM * 100))
+        self.zoom_slider.setSingleStep(5)
+        self.zoom_slider.setPageStep(25)
+        self.zoom_slider.setValue(100)
+        row.addWidget(self.zoom_slider, 1)
+        self.zoom_label = QLabel()
+        self.zoom_label.setMinimumWidth(40)
+        row.addWidget(self.zoom_label)
+        self._i18n.bind()
+        self._show_zoom()
+        self.focus_combo.currentIndexChanged.connect(self._emit)
+        self.zoom_slider.valueChanged.connect(self._emit)
+
+    def framing(self) -> tuple[tuple[float, float], float]:
+        fx, fy = self.focus_combo.currentData()
+        return (fx, fy), self.zoom_slider.value() / 100
+
+    def set_framing(self, focus: tuple[float, float], zoom: float) -> None:
+        """Show *focus*/*zoom* without emitting ``framing_changed``; a focal
+        point that isn't one of the presets leaves the combo where it is."""
+        index = next(
+            (i for i, (_key, point) in enumerate(_FOCUS_CHOICES) if point == tuple(focus)),
+            -1,
+        )
+        for widget in (self.focus_combo, self.zoom_slider):
+            widget.blockSignals(True)
+        if index >= 0:
+            self.focus_combo.setCurrentIndex(index)
+        self.zoom_slider.setValue(round(zoom * 100))
+        for widget in (self.focus_combo, self.zoom_slider):
+            widget.blockSignals(False)
+        self._show_zoom()
+
+    def _show_zoom(self) -> None:
+        self.zoom_label.setText(f"{self.zoom_slider.value()} %")
+
+    def _emit(self, *_args) -> None:
+        self._show_zoom()
+        (fx, fy), zoom = self.framing()
+        self.framing_changed.emit(fx, fy, zoom)
+
+
 class CoverInspector(QWidget):
     changed = pyqtSignal()
     choose_photo = pyqtSignal(str)
     grab_frame = pyqtSignal(str)
-    focus_changed = pyqtSignal(str, float, float)
+    # slot, focus_x, focus_y, zoom
+    framing_changed = pyqtSignal(str, float, float, float)
     export_requested = pyqtSignal()
     suggest_requested = pyqtSignal()
     shuffle_requested = pyqtSignal()
@@ -43,6 +108,7 @@ class CoverInspector(QWidget):
         self._i18n = Retranslator()
         self._video_available = False
         self._frame_buttons: list = []
+        self.framing: dict[str, PhotoFraming] = {}
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.layout_combo = QComboBox()
@@ -83,13 +149,15 @@ class CoverInspector(QWidget):
             )
             self._frame_buttons.append(frame_button)
             row.addWidget(frame_button)
-            focus_combo = QComboBox()
-            self._i18n.combo_items(focus_combo, _FOCUS_CHOICES)
-            focus_combo.currentIndexChanged.connect(
-                lambda _idx, name=slot, combo=focus_combo: self._emit_focus(name, combo)
-            )
-            row.addWidget(focus_combo)
             layout.addLayout(row)
+            framing = PhotoFraming()
+            framing.framing_changed.connect(
+                lambda fx, fy, zoom, name=slot: self.framing_changed.emit(
+                    name, fx, fy, zoom
+                )
+            )
+            self.framing[slot] = framing
+            layout.addWidget(framing)
         self.export_button = self._i18n.text(QPushButton(), "cover_export")
         self.export_button.setProperty("variant", "primary")
         self.export_button.clicked.connect(self.export_requested.emit)
@@ -100,10 +168,6 @@ class CoverInspector(QWidget):
         self.variant_combo.currentIndexChanged.connect(self.changed.emit)
         self.title_edit.textChanged.connect(self.changed.emit)
         self.names_edit.textChanged.connect(self.changed.emit)
-
-    def _emit_focus(self, slot: str, combo: QComboBox) -> None:
-        fx, fy = combo.currentData()
-        self.focus_changed.emit(slot, fx, fy)
 
     def set_video_available(self, available: bool) -> None:
         """Enable the per-slot 'frame from video' buttons only when the

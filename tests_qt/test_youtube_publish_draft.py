@@ -43,6 +43,12 @@ class _FakeStudio(QObject):
     def has_video(self):
         return False
 
+    def photo_framing(self, slot):
+        return (0.5, 0.5), 1.0
+
+    def set_photo_framing(self, slot, focus, zoom):
+        pass
+
 
 def _dialog(draft: Path, texts=None, studio=None) -> YouTubePublishDialog:
     return YouTubePublishDialog(

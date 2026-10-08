@@ -7,7 +7,8 @@ three-step wizard:
 1. Texts — the generated title / description (chapter timecodes folded in)
    / tags to correct, plus the speakers' names for the cover.
 2. Cover — rendered from those texts through the Cover workspace (palette,
-   leaves, photos), with "Regenerate" and a photo for the second speaker;
+   leaves, photos), with "Regenerate" and a photo for the second speaker
+   (with its crop: focal point and zoom);
    "Approve" writes the final ``cover.png``.
 3. Publish — validated against YouTube's limits; hand-off actions (copy,
    show the video, save as a folder, open Studio) and, in API mode, the
@@ -41,6 +42,7 @@ from core.i18n import tr
 from core.logger import get_logger
 from core.platform_support import reveal_in_file_manager
 from domain.youtube_publish import PublishPackage, UploadRecord
+from ui.cover_inspector import PhotoFraming
 from ui.theme import set_role
 from ui.toast import show_toast
 
@@ -69,6 +71,9 @@ class CoverStudio(Protocol):
     def choose_photo(self, slot: str) -> None: ...
     def grab_frame(self, slot: str) -> None: ...
     def has_video(self) -> bool: ...
+    def photo_framing(self, slot: str) -> tuple[tuple[float, float], float]: ...
+    def set_photo_framing(
+        self, slot: str, focus: tuple[float, float], zoom: float) -> None: ...
 
 
 class YouTubePublishDialog(QDialog):
@@ -262,11 +267,19 @@ class YouTubePublishDialog(QDialog):
         row.addWidget(self._guest_frame_btn)
         row.addStretch(1)
         layout.addLayout(row)
+        # The second speaker's crop: a face from a video-call tile is small,
+        # so it can be zoomed and pointed at right here.
+        self._guest_framing = PhotoFraming()
+        layout.addWidget(self._guest_framing)
         if self._cover_studio is not None:
             self._cover_studio.preview_changed.connect(self._show_cover_image)  # type: ignore[attr-defined]
+            focus, zoom = self._cover_studio.photo_framing("photo_b")
+            self._guest_framing.set_framing(focus, zoom)
+            self._guest_framing.framing_changed.connect(self._on_guest_framing)
         else:
-            for button in (self._regenerate_btn, self._guest_photo_btn, self._guest_frame_btn):
-                button.setVisible(False)
+            for widget in (self._regenerate_btn, self._guest_photo_btn,
+                           self._guest_frame_btn, self._guest_framing):
+                widget.setVisible(False)
             self._show_cover_file()
         return page
 
@@ -322,8 +335,8 @@ class YouTubePublishDialog(QDialog):
         self._next_btn.setEnabled(not busy and not (
             page == PAGE_TEXTS and not self.current_title()))
         self._back_btn.setEnabled(not busy and not self._uploading)
-        for button in (self._regenerate_btn, self._guest_photo_btn):
-            button.setEnabled(not busy)
+        for widget in (self._regenerate_btn, self._guest_photo_btn, self._guest_framing):
+            widget.setEnabled(not busy)
         self._guest_frame_btn.setEnabled(
             not busy and self._cover_studio is not None and self._cover_studio.has_video())
 
@@ -384,6 +397,10 @@ class YouTubePublishDialog(QDialog):
 
     def guest_name(self) -> str:
         return self._guest_edit.text().strip()
+
+    def _on_guest_framing(self, fx: float, fy: float, zoom: float) -> None:
+        if self._cover_studio is not None:
+            self._cover_studio.set_photo_framing("photo_b", (fx, fy), zoom)
 
     def _regenerate_cover(self) -> None:
         if self._cover_studio is not None:

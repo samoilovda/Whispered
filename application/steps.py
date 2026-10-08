@@ -718,7 +718,8 @@ def _cover_title(context: StepContext, slots: dict) -> str:
 
 def _cover_inputs(context: StepContext) -> str:
     """Fingerprint of everything a cover is drawn from — template, layout,
-    palette, leaves, slot texts, photo files (path, size, mtime) and size.
+    palette, leaves, slot texts, photo files (path, size, mtime) with their
+    crop (focal point, zoom — part of the slot value) and size.
     It goes into the artifact's cache key, so a changed title or palette is
     redrawn instead of being answered with the previous ``cover.png``."""
     slots = dict(context.params.get("cover_slots") or {})

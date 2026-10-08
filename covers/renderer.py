@@ -72,6 +72,10 @@ def _color(value: Any) -> QColor:
     return QColor(str(value))
 
 
+# Upper bound for a photo slot's ``zoom`` (1.0 = plain cover fit).
+MAX_PHOTO_ZOOM = 2.5
+
+
 def _asset(template: CoverTemplate, category: str, name: str) -> Path:
     return template.root / category / name
 
@@ -82,6 +86,7 @@ def _draw_fitted(
     rect: QRectF,
     fit: str,
     focus: tuple[float, float] | None = None,
+    zoom: float = 1.0,
 ) -> None:
     if image.isNull():
         return
@@ -89,12 +94,15 @@ def _draw_fitted(
     if fit == "contain":
         ratio = min(rect.width() / iw, rect.height() / ih)
     else:
+        # ``zoom`` enlarges the cover-fit scale (a small face in a video-
+        # call tile); never below 1, so the slot always stays covered.
         ratio = max(rect.width() / iw, rect.height() / ih)
+        ratio *= min(MAX_PHOTO_ZOOM, max(1.0, zoom))
     target_w, target_h = iw * ratio, ih * ratio
     # ``focus`` (normalised 0..1) aligns that point of the image with the
-    # same relative point of ``rect``; for a "cover" fit the offset range
-    # is exactly the overflow, so no extra clamping is needed. Default
-    # (0.5, 0.5) reproduces plain centering.
+    # same relative point of ``rect`` — so zoom grows around it; for a
+    # "cover" fit the offset range is exactly the overflow, so no extra
+    # clamping is needed. Default (0.5, 0.5) reproduces plain centering.
     fx, fy = focus or (0.5, 0.5)
     fx = min(1.0, max(0.0, fx))
     fy = min(1.0, max(0.0, fy))
@@ -264,6 +272,7 @@ def render(
                 slots.get(layer.get("slot")) if kind == "photo" else layer.get("source")
             )
             focus: tuple[float, float] | None = None
+            zoom = 1.0
             if photo_value:
                 if isinstance(photo_value, QImage):
                     picture = photo_value
@@ -276,6 +285,7 @@ def render(
                             float(photo_value["focus_x"]),
                             float(photo_value["focus_y"]),
                         )
+                    zoom = float(photo_value.get("zoom", 1.0))
                 else:
                     path = (
                         Path(str(photo_value))
@@ -298,6 +308,7 @@ def render(
                     rect,
                     layer.get("fit", "contain" if kind == "image" else "cover"),
                     focus,
+                    zoom,
                 )
                 painter.restore()
         elif kind == "text":
