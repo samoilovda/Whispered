@@ -59,18 +59,27 @@ class PhotoFraming(QWidget):
         self.zoom_label = QLabel()
         self.zoom_label.setMinimumWidth(40)
         row.addWidget(self.zoom_label)
+        # A focal point that is not one of the presets (set from a face,
+        # see covers/speaker_photos.framing_for) — kept while only the zoom
+        # changes, dropped once a preset is picked.
+        self._custom_focus: tuple[float, float] | None = None
         self._i18n.bind()
         self._show_zoom()
-        self.focus_combo.currentIndexChanged.connect(self._emit)
+        self.focus_combo.currentIndexChanged.connect(self._on_focus_picked)
         self.zoom_slider.valueChanged.connect(self._emit)
 
     def framing(self) -> tuple[tuple[float, float], float]:
-        fx, fy = self.focus_combo.currentData()
+        fx, fy = self._custom_focus or self.focus_combo.currentData()
         return (fx, fy), self.zoom_slider.value() / 100
+
+    def _on_focus_picked(self, *_args) -> None:
+        self._custom_focus = None
+        self._emit()
 
     def set_framing(self, focus: tuple[float, float], zoom: float) -> None:
         """Show *focus*/*zoom* without emitting ``framing_changed``; a focal
-        point that isn't one of the presets leaves the combo where it is."""
+        point that isn't one of the presets leaves the combo where it is and
+        is kept until a preset is picked."""
         index = next(
             (i for i, (_key, point) in enumerate(_FOCUS_CHOICES) if point == tuple(focus)),
             -1,
@@ -79,6 +88,7 @@ class PhotoFraming(QWidget):
             widget.blockSignals(True)
         if index >= 0:
             self.focus_combo.setCurrentIndex(index)
+        self._custom_focus = None if index >= 0 else (float(focus[0]), float(focus[1]))
         self.zoom_slider.setValue(round(zoom * 100))
         for widget in (self.focus_combo, self.zoom_slider):
             widget.blockSignals(False)
@@ -97,6 +107,7 @@ class CoverInspector(QWidget):
     changed = pyqtSignal()
     choose_photo = pyqtSignal(str)
     grab_frame = pyqtSignal(str)
+    suggest_photos = pyqtSignal(str)
     # slot, focus_x, focus_y, zoom
     framing_changed = pyqtSignal(str, float, float, float)
     export_requested = pyqtSignal()
@@ -149,6 +160,15 @@ class CoverInspector(QWidget):
             )
             self._frame_buttons.append(frame_button)
             row.addWidget(frame_button)
+            variants_button = self._i18n.text(
+                QPushButton(), "cover_photo_variants", tooltip="cover_photo_variants_tip"
+            )
+            variants_button.setEnabled(False)
+            variants_button.clicked.connect(
+                lambda _checked=False, name=slot: self.suggest_photos.emit(name)
+            )
+            self._frame_buttons.append(variants_button)
+            row.addWidget(variants_button)
             layout.addLayout(row)
             framing = PhotoFraming()
             framing.framing_changed.connect(

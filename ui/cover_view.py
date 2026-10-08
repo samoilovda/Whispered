@@ -136,6 +136,7 @@ class CoverView(QWidget):
         self.inspector.changed.connect(lambda: self._timer.start())
         self.inspector.choose_photo.connect(self._choose_photo)
         self.inspector.grab_frame.connect(self._grab_frame)
+        self.inspector.suggest_photos.connect(self._suggest_photos)
         self.inspector.framing_changed.connect(self._on_framing_changed)
         self.inspector.export_requested.connect(self._export)
         self.inspector.suggest_requested.connect(self._suggest_title)
@@ -186,6 +187,51 @@ class CoverView(QWidget):
         self._registry.register(worker, name=f"cover_frame_{id(worker)}")
         self.warning.setText(tr("cover_frame_extracting"))
         worker.start()
+
+    def _suggest_photos(self, slot: str) -> None:
+        """Fill *slot* from the prepared speaker photos of the video
+        (covers.speaker_photos), framed so the face sits like in the other
+        slot."""
+        if not self._video:
+            return
+        from ui.cover_candidates_dialog import SpeakerPhotoDialog, candidate_dir
+
+        try:
+            from video_input import probe_video
+
+            _, duration = probe_video(self._video)
+        except Exception:
+            duration = 0.0
+        if self._frame_dir is None:
+            self._frame_dir = tempfile.mkdtemp(prefix="whispered-cover-frames-")
+        dialog = SpeakerPhotoDialog(
+            self._video, duration, candidate_dir(self._artifact_dir(), self._frame_dir),
+            registry=self._registry, parent=self,
+        )
+        if dialog.exec() != SpeakerPhotoDialog.DialogCode.Accepted or dialog.selected is None:
+            return
+        self.apply_photo_candidate(slot, dialog.selected)
+
+    def apply_photo_candidate(self, slot: str, candidate) -> None:
+        """Put a ``PhotoCandidate`` into *slot* with face-based framing."""
+        from PyQt6.QtGui import QImage
+
+        from covers.speaker_photos import framing_for, slot_size
+
+        self.photos[slot] = candidate.path
+        layout = self.inspector.layout_combo.currentData() or ""
+        box = slot_size(self.template, layout, slot)
+        image = QImage(candidate.path)
+        if box is not None and not image.isNull():
+            focus, zoom = framing_for(candidate.face, box, (image.width(), image.height()))
+        else:
+            focus, zoom = (0.5, 0.5), 1.0
+        self._focus[slot] = focus
+        self._zoom[slot] = zoom
+        framing = self.inspector.framing.get(slot)
+        if framing is not None:
+            framing.set_framing(focus, zoom)
+        self.render_preview()
 
     def _on_framing_changed(
         self, slot: str, fx: float, fy: float, zoom: float
