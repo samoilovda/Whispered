@@ -39,6 +39,27 @@ from domain.transcription import Segment, TranscriptionResult  # noqa: E402
 _YOUTUBE_TYPES = ("chapters", "yt_titles", "yt_description", "yt_tags", "yt_questions")
 
 
+def _loaded_model(lm_url: str) -> str:
+    """The LLM LM Studio actually has in memory, or "".
+
+    /v1/models (what LMStudioClient.probe() reads) lists every downloaded
+    model when just-in-time loading is on, so a failed `lms load` went
+    unnoticed and the bench measured a model that wasn't there. LM
+    Studio's own /api/v0/models reports each model's load state.
+    """
+    import urllib.request
+
+    url = lm_url.rstrip("/").removesuffix("/v1") + "/api/v0/models"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as response:
+            models = json.loads(response.read().decode("utf-8")).get("data", [])
+    except Exception:
+        return ""
+    loaded = [m["id"] for m in models
+              if m.get("state") == "loaded" and m.get("type") != "embeddings"]
+    return loaded[0] if len(loaded) == 1 else ""
+
+
 def _load_record(record_id: int) -> TranscriptionResult:
     record = get_history_store().get(record_id)
     if record is None:
@@ -103,9 +124,9 @@ def main() -> None:
     logging.getLogger("core.lm_client").setLevel(logging.INFO)
 
     lm_url = get_config().lm_studio_url
-    ok, model = LMStudioClient(lm_url).probe()
-    if not ok or not model:
-        raise SystemExit(f"LM Studio has no model loaded at {lm_url}")
+    model = _loaded_model(lm_url)
+    if not model:
+        raise SystemExit(f"LM Studio has no model loaded at {lm_url} (see `lms ps`)")
     print(f"model: {model}", flush=True)
 
     out = ROOT / args.out / re.sub(r"[^\w.-]+", "_", model)
