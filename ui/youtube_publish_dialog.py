@@ -33,9 +33,10 @@ from PyQt6.QtWidgets import (
 
 from application.youtube_publish import (
     DESCRIPTION_MAX_BYTES, TAGS_MAX_CHARS, THUMBNAIL_MAX_BYTES, TITLE_MAX_CHARS, build_package,
-    description_bytes, fit_tags, normalize_titles, parse_tags, tags_length,
-    validate_package,
+    description_bytes, draft_defaults, fit_tags, normalize_titles, parse_tags, record_draft,
+    restore_draft, tags_length, validate_package,
 )
+from application.user_edits import load_overlay, save_overlay
 from core.i18n import tr
 from core.logger import get_logger
 from core.platform_support import reveal_in_file_manager
@@ -88,6 +89,12 @@ class YouTubePublishDialog(QDialog):
 
     *cover_studio* (the Cover workspace) enables the cover step: without it
     the step just shows *cover_path*. *host_name* pre-fills the host.
+
+    *draft_path* (``<artifact_dir>/youtube_publish.draft.json``) keeps the
+    wizard's edits across closing and reopening it for the same record:
+    written on "Next", on approving the cover and on closing, read back
+    here (see ``application.youtube_publish.restore_draft`` for what
+    happens when the package changed in between).
     """
 
     upload_requested = pyqtSignal(object)
@@ -109,6 +116,7 @@ class YouTubePublishDialog(QDialog):
         pending_path: Optional[Path] = None,
         cover_studio: Optional[CoverStudio] = None,
         host_name: str = "",
+        draft_path: Optional[Path] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -123,23 +131,30 @@ class YouTubePublishDialog(QDialog):
         self._pending_path = pending_path
         self._uploading = False
         self._cover_studio = cover_studio
-        self._host_name = host_name
         self._cover_busy = False
         self._language: Optional[str] = texts.get("language")
         self._chapter_check = texts.get("chapter_check")
-        self._build_ui(texts)
+        self._draft_path = draft_path
+        self._defaults = draft_defaults(texts, host_name)
+        draft = load_overlay(draft_path) if draft_path is not None else {}
+        fields, self._outdated_fields = restore_draft(draft, self._defaults)
+        self._build_ui(texts, fields)
         self._refresh()
+        if cover_studio is not None and fields != self._defaults:
+            # Reopened with agreed names/texts: the Cover workspace shows
+            # them too, not whatever it held before.
+            cover_studio.set_cover_texts(self.cover_text(), self.host_name(), self.guest_name())
 
     # ------------------------------------------------------------------ UI
 
-    def _build_ui(self, texts: dict) -> None:
+    def _build_ui(self, texts: dict, fields: dict[str, str]) -> None:
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
         self._step_label = QLabel()
         set_role(self._step_label, "section-title")
         layout.addWidget(self._step_label)
         self._pages = QStackedWidget()
-        self._pages.addWidget(self._texts_page(texts))
+        self._pages.addWidget(self._texts_page(texts, fields))
         self._pages.addWidget(self._cover_page())
         self._pages.addWidget(self._publish_page())
         layout.addWidget(self._pages, 1)
@@ -164,7 +179,7 @@ class YouTubePublishDialog(QDialog):
         layout.addLayout(nav)
         self._show_page(PAGE_TEXTS)
 
-    def _texts_page(self, texts: dict) -> QWidget:
+    def _texts_page(self, texts: dict, fields: dict[str, str]) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -172,10 +187,17 @@ class YouTubePublishDialog(QDialog):
         intro.setWordWrap(True)
         set_role(intro, "dim")
         layout.addWidget(intro)
+        self._draft_note = QLabel(tr("yt_wizard_draft_outdated"))
+        self._draft_note.setWordWrap(True)
+        set_role(self._draft_note, "warning-text")
+        self._draft_note.setVisible(bool(self._outdated_fields))
+        layout.addWidget(self._draft_note)
 
         self._title_combo = QComboBox()
         self._title_combo.setEditable(True)
         self._title_combo.addItems(normalize_titles(texts.get("titles")))
+        if fields["title"] != self._title_combo.currentText():
+            self._title_combo.setCurrentText(fields["title"])
         self._title_combo.currentTextChanged.connect(self._refresh)
         self._title_counter = QLabel()
         layout.addLayout(self._field_row(
@@ -183,7 +205,7 @@ class YouTubePublishDialog(QDialog):
             tr("yt_publish_copy_title"), self._copy_title,
         ))
 
-        self._desc_edit = QPlainTextEdit(texts.get("description") or "")
+        self._desc_edit = QPlainTextEdit(fields["description"])
         self._desc_edit.setMinimumHeight(140)
         self._desc_edit.setToolTip(tr("yt_wizard_description_tip"))
         self._desc_edit.textChanged.connect(self._refresh)
@@ -193,7 +215,7 @@ class YouTubePublishDialog(QDialog):
             tr("yt_publish_copy_description"), self._copy_description,
         ))
 
-        self._tags_edit = QLineEdit(", ".join(parse_tags(texts.get("tags"))))
+        self._tags_edit = QLineEdit(fields["tags"])
         self._tags_edit.textChanged.connect(self._refresh)
         self._tags_counter = QLabel()
         layout.addLayout(self._field_row(
@@ -202,12 +224,12 @@ class YouTubePublishDialog(QDialog):
         ))
 
         speakers = QFormLayout()
-        self._host_edit = QLineEdit(self._host_name)
+        self._host_edit = QLineEdit(fields["host"])
         speakers.addRow(tr("yt_wizard_host"), self._host_edit)
-        self._guest_edit = QLineEdit()
+        self._guest_edit = QLineEdit(fields["guest"])
         self._guest_edit.setPlaceholderText(tr("yt_wizard_guest_placeholder"))
         speakers.addRow(tr("yt_wizard_guest"), self._guest_edit)
-        self._cover_text_edit = QLineEdit()
+        self._cover_text_edit = QLineEdit(fields["cover_text"])
         self._cover_text_edit.setPlaceholderText(tr("yt_wizard_cover_text_placeholder"))
         speakers.addRow(tr("yt_wizard_cover_text"), self._cover_text_edit)
         layout.addLayout(speakers)
@@ -311,6 +333,7 @@ class YouTubePublishDialog(QDialog):
 
     def _go_next(self) -> None:
         page = self._pages.currentIndex()
+        self.save_draft()
         if page == PAGE_TEXTS:
             self._show_page(PAGE_COVER)
             if self._cover_studio is not None:
@@ -325,6 +348,32 @@ class YouTubePublishDialog(QDialog):
             self._cover_status.setText(tr("yt_wizard_cover_saving"))
             self._refresh_wizard_buttons()
             self.cover_render_requested.emit()
+
+    def done(self, result: int) -> None:
+        """Closing by any route (Close, Esc, the title bar) keeps the edits."""
+        self.save_draft()
+        super().done(result)
+
+    def draft_fields(self) -> dict[str, str]:
+        """The wizard's fields as they stand — what the draft stores."""
+        return {
+            "title": self.current_title(),
+            "description": self._desc_edit.toPlainText(),
+            "tags": self._tags_edit.text().strip(),
+            "host": self.host_name(),
+            "guest": self.guest_name(),
+            "cover_text": self._cover_text_edit.text().strip(),
+        }
+
+    def save_draft(self) -> None:
+        """Write this record's draft (only what differs from the package as
+        the YouTube tab has it; nothing different removes the file)."""
+        if self._draft_path is None:
+            return
+        try:
+            save_overlay(self._draft_path, record_draft(self.draft_fields(), self._defaults))
+        except (OSError, ValueError) as exc:
+            logger.warning("Failed to save the publish wizard draft %s: %s", self._draft_path, exc)
 
     def cover_text(self) -> str:
         """What the cover says: its own line if typed, else the video title."""

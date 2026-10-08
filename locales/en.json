@@ -777,6 +777,7 @@
   "yt_wizard_guest": "Second speaker",
   "yt_wizard_guest_placeholder": "Guest's full name (empty — one-speaker cover)",
   "yt_wizard_cover_text": "Text on the cover",
+  "yt_wizard_draft_outdated": "The package on the YouTube tab has changed since last time — the fields that changed there are shown afresh and replace your earlier edits to them. Names and the cover text are kept.",
   "yt_wizard_cover_text_placeholder": "Same as the video title",
   "yt_wizard_regenerate": "Regenerate",
   "yt_wizard_guest_photo": "Second speaker's photo…",

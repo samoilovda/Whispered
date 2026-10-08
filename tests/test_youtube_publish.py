@@ -4,10 +4,13 @@ from application.youtube_publish import (
     DESCRIPTION_MAX_BYTES,
     TAGS_MAX_CHARS,
     build_package,
+    draft_defaults,
     find_video_source,
     fit_tags,
     normalize_titles,
     parse_tags,
+    record_draft,
+    restore_draft,
     tags_length,
     validate_package,
 )
@@ -113,3 +116,40 @@ def test_find_video_source(tmp_path):
     assert find_video_source(_video(tmp_path, "a.mp3")) is None
     assert find_video_source(tmp_path / "gone.mp4") is None
     assert find_video_source(None) is None
+
+
+# ── Wizard draft ───────────────────────────────────────────────────────
+
+_DRAFT_TEXTS = {"titles": ["1. Title A", "2. Title B"], "description": "Desc", "tags": "a, b"}
+
+
+def test_draft_stores_only_what_differs():
+    defaults = draft_defaults(_DRAFT_TEXTS, "Host")
+    assert record_draft(defaults, defaults) == {}
+    draft = record_draft(dict(defaults, guest="Guest"), defaults)
+    assert draft["guest"] == "Guest"
+    assert "title" not in draft
+
+
+def test_restore_applies_current_edits():
+    defaults = draft_defaults(_DRAFT_TEXTS, "Host")
+    draft = record_draft(dict(defaults, title="Mine", tags="x"), defaults)
+    fields, outdated = restore_draft(draft, defaults)
+    assert (fields["title"], fields["tags"], outdated) == ("Mine", "x", [])
+
+
+def test_restore_drops_edits_made_against_an_older_package():
+    defaults = draft_defaults(_DRAFT_TEXTS, "Host")
+    draft = record_draft(dict(defaults, title="Mine", guest="Guest"), defaults)
+    newer = draft_defaults(dict(_DRAFT_TEXTS, titles=["New title"]), "Host")
+    fields, outdated = restore_draft(draft, newer)
+    assert fields["title"] == "New title"
+    assert fields["guest"] == "Guest"
+    assert outdated == ["title"]
+
+
+def test_a_new_default_equal_to_the_edit_is_not_reported():
+    defaults = draft_defaults(_DRAFT_TEXTS, "Old host")
+    draft = record_draft(dict(defaults, host="New host"), defaults)
+    fields, outdated = restore_draft(draft, draft_defaults(_DRAFT_TEXTS, "New host"))
+    assert (fields["host"], outdated) == ("New host", [])

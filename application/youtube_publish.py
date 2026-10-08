@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 from typing import Iterable, Optional
 
+from application.user_edits import is_stale, set_edit
 from domain.youtube_publish import PublishIssue, PublishPackage
 from utils import SUPPORTED_FORMATS
 
@@ -177,3 +178,65 @@ def find_video_source(source_path: "str | Path | None") -> Optional[Path]:
     if path.suffix.lower() in _VIDEO_SUFFIXES and path.suffix.lower() in SUPPORTED_FORMATS and path.is_file():
         return path
     return None
+
+
+# ── Wizard draft ───────────────────────────────────────────────────────
+#
+# What the publish wizard agreed on (title, description, tags, the
+# speakers' names, the cover's own line) is kept per record in
+# ``<artifact_dir>/youtube_publish.draft.json`` so closing the dialog does
+# not lose it. Only fields that differ from what the wizard would show
+# without a draft are stored, each with the fingerprint of that default
+# (``application.user_edits`` — the same overlay format the YouTube tab
+# uses). Rule for a regenerated package (or a later edit in the YouTube
+# tab): a field whose default has changed since the draft was written is
+# stale — the newer text wins and the wizard says so; fields that are not
+# derived from the package (guest, cover text) stay as they were.
+
+DRAFT_FILE = "youtube_publish.draft.json"
+DRAFT_FIELDS = ("title", "description", "tags", "host", "guest", "cover_text")
+
+
+def draft_defaults(texts: dict, host: str = "") -> dict[str, str]:
+    """The wizard's fields as filled from ``YouTubePanel.publish_texts()``
+    and the remembered host, with no draft."""
+    titles = normalize_titles(texts.get("titles"))
+    return {
+        "title": titles[0] if titles else "",
+        "description": str(texts.get("description") or ""),
+        "tags": ", ".join(parse_tags(texts.get("tags"))),
+        "host": host,
+        "guest": "",
+        "cover_text": "",
+    }
+
+
+def restore_draft(
+    draft: dict, defaults: dict[str, str],
+) -> tuple[dict[str, str], list[str]]:
+    """``(fields, outdated)``: *defaults* with the draft's still-valid edits
+    applied, and the names of edited fields dropped because their default
+    has changed since (see the rule above)."""
+    fields = dict(defaults)
+    outdated: list[str] = []
+    for key in DRAFT_FIELDS:
+        value = draft.get(key)
+        if not isinstance(value, str):
+            continue
+        if is_stale(draft, key, defaults.get(key, "")):
+            # Nothing lost when the new default is what the user had typed
+            # (e.g. the host remembered in Config on approving the cover).
+            if value != defaults.get(key, ""):
+                outdated.append(key)
+            continue
+        fields[key] = value
+    return fields, outdated
+
+
+def record_draft(fields: dict[str, str], defaults: dict[str, str]) -> dict:
+    """The draft to store for *fields*: only what differs from *defaults*
+    (an empty dict when nothing does)."""
+    draft: dict = {}
+    for key in DRAFT_FIELDS:
+        draft = set_edit(draft, key, fields.get(key, ""), defaults.get(key, ""))
+    return draft

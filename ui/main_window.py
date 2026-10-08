@@ -2789,7 +2789,7 @@ class MainWindow(QMainWindow):
         if not self.youtube_panel.has_publishable_content():
             show_toast(self, tr("yt_publish_nothing"), kind="info")
             return
-        from application.youtube_publish import find_video_source
+        from application.youtube_publish import DRAFT_FILE, find_video_source
         from core.paths import artifact_dir, output_dir
         from ui.youtube_publish_dialog import YouTubePublishDialog
 
@@ -2815,6 +2815,7 @@ class MainWindow(QMainWindow):
             pending_path=pending_path,
             cover_studio=self.cover_view,
             host_name=get_config().cover_host_name,
+            draft_path=art_dir / DRAFT_FILE if art_dir else None,
             parent=self,
         )
         dialog.cover_render_requested.connect(
