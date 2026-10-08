@@ -31,6 +31,11 @@ PROJECT = Path(__file__).resolve().parent
 LIB_DEPLOY_DIR = Path.home() / "Library/Application Support/Whispered/lib"
 HELPER_PROJECT = PROJECT / "native" / "system_capture_helper"
 HELPER_NAME = "whispered-capture-helper"
+# Apple Vision face finder used to pick speaker photos for the cover
+# (covers/face_vision.py). Optional at runtime: without it the cover
+# falls back to plain sharpness.
+FACE_HELPER_PROJECT = PROJECT / "native" / "face_quality_helper"
+FACE_HELPER_NAME = "whispered-face-helper"
 _BUNDLE_IDENTIFIER = "io.github.whispered"
 # --bundle-libs stashes the whisper stack here, inside the .app, for a
 # self-contained release. main._setup_frozen_runtime() falls back to this
@@ -62,6 +67,7 @@ _WHISPER_GLOBS = (
 
 def build_app(bundle_libs: bool = False) -> None:
     helper = build_capture_helper()
+    face_helper = build_face_helper()
     for name in ("build", "dist"):
         target = PROJECT / name
         if target.exists():
@@ -129,7 +135,7 @@ def build_app(bundle_libs: bool = False) -> None:
 
     # Helper goes in last: it re-seals the outer bundle, so anything added
     # to the .app (privacy strings, --bundle-libs) must already be in place.
-    install_capture_helper(app, helper)
+    install_capture_helper(app, helper, extra=(face_helper,))
 
 
 def build_capture_helper() -> Path:
@@ -146,16 +152,29 @@ def build_capture_helper() -> Path:
     return helper
 
 
-def install_capture_helper(app: Path, helper: Path) -> None:
-    """Embed and ad-hoc sign the helper before sealing the outer app bundle."""
-    destination = app / "Contents" / "Helpers" / HELPER_NAME
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(helper, destination)
-    destination.chmod(destination.stat().st_mode | 0o111)
-    # PyInstaller has already signed the outer bundle. Adding code changes its
-    # seal, so sign the nested executable first and the app last. Release
-    # distribution can replace '-' with a Developer ID in a later signing step.
-    subprocess.run(["codesign", "--force", "--sign", "-", str(destination)], check=True)
+def build_face_helper() -> Path:
+    """Compile the native Apple Vision face finder for cover photos."""
+    try:
+        subprocess.run(["swift", "build", "-c", "release"], cwd=FACE_HELPER_PROJECT, check=True)
+    except FileNotFoundError as exc:
+        raise SystemExit("❌ Swift is required to build the cover face helper") from exc
+    helper = FACE_HELPER_PROJECT / ".build" / "release" / FACE_HELPER_NAME
+    if not helper.is_file():
+        raise SystemExit(f"❌ face helper was not produced: {helper}")
+    return helper
+
+
+def install_capture_helper(app: Path, helper: Path, extra: "tuple[Path, ...]" = ()) -> None:
+    """Embed and ad-hoc sign the helpers before sealing the outer app bundle."""
+    for source in (helper, *extra):
+        destination = app / "Contents" / "Helpers" / source.name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        destination.chmod(destination.stat().st_mode | 0o111)
+        # PyInstaller has already signed the outer bundle. Adding code changes
+        # its seal, so sign the nested executables first and the app last.
+        # Release distribution can replace '-' with a Developer ID later.
+        subprocess.run(["codesign", "--force", "--sign", "-", str(destination)], check=True)
     subprocess.run(["codesign", "--force", "--sign", "-", str(app)], check=True)
 
 
