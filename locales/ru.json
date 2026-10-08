@@ -767,7 +767,6 @@
   "yt_publish_label_cover": "Обложка",
   "yt_publish_no_cover": "Обложка не создана",
   "yt_publish_counter": "{count}/{limit}",
-  "cover_names_join": "{host} и {guest}",
   "yt_wizard_intro": "Поправьте название, описание с тайм-кодами и теги и впишите второго спикера — по этому сделаем обложку. На YouTube ничего не уходит до последнего шага.",
   "yt_wizard_step": "Шаг {n} из {total} · {name}",
   "yt_wizard_step_texts": "Название, описание и тайм-коды",

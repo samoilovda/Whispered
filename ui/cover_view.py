@@ -264,7 +264,9 @@ class CoverView(QWidget):
     def set_cover_texts(self, title: str, host: str, guest: str) -> None:
         """Title and speakers as agreed in the publish wizard. A guest
         switches to the two-person layout, no guest to the solo one."""
-        names = tr("cover_names_join", host=host, guest=guest) if guest else host
+        from covers.title import join_speakers
+
+        names = join_speakers(host, guest, self._transcript_language)
         self.inspector.title_edit.setPlainText(title)
         self.inspector.names_edit.setText(names)
         index = self.inspector.layout_combo.findData("duo" if guest else "solo")

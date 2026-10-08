@@ -767,7 +767,6 @@
   "yt_publish_label_cover": "Cover",
   "yt_publish_no_cover": "No cover generated",
   "yt_publish_counter": "{count}/{limit}",
-  "cover_names_join": "{host} and {guest}",
   "yt_wizard_intro": "Fix the title, the description with its timecodes and the tags, and add the second speaker — the cover is made from them. Nothing goes to YouTube before the last step.",
   "yt_wizard_step": "Step {n} of {total} · {name}",
   "yt_wizard_step_texts": "Title, description and timecodes",
