@@ -18,6 +18,8 @@ from PyQt6.QtWidgets import (
 )
 
 from application.artifact_provenance import source_fingerprint, transcript_revision
+from application import cover_setup
+from application.cover_setup import CoverSetup, PhotoSetup
 from config import get_config
 from core.i18n import tr
 from ui.i18n_helpers import Retranslator
@@ -82,6 +84,10 @@ class CoverView(QWidget):
         # manifest (see infrastructure/persistence/artifact_store.py).
         self._record_id: int | None = None
         self._source_path: str | None = None
+        # The setup last written to the record's cover.setup.json
+        # (application/cover_setup.py), so an unchanged render does not
+        # rewrite it.
+        self._saved_setup: CoverSetup | None = None
         self._transcript_language = ""
         # Set via set_video_source()/set_playhead() by MainWindow so a
         # photo slot can be filled from a still of the loaded video rather
@@ -247,25 +253,123 @@ class CoverView(QWidget):
         changes (fresh transcription, history load, or a save that first
         assigns a record id) — recorded into each export's Artifact
         manifest so a cover file can answer "which transcript/source
-        produced this" later."""
-        previous = self._source_path
+        produced this" later.
+
+        Another record starts from a clean cover, then gets back whatever
+        cover setup it had (application/cover_setup.py) — also after a
+        restart. A save that first assigns an id keeps the current setup."""
+        previous_source, previous_id = self._source_path, self._record_id
+        switched = (bool(previous_source) and source_path != previous_source) or (
+            previous_id is not None and record_id != previous_id
+        )
+        if switched:
+            # Not yet rendered edits (the preview is debounced) belong to
+            # the record being left.
+            self._save_setup()
         self._record_id = record_id
         self._source_path = source_path
-        if previous and source_path != previous:
+        if switched:
             self._reset_episode()
+        if record_id != previous_id:
+            self._saved_setup = None
+            art_dir = self._artifact_dir()
+            setup = cover_setup.load_setup(art_dir) if art_dir is not None else None
+            if setup is not None:
+                self._apply_setup(setup)
         # An untitled cover's "auto" style is seeded by the source name.
         self._timer.start()
 
+    def _artifact_dir(self) -> Path | None:
+        """The open record's output folder (core.paths.artifact_dir, named
+        like MainWindow's), or ``None`` before it has a record id."""
+        if self._record_id is None:
+            return None
+        from core.paths import artifact_dir
+
+        try:
+            return artifact_dir(self._record_id, self._source_path or "recording")
+        except ValueError as exc:
+            logger.warning("No artifact folder for the cover setup: %s", exc)
+            return None
+
+    def _current_setup(self, art_dir: Path) -> CoverSetup:
+        """What is on screen now, with picked/grabbed photos copied into the
+        record's folder (and pointed at there, so the next render — and the
+        cover step's cache key — uses the kept copy)."""
+        host_photo = get_config().cover_host_photo
+        layout, variant, slots = self.inspector.state()
+        photos: dict[str, PhotoSetup] = {}
+        for slot in cover_setup.PHOTO_SLOTS:
+            path = self.photos.get(slot)
+            if not path:
+                continue
+            if path == host_photo and slot == "photo_a":
+                kept: str | None = None
+            else:
+                kept = cover_setup.store_photo(art_dir, slot, path)
+                self.photos[slot] = kept
+            focus, zoom = self.photo_framing(slot)
+            photos[slot] = PhotoSetup(kept, focus, zoom)
+        return CoverSetup(
+            layout=layout or "",
+            variant=variant or "",
+            shuffle=self._shuffle,
+            title=slots.get("title", ""),
+            names=slots.get("names", ""),
+            photos=photos,
+        )
+
+    def _save_setup(self) -> None:
+        """Keep the open record's cover setup (no-op before it has an id)."""
+        art_dir = self._artifact_dir()
+        if art_dir is None:
+            return
+        setup = self._current_setup(art_dir)
+        if setup != self._saved_setup:
+            cover_setup.save_setup(art_dir, setup)
+            self._saved_setup = setup
+
+    def _apply_setup(self, setup: CoverSetup) -> None:
+        """Show a stored setup. Without a stored ``photo_a`` the host photo
+        from Settings stays; without ``photo_b`` the slot is empty."""
+        for combo, value in (
+            (self.inspector.layout_combo, setup.layout),
+            (self.inspector.variant_combo, setup.variant),
+        ):
+            index = combo.findData(value)
+            if index >= 0:
+                combo.setCurrentIndex(index)
+        self.inspector.title_edit.setPlainText(setup.title)
+        self.inspector.names_edit.setText(setup.names)
+        self._shuffle = setup.shuffle
+        host_photo = get_config().cover_host_photo
+        for slot in cover_setup.PHOTO_SLOTS:
+            photo = setup.photos.get(slot)
+            path = None if photo is None else photo.path or host_photo
+            if path is None and slot == "photo_a":
+                path = host_photo
+            if path:
+                self.photos[slot] = path
+            else:
+                self.photos.pop(slot, None)
+            focus, zoom = (photo.focus, photo.zoom) if photo else ((0.5, 0.5), 1.0)
+            self._focus[slot] = focus
+            self._zoom[slot] = zoom
+            self.inspector.framing[slot].set_framing(focus, zoom)
+        self._saved_setup = setup
+
     def _reset_episode(self) -> None:
         """Drop what belonged to the previous recording — its title, guest
-        name and photo, shuffle count — so another episode's cover never
-        goes out with them. The host's name/photo from Settings stay."""
+        name and photos with their framing, shuffle count — so another
+        episode's cover never goes out with them. The host's name/photo
+        from Settings stay."""
         cfg = get_config()
         self._shuffle = 0
-        self.photos.pop("photo_b", None)
-        self._focus.pop("photo_b", None)
-        self._zoom.pop("photo_b", None)
-        self.inspector.framing["photo_b"].set_framing((0.5, 0.5), 1.0)
+        for slot in cover_setup.PHOTO_SLOTS:
+            self.photos.pop(slot, None)
+            self._focus.pop(slot, None)
+            self._zoom.pop(slot, None)
+            self.inspector.framing[slot].set_framing((0.5, 0.5), 1.0)
         if cfg.cover_host_photo:
             self.photos["photo_a"] = cfg.cover_host_photo
         self.inspector.title_edit.setPlainText("")
@@ -374,6 +478,8 @@ class CoverView(QWidget):
         }
 
     def render_preview(self) -> None:
+        # First, so a just picked photo is drawn from the record's kept copy.
+        self._save_setup()
         try:
             layout, variant, decor_set, slots = self._state()
             self.last_image, warnings = render(
@@ -485,6 +591,7 @@ class CoverView(QWidget):
         it referenced with no further supervision.
         """
         self._timer.stop()
+        self._save_setup()
         self._workers.clear()
         self._registry.shutdown_all(timeout_ms=timeout)
         if self._frame_dir:

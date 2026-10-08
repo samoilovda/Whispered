@@ -2794,6 +2794,9 @@ class MainWindow(QMainWindow):
         from ui.youtube_publish_dialog import YouTubePublishDialog
 
         record_id, source_path = self.youtube_panel.provenance()
+        # The wizard's cover step drives the Cover workspace: make sure it
+        # holds this record's saved cover setup (a no-op when it already does).
+        self.cover_view.set_provenance(record_id, source_path)
         stem = Path(source_path).stem if source_path else ""
         art_dir = (
             artifact_dir(record_id, source_path or stem or "youtube")
