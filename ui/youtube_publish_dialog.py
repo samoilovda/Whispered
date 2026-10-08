@@ -100,6 +100,10 @@ class YouTubePublishDialog(QDialog):
     written on "Next", on approving the cover and on closing, read back
     here (see ``application.youtube_publish.restore_draft`` for what
     happens when the package changed in between).
+
+    *queue_dir* (the record's artifact dir) and *record_id* enable "Queue
+    for upload" on the last step: the approved package is written for
+    ``tools/youtube_autoupload.py`` (``application.youtube_autoupload``).
     """
 
     upload_requested = pyqtSignal(object)
@@ -122,6 +126,8 @@ class YouTubePublishDialog(QDialog):
         cover_studio: Optional[CoverStudio] = None,
         host_name: str = "",
         draft_path: Optional[Path] = None,
+        queue_dir: Optional[Path] = None,
+        record_id: Optional[int] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -140,6 +146,8 @@ class YouTubePublishDialog(QDialog):
         self._language: Optional[str] = texts.get("language")
         self._chapter_check = texts.get("chapter_check")
         self._draft_path = draft_path
+        self._queue_dir = queue_dir
+        self._record_id = record_id
         self._defaults = draft_defaults(texts, host_name)
         draft = load_overlay(draft_path) if draft_path is not None else {}
         fields, self._outdated_fields = restore_draft(draft, self._defaults)
@@ -295,6 +303,8 @@ class YouTubePublishDialog(QDialog):
         layout.addWidget(summary)
         if self._upload_enabled:
             layout.addLayout(self._upload_row())
+        if self._queue_dir is not None:
+            layout.addLayout(self._queue_row())
         actions = QHBoxLayout()
         self._reveal_btn = QPushButton(tr("yt_publish_reveal"))
         self._reveal_btn.clicked.connect(self._reveal_video)
@@ -311,6 +321,49 @@ class YouTubePublishDialog(QDialog):
         layout.addLayout(actions)
         layout.addStretch(1)
         return page
+
+    def _queue_row(self) -> QVBoxLayout:
+        box = QVBoxLayout()
+        row = QHBoxLayout()
+        if not self._upload_enabled:
+            # Without API mode there is no upload row to pick visibility in.
+            row.addWidget(QLabel(tr("yt_publish_privacy")))
+            self._privacy_combo = QComboBox()
+            self._privacy_combo.addItem(tr("yt_publish_private"), "private")
+            self._privacy_combo.addItem(tr("yt_publish_unlisted"), "unlisted")
+            row.addWidget(self._privacy_combo)
+        row.addStretch(1)
+        self._queue_btn = QPushButton(tr("yt_queue_button"))
+        self._queue_btn.setToolTip(tr("yt_queue_tip"))
+        if not self._upload_enabled:
+            self._queue_btn.setProperty("variant", "primary")
+        self._queue_btn.clicked.connect(self._queue_upload)
+        row.addWidget(self._queue_btn)
+        box.addLayout(row)
+        self._queue_status = QLabel()
+        self._queue_status.setWordWrap(True)
+        self._queue_status.setVisible(False)
+        set_role(self._queue_status, "dim")
+        box.addWidget(self._queue_status)
+        return box
+
+    def _queue_upload(self) -> None:
+        """The final approval: hand exactly this package to the upload
+        queue (tools/youtube_autoupload.py)."""
+        if self._queue_dir is None or self._blocking_issues():
+            return
+        from application.youtube_autoupload import queue_upload
+
+        try:
+            queue_upload(self._queue_dir, self._record_id, self.upload_package())
+        except OSError as exc:
+            logger.warning("Could not queue the upload in %s: %s", self._queue_dir, exc)
+            show_toast(self, tr("yt_queue_failed"), kind="error")
+            return
+        self.save_draft()
+        self._queue_status.setText(tr("yt_queue_done"))
+        self._queue_status.setVisible(True)
+        show_toast(self, tr("yt_queue_done"), kind="success")
 
     # ------------------------------------------------------------- wizard
 
@@ -653,9 +706,13 @@ class YouTubePublishDialog(QDialog):
         return replace(
             pkg,
             tags=tuple(fit_tags(pkg.tags)[0]),
-            privacy=str(self._privacy_combo.currentData() or "private"),
+            privacy=self._privacy(),
             thumbnail_path=self._thumbnail_for_upload(),
         )
+
+    def _privacy(self) -> str:
+        combo = getattr(self, "_privacy_combo", None)
+        return str(combo.currentData() or "private") if combo is not None else "private"
 
     def _thumbnail_for_upload(self) -> Optional[Path]:
         cover = self._cover_path

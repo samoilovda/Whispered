@@ -183,3 +183,27 @@ def test_without_a_cover_studio_approval_just_moves_on(video, tmp_path):
     assert dlg._regenerate_btn.isHidden()
     dlg._next_btn.click()
     assert dlg.current_page() == PAGE_PUBLISH and requested == []
+
+
+def test_queue_for_upload_writes_the_approved_package(video, tmp_path):
+    from application.youtube_autoupload import load_queued
+
+    art = tmp_path / "art"
+    dlg = _wizard(video, tmp_path, None, queue_dir=art, record_id=46)
+    dlg._title_combo.setEditText("Утверждённое название")
+    dlg._next_btn.click()
+    dlg._next_btn.click()
+    assert dlg.current_page() == PAGE_PUBLISH
+    dlg._privacy_combo.setCurrentIndex(dlg._privacy_combo.findData("unlisted"))
+    dlg._queue_btn.click()
+    item = load_queued(art / "youtube_upload.queued.json")
+    assert item is not None and item.record_id == 46
+    assert item.package.title == "Утверждённое название"
+    assert item.package.privacy == "unlisted"
+    assert "0:00 Вступление" in item.package.description
+    assert not dlg._queue_status.isHidden()
+
+
+def test_no_queue_button_without_a_record(video, tmp_path):
+    dlg = _wizard(video, tmp_path, None)
+    assert not hasattr(dlg, "_queue_btn")

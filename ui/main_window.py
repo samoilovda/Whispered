@@ -2816,6 +2816,8 @@ class MainWindow(QMainWindow):
             cover_studio=self.cover_view,
             host_name=get_config().cover_host_name,
             draft_path=art_dir / DRAFT_FILE if art_dir else None,
+            queue_dir=art_dir,
+            record_id=record_id,
             parent=self,
         )
         dialog.cover_render_requested.connect(
