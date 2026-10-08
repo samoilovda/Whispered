@@ -179,6 +179,7 @@ class LMStudioClient:
         temperature: float = DEFAULT_TEMPERATURE,
         max_tokens: int = DEFAULT_MAX_TOKENS,
         timeout: int = DEFAULT_TIMEOUT,
+        reasoning_effort: Optional[str] = None,
     ) -> Optional[str]:
         """Unified chat completion.
 
@@ -193,6 +194,11 @@ class LMStudioClient:
         is_cancelled: Callable returning True when the caller wants to abort.
                       Checked between SSE chunks (streaming) or before the
                       request (non-streaming).
+        reasoning_effort: Sent as-is when given. LM Studio's ``"none"``
+                      switches a reasoning model's hidden thinking off — for
+                      mechanical tasks (rewrite, split) it otherwise spends
+                      the whole ``max_tokens`` thinking and answers nothing.
+                      Leave it ``None`` for providers that reject it.
         """
         if stream:
             return self.chat_completion_stream(
@@ -202,6 +208,7 @@ class LMStudioClient:
                 timeout=timeout,
                 on_token=on_token,
                 is_cancelled=is_cancelled,
+                reasoning_effort=reasoning_effort,
             )
         # Non-streaming path — no ThreadPoolExecutor needed; cancellation is
         # checked before sending since urllib has no mid-request abort.
@@ -214,6 +221,8 @@ class LMStudioClient:
             "max_tokens": max_tokens,
             "stream": False,
         }
+        if reasoning_effort is not None:
+            payload["reasoning_effort"] = reasoning_effort
         if self._model:
             payload["model"] = self._model
         started = time.monotonic()
@@ -243,7 +252,8 @@ class LMStudioClient:
         system_prompt: Optional[str] = None,
         max_tokens: int = DEFAULT_MAX_TOKENS,
         temperature: float = DEFAULT_TEMPERATURE,
-        timeout: int = DEFAULT_TIMEOUT
+        timeout: int = DEFAULT_TIMEOUT,
+        reasoning_effort: Optional[str] = None,
     ) -> Optional[str]:
         """Non-streaming chat completion (legacy interface).
 
@@ -262,6 +272,7 @@ class LMStudioClient:
             temperature=temperature,
             max_tokens=max_tokens,
             timeout=timeout,
+            reasoning_effort=reasoning_effort,
         )
 
 
@@ -274,6 +285,7 @@ class LMStudioClient:
         timeout: int = DEFAULT_TIMEOUT,
         on_token: Optional[Callable[[str], None]] = None,
         is_cancelled: Optional[Callable[[], bool]] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> Optional[str]:
         """Send a streaming chat completion; call on_token for each delta.
 
@@ -298,6 +310,8 @@ class LMStudioClient:
             # Token counts (incl. hidden reasoning) arrive in a final chunk.
             "stream_options": {"include_usage": True},
         }
+        if reasoning_effort is not None:
+            payload["reasoning_effort"] = reasoning_effort
         if self._model:
             payload["model"] = self._model
         data = json.dumps(payload).encode("utf-8")

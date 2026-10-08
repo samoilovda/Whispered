@@ -26,6 +26,12 @@ TEXT_CHUNK_OVERLAP = 0
 # A model answer shorter than this share of its input is a cut-off reply
 # (reasoning models spend max_tokens before finishing), not a tidier text.
 _MIN_RESULT_SHARE = 0.6
+# Cleaning and paragraphing are mechanical rewrites. A local reasoning
+# model (gemma-4) otherwise thinks through the whole max_tokens budget on
+# every chunk — ~4 minutes each — and returns no text at all, so every
+# chunk fell back to the rule-based clean. "none" turns thinking off in
+# LM Studio; models without a reasoning mode ignore it.
+_NO_REASONING = "none"
 
 
 # ============================================================================
@@ -206,7 +212,8 @@ class TextCleaner:
             result = self.lm_client.chat_completion(
                 prompt=prompt,
                 system_prompt=CLEANING_SYSTEM_PROMPT,
-                temperature=0.3  # Lower temperature for more consistent cleaning
+                temperature=0.3,  # Lower temperature for more consistent cleaning
+                reasoning_effort=_NO_REASONING,
             )
 
             if _usable(result, text):
@@ -227,7 +234,8 @@ class TextCleaner:
             result = self.lm_client.chat_completion(
                 prompt=prompt,
                 system_prompt=CLEANING_SYSTEM_PROMPT,
-                temperature=0.3
+                temperature=0.3,
+                reasoning_effort=_NO_REASONING,
             )
 
             if _usable(result, chunk):
@@ -391,6 +399,7 @@ class CoherenceProcessor:
                 prompt=COHERENCE_PROMPT_TEMPLATE.format(text=chunk),
                 system_prompt=COHERENCE_SYSTEM_PROMPT,
                 temperature=0.3,
+                reasoning_effort=_NO_REASONING,
             )
             if _usable(result, chunk):
                 organized.append(result.strip())

@@ -54,6 +54,7 @@ class FakeLMClient:
         self.connected = connected
         self.response = response
         self.calls = []
+        self.reasoning = []
 
     def check_connection(self):
         return self.connected
@@ -61,8 +62,10 @@ class FakeLMClient:
     def get_loaded_model(self):
         return "fake-model" if self.connected else None
 
-    def chat_completion(self, prompt, system_prompt=None, temperature=0.7):
+    def chat_completion(self, prompt, system_prompt=None, temperature=0.7,
+                        reasoning_effort=None):
         self.calls.append(prompt)
+        self.reasoning.append(reasoning_effort)
         return self.response
 
 
@@ -207,8 +210,10 @@ class _EchoLMClient(FakeLMClient):
         super().__init__()
         self.reply = reply
 
-    def chat_completion(self, prompt, system_prompt=None, temperature=0.7):
+    def chat_completion(self, prompt, system_prompt=None, temperature=0.7,
+                        reasoning_effort=None):
         self.calls.append(prompt)
+        self.reasoning.append(reasoning_effort)
         if self.reply is not None:
             return self.reply
         body = prompt.split("---", 2)
@@ -233,6 +238,14 @@ class TestLongTextRegressions:
         assert len(client.calls) > 1
         assert all(len(call) < TEXT_CHUNK_SIZE + 2000 for call in client.calls)
         assert result.text.count("номер 59 ") == 12
+
+    def test_cleaning_and_coherence_turn_model_reasoning_off(self):
+        # gemma-4 spent the whole max_tokens thinking on every chunk and
+        # returned no text; these rewrites must ask for no reasoning.
+        client = _EchoLMClient()
+        TextCleaner(lm_client=client)._clean_with_ai(_long_text())
+        CoherenceProcessor(lm_client=client).process("\n\n".join(_long_text(60) for _ in range(3)))
+        assert client.reasoning and set(client.reasoning) == {"none"}
 
     def test_a_cut_off_coherence_answer_keeps_the_text(self, caplog):
         text = "\n\n".join(_long_text(60) for _ in range(12))
