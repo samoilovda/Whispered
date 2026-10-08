@@ -37,6 +37,37 @@ _STREAM_POLL_S = 0.5
 # Queue sentinel: the reader thread finished (cleanly or not).
 _STREAM_EOF = object()
 
+
+def _log_usage(
+    kind: str,
+    usage: Optional[dict],
+    started: float,
+    first_token_at: Optional[float] = None,
+    finish_reason: Optional[str] = None,
+) -> None:
+    """One INFO line per completion: where the time and tokens went.
+
+    ``prompt`` is what the server had to read (prefill; ``cached`` of it
+    were reused from its prompt cache when it reports that), ``reasoning``
+    the hidden thinking a reasoning model spent out of ``completion``, and
+    ``first`` the wait until the first streamed delta — mostly prefill.
+    """
+    usage = usage or {}
+    details = usage.get("completion_tokens_details") or {}
+    prompt_details = usage.get("prompt_tokens_details") or {}
+    cached = prompt_details.get("cached_tokens")
+    logger.info(
+        "LLM %s: prompt=%s%s completion=%s reasoning=%s first=%s total=%.1fs finish=%s",
+        kind,
+        usage.get("prompt_tokens", "?"),
+        f" (cached={cached})" if cached is not None else "",
+        usage.get("completion_tokens", "?"),
+        details.get("reasoning_tokens", "?"),
+        f"{first_token_at - started:.1f}s" if first_token_at is not None else "-",
+        time.monotonic() - started,
+        finish_reason or "?",
+    )
+
 # LM Studio can deadlock or become unresponsive when several long requests
 # prefill concurrently.  The application deliberately has one process-wide
 # lane for local completions; cloud providers are not affected.
@@ -185,13 +216,19 @@ class LMStudioClient:
         }
         if self._model:
             payload["model"] = self._model
+        started = time.monotonic()
         try:
             data = json.dumps(payload).encode("utf-8")
             headers = {"Content-Type": "application/json", **self._auth_headers()}
             req = urllib.request.Request(endpoint, data=data, headers=headers)
             with urllib.request.urlopen(req, timeout=timeout) as response:
                 result = json.loads(response.read().decode("utf-8"))
-                return result["choices"][0]["message"]["content"]
+                choice = result["choices"][0]
+                _log_usage(
+                    "completion", result.get("usage"), started,
+                    finish_reason=choice.get("finish_reason"),
+                )
+                return choice["message"]["content"]
         except urllib.error.URLError as exc:
             logger.debug("LM Studio connection error: %s", exc)
             return None
@@ -258,6 +295,8 @@ class LMStudioClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": True,
+            # Token counts (incl. hidden reasoning) arrive in a final chunk.
+            "stream_options": {"include_usage": True},
         }
         if self._model:
             payload["model"] = self._model
@@ -266,7 +305,11 @@ class LMStudioClient:
         req = urllib.request.Request(endpoint, data=data, headers=headers)
 
         full_text: list[str] = []
-        deadline = time.monotonic() + timeout
+        started = time.monotonic()
+        first_token_at: Optional[float] = None
+        usage: Optional[dict] = None
+        finish_reason: Optional[str] = None
+        deadline = started + timeout
         lines: queue.Queue = queue.Queue()
         # Holds the live response so cancellation can close it and unblock
         # the reader, which is otherwise parked in a blocking recv.
@@ -307,6 +350,7 @@ class LMStudioClient:
                     # cancellation/deadline, not an error.
                     continue
                 if item is _STREAM_EOF:
+                    _log_usage("stream", usage, started, first_token_at, finish_reason)
                     return "".join(full_text)
                 if isinstance(item, urllib.error.URLError):
                     logger.debug("LM Studio stream error: %s", item)
@@ -319,15 +363,24 @@ class LMStudioClient:
                     continue
                 chunk = line[5:].strip()
                 if chunk == "[DONE]":
+                    _log_usage("stream", usage, started, first_token_at, finish_reason)
                     return "".join(full_text)
                 try:
                     obj = json.loads(chunk)
+                    if obj.get("usage"):
+                        usage = obj["usage"]
                     choice = obj["choices"][0]
+                    if first_token_at is None and (
+                        choice["delta"].get("content")
+                        or choice["delta"].get("reasoning_content")
+                    ):
+                        first_token_at = time.monotonic()
                     delta = choice["delta"].get("content", "")
                     if delta:
                         full_text.append(delta)
                         if on_token:
                             on_token(delta)
+                    finish_reason = choice.get("finish_reason") or finish_reason
                     if choice.get("finish_reason") == "length":
                         logger.warning(
                             "LM Studio response truncated by max_tokens=%d", max_tokens

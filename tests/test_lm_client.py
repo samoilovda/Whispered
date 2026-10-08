@@ -196,6 +196,41 @@ class TestTruncationDetection:
             assert not any("truncated" in r.message for r in caplog.records)
 
 
+class TestUsageLogging:
+    def test_stream_logs_token_usage_from_final_chunk(self, caplog):
+        client = LMStudioClient("http://localhost:1234/v1")
+        with patch("urllib.request.urlopen") as mock_open, \
+             patch("urllib.request.Request") as mock_req:
+            mock_open.return_value = _fake_sse_response([
+                {"choices": [{"delta": {"reasoning_content": "hmm"}, "finish_reason": None}]},
+                {"choices": [{"delta": {"content": "ok"}, "finish_reason": "stop"}]},
+                {"choices": [], "usage": {
+                    "prompt_tokens": 120, "completion_tokens": 30,
+                    "completion_tokens_details": {"reasoning_tokens": 25},
+                }},
+            ])
+            with caplog.at_level("INFO"):
+                result = client.chat_completion_stream([{"role": "user", "content": "hi"}])
+            payload = json.loads(mock_req.call_args.kwargs["data"].decode("utf-8"))
+        assert result == "ok"
+        assert payload["stream_options"] == {"include_usage": True}
+        line = next(r.message for r in caplog.records if r.message.startswith("LLM stream"))
+        assert "prompt=120" in line and "completion=30" in line
+        assert "reasoning=25" in line and "finish=stop" in line
+
+    def test_non_stream_logs_usage(self, caplog):
+        client = LMStudioClient("http://localhost:1234/v1")
+        with patch("urllib.request.urlopen") as mock_open, \
+             patch("urllib.request.Request"):
+            mock_open.return_value = _fake_response({
+                "choices": [{"message": {"content": "hi"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 7, "completion_tokens": 2},
+            })
+            with caplog.at_level("INFO"):
+                client.complete([{"role": "user", "content": "hi"}], stream=False)
+        assert any("prompt=7" in r.message for r in caplog.records)
+
+
 class _StalledIterator:
     """Simulates a connection that accepted the request but never produces
     a line — every read blocks until the caller gives up."""
