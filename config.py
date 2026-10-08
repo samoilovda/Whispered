@@ -126,6 +126,11 @@ class Config:
     watch_folder: str = ""
     watch_folder_enabled: bool = False
 
+    # Recurring source folder (e.g. where Zoom saves recordings): the
+    # start screen's "Latest" button picks the most recently modified
+    # file or sub-folder from here (domain/latest_source.py). Empty = unset.
+    source_folder: str = ""
+
     # Export formats last selected in the Record view's Export menu
     # (see ui/record_view.py). Persisted so the choice survives restarts.
     export_formats: list = field(default_factory=lambda: ["txt"])

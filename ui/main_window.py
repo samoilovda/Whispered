@@ -1867,7 +1867,16 @@ class MainWindow(QMainWindow):
         self.start_view.set_process_enabled(True)
         self.status_label.setText(tr("status_ready_file", name=os.path.basename(filepath)))
         self.player.load(filepath)
-        self.cover_view.set_video_source(filepath)
+        self.cover_view.set_video_source(self._cover_video_for(filepath))
+
+    @staticmethod
+    def _cover_video_for(source_path: str | None) -> str | None:
+        """The video whose frames the Cover tab can grab: the source itself
+        or the video recorded with an audio source."""
+        from application.youtube_publish import find_video_source
+
+        found = find_video_source(source_path)
+        return str(found) if found else source_path
 
     def _on_file_cleared(self):
         """Drop every media-specific reference when selection is cleared."""
@@ -2208,7 +2217,7 @@ class MainWindow(QMainWindow):
         # directly above via _save_to_history, or by the live-checkpoint
         # branches in _on_live_finished before it calls this method).
         self.cover_view.set_provenance(self._last_record_id, self._source_filepath)
-        self.cover_view.set_video_source(self._source_filepath)
+        self.cover_view.set_video_source(self._cover_video_for(self._source_filepath))
         self.article_view.set_provenance(
             self._last_record_id, self._source_filepath,
             result.segments, result.language,
@@ -3071,7 +3080,9 @@ class MainWindow(QMainWindow):
             self.article_view.clear()
             self._document_session.apply_result(result)
             self.cover_view.set_provenance(record_id, source_path or None)
-            self.cover_view.set_video_source(source_path if has_media else None)
+            self.cover_view.set_video_source(
+                self._cover_video_for(source_path) if has_media else None
+            )
             self.article_view.set_provenance(
                 record_id, source_path or None, result.segments, result.language,
             )

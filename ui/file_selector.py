@@ -5,11 +5,14 @@ Drag-and-drop file upload with format validation
 
 import os
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QPushButton, QFileDialog, QHBoxLayout
+    QWidget, QVBoxLayout, QLabel, QPushButton, QFileDialog, QHBoxLayout,
+    QMessageBox,
 )
 from PyQt6.QtCore import QProcess, Qt, pyqtSignal
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 
+from config import get_config, save_config
+from domain.latest_source import find_latest_media
 from utils import is_supported_format, SUPPORTED_FORMATS, format_duration
 from ui.icons import IconLabel, get_icon, IconColors
 from ui.theme import set_role
@@ -80,6 +83,7 @@ class FileSelector(QWidget):
         self.text_label.setText(
             tr("file_ready") if self.selected_file else tr("file_drop_title")
         )
+        self._refresh_source_row()
 
     def _setup_ui(self):
         """Set up the UI components."""
@@ -121,6 +125,29 @@ class FileSelector(QWidget):
         drop_layout.addWidget(self.formats_hint)
 
         layout.addWidget(self.drop_zone)
+
+        # Recurring source folder (Zoom recordings, a recorder's export
+        # folder, …): "Latest" takes its newest file or sub-folder.
+        self.source_row = QWidget()
+        source_layout = QHBoxLayout(self.source_row)
+        source_layout.setContentsMargins(0, 0, 0, 0)
+        source_layout.setSpacing(8)
+        self.latest_btn = QPushButton()
+        self.latest_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.latest_btn.clicked.connect(self.use_latest)
+        source_layout.addWidget(self.latest_btn)
+        self.source_label = ElidedLabel()
+        self.source_label.setProperty("role", "dim")
+        source_layout.addWidget(self.source_label, stretch=1)
+        self.source_btn = self._i18n.text(
+            QPushButton(), "source_folder_choose", tooltip="source_folder_tooltip"
+        )
+        self.source_btn.setProperty("variant", "ghost")
+        self.source_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.source_btn.clicked.connect(self._choose_source_folder)
+        source_layout.addWidget(self.source_btn)
+        layout.addWidget(self.source_row)
+        self._refresh_source_row()
 
         # Selected file info (hidden initially)
         self.file_info = QWidget()
@@ -199,6 +226,50 @@ class FileSelector(QWidget):
         if filepath:
             self._set_file(filepath)
 
+
+    def _refresh_source_row(self) -> None:
+        folder = get_config().source_folder
+        self.latest_btn.setText(tr("source_folder_latest"))
+        self.latest_btn.setEnabled(bool(folder))
+        self.source_label.setText(folder or tr("source_folder_unset"))
+
+    def _choose_source_folder(self) -> None:
+        """Pick the recurring source folder; no platform-specific default
+        — the dialog opens at the previous choice, else the user's home."""
+        start = get_config().source_folder or os.path.expanduser("~")
+        folder = QFileDialog.getExistingDirectory(
+            self, tr("source_folder_dialog_title"), start
+        )
+        if not folder:
+            return
+        get_config().source_folder = folder
+        if not save_config():
+            QMessageBox.warning(
+                self, tr("source_folder_dialog_title"), tr("source_folder_save_failed")
+            )
+        self._refresh_source_row()
+        self.use_latest()
+
+    def use_latest(self) -> bool:
+        """Select the newest file (or the best file of the newest
+        sub-folder) of the source folder. Returns False, with a message
+        in the label, when there is nothing to take."""
+        folder = get_config().source_folder
+        if not folder:
+            self._choose_source_folder()
+            return False
+        if not os.path.isdir(folder):
+            # Keep the saved path: an unplugged drive or a sleeping share
+            # comes back, and the user shouldn't have to pick it again.
+            self.source_label.setText(tr("source_folder_missing", folder=folder))
+            return False
+        latest = find_latest_media(folder, SUPPORTED_FORMATS)
+        if latest is None:
+            self.source_label.setText(tr("source_folder_empty", folder=folder))
+            return False
+        self._set_file(str(latest))
+        self.source_label.setText(folder)
+        return True
 
     def _set_file(self, filepath: str):
         """Set the selected file."""
@@ -308,6 +379,7 @@ class FileSelector(QWidget):
         self.drop_zone.setVisible(not (compact and self.selected_file is not None))
         self.icon_label.setVisible(not compact)
         self.formats_hint.setVisible(not compact)
+        self.source_label.setVisible(not compact)
         self.text_label.setWordWrap(not compact)
         self._drop_layout.setSpacing(6 if compact else 16)
         margin = 8 if compact else 9

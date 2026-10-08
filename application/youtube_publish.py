@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from application.user_edits import is_stale, set_edit
+from domain.latest_source import find_companion_video
 from domain.youtube_publish import PublishIssue, PublishPackage
 from utils import SUPPORTED_FORMATS
 
@@ -171,12 +172,16 @@ def validate_package(pkg: PublishPackage) -> list[PublishIssue]:
 
 
 def find_video_source(source_path: "str | Path | None") -> Optional[Path]:
-    """The recipe's source file when it is a video that still exists."""
+    """The video to publish for a recipe's source: the source itself when
+    it is a video that still exists, else the video recorded with an
+    audio source (see ``domain.latest_source.find_companion_video``)."""
     if not source_path:
         return None
     path = Path(source_path)
     if path.suffix.lower() in _VIDEO_SUFFIXES and path.suffix.lower() in SUPPORTED_FORMATS and path.is_file():
         return path
+    if path.is_file():
+        return find_companion_video(path, _VIDEO_SUFFIXES & SUPPORTED_FORMATS)
     return None
 
 
