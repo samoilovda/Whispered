@@ -197,3 +197,48 @@ class TestTextProcessor:
         assert result.original == "um hello world. This is a test."
         assert result.cleaned.cleaned
         assert result.coherent.text
+
+
+class _EchoLMClient(FakeLMClient):
+    """Answers with the text between the prompt's --- markers (an ideal,
+    lossless model), or with *reply* when set."""
+
+    def __init__(self, reply=None):
+        super().__init__()
+        self.reply = reply
+
+    def chat_completion(self, prompt, system_prompt=None, temperature=0.7):
+        self.calls.append(prompt)
+        if self.reply is not None:
+            return self.reply
+        body = prompt.split("---", 2)
+        return body[1].strip() if len(body) == 3 else prompt
+
+
+def _long_text(sentences: int = 1500) -> str:
+    return " ".join(f"Предложение номер {i} про воспитание." for i in range(sentences))
+
+
+class TestLongTextRegressions:
+    def test_cleaned_chunks_do_not_repeat_text_at_their_seams(self):
+        text = _long_text()
+        cleaned = TextCleaner(lm_client=_EchoLMClient())._clean_with_ai(text)
+        for i in (0, 400, 800, 1499):
+            assert cleaned.count(f"номер {i} ") == 1
+
+    def test_coherence_runs_per_chunk_not_on_the_whole_transcript(self):
+        text = "\n\n".join(_long_text(60) for _ in range(12))   # ~30k chars
+        client = _EchoLMClient()
+        result = CoherenceProcessor(lm_client=client).process(text)
+        assert len(client.calls) > 1
+        assert all(len(call) < TEXT_CHUNK_SIZE + 2000 for call in client.calls)
+        assert result.text.count("номер 59 ") == 12
+
+    def test_a_cut_off_coherence_answer_keeps_the_text(self, caplog):
+        text = "\n\n".join(_long_text(60) for _ in range(12))
+        client = _EchoLMClient(reply="Обрезанный ответ")
+        with caplog.at_level("WARNING"):
+            result = CoherenceProcessor(lm_client=client).process(text)
+        assert "Обрезанный ответ" not in result.text
+        assert result.text.count("номер 59 ") == 12
+        assert "cut short" in caplog.text

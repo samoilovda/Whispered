@@ -20,7 +20,12 @@ logger = get_logger(__name__)
 
 # Chunk size for processing long texts (in characters)
 TEXT_CHUNK_SIZE = 8000
-TEXT_CHUNK_OVERLAP = 500
+# Chunks are cleaned independently and their results concatenated, so
+# they must not overlap — an overlap came out twice in the cleaned text.
+TEXT_CHUNK_OVERLAP = 0
+# A model answer shorter than this share of its input is a cut-off reply
+# (reasoning models spend max_tokens before finishing), not a tidier text.
+_MIN_RESULT_SHARE = 0.6
 
 
 # ============================================================================
@@ -204,7 +209,10 @@ class TextCleaner:
                 temperature=0.3  # Lower temperature for more consistent cleaning
             )
 
-            return result if result else self._quick_clean(text)
+            if _usable(result, text):
+                return result
+            logger.warning("AI cleaning returned no usable text; using the rule-based clean")
+            return self._quick_clean(text)
 
         # For long texts, process in chunks
         chunks = self._split_into_chunks(text)
@@ -222,12 +230,20 @@ class TextCleaner:
                 temperature=0.3
             )
 
-            cleaned_chunks.append(result if result else self._quick_clean(chunk))
+            if _usable(result, chunk):
+                cleaned_chunks.append(result)
+            else:
+                logger.warning(
+                    "AI cleaning %s for chunk %d/%d; using the rule-based clean",
+                    "returned nothing" if not result else "was cut short",
+                    i + 1, len(chunks),
+                )
+                cleaned_chunks.append(self._quick_clean(chunk))
 
         return "\n\n".join(cleaned_chunks)
 
     def _split_into_chunks(self, text: str) -> list[str]:
-        """Split text into overlapping chunks for processing."""
+        """Split text into back-to-back chunks for processing."""
         if not text:
             return []
         return split_into_chunks(
@@ -264,6 +280,34 @@ Text:
 ---
 
 Output the organized text with clear paragraph breaks:"""
+
+
+def _usable(result: Optional[str], source: str) -> bool:
+    """A model answer worth keeping: present and not cut off midway."""
+    return bool(result and len(result.strip()) >= len(source.strip()) * _MIN_RESULT_SHARE)
+
+
+def _paragraph_chunks(text: str, size: int) -> list[str]:
+    """Back-to-back chunks of whole paragraphs up to *size* characters; a
+    paragraph longer than that is split at sentence ends."""
+    chunks: list[str] = []
+    current = ""
+    for paragraph in (p.strip() for p in text.split("\n\n")):
+        if not paragraph:
+            continue
+        pieces = (
+            split_into_chunks(paragraph, size, 0, separators=(". ", "? ", "! ", " "))
+            if len(paragraph) > size else [paragraph]
+        )
+        for piece in pieces:
+            if current and len(current) + 2 + len(piece) > size:
+                chunks.append(current)
+                current = piece
+            else:
+                current = f"{current}\n\n{piece}" if current else piece
+    if current:
+        chunks.append(current)
+    return chunks or [text]
 
 
 class CoherenceProcessor:
@@ -327,18 +371,37 @@ class CoherenceProcessor:
         text: str,
         on_progress: Optional[Callable[[int, str], None]] = None
     ) -> str:
-        """Process coherence with AI."""
-        if on_progress:
-            on_progress(30, "Organizing paragraphs with AI...")
+        """Process coherence with AI, a few thousand characters at a time.
 
-        prompt = COHERENCE_PROMPT_TEMPLATE.format(text=text)
-        result = self.lm_client.chat_completion(
-            prompt=prompt,
-            system_prompt=COHERENCE_SYSTEM_PROMPT,
-            temperature=0.3
-        )
-
-        return result if result else text
+        One request for a whole long transcript could not finish: the
+        answer is as long as the input, so it overran both the request
+        timeout and ``max_tokens`` and the text silently stayed unsplit.
+        Chunks follow the cleaned text's own paragraphs; a chunk the model
+        does not answer (or cuts short) keeps a basic split and is logged.
+        """
+        chunks = _paragraph_chunks(text, TEXT_CHUNK_SIZE)
+        organized = []
+        for index, chunk in enumerate(chunks):
+            if on_progress:
+                on_progress(
+                    int(30 + 60 * index / len(chunks)),
+                    f"Organizing paragraphs with AI ({index + 1}/{len(chunks)})...",
+                )
+            result = self.lm_client.chat_completion(
+                prompt=COHERENCE_PROMPT_TEMPLATE.format(text=chunk),
+                system_prompt=COHERENCE_SYSTEM_PROMPT,
+                temperature=0.3,
+            )
+            if _usable(result, chunk):
+                organized.append(result.strip())
+            else:
+                logger.warning(
+                    "Coherence pass %s for chunk %d/%d; keeping a basic paragraph split",
+                    "returned nothing" if not result else "was cut short",
+                    index + 1, len(chunks),
+                )
+                organized.append(self._basic_paragraph_split(chunk))
+        return "\n\n".join(organized)
 
     def _basic_paragraph_split(self, text: str) -> str:
         """Basic paragraph splitting without AI."""

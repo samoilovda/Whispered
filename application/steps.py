@@ -338,6 +338,12 @@ def _clean_runner(context: StepContext) -> StepRunner:
     return run
 
 
+# Bumped when text_processor changes what the same prompts produce, so a
+# clean.md made by the older pipeline is redone (v2: chunks no longer
+# overlap, paragraphs are organized per chunk instead of timing out).
+_CLEAN_PIPELINE_VERSION = 2
+
+
 def _clean_artifact(context: StepContext) -> Artifact:
     return Artifact(
         record_id=context.record_id_str(),
@@ -348,7 +354,7 @@ def _clean_artifact(context: StepContext) -> Artifact:
         path=str(context.artifact_dir / "clean.md"),
         provider=_provider_label(context),
         model=_model_label(context),
-        prompt_version=_composite_prompt_version("cleaning", "coherence"),
+        prompt_version=f"{_composite_prompt_version('cleaning', 'coherence')}+{_CLEAN_PIPELINE_VERSION}",
     )
 
 
