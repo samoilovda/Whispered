@@ -67,8 +67,11 @@ from application.steps import (
     STEP_REGISTRY,
     StepContext,
     build_cache_checks,
+    artifact_types_for_steps,
     build_job_spec,
     build_runners,
+    build_step_context,
+    llm_params,
     load_step_result,
     manifest_path_for_step,
 )
@@ -1068,13 +1071,12 @@ class MainWindow(QMainWindow):
         (edited since) — with the reason in the tab's tooltip."""
         stale_context = None
         if self._last_record_id is not None and self._current_result is not None:
-            from core.paths import artifact_dir
 
-            stale_context = StepContext(
-                source_path=self._source_filepath or "",
-                result=self._current_result,
-                record_id=self._last_record_id,
-                artifact_dir=artifact_dir(self._last_record_id, self._artifact_source()),
+            stale_context = build_step_context(
+                self._source_filepath or "",
+                self._current_result,
+                self._last_record_id,
+                artifact_source=self._artifact_source(),
             )
         failed = getattr(self, "_last_run_failed_steps", set())
         keys = dict((id(widget), key) for widget, key in self._i18n_doc_tabs)
@@ -1322,7 +1324,7 @@ class MainWindow(QMainWindow):
         """Load a history record and switch to the Record page.
 
         *artifact_type* (B7, docs/IMPROVEMENT_PLAN_2026-08.ru.md) is the
-        reverse of ``_STEP_TO_ARTIFACT_TYPE`` — set when the caller is a
+        reverse of ``STEP_ARTIFACT_TYPES`` — set when the caller is a
         materials search hit (Library scope toggle or the Ctrl+K palette),
         so the record opens straight on the tab that hit's own generator
         writes to instead of always landing on the transcript.
@@ -2279,14 +2281,7 @@ class MainWindow(QMainWindow):
 
         self._run_recipe(result, show_run_screen=open_record)
 
-    _STEP_TO_ARTIFACT_TYPE = {
-        "article": "article",
-        "insights": "insights",
-        "youtube_package": "youtube",
-        "book": "book",
-    }
-
-    # Reverse of the mapping above (B7) — which main_tabs page a materials
+    # Reverse of application.steps.STEP_ARTIFACT_TYPES (B7) — which main_tabs page a materials
     # search hit's artifact type opens on. Attribute names, resolved via
     # getattr() in _open_record_view() since main_tabs is built in
     # _setup_ui(), after this class body is read.
@@ -2414,8 +2409,6 @@ class MainWindow(QMainWindow):
         open_record=False callers): the run still executes, it just
         doesn't yank the view away from wherever the user already is."""
         from core.ai_provider import provider_from_config
-        from core.paths import artifact_dir
-        from utils import language_name_for_code
 
         recipe = self._resolve_recipe(self.start_view.current_recipe_key())
         spec = recipe.to_job_spec(build_job_spec)
@@ -2445,28 +2438,27 @@ class MainWindow(QMainWindow):
         self._recipe_run = run
         self._recipe_spec = spec
         self._recipe_step_names = step_names
-        self._recipe_context = StepContext(
-            source_path=self._source_filepath or "",
-            result=result,
-            record_id=record_id,
-            artifact_dir=artifact_dir(record_id, self._artifact_source()),
-            params={
-                "lm_url": cfg.lm_studio_url,
-                "language": language_name_for_code(result.language),
-                "yt_language": cfg.yt_language,
-                "provider": None if provider.kind == "lmstudio" else provider,
+        self._recipe_context = build_step_context(
+            self._source_filepath or "",
+            result,
+            record_id,
+            artifact_source=self._artifact_source(),
+            params=llm_params(
+                cfg,
+                result,
+                provider=provider,
                 # Shared with InsightsPanel/YouTubePanel so a type more
                 # than one step generates (e.g. "chapters") isn't
                 # recomputed — see core/insights_cache.py.
-                "insights_cache": self._insights_cache,
-                "do_unwrap": self.book_panel.chk_unwrap.isChecked(),
-                "do_custom": self.book_panel.chk_custom.isChecked(),
-                "custom_prompt_path": self.book_panel.custom_prompt_edit.text().strip(),
+                insights_cache=self._insights_cache,
+                do_unwrap=self.book_panel.chk_unwrap.isChecked(),
+                do_custom=self.book_panel.chk_custom.isChecked(),
+                custom_prompt_path=self.book_panel.custom_prompt_edit.text().strip(),
                 # The "YouTube video" recipe includes the cover step, so it
                 # has to render what the Cover workspace is actually set to
                 # rather than _cover_runner's own fallback defaults.
                 **self.cover_view.render_params(),
-            },
+            ),
             get_result=lambda name: self._recipe_get_result(run, name),
             is_cancelled=run.is_cancelled,
         )
@@ -2501,8 +2493,6 @@ class MainWindow(QMainWindow):
         """
         from application import run_store
         from core.ai_provider import provider_from_config
-        from core.paths import artifact_dir
-        from utils import language_name_for_code
 
         if not self._load_from_history(record_id):
             return
@@ -2525,22 +2515,27 @@ class MainWindow(QMainWindow):
         self._recipe_run = run
         self._recipe_spec = spec
         self._recipe_step_names = step_names
-        self._recipe_context = StepContext(
-            source_path=self._source_filepath or "",
-            result=result,
-            record_id=record_id,
-            artifact_dir=artifact_dir(record_id, self._artifact_source()),
-            params={
-                "lm_url": cfg.lm_studio_url,
-                "language": language_name_for_code(result.language),
-                "yt_language": cfg.yt_language,
-                "provider": None if provider.kind == "lmstudio" else provider,
-                "insights_cache": self._insights_cache,
-                "do_unwrap": self.book_panel.chk_unwrap.isChecked(),
-                "do_custom": self.book_panel.chk_custom.isChecked(),
-                "custom_prompt_path": self.book_panel.custom_prompt_edit.text().strip(),
+        self._recipe_context = build_step_context(
+            self._source_filepath or "",
+            result,
+            record_id,
+            artifact_source=self._artifact_source(),
+            params=llm_params(
+                cfg,
+                result,
+                provider=provider,
+                # Shared with InsightsPanel/YouTubePanel so a type more
+                # than one step generates (e.g. "chapters") isn't
+                # recomputed — see core/insights_cache.py.
+                insights_cache=self._insights_cache,
+                do_unwrap=self.book_panel.chk_unwrap.isChecked(),
+                do_custom=self.book_panel.chk_custom.isChecked(),
+                custom_prompt_path=self.book_panel.custom_prompt_edit.text().strip(),
+                # The "YouTube video" recipe includes the cover step, so it
+                # has to render what the Cover workspace is actually set to
+                # rather than _cover_runner's own fallback defaults.
                 **self.cover_view.render_params(),
-            },
+            ),
             get_result=lambda name: self._recipe_get_result(run, name),
             is_cancelled=run.is_cancelled,
         )
@@ -2715,9 +2710,10 @@ class MainWindow(QMainWindow):
             # their own (ui/youtube_panel.py, ui/insights_panel.py) — a
             # failed "clean"/"article"/"book" step is still visible on the
             # run screen's own row, same as before this branch existed.
-            if name == "youtube_package":
+            viewer = STEP_REGISTRY[name].viewer
+            if viewer == "youtube":
                 self.youtube_panel.set_error(outcome.error)
-            elif name == "insights":
+            elif viewer == "insights":
                 self.insights_panel.set_error(outcome.error)
             return
         if outcome.status not in (StepStatus.SUCCEEDED, StepStatus.SKIPPED):
@@ -2725,7 +2721,11 @@ class MainWindow(QMainWindow):
         result = outcome.result
         if result is None:
             result = load_step_result(self._recipe_context, name)
-        if name == "clean":
+        self._show_step_result(STEP_REGISTRY[name].viewer, result)
+
+    def _show_step_result(self, viewer: str, result) -> None:
+        """Hand a step's result to the panel named by ``StepDefinition.viewer``."""
+        if viewer == "cleaned_text":
             from text_processor import ProcessingResult
             if isinstance(result, ProcessingResult):
                 self._cleaned_text = result.coherent.text
@@ -2735,17 +2735,17 @@ class MainWindow(QMainWindow):
                     removed_fillers=result.cleaned.removed_fillers,
                     paragraphs=len(result.coherent.paragraphs),
                 )
-        elif name == "article":
+        elif viewer == "article":
             from article_generator import GenerationResult
             if isinstance(result, GenerationResult):
                 self.article_view.set_articles(result.articles)
-        elif name == "insights":
+        elif viewer == "insights":
             if isinstance(result, dict):
                 self.insights_panel.set_result(result)
-        elif name == "youtube_package":
+        elif viewer == "youtube":
             if isinstance(result, dict):
                 self.youtube_panel.set_result(result)
-        elif name == "book":
+        elif viewer == "book":
             from book_pipeline import BookResult
             if isinstance(result, BookResult) and result.final_text:
                 self.cleaned_view.set_text(
@@ -2774,10 +2774,7 @@ class MainWindow(QMainWindow):
         self._save_recipe_run("failed" if had_error else "done")
         self.library_view.refresh()
         self._refresh_run_chip()
-        artifact_types = {
-            self._STEP_TO_ARTIFACT_TYPE[name]
-            for name in succeeded if name in self._STEP_TO_ARTIFACT_TYPE
-        }
+        artifact_types = artifact_types_for_steps(succeeded)
         if self._recipe_record_id is not None and artifact_types:
             try:
                 from core.history import get_history_store
@@ -2887,11 +2884,11 @@ class MainWindow(QMainWindow):
             # Remembered as the default host for the next episodes.
             cfg.cover_host_name = host
             save_config()
-        context = StepContext(
-            source_path=source_path or "",
-            result=result,
-            record_id=record_id,
-            artifact_dir=art_dir,
+        context = build_step_context(
+            source_path or "",
+            result,
+            record_id,
+            out_dir=art_dir,
             params=self.cover_view.render_params(),
         )
         runner = STEP_REGISTRY["cover"].make_runner(context)
@@ -3158,13 +3155,12 @@ class MainWindow(QMainWindow):
         after running the steps again. Read from the same folder the steps
         write to; a missing or unreadable result leaves its tab empty,
         offering to create one."""
-        from core.paths import artifact_dir
 
-        context = StepContext(
-            source_path=source_path,
-            result=result,
-            record_id=record_id,
-            artifact_dir=artifact_dir(record_id, source_path or "recording"),
+        context = build_step_context(
+            source_path,
+            result,
+            record_id,
+            artifact_source=source_path or "recording",
         )
         from article_generator import GenerationResult
         from text_processor import ProcessingResult
@@ -3366,23 +3362,31 @@ class MainWindow(QMainWindow):
 
         spec = build_job_spec("clean-only", ("clean",))
         self._clean_job = JobRunner(spec)
-        context = StepContext(
-            source_path=self._source_filepath or "",
-            result=self._current_result,
-            record_id=record_id,
-            artifact_dir=out_dir,
-            params={"lm_url": get_config().lm_studio_url},
+        context = build_step_context(
+            self._source_filepath or "",
+            self._current_result,
+            record_id,
+            out_dir=out_dir,
+            params=llm_params(get_config()),
             is_cancelled=self._clean_job.run_state.is_cancelled,
         )
-        runners = build_runners(
-            context, ("clean",), progress_factory=self._clean_job.make_progress_callback
-        )
         self._clean_job_context = context
-        cache_checks = build_cache_checks(context, ("clean",))
-        self._clean_job.set_runners(runners, cache_checks=cache_checks)
-        self._clean_job.step_progress.connect(self._on_clean_progress)
-        self._clean_job.job_finished.connect(self._on_clean_job_finished)
-        self._clean_job.start()
+        self._launch_step_job(
+            self._clean_job, "clean", context,
+            self._on_clean_progress, self._on_clean_job_finished,
+        )
+
+    def _launch_step_job(self, job, step: str, context, on_progress, on_finished) -> None:
+        """Wire and start a single-step JobRunner (clean, article, insights,
+        youtube_package, book): its runner and cache check, progress and
+        completion slots. The caller keeps the context for the finished slot."""
+        runners = build_runners(
+            context, (step,), progress_factory=job.make_progress_callback
+        )
+        job.set_runners(runners, cache_checks=build_cache_checks(context, (step,)))
+        job.step_progress.connect(on_progress)
+        job.job_finished.connect(on_finished)
+        job.start()
 
     def _cancel_clean_job(self) -> None:
         """Cancel the running "clean" JobRunner, mirroring
@@ -3429,24 +3433,20 @@ class MainWindow(QMainWindow):
 
         spec = build_job_spec("article-only", ("article",))
         self._article_job = JobRunner(spec)
-        context = StepContext(
-            source_path=self._source_filepath or "",
-            result=self._current_result,
-            record_id=record_id,
-            artifact_dir=out_dir,
-            params={"lm_url": get_config().lm_studio_url},
+        context = build_step_context(
+            self._source_filepath or "",
+            self._current_result,
+            record_id,
+            out_dir=out_dir,
+            params=llm_params(get_config()),
             get_result=lambda name: cleaned_stub if name == "clean" else None,
             is_cancelled=self._article_job.run_state.is_cancelled,
         )
-        runners = build_runners(
-            context, ("article",), progress_factory=self._article_job.make_progress_callback
-        )
         self._article_job_context = context
-        cache_checks = build_cache_checks(context, ("article",))
-        self._article_job.set_runners(runners, cache_checks=cache_checks)
-        self._article_job.step_progress.connect(self._on_article_progress)
-        self._article_job.job_finished.connect(self._on_article_job_finished)
-        self._article_job.start()
+        self._launch_step_job(
+            self._article_job, "article", context,
+            self._on_article_progress, self._on_article_job_finished,
+        )
 
     def _cancel_article_job(self) -> None:
         """Cancel the running "article" JobRunner — see
@@ -3485,36 +3485,31 @@ class MainWindow(QMainWindow):
         self.cancel_btn.setVisible(True)
 
         from core.paths import artifact_dir
-        from utils import language_name_for_code
 
         record_id = self._last_record_id if self._last_record_id is not None else "unsaved"
         out_dir = artifact_dir(record_id, self._artifact_source())
 
         spec = build_job_spec("insights-only", ("insights",))
         self._insights_job = JobRunner(spec)
-        context = StepContext(
-            source_path=self._source_filepath or "",
-            result=self._current_result,
-            record_id=record_id,
-            artifact_dir=out_dir,
-            params={
-                "lm_url": cfg.lm_studio_url,
-                "language": language_name_for_code(self._current_result.language),
+        context = build_step_context(
+            self._source_filepath or "",
+            self._current_result,
+            record_id,
+            out_dir=out_dir,
+            params=llm_params(
+                cfg,
+                self._current_result,
                 # Shared with YouTubePanel so a type both generate (e.g.
                 # "chapters") isn't recomputed — see core/insights_cache.py.
-                "insights_cache": self._insights_cache,
-            },
+                insights_cache=self._insights_cache,
+            ),
             is_cancelled=self._insights_job.run_state.is_cancelled,
         )
-        runners = build_runners(
-            context, ("insights",), progress_factory=self._insights_job.make_progress_callback
-        )
         self._insights_job_context = context
-        cache_checks = build_cache_checks(context, ("insights",))
-        self._insights_job.set_runners(runners, cache_checks=cache_checks)
-        self._insights_job.step_progress.connect(self._on_insights_progress)
-        self._insights_job.job_finished.connect(self._on_insights_job_finished)
-        self._insights_job.start()
+        self._launch_step_job(
+            self._insights_job, "insights", context,
+            self._on_insights_progress, self._on_insights_job_finished,
+        )
 
     def _cancel_insights_job(self) -> None:
         """Cancel the running "insights" JobRunner — see
@@ -3598,46 +3593,32 @@ class MainWindow(QMainWindow):
         self.cancel_btn.setVisible(True)
 
         from core.paths import artifact_dir
-        from utils import language_name_for_code
 
         record_id = self._last_record_id if self._last_record_id is not None else "unsaved"
         out_dir = artifact_dir(record_id, self._artifact_source())
 
-        # An empty Config.yt_language falls back to the transcript's own
-        # detected language rather than sending no directive at all — an
-        # empty directive left the model free to answer in whatever
-        # language it defaulted to (usually English), even for a Russian
-        # transcript.
-        lang = language_name_for_code(self._current_result.language)
-
         spec = build_job_spec("youtube-only", ("youtube_package",))
         self._youtube_job = JobRunner(spec)
-        context = StepContext(
-            source_path=self._source_filepath or "",
-            result=self._current_result,
-            record_id=record_id,
-            artifact_dir=out_dir,
-            params={
-                "lm_url": cfg.lm_studio_url,
-                "language": lang,
-                "yt_language": cfg.yt_language,
-                "provider": None if provider.kind == "lmstudio" else provider,
+        context = build_step_context(
+            self._source_filepath or "",
+            self._current_result,
+            record_id,
+            out_dir=out_dir,
+            params=llm_params(
+                cfg,
+                self._current_result,
+                provider=provider,
                 # Shared with InsightsPanel so a type both generate (e.g.
                 # "chapters") isn't recomputed — see core/insights_cache.py.
-                "insights_cache": self._insights_cache,
-            },
+                insights_cache=self._insights_cache,
+            ),
             is_cancelled=self._youtube_job.run_state.is_cancelled,
         )
-        runners = build_runners(
-            context, ("youtube_package",),
-            progress_factory=self._youtube_job.make_progress_callback,
-        )
         self._youtube_job_context = context
-        cache_checks = build_cache_checks(context, ("youtube_package",))
-        self._youtube_job.set_runners(runners, cache_checks=cache_checks)
-        self._youtube_job.step_progress.connect(self._on_youtube_progress)
-        self._youtube_job.job_finished.connect(self._on_youtube_job_finished)
-        self._youtube_job.start()
+        self._launch_step_job(
+            self._youtube_job, "youtube_package", context,
+            self._on_youtube_progress, self._on_youtube_job_finished,
+        )
 
     def _cancel_youtube_job(self) -> None:
         """Cancel the running "youtube_package" JobRunner — see
@@ -3916,11 +3897,11 @@ class MainWindow(QMainWindow):
 
         spec = build_job_spec("book-only", ("book",))
         self._book_job = JobRunner(spec)
-        context = StepContext(
-            source_path=self._source_filepath or "transcript",
-            result=self._current_result,
-            record_id=record_id,
-            artifact_dir=out_dir,
+        context = build_step_context(
+            self._source_filepath or "transcript",
+            self._current_result,
+            record_id,
+            out_dir=out_dir,
             params={
                 "do_unwrap": do_unwrap,
                 "do_custom": do_custom,
@@ -3928,15 +3909,11 @@ class MainWindow(QMainWindow):
             },
             is_cancelled=self._book_job.run_state.is_cancelled,
         )
-        runners = build_runners(
-            context, ("book",), progress_factory=self._book_job.make_progress_callback
-        )
         self._book_job_context = context
-        cache_checks = build_cache_checks(context, ("book",))
-        self._book_job.set_runners(runners, cache_checks=cache_checks)
-        self._book_job.step_progress.connect(self._on_book_progress)
-        self._book_job.job_finished.connect(self._on_book_job_finished)
-        self._book_job.start()
+        self._launch_step_job(
+            self._book_job, "book", context,
+            self._on_book_progress, self._on_book_job_finished,
+        )
 
     def _cancel_book_job(self) -> None:
         """Cancel the running "book" JobRunner — see _cancel_clean_job()'s

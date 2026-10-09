@@ -37,7 +37,7 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Iterable, Optional
 
 from domain.artifact_provenance import (
     source_fingerprint,
@@ -195,7 +195,7 @@ def _save_artifact(context: StepContext, artifact: Artifact) -> None:
 # indexed — "cover" is an image and "clean"/"transcribe"/"diarize" aren't
 # materials distinct from the transcript itself.
 
-# Values match _STEP_TO_ARTIFACT_TYPE in ui/main_window.py (article,
+# Values match STEP_ARTIFACT_TYPES below (article,
 # insights, book map onto their own step name; the youtube_package step
 # maps to the shorter "youtube") — artifact_texts.type has to agree with
 # HistoryRecord.artifacts so reindex_artifacts() and the tab-routing
@@ -997,6 +997,82 @@ def build_cache_checks(context: StepContext, step_names: "tuple[str, ...] | list
             expected.path, expected
         )
     return checks
+
+
+# Step name -> the history artifact type it produces (``HistoryRecord.artifacts``
+# and ``artifact_texts.type``). Steps absent here ("clean", "cover", ...) are
+# not tracked as a history badge.
+STEP_ARTIFACT_TYPES: dict = {
+    "article": "article",
+    "insights": "insights",
+    "youtube_package": "youtube",
+    "book": "book",
+}
+
+
+def artifact_types_for_steps(step_names: "Iterable[str]") -> set:
+    """History artifact types produced by the given (succeeded) steps."""
+    return {STEP_ARTIFACT_TYPES[name] for name in step_names if name in STEP_ARTIFACT_TYPES}
+
+
+def build_step_context(
+    source_path: str,
+    result: TranscriptionResult,
+    record_id: "str | int | None",
+    *,
+    artifact_source: Optional[str] = None,
+    out_dir: Optional[Path] = None,
+    params: Optional[dict] = None,
+    get_result: Optional[Callable[[str], Any]] = None,
+    is_cancelled: Optional[Callable[[], bool]] = None,
+) -> StepContext:
+    """The one place a :class:`StepContext` is assembled for a record.
+
+    ``record_id=None`` means an unsaved result (``"unsaved"``).
+    ``artifact_source`` names the output folder (defaults to *source_path*);
+    ``out_dir`` overrides the folder outright.
+    """
+    from core.paths import artifact_dir
+
+    rid = record_id if record_id is not None else "unsaved"
+    kwargs: dict = {}
+    if get_result is not None:
+        kwargs["get_result"] = get_result
+    if is_cancelled is not None:
+        kwargs["is_cancelled"] = is_cancelled
+    return StepContext(
+        source_path=source_path,
+        result=result,
+        record_id=rid,
+        artifact_dir=out_dir if out_dir is not None else artifact_dir(rid, artifact_source or source_path),
+        params=params or {},
+        **kwargs,
+    )
+
+
+def llm_params(
+    cfg: Any,
+    result: Optional[TranscriptionResult] = None,
+    *,
+    provider: Any = None,
+    insights_cache: Any = None,
+    **extra: Any,
+) -> dict:
+    """Shared ``StepContext.params`` for LLM-backed steps: LM Studio URL,
+    optionally the output language (from *result*), the YouTube language and
+    cloud provider (``None`` for LM Studio), and the shared insights cache."""
+    params: dict = {"lm_url": cfg.lm_studio_url}
+    if result is not None:
+        from utils import language_name_for_code
+
+        params["language"] = language_name_for_code(result.language)
+    if provider is not None:
+        params["yt_language"] = cfg.yt_language
+        params["provider"] = None if provider.kind == "lmstudio" else provider
+    if insights_cache is not None:
+        params["insights_cache"] = insights_cache
+    params.update(extra)
+    return params
 
 
 def load_step_result(context: StepContext, name: str) -> Optional[Any]:
