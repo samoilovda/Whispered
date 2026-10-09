@@ -1560,6 +1560,9 @@ class MainWindow(QMainWindow):
 
         # Auto-save each completed batch item to history
         self.batch_panel.processor.item_finished.connect(self._on_batch_item_finished)
+        # The status bar follows the batch from "starting" to its outcome.
+        self.batch_panel.processor.item_progress.connect(self._on_batch_item_progress)
+        self.batch_panel.processor.batch_finished.connect(self._on_batch_processing_finished)
 
         # ── Keyboard shortcuts ────────────────────────────────────
         def _sc(seq, slot):
@@ -3020,6 +3023,30 @@ class MainWindow(QMainWindow):
             self.record_view.set_has_record(True)
         except Exception as e:
             logger.warning("Failed to save history: %s", e)
+
+    def _on_batch_item_progress(self, index: int, percentage: int, _message: str) -> None:
+        """Status bar: which file of the batch runs and how far it is."""
+        items = self.batch_panel.processor.items
+        name = items[index].filename if 0 <= index < len(items) else ""
+        self.status_bar.set_operation(
+            tr("status_batch_item", current=index + 1, total=len(items), name=name),
+            progress=percentage,
+            cancel_text=tr("btn_cancel"),
+        )
+
+    def _on_batch_processing_finished(self) -> None:
+        """Status bar: the batch's outcome replaces its running operation."""
+        from batch_processor import BatchStatus
+
+        items = self.batch_panel.processor.items
+        done = sum(item.status is BatchStatus.COMPLETE for item in items)
+        cancelled = any(item.status is BatchStatus.CANCELLED for item in items)
+        self.status_bar.clear()
+        self.status_label.setText(tr(
+            "status_batch_cancelled" if cancelled else "status_batch_done",
+            done=done, total=len(items),
+        ))
+        self._reset_ui()
 
     def _on_batch_item_finished(self, index: int, result):
         """Persist each completed batch item to history."""

@@ -128,3 +128,33 @@ def test_shutdown_mid_item_is_bounded(fake_worker, media, process_events):
     processor.shutdown(timeout_ms=3000)
     assert time.monotonic() - started < 3.5
     assert not processor.is_processing
+
+
+def test_main_window_status_bar_follows_the_batch(media, process_events):
+    """The status bar shows the running file, then the batch's outcome —
+    it used to stay on "Starting batch processing…" with Cancel forever."""
+    from core.i18n import tr
+    from ui.main_window import MainWindow
+
+    window = MainWindow()
+    proc = window.batch_panel.processor
+    proc.add_files(media)
+    window.status_bar.set_operation(tr("status_batch_starting"))
+
+    proc.item_progress.emit(1, 40, "Transcribing")
+    assert window.status_label.text() == tr(
+        "status_batch_item", current=2, total=2, name="b.wav")
+    assert window.status_bar.progress.value() == 40
+
+    proc._items[0].status = BatchStatus.COMPLETE
+    proc._items[1].status = BatchStatus.CANCELLED
+    proc.batch_finished.emit()
+    assert window.status_label.text() == tr("status_batch_cancelled", done=1, total=2)
+    assert window.status_bar.cancel_button.isHidden()
+    assert window.status_bar.progress.isHidden()
+
+    proc._items[1].status = BatchStatus.COMPLETE
+    proc.batch_finished.emit()
+    assert window.status_label.text() == tr("status_batch_done", done=2, total=2)
+    window.close()
+    process_events()
