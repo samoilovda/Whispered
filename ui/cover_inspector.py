@@ -107,7 +107,7 @@ class CoverInspector(QWidget):
     changed = pyqtSignal()
     choose_photo = pyqtSignal(str)
     grab_frame = pyqtSignal(str)
-    suggest_photos = pyqtSignal(str)
+    suggest_photos = pyqtSignal()
     # slot, focus_x, focus_y, zoom
     framing_changed = pyqtSignal(str, float, float, float)
     export_requested = pyqtSignal()
@@ -147,6 +147,11 @@ class CoverInspector(QWidget):
         self.suggest_button.clicked.connect(self.suggest_requested.emit)
         layout.addWidget(self.suggest_button)
         for slot in ("photo_a", "photo_b"):
+            # Which photo of the cover the controls below belong to — two
+            # identical rows read as one control otherwise.
+            caption = self._i18n.text(QLabel(), f"cover_slot_{slot}")
+            caption.setProperty("role", "muted")
+            layout.addWidget(caption)
             row = QHBoxLayout()
             button = self._i18n.text(QPushButton(), "cover_choose_photo")
             button.clicked.connect(
@@ -160,15 +165,6 @@ class CoverInspector(QWidget):
             )
             self._frame_buttons.append(frame_button)
             row.addWidget(frame_button)
-            variants_button = self._i18n.text(
-                QPushButton(), "cover_photo_variants", tooltip="cover_photo_variants_tip"
-            )
-            variants_button.setEnabled(False)
-            variants_button.clicked.connect(
-                lambda _checked=False, name=slot: self.suggest_photos.emit(name)
-            )
-            self._frame_buttons.append(variants_button)
-            row.addWidget(variants_button)
             layout.addLayout(row)
             framing = PhotoFraming()
             framing.framing_changed.connect(
@@ -178,6 +174,15 @@ class CoverInspector(QWidget):
             )
             self.framing[slot] = framing
             layout.addWidget(framing)
+        # Both speakers' photos at once, from prepared variants of the video
+        # (ui/cover_candidates_dialog.py).
+        self.variants_button = self._i18n.text(
+            QPushButton(), "cover_photo_variants", tooltip="cover_photo_variants_tip"
+        )
+        self.variants_button.setEnabled(False)
+        self.variants_button.clicked.connect(self.suggest_photos.emit)
+        self._frame_buttons.append(self.variants_button)
+        layout.addWidget(self.variants_button)
         self.export_button = self._i18n.text(QPushButton(), "cover_export")
         self.export_button.setProperty("variant", "primary")
         self.export_button.clicked.connect(self.export_requested.emit)

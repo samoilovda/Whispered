@@ -186,10 +186,10 @@ class CoverView(QWidget):
         self.warning.setText(tr("cover_frame_extracting"))
         worker.start()
 
-    def _suggest_photos(self, slot: str) -> None:
-        """Fill *slot* from the prepared speaker photos of the video
-        (covers.speaker_photos), framed so the face sits like in the other
-        slot."""
+    def _suggest_photos(self) -> None:
+        """Fill the speaker photo slots from prepared variants of the video
+        (covers.speaker_photos): one dialog for both speakers, each photo
+        framed so the faces sit alike."""
         if not self._video:
             return
         from ui.cover_candidates_dialog import SpeakerPhotoDialog, candidate_dir
@@ -204,13 +204,16 @@ class CoverView(QWidget):
             self._frame_dir = tempfile.mkdtemp(prefix="whispered-cover-frames-")
         dialog = SpeakerPhotoDialog(
             self._video, duration, candidate_dir(self._artifact_dir(), self._frame_dir),
-            registry=self._registry, parent=self,
+            current=dict(self.photos), registry=self._registry, parent=self,
         )
-        if dialog.exec() != SpeakerPhotoDialog.DialogCode.Accepted or dialog.selected is None:
+        if dialog.exec() != SpeakerPhotoDialog.DialogCode.Accepted:
             return
-        self.apply_photo_candidate(slot, dialog.selected)
+        for slot, candidate in dialog.choices.items():
+            self.apply_photo_candidate(slot, candidate, render=False)
+        if dialog.choices:
+            self.render_preview()
 
-    def apply_photo_candidate(self, slot: str, candidate) -> None:
+    def apply_photo_candidate(self, slot: str, candidate, render: bool = True) -> None:
         """Put a ``PhotoCandidate`` into *slot* with face-based framing."""
         from PyQt6.QtGui import QImage
 
@@ -229,7 +232,8 @@ class CoverView(QWidget):
         framing = self.inspector.framing.get(slot)
         if framing is not None:
             framing.set_framing(focus, zoom)
-        self.render_preview()
+        if render:
+            self.render_preview()
 
     def _on_framing_changed(
         self, slot: str, fx: float, fy: float, zoom: float

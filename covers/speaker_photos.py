@@ -51,6 +51,8 @@ FRAMES_PER_ROUND = 24
 # and its centre's height from the slot's top.
 FACE_SHARE = 0.45
 FACE_Y = 0.42
+# Cover photo slots in on-cover order (application/cover_setup.PHOTO_SLOTS).
+PHOTO_SLOTS = ("photo_a", "photo_b")
 _MAX_ZOOM = 2.5          # covers.renderer.MAX_PHOTO_ZOOM
 _GOLDEN = (math.sqrt(5) - 1) / 2
 _FFMPEG_TIMEOUT_S = 30
@@ -77,6 +79,17 @@ class CandidateSet:
     candidates: list[PhotoCandidate] = field(default_factory=list)
     sampled: list[float] = field(default_factory=list)
     rounds: int = 0
+    # Which cover slot each participant's photo goes to; participants left
+    # out follow ``slot_for``'s default (tile order: left, then right).
+    slots: dict[int, str] = field(default_factory=dict)
+
+    def slot_for(self, participant: int) -> Optional[str]:
+        """The cover slot *participant* fills: the saved choice, else the
+        gallery order (first tile on the left, second on the right)."""
+        if participant in self.slots:
+            return self.slots[participant] or None
+        index = self.participants.index(participant) if participant in self.participants else -1
+        return PHOTO_SLOTS[index] if 0 <= index < len(PHOTO_SLOTS) else None
 
     def for_participant(self, participant: int) -> list[PhotoCandidate]:
         return [c for c in self.candidates if c.participant == participant]
@@ -275,20 +288,25 @@ def find_candidates(
     per_participant: int = PER_PARTICIPANT,
     frames: int = FRAMES_PER_ROUND,
     previous: Optional[CandidateSet] = None,
+    participants: Optional[Iterable[int]] = None,
     cancel: Callable[[], bool] = lambda: False,
     progress: Optional[Callable[[int], None]] = None,
 ) -> CandidateSet:
     """A fresh set of variants: a new round of moments (after *previous*'s),
-    rated and cropped into *out_dir*. Earlier variants' files are removed
-    — a photo already put on the cover lives in the record's
+    rated and cropped into *out_dir*. With *participants*, only their
+    variants are replaced and everyone else's are kept as they were (one
+    speaker's photos may already be fine). Replaced variants' files are
+    removed — a photo already put on the cover lives in the record's
     ``cover_photos/`` (application/cover_setup.py), not here."""
     video = str(video)
     out = Path(out_dir)
+    same_video = previous is not None and previous.video == video
+    only = set(participants) if participants is not None and same_video else None
     ffmpeg = resolve_tool("ffmpeg")
     if not ffmpeg:
         raise RuntimeError("FFmpeg is not installed")
-    rounds = previous.rounds if previous and previous.video == video else 0
-    sampled = list(previous.sampled) if previous and previous.video == video else []
+    rounds = previous.rounds if previous is not None and same_video else 0
+    sampled = list(previous.sampled) if previous is not None and same_video else []
     times = sample_times(duration, frames, rounds, sampled)
     if not times:  # every moment of a short video has been shown: start over
         rounds, sampled = 0, []
@@ -341,11 +359,20 @@ def find_candidates(
                 )
         span = duration * 0.94
         min_gap = span / (per_participant * 3) if span > 0 else 0.0
+        kept = (
+            [c for c in previous.candidates if c.participant not in only]
+            if only is not None and previous is not None else []
+        )
+        kept_paths = {c.path for c in kept}
         if out.exists():
-            shutil.rmtree(out)
+            for old in out.glob("p*.png"):
+                if str(old) not in kept_paths:
+                    old.unlink(missing_ok=True)
         out.mkdir(parents=True, exist_ok=True)
-        candidates = []
+        candidates = list(kept)
         for participant in sorted(scored):
+            if only is not None and participant not in only:
+                continue
             for score, moment, shot_index, tile_index in _pick(
                 scored[participant], per_participant, min_gap
             ):
@@ -359,8 +386,10 @@ def find_candidates(
         if progress:
             progress(100)
         result = CandidateSet(
-            video=video, candidates=candidates,
+            video=video,
+            candidates=sorted(candidates, key=lambda c: (c.participant, -c.score)),
             sampled=sorted(sampled + times), rounds=rounds + 1,
+            slots=dict(previous.slots) if previous is not None and same_video else {},
         )
         save_candidates(out, result)
         return result
@@ -376,6 +405,7 @@ def save_candidates(out_dir: str | Path, result: CandidateSet) -> None:
         "video": result.video,
         "rounds": result.rounds,
         "sampled": result.sampled,
+        "slots": {str(k): v for k, v in result.slots.items()},
         "candidates": [
             {**asdict(c), "face": asdict(c.face) if c.face else None}
             for c in result.candidates
@@ -416,4 +446,19 @@ def load_candidates(out_dir: str | Path, video: str | Path) -> Optional[Candidat
         video=str(video), candidates=candidates,
         sampled=[float(t) for t in data.get("sampled", [])],
         rounds=int(data.get("rounds", 0)),
+        slots=_slots_from_json(data.get("slots")),
     )
+
+
+def _slots_from_json(raw: object) -> dict[int, str]:
+    if not isinstance(raw, dict):
+        return {}
+    slots: dict[int, str] = {}
+    for key, value in raw.items():
+        try:
+            participant = int(key)
+        except (TypeError, ValueError):
+            continue
+        if value in PHOTO_SLOTS or value == "":
+            slots[participant] = value
+    return slots

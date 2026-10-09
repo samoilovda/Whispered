@@ -101,3 +101,17 @@ def test_candidate_cache_round_trip_and_staleness(tmp_path):
     assert load_candidates(tmp_path, "/other.mp4") is None
     photo.unlink()
     assert load_candidates(tmp_path, "/v.mp4") is None
+
+
+def test_slots_follow_gallery_order_until_swapped(tmp_path):
+    photos = []
+    for i in range(3):
+        path = tmp_path / f"p{i}.png"
+        path.write_bytes(b"png")
+        photos.append(PhotoCandidate(i, 10.0 * (i + 1), str(path), 0.5))
+    result = CandidateSet(video="/v.mp4", candidates=photos)
+    assert [result.slot_for(p) for p in (0, 1, 2)] == ["photo_a", "photo_b", None]
+    result.slots = {0: "photo_b", 1: "photo_a"}
+    save_candidates(tmp_path, result)
+    loaded = load_candidates(tmp_path, "/v.mp4")
+    assert [loaded.slot_for(p) for p in (0, 1)] == ["photo_b", "photo_a"]
