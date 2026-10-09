@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 import tempfile
+import types
 from pathlib import Path
 
 import pytest
@@ -22,6 +24,45 @@ from PyQt6.QtWidgets import QApplication
 # smoke suite never reads or writes the developer's real Library database.
 _TEST_HOME = Path(tempfile.mkdtemp(prefix="whispered-qt-"))
 os.environ["HOME"] = str(_TEST_HOME)
+
+
+def _install_in_memory_keyring() -> None:
+    """Keep tests out of the developer's real OS keyring.
+
+    ``core.secrets_store`` stores secrets under one global service name,
+    and ``Config.save()`` deletes the entry of every secret field that is
+    empty — so a test saving a fresh Config wiped the real YouTube OAuth
+    client secret from the macOS Keychain once ``keyring`` was installed.
+    Redirecting HOME does not isolate the Keychain; this stand-in does.
+    """
+    store: dict = {}
+
+    class PasswordDeleteError(Exception):
+        pass
+
+    def get_password(service, name):
+        return store.get((service, name))
+
+    def set_password(service, name, value):
+        store[(service, name)] = value
+
+    def delete_password(service, name):
+        if (service, name) not in store:
+            raise PasswordDeleteError(name)
+        del store[(service, name)]
+
+    fake = types.ModuleType("keyring")
+    fake.get_password = get_password
+    fake.set_password = set_password
+    fake.delete_password = delete_password
+    errors = types.ModuleType("keyring.errors")
+    errors.PasswordDeleteError = PasswordDeleteError
+    fake.errors = errors
+    sys.modules["keyring"] = fake
+    sys.modules["keyring.errors"] = errors
+
+
+_install_in_memory_keyring()
 
 
 @pytest.fixture(scope="session", autouse=True)

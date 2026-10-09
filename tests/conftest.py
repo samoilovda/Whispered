@@ -104,6 +104,45 @@ class _FakeQThread(_FakeQObject):
         pass
 
 
+def _install_in_memory_keyring() -> None:
+    """Keep tests out of the developer's real OS keyring.
+
+    ``core.secrets_store`` stores secrets under one global service name,
+    and ``Config.save()`` deletes the entry of every secret field that is
+    empty — so a test saving a fresh Config wiped the real YouTube OAuth
+    client secret from the macOS Keychain once ``keyring`` was installed.
+    Redirecting HOME does not isolate the Keychain; this stand-in does.
+    """
+    store: dict = {}
+
+    class PasswordDeleteError(Exception):
+        pass
+
+    def get_password(service, name):
+        return store.get((service, name))
+
+    def set_password(service, name, value):
+        store[(service, name)] = value
+
+    def delete_password(service, name):
+        if (service, name) not in store:
+            raise PasswordDeleteError(name)
+        del store[(service, name)]
+
+    fake = types.ModuleType("keyring")
+    fake.get_password = get_password
+    fake.set_password = set_password
+    fake.delete_password = delete_password
+    errors = types.ModuleType("keyring.errors")
+    errors.PasswordDeleteError = PasswordDeleteError
+    fake.errors = errors
+    sys.modules["keyring"] = fake
+    sys.modules["keyring.errors"] = errors
+
+
+_install_in_memory_keyring()
+
+
 def _install_pyqt6_stubs() -> None:
     for name in (
         "PyQt6", "PyQt6.QtCore", "PyQt6.QtWidgets", "PyQt6.QtGui", "PyQt6.QtMultimedia",
