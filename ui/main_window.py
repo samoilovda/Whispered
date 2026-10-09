@@ -3463,8 +3463,7 @@ class MainWindow(QMainWindow):
         docs/UI_REDESIGN_PLAN_2026-09.ru.md, B5c), the same migration B5a
         did for clean. InsightsPanel no longer creates any worker itself;
         this is what both its own "Generate" button (via
-        generate_requested) and the preset chain's insights step (see
-        _start_next_extra_chain_step) now call.
+        generate_requested) and the recipe-driven insights step now call.
 
         One behavior change from the three-separate-InsightsWorker path
         this replaces: the three insight types used to fail independently
@@ -3563,9 +3562,7 @@ class MainWindow(QMainWindow):
         docs/UI_REDESIGN_PLAN_2026-09.ru.md, B5d), the same migration
         B5a/B5b/B5c did for clean/article/insights. YouTubePanel no longer
         creates any worker itself; this is what both its own "Generate"
-        button (via generate_requested) and the preset chain's youtube
-        step (see _start_preset_chain) now call, same as generate()
-        already did before B5d.
+        button (via generate_requested) and the publish wizard now call.
 
         Provider and output language come from Settings
         (Config.yt_provider / Config.yt_language), the same values a
@@ -3867,10 +3864,7 @@ class MainWindow(QMainWindow):
         B5a did for clean. BookPanel never created its own worker for a
         single-file run (only its now-hidden folder-batch section did,
         untouched here) — run_single_requested already just asked
-        MainWindow to do it, so this replaces _on_book_run() itself
-        one-for-one, called from the same two places: the panel's Run
-        button and the preset chain's book step
-        (_start_next_extra_chain_step).
+        MainWindow to do it, so this is called from the panel's Run button.
 
         Stage output moves from next to the source file (BookPipeline's
         own default when no output_dir is given, which the legacy

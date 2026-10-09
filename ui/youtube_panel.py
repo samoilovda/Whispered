@@ -1284,7 +1284,7 @@ class YouTubePanel(QWidget):
 
     def save_all(self, output_dir: Path) -> list[Path]:
         """Save every tab with generated content to *output_dir*. Used by
-        the preset-chain auto-save step (see MainWindow._finish_preset_chain);
+        the recipe run's auto-save step;
         unlike _save_to_file, saves all tabs at once rather than just the
         currently-visible one, and doesn't show a toast (the caller shows
         one summarizing the whole chain)."""

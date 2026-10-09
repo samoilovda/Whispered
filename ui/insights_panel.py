@@ -499,9 +499,9 @@ class InsightsPanel(QWidget):
     # steps.py), and begin_generating()/set_result()/set_error() below are
     # its side of that: busy-state before the job starts, and the two ways
     # it can end. Kept as three separate calls (rather than one signal
-    # payload) so the preset chain's own direct calls to begin_generating()
+    # payload) so MainWindow's own direct calls to begin_generating()
     # read the same as a real button click — see
-    # MainWindow._start_next_extra_chain_step().
+    # MainWindow._start_insights_job().
 
     def begin_generating(self) -> None:
         self._generating = True
