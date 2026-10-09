@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 from core.base_worker import BaseWorker
 from core.i18n import tr
 from core.logger import get_logger
+from core.worker_registry import WorkerRegistry
 from covers.frames import extract_candidates, extract_frame
 from ui.i18n_helpers import Retranslator
 
@@ -33,6 +34,18 @@ logger = get_logger(__name__)
 
 _CANDIDATE_COUNT = 12
 _THUMB_W = 160
+
+# Shared across dialog instances and parentless: a worker still running when
+# its dialog closes must outlive the dialog (Qt aborts if a running QThread
+# is destroyed), so the registry that retains it cannot die with the dialog.
+_registry: WorkerRegistry | None = None
+
+
+def _worker_registry() -> WorkerRegistry:
+    global _registry
+    if _registry is None:
+        _registry = WorkerRegistry()
+    return _registry
 
 
 class CandidateWorker(BaseWorker):
@@ -160,7 +173,8 @@ class CoverFrameDialog(QDialog):
             return
         self._candidates_btn.setEnabled(False)
         self._status.setText(tr("cover_frame_extracting"))
-        self._worker = CandidateWorker(self._video, self._work_dir, parent=self)
+        self._worker = CandidateWorker(self._video, self._work_dir)
+        _worker_registry().register(self._worker, name=f"frames-{id(self)}")
         self._worker.ready.connect(self._on_candidates)
         self._worker.failed.connect(self._on_failed)
         self._worker.start()
@@ -192,8 +206,10 @@ class CoverFrameDialog(QDialog):
         self._reap_worker()
 
     def _reap_worker(self) -> None:
+        # The worker already emitted its terminal signal; retiring keeps the
+        # still-finishing thread alive until Qt reports it finished.
         if self._worker is not None:
-            self._worker.wait(2000)
+            _worker_registry().retire(self._worker)
             self._worker = None
 
     def _pick_and_accept(self, timestamp: float) -> None:
@@ -204,12 +220,11 @@ class CoverFrameDialog(QDialog):
         self.selected_time = self._time_spin.value()
         self.accept()
 
-    def closeEvent(self, event) -> None:
-        if self._worker is not None:
-            self._worker.cancel()
-            self._worker.wait(2000)
-            self._worker = None
-        super().closeEvent(event)
+    def done(self, result: int) -> None:
+        # accept(), reject() and the window close button all end here —
+        # closeEvent alone misses accept().
+        self._reap_worker()
+        super().done(result)
 
 
 def _safe_probe(video: str) -> tuple[float, float]:
