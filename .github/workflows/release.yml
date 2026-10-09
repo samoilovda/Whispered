@@ -121,14 +121,18 @@ jobs:
             gcc gcc-c++ cmake make git tar gzip \
             libxkbcommon-x11 mesa-libEGL mesa-libGL dbus-libs
 
+      # Fedora's python3-pip belongs to the default python3, not python3.11;
+      # a venv brings pip for 3.11 (Fedora's way for alternative Pythons).
       - name: Install build dependencies
         run: |
-          python3.11 -m pip install --upgrade pip
-          python3.11 -m pip install -r requirements-build-linux.txt
+          python3.11 -m venv /opt/whispered-venv
+          echo "/opt/whispered-venv/bin" >> "$GITHUB_PATH"
+          /opt/whispered-venv/bin/python -m pip install --upgrade pip
+          /opt/whispered-venv/bin/python -m pip install -r requirements-build-linux.txt
 
       - name: Build frozen package
         run: |
-          python3.11 -m PyInstaller --noconfirm --clean \
+          python -m PyInstaller --noconfirm --clean \
             --distpath dist --workpath build/linux \
             packaging/linux/Whispered.linux.spec
 
