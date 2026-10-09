@@ -40,7 +40,8 @@ jobs:
           dnf install -y --setopt=install_weak_deps=False \
             python3.11 python3.11-devel python3-pip \
             gcc gcc-c++ cmake make git tar gzip \
-            libxkbcommon-x11 mesa-libEGL mesa-libGL dbus-libs
+            libxkbcommon-x11 mesa-libEGL mesa-libGL dbus-libs \
+            fontconfig freetype glib2
 
       # Fedora's python3-pip belongs to the default python3, not python3.11;
       # a venv brings pip for 3.11 (Fedora's way for alternative Pythons).
@@ -56,6 +57,14 @@ jobs:
           python -m PyInstaller --noconfirm --clean \
             --distpath dist --workpath build/linux \
             packaging/linux/Whispered.linux.spec
+
+      # Libraries the frozen app expects from the system (PyInstaller
+      # leaves out fontconfig, glib and the like): list what this
+      # container lacks, so one run shows every gap at once.
+      - name: Report unresolved shared libraries
+        run: |
+          find dist/Whispered -name '*.so*' -type f -exec ldd {} \; 2>/dev/null \
+            | grep 'not found' | sort -u || true
 
       - name: Frozen smoke test
         run: ./dist/Whispered/Whispered --smoke-test
