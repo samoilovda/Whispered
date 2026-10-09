@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from application.cover_setup import (
     PHOTO_DIR,
     CoverSetup,
@@ -40,7 +42,7 @@ def test_photo_is_copied_once_under_a_content_name(tmp_path):
     second.write_bytes(b"two")
     newer = store_photo(art, "photo_b", str(second))
     assert newer != kept
-    assert [p.name for p in (art / PHOTO_DIR).iterdir()] == [newer.rsplit("/", 1)[-1]]
+    assert [p.name for p in (art / PHOTO_DIR).iterdir()] == [Path(newer).name]
 
 
 def test_missing_photo_and_broken_file(tmp_path):

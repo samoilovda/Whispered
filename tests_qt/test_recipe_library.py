@@ -231,6 +231,9 @@ def test_start_transcription_uses_the_recipes_param_overrides(
     monkeypatch.setattr(
         window.transcriber, "transcribe", lambda **kwargs: calls.append(kwargs),
     )
+    # Whether the model is on this machine is not under test: without it
+    # the real downloader dialog would open (and abort a headless run).
+    monkeypatch.setattr(window, "_ensure_whisper_model", lambda model: True)
 
     window._start_transcription()
     process_events()
@@ -270,6 +273,9 @@ def test_start_transcription_falls_back_to_widget_defaults_without_overrides(
     monkeypatch.setattr(
         window.transcriber, "transcribe", lambda **kwargs: calls.append(kwargs),
     )
+    # Whether the model is on this machine is not under test: without it
+    # the real downloader dialog would open (and abort a headless run).
+    monkeypatch.setattr(window, "_ensure_whisper_model", lambda model: True)
 
     window._start_transcription()
     process_events()
