@@ -35,10 +35,6 @@ _lm_stub.LMStudioClient = _StubLMStudioClient
 _lm_stub.DEFAULT_LM_STUDIO_URL = "http://localhost:1234/v1"
 sys.modules["core.lm_client"] = _lm_stub
 
-_ai_stub = types.ModuleType("core.ai_worker")
-_ai_stub.AIProcessingWorker = object
-sys.modules.setdefault("core.ai_worker", _ai_stub)
-
 from text_processor import (
     TextCleaner,
     CoherenceProcessor,

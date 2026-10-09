@@ -3,7 +3,7 @@
 import json
 import pathlib
 
-# Qt and core.lm_client/core.ai_worker stand-ins come from tests/conftest.py.
+# Qt and core.lm_client stand-ins come from tests/conftest.py.
 from core.i18n import load_locale, tr, current_lang
 
 

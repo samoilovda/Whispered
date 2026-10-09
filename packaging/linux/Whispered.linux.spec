@@ -33,7 +33,6 @@ hiddenimports = [
     "batch_processor",
     "book_pipeline",
     "diarizer",
-    "lm_studio_manager",
     "text_processor",
     "timeline_export",
     "video_cut",

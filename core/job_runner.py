@@ -4,7 +4,7 @@ docs/UI_REDESIGN_PLAN_2026-09.ru.md, B1).
 Lives in ``core/`` rather than ``application/`` (the plan's own file list
 said the latter) to match this codebase's actual convention: every other
 QThread-based worker — ``core/base_worker.py``, ``core/insights_worker.py``,
-``core/ai_worker.py``, ``core/chat_worker.py``, ``core/cover_worker.py``,
+``core/chat_worker.py``, ``core/cover_worker.py``,
 ``core/book_batch_worker.py`` — lives there, and every module in
 ``application/`` so far (``document_session.py``, ``export_controller.py``,
 ``job_engine.py``, ``artifact_provenance.py``, ``steps.py``) is deliberately

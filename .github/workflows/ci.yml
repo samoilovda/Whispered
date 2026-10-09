@@ -51,7 +51,7 @@ jobs:
         run: |
           mypy --ignore-missing-imports core/ transcriber.py diarizer.py \
             exporters.py utils.py config.py version.py domain/ application/ \
-            infrastructure/ lm_studio_manager.py batch_processor.py \
+            infrastructure/ batch_processor.py \
             book_pipeline.py ui/transcript_view.py ui/live_transcript_view.py
 
       # Informational: ui/ is not typed yet. Surfaced so regressions are

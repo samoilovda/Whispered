@@ -1,6 +1,6 @@
 """Unit tests for core/youtube_description.py — no Qt required."""
 
-# Qt and core.lm_client/core.ai_worker stand-ins come from tests/conftest.py.
+# Qt and core.lm_client stand-ins come from tests/conftest.py.
 from core.youtube_description import (
     BLOCK_QUESTIONS,
     BLOCK_SIGNATURE,

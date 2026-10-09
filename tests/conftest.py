@@ -132,11 +132,6 @@ def _install_core_stubs() -> None:
         lm_stub.DEFAULT_LM_STUDIO_URL = "http://localhost:1234/v1"
         sys.modules["core.lm_client"] = lm_stub
 
-    if "core.ai_worker" not in sys.modules:
-        ai_stub = types.ModuleType("core.ai_worker")
-        ai_stub.AIProcessingWorker = object
-        sys.modules["core.ai_worker"] = ai_stub
-
 
 _install_pyqt6_stubs()
 _install_core_stubs()

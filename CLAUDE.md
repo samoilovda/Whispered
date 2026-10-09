@@ -74,7 +74,7 @@ python -m compileall -q . -x '.venv|.claude|build|dist|docs/archive'
 # CI; the two files below are the exception (see "Mypy blocking modules").
 python -m mypy --ignore-missing-imports core/ transcriber.py diarizer.py \
     exporters.py utils.py config.py version.py domain/ application/ infrastructure/ \
-    lm_studio_manager.py batch_processor.py book_pipeline.py \
+    batch_processor.py book_pipeline.py \
     ui/transcript_view.py ui/live_transcript_view.py
 # real-Qt headless smoke (PyQt6 lives only in the project venv):
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests_qt/ -q
@@ -180,7 +180,6 @@ clean before merging changes to these files.
 | `core/` (all) | P0/P1 audit |
 | `transcriber.py`, `diarizer.py`, `exporters.py`, `utils.py`, `config.py` | P0/P1 audit |
 | `version.py`, `domain/`, `application/`, `infrastructure/` | written typed from the start (R6–R9) |
-| `lm_studio_manager.py` | R12 (P2 audit) |
 | `batch_processor.py` | R12 (P2 audit) |
 | `book_pipeline.py` | R12 (P2 audit) |
 | `ui/transcript_view.py` | R14 (P2 audit) |

@@ -1,6 +1,6 @@
 """Unit tests for core/llm_text.py"""
 
-# Qt and core.lm_client/core.ai_worker stand-ins come from tests/conftest.py.
+# Qt and core.lm_client stand-ins come from tests/conftest.py.
 import pytest
 
 from core.llm_text import sample_lines_evenly, split_into_chunks
