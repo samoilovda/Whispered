@@ -9,7 +9,7 @@ import tempfile
 import subprocess
 import time
 from typing import Any, Callable, Optional
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, pyqtSignal
 
 
 from utils import get_cached_gpu
@@ -627,6 +627,7 @@ class Transcriber:
         on_finished: Optional[Callable[[TranscriptionResult], None]] = None,
         on_error: Optional[Callable[[str], None]] = None,
         models_ready: bool = False,
+        direct_callbacks: bool = False,
     ) -> Optional[TranscriptionWorker]:
         """
         Start a transcription job.
@@ -644,6 +645,10 @@ class Transcriber:
             on_progress: Callback for progress updates (percentage, message)
             on_finished: Callback when transcription completes
             on_error: Callback for errors
+            direct_callbacks: Run the callbacks in the worker's thread. For a
+                caller that blocks in a thread with no event loop
+                (BatchWorker): an auto connection queues plain callables to
+                the connecting thread, where they would never run.
 
         Returns:
             The worker thread for additional control
@@ -671,12 +676,13 @@ class Transcriber:
         )
 
         # Connect signals
+        connection = (Qt.ConnectionType.DirectConnection,) if direct_callbacks else ()
         if on_progress:
-            worker.progress.connect(on_progress)
+            worker.progress.connect(on_progress, *connection)
         if on_finished:
-            worker.finished.connect(on_finished)
+            worker.finished.connect(on_finished, *connection)
         if on_error:
-            worker.error.connect(on_error)
+            worker.error.connect(on_error, *connection)
 
         self.current_worker = worker
         self._registry.register(worker, name="transcription")

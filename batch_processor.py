@@ -4,6 +4,7 @@ Process multiple audio/video files in sequence
 """
 
 import os
+import threading
 from dataclasses import dataclass
 from typing import Optional, List
 from enum import Enum
@@ -11,6 +12,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 
 from core.base_worker import BaseWorker
 from core.logger import get_logger
+from core.worker_registry import WorkerRegistry
 from transcriber import Transcriber, TranscriptionResult
 
 logger = get_logger(__name__)
@@ -84,7 +86,8 @@ class BatchWorker(BaseWorker):
         enable_diarization: bool = False,
         num_speakers: Optional[int] = None,
         use_gpu: bool = True,
-        parent: Optional[QObject] = None
+        parent: Optional[QObject] = None,
+        transcriber: Optional[Transcriber] = None,
     ):
         super().__init__(parent)
         self.items = items
@@ -95,14 +98,21 @@ class BatchWorker(BaseWorker):
         self.enable_diarization = enable_diarization
         self.num_speakers = num_speakers
         self.use_gpu = use_gpu
-        self._transcriber = Transcriber()
+        self._transcriber = transcriber if transcriber is not None else Transcriber()
         self._current_index = -1
         self._batch_finished_emitted = False
+        # Set when the current item's transcription ends — or on cancel():
+        # Transcriber.cancel() retires the worker and disconnects its
+        # signals, so its "Cancelled" error never reaches this thread.
+        self._item_done: Optional[threading.Event] = None
 
     def cancel(self):
         """Cancel the batch processing."""
         super().cancel()
         self._transcriber.cancel()
+        item_done = self._item_done
+        if item_done is not None:
+            item_done.set()
 
     def _on_error(self, msg: str) -> None:
         # No batch-level error signal exists (only per-item item_error);
@@ -169,8 +179,11 @@ class BatchWorker(BaseWorker):
         self.item_started.emit(index)
 
         # Create synchronous processing using events
-        import threading
         finished_event = threading.Event()
+        self._item_done = finished_event
+        if self.is_cancelled():
+            item.status = BatchStatus.CANCELLED
+            return
         error_holder = [None]
         result_holder = [None]
 
@@ -203,7 +216,12 @@ class BatchWorker(BaseWorker):
             # Model preparation is performed by MainWindow before this
             # QThread starts; it may display Qt dialogs and is unsafe here.
             models_ready=True,
+            # This thread blocks below and has no event loop to run queued
+            # callbacks in.
+            direct_callbacks=True,
         )
+        if self.is_cancelled():          # cancel() ran before the job existed
+            self._transcriber.cancel()
 
         # Model download/setup can fail before TranscriptionWorker exists.
         # In that case no callback is guaranteed, so waiting on the event
@@ -257,6 +275,11 @@ class BatchProcessor(QObject):
         super().__init__(parent)
         self._items: List[BatchItem] = []
         self._worker: Optional[BatchWorker] = None
+        # Created on the first start(), on the GUI thread; owns the
+        # transcription child of every batch so shutdown() can bound it.
+        self._transcriber: Optional[Transcriber] = None
+        # Keeps a batch thread alive until its QThread really finishes.
+        self._registry = WorkerRegistry(parent=self)
 
     @property
     def items(self) -> List[BatchItem]:
@@ -320,7 +343,8 @@ class BatchProcessor(QObject):
         """Clear all items (cancels if processing)."""
         if self.is_processing:
             self.cancel()
-        self._items.clear()
+        # A new list: a cancelled batch thread may still be walking the old one.
+        self._items = []
 
     def clear_completed(self):
         """Remove completed and errored items."""
@@ -361,6 +385,8 @@ class BatchProcessor(QObject):
                 item.error = None
 
         # Create and start worker
+        if self._transcriber is None:
+            self._transcriber = Transcriber()
         self._worker = BatchWorker(
             items=self._items,
             model_name=model_name,
@@ -370,6 +396,7 @@ class BatchProcessor(QObject):
             enable_diarization=enable_diarization,
             num_speakers=num_speakers,
             use_gpu=use_gpu,
+            transcriber=self._transcriber,
         )
 
         # Connect signals
@@ -379,17 +406,33 @@ class BatchProcessor(QObject):
         self._worker.item_error.connect(self.item_error.emit)
         self._worker.batch_finished.connect(self._on_batch_finished)
 
+        self._registry.register(self._worker, name="batch")
         self._worker.start()
 
     def cancel(self):
-        """Cancel the current batch processing."""
+        """Cancel the current batch processing without waiting:
+        ``batch_finished`` follows once the batch thread has stopped."""
         if self._worker and self._worker.isRunning():
             self._worker.cancel()
-            self._worker.wait()
+
+    def shutdown(self, timeout_ms: int = 5000) -> None:
+        """Cancel and wait a bounded time for the batch thread and its
+        transcription child (MainWindow.closeEvent via BatchPanel)."""
+        self.cancel()
+        unfinished = self._registry.shutdown_all(timeout_ms=timeout_ms)
+        if unfinished:
+            logger.error("Batch still running at shutdown: %s", unfinished)
+        self._worker = None
+        if self._transcriber is not None:
+            self._transcriber.shutdown()
 
     def _on_batch_finished(self):
         """Handle batch completion."""
-        self._worker = None
+        worker, self._worker = self._worker, None
+        if worker is not None:
+            # batch_finished is emitted from run(); the thread is still
+            # winding down, so the registry keeps it until it has finished.
+            self._registry.retire(worker)
         self.batch_finished.emit()
 
     def get_results(self) -> List[TranscriptionResult]:

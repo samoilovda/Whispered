@@ -31,7 +31,7 @@ class _BoundSignal:
     def __init__(self):
         self.calls: list = []
 
-    def connect(self, slot):
+    def connect(self, slot, *connection_type):
         self.calls.append(slot)
 
     def disconnect(self, slot=None):
@@ -154,6 +154,10 @@ def _install_pyqt6_stubs() -> None:
     qtcore.QThread = _FakeQThread
     qtcore.pyqtSignal = _FakeSignal
     qtcore.pyqtSlot = lambda *args, **kwargs: (lambda func: func)
+    if not hasattr(qtcore, "Qt"):
+        qtcore.Qt = types.SimpleNamespace(
+            ConnectionType=types.SimpleNamespace(
+                AutoConnection=0, DirectConnection=1, QueuedConnection=2))
 
 
 def _install_core_stubs() -> None:

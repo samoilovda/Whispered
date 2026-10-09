@@ -388,8 +388,10 @@ class BatchPanel(QWidget):
     def shutdown(self) -> None:
         """Part of the Shutdownable protocol (ui/shutdownable.py) — called
         once from closeEvent."""
-        if self._is_processing():
-            self.cancel_processing()
+        if self._book_worker and self._book_worker.isRunning():
+            self._book_worker.cancel()
+        # Bounded: cancels the batch thread and its transcription child.
+        self.processor.shutdown()
         if self._book_worker and self._book_worker.isRunning():
             if not self._book_worker.wait(3000):
                 # Outliving the bounded wait must not mean abandoning it —
