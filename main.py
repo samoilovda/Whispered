@@ -89,6 +89,8 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Whispered")
     app.setApplicationDisplayName("Whispered")
+    from version import __version__
+    app.setApplicationVersion(__version__)
 
     # Window/taskbar icon. The .app carries its own icon via build.py's
     # --icon, but running from source (and Linux) needs it set here.

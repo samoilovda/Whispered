@@ -57,3 +57,19 @@ def test_appimage_metainfo_version_matches_pyproject():
 
 def test_pyproject_version_is_a_plausible_semver():
     assert re.fullmatch(r"\d+\.\d+\.\d+", _pyproject_version())
+
+
+def test_build_writes_version_into_info_plist(tmp_path):
+    import plistlib
+
+    import build
+    import version as version_module
+
+    app = tmp_path / "Whispered.app"
+    (app / "Contents").mkdir(parents=True)
+    with (app / "Contents" / "Info.plist").open("wb") as handle:
+        plistlib.dump({}, handle)
+    build.configure_macos_privacy(app)
+    with (app / "Contents" / "Info.plist").open("rb") as handle:
+        info = plistlib.load(handle)
+    assert info["CFBundleShortVersionString"] == version_module.__version__

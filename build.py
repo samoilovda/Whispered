@@ -27,6 +27,8 @@ import sys
 import sysconfig
 from pathlib import Path
 
+from version import __version__
+
 PROJECT = Path(__file__).resolve().parent
 LIB_DEPLOY_DIR = Path.home() / "Library/Application Support/Whispered/lib"
 HELPER_PROJECT = PROJECT / "native" / "system_capture_helper"
@@ -185,6 +187,8 @@ def configure_macos_privacy(app: Path) -> None:
         info = plistlib.load(handle)
     info.update({
         "CFBundleIdentifier": _BUNDLE_IDENTIFIER,
+        "CFBundleShortVersionString": __version__,
+        "CFBundleVersion": __version__,
         "NSMicrophoneUsageDescription": (
             "Whispered uses your microphone to transcribe a live meeting locally."
         ),
