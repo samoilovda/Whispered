@@ -2052,6 +2052,11 @@ class MainWindow(QMainWindow):
             else self.diarization_checkbox.isChecked()
         )
 
+        if not self._ensure_whisper_model(model):
+            self._reset_ui()
+            self.status_label.setText(tr("status_cancelled"))
+            return
+
         self._transcription_start = time.monotonic()
         # Build initial prompt from custom vocabulary
         vocab = getattr(get_config(), "custom_vocabulary", []) or []
@@ -2142,6 +2147,22 @@ class MainWindow(QMainWindow):
 
         self._reset_ui()
 
+    def _ensure_whisper_model(self, model: str) -> bool:
+        """Offer to download a missing whisper model; True when it is present.
+
+        Single-file, batch and recipe runs share this one path: the
+        downloader dialog lives on the GUI thread, the workers only see
+        already prepared models.
+        """
+        if Transcriber.prepare_models(model):
+            return True
+        from ui.model_downloader import ModelDownloaderDialog
+
+        dialog = ModelDownloaderDialog(model, parent=self)
+        dialog.start_download()
+        dialog.exec()
+        return dialog.download_successful and Transcriber.prepare_models(model)
+
     def _start_batch_processing(self):
         """Start batch processing with current settings."""
         model = self.model_combo.currentData()
@@ -2153,7 +2174,9 @@ class MainWindow(QMainWindow):
 
         # Downloader dialogs belong to the GUI thread.  BatchWorker only
         # transcribes already prepared models.
-        if not Transcriber.prepare_models(model, enable_diarization):
+        if not self._ensure_whisper_model(model) or not Transcriber.prepare_models(
+            model, enable_diarization
+        ):
             self.batch_panel._on_batch_finished()
             self.status_label.setText(tr("status_cancelled"))
             return

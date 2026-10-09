@@ -680,7 +680,9 @@ class Transcriber:
 
         The bare minimum check: if the model file is present (any size > 0)
         we consider it ready and let the native parser validate it on load.
-        Full integrity checks are performed by ``core.model_repository``.
+        No size/sha256 verification happens here: ``core.model_repository``
+        exists but its manifest is not yet filled with verified hashes, so
+        it is not wired into the run path.
         """
         try:
             from utils import get_models_dir
