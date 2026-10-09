@@ -609,21 +609,16 @@ class InsightsPanel(QWidget):
         mechanism already used for Cover/article/YouTube/book exports. The
         .txt file is already safely on disk by the time this runs, so a
         manifest failure must not turn a successful save into an error."""
-        try:
-            from domain.artifact_provenance import source_fingerprint, transcript_revision
-            from domain.artifact import Artifact
-            from infrastructure.persistence import artifact_store
+        from application.artifacts import record_export
 
-            artifact_store.save(Artifact(
-                record_id=str(self._record_id) if self._record_id is not None else "unsaved",
-                source_hash=source_fingerprint(self._source_path),
-                source_path=self._source_path or "",
-                transcript_revision=transcript_revision(self._segments, self._transcript_language or ""),
-                type=f"insights_{insight_type}",
-                path=str(path),
-            ))
-        except Exception as exc:
-            logger.warning("Failed to write insights artifact manifest for %s: %s", path, exc)
+        record_export(
+            record_id=self._record_id,
+            source_path=self._source_path,
+            segments=self._segments,
+            language=self._transcript_language,
+            type=f"insights_{insight_type}",
+            path=path,
+        )
 
     # ── Renderers ───────────────────────────────────────────────────
 

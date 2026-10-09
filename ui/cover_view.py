@@ -17,7 +17,6 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from domain.artifact_provenance import source_fingerprint, transcript_revision
 from application import cover_setup
 from application.cover_setup import CoverSetup, PhotoSetup
 from config import get_config
@@ -25,14 +24,13 @@ from core.i18n import tr
 from ui.i18n_helpers import Retranslator
 from core.insights_worker import InsightsWorker
 from core.logger import get_logger
+from application.artifacts import record_export
 from core.prompts import prompt_version
 from core.worker_registry import WorkerRegistry
 from covers.export import export
 from covers.renderer import render
 from covers.style import pick_style
 from covers.template import load_template
-from domain.artifact import Artifact
-from infrastructure.persistence import artifact_store
 from ui.cover_inspector import CoverInspector
 from ui.cover_frame_dialog import CoverFrameDialog, FrameGrabWorker
 
@@ -610,20 +608,16 @@ class CoverView(QWidget):
         png = next((f for f in files if f.suffix == ".png" and "-shorts" not in f.name), None)
         if png is None:
             return
-        try:
-            artifact = Artifact(
-                record_id=str(self._record_id) if self._record_id is not None else "unsaved",
-                source_hash=source_fingerprint(self._source_path),
-                source_path=self._source_path or "",
-                transcript_revision=transcript_revision(self._segments, self._transcript_language),
-                type="cover",
-                path=str(png),
-                provider="lmstudio",
-                prompt_version=prompt_version("thumb_title"),
-            )
-            artifact_store.save(artifact)
-        except Exception as exc:
-            logger.warning("Failed to write cover artifact manifest for %s: %s", png, exc)
+        record_export(
+            record_id=self._record_id,
+            source_path=self._source_path,
+            segments=self._segments,
+            language=self._transcript_language,
+            type="cover",
+            path=png,
+            provider="lmstudio",
+            prompt_version=prompt_version("thumb_title"),
+        )
 
     def shutdown(self, timeout: int = 2000) -> None:
         """Part of the Shutdownable protocol (ui/shutdownable.py).

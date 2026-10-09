@@ -44,6 +44,7 @@ from domain.artifact_provenance import (
     transcript_revision as _transcript_revision,
 )
 from core.prompts import prompt_version
+from application.artifacts import save_best_effort
 from domain.artifact import Artifact
 from domain.job import JobSpec, StepSpec
 from domain.transcription import TranscriptionResult
@@ -172,19 +173,8 @@ def _read_text(path: Path) -> Optional[str]:
 
 def _save_artifact(context: StepContext, artifact: Artifact) -> None:
     """Best-effort provenance write — never turn a successful step into a
-    reported failure just because the manifest couldn't be written (same
-    posture as every existing provenance call site in this codebase)."""
-    try:
-        from infrastructure.persistence import artifact_store
-
-        artifact_store.save(artifact)
-    except Exception as exc:  # noqa: BLE001 - deliberately broad, see docstring
-        from core.logger import get_logger
-
-        get_logger(__name__).warning(
-            "Failed to write %s artifact manifest for %s: %s",
-            artifact.type, artifact.path, exc,
-        )
+    reported failure just because the manifest couldn't be written."""
+    save_best_effort(artifact)
 
 
 # ------------------------------------------------------------- search text (B7)
