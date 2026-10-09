@@ -1,7 +1,8 @@
 """
 Whispered - YouTube resumable upload client
 
-``videos.insert`` (resumable protocol) and ``thumbnails.set`` over plain
+``videos.insert`` (resumable protocol), ``thumbnails.set`` and
+``videos.update`` (title, description and tags of an uploaded video) over plain
 ``requests``; the HTTP session, the clock and ``sleep`` are injected so the
 whole protocol is testable without a network. Qt-free.
 
@@ -29,6 +30,7 @@ logger = get_logger(__name__)
 
 UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/videos"
 THUMBNAIL_URL = "https://www.googleapis.com/upload/youtube/v3/thumbnails/set"
+VIDEOS_URL = "https://www.googleapis.com/youtube/v3/videos"
 
 CHUNK_SIZE = 8 * 1024 * 1024            # multiple of 256 KiB, as the protocol requires
 MAX_RETRIES = 8
@@ -292,6 +294,24 @@ class UploadClient:
                     "YouTube refused the cover; custom covers need a channel verified by phone.")
             raise ThumbnailError(
                 f"YouTube rejected the cover ({response.status_code} {reason})".strip())
+
+    def update_metadata(self, video_id: str, pkg: PublishPackage) -> None:
+        """Replace an uploaded video's title, description and tags (its
+        ``snippet``) with *pkg*'s. The video, its cover and its privacy are
+        left as they are."""
+        snippet = build_metadata(pkg)["snippet"]
+        body = json.dumps({"id": video_id, "snippet": snippet}).encode("utf-8")
+        response = self._with_retries(lambda: self._once(
+            "put", VIDEOS_URL, headers={"Content-Type": "application/json; charset=UTF-8"},
+            params={"part": "snippet"}, data=body))
+        if response.status_code != 200:
+            status, reason = response.status_code, _error_reason(response)
+            if status == 404:
+                raise YouTubeUploadError(f"YouTube has no video {video_id} on this channel.")
+            if status == 403 and reason in ("quotaExceeded", "dailyLimitExceeded", "rateLimitExceeded"):
+                raise QuotaExceeded("The YouTube API quota for today is used up.")
+            raise YouTubeUploadError(
+                f"YouTube rejected the update ({status} {reason})".strip())
 
     # ----------------------------------------------------------- protocol
 

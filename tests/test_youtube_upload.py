@@ -327,3 +327,32 @@ def test_empty_video_is_rejected(tmp_path):
     client, _ = _client(_Session(lambda *a: _Response()))
     with pytest.raises(up.YouTubeUploadError, match="empty"):
         client.upload_video(_pkg(empty), pending_path=tmp_path / "p.json")
+
+
+def test_update_metadata_replaces_the_snippet_only(video):
+    seen = {}
+
+    def handler(method, url, headers, data, params):
+        seen.update(method=method, url=url, params=params, body=json.loads(data))
+        return _Response(200, {"id": "vid1"})
+
+    client, _ = _client(_Session(handler))
+    client.update_metadata("vid1", _pkg(video, title="New", description="D\n\n#tag"))
+    assert seen["method"] == "put" and seen["url"] == up.VIDEOS_URL
+    assert seen["params"] == {"part": "snippet"}
+    body = seen["body"]
+    assert body["id"] == "vid1" and "status" not in body
+    assert body["snippet"]["title"] == "New"
+    assert body["snippet"]["description"] == "D\n\n#tag"
+    assert body["snippet"]["tags"] == ["a", "b"] and body["snippet"]["categoryId"]
+
+
+@pytest.mark.parametrize("response, exc", [
+    (_Response(404, {}), up.YouTubeUploadError),
+    (_error(403, "quotaExceeded"), up.QuotaExceeded),
+    (_error(400, "invalidDescription"), up.YouTubeUploadError),
+])
+def test_update_metadata_errors(video, response, exc):
+    client, _ = _client(_Session(lambda *a: response))
+    with pytest.raises(exc):
+        client.update_metadata("vid1", _pkg(video))

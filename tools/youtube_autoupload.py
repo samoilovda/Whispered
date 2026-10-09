@@ -3,6 +3,7 @@
 
     .venv/bin/python tools/youtube_autoupload.py            # upload the queue
     .venv/bin/python tools/youtube_autoupload.py --dry-run  # show what would go
+    .venv/bin/python tools/youtube_autoupload.py --update   # push edited texts
 
 A record is queued with "Queue for upload" on the wizard's last step,
 after its texts and cover were approved. Uses the YouTube connection made
@@ -26,6 +27,7 @@ from application.youtube_autoupload import (  # noqa: E402
     QueuedUpload,
     find_queued,
     run_queue,
+    run_updates,
 )
 from core.paths import output_dir  # noqa: E402
 
@@ -53,6 +55,10 @@ def main(argv: list[str] | None = None) -> int:
                         help=f"uploads per run (default {UPLOADS_PER_DAY}, the daily API quota)")
     parser.add_argument("--record", type=int, help="only this library record id")
     parser.add_argument("--force", action="store_true", help="upload again even if already uploaded")
+    parser.add_argument(
+        "--update", action="store_true",
+        help="send the queued title, description and tags of already uploaded records "
+             "to their YouTube videos (no video or cover is uploaded)")
     args = parser.parse_args(argv)
 
     items = find_queued(output_dir())
@@ -95,8 +101,11 @@ def main(argv: list[str] | None = None) -> int:
 
     for item in items:
         print(f"• {item.package.title}  [{item.package.privacy}]  {item.package.video_path.name}")
-    outcomes = run_queue(items, uploader, limit=args.max, force=args.force,
-                         on_progress=progress, on_uploaded=uploaded)
+    if args.update:
+        outcomes = run_updates(items, uploader)
+    else:
+        outcomes = run_queue(items, uploader, limit=args.max, force=args.force,
+                             on_progress=progress, on_uploaded=uploaded)
     failed = False
     for outcome in outcomes:
         title = outcome.item.package.title
@@ -104,6 +113,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"✓ {title}: https://studio.youtube.com/video/{outcome.video_id}/edit")
             if outcome.detail:
                 print(f"  cover not set: {outcome.detail}")
+        elif outcome.status == "updated":
+            print(f"✓ {title}: texts updated — https://studio.youtube.com/video/{outcome.video_id}/edit")
+        elif outcome.status == "planned" and args.update:
+            print(f"→ would update {title} ({outcome.video_id})")
         elif outcome.status == "planned":
             cover = outcome.item.package.thumbnail_path
             print(f"→ would upload {title} (cover: {cover.name if cover else 'none'})")

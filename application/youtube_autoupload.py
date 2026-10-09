@@ -150,7 +150,7 @@ class Uploader(Protocol):
 @dataclass(frozen=True)
 class Outcome:
     item: QueuedUpload
-    status: str                    # "uploaded" | "skipped" | "failed" | "planned"
+    status: str                    # "uploaded" | "updated" | "skipped" | "failed" | "planned"
     detail: str = ""
     video_id: str = ""
 
@@ -198,4 +198,30 @@ def run_queue(
         warning = getattr(result, "thumbnail_warning", None) or ""
         on_uploaded(item, record)
         outcomes.append(Outcome(item, "uploaded", warning, record.video_id))
+    return outcomes
+
+
+class Updater(Protocol):
+    def update_metadata(self, video_id: str, pkg: PublishPackage) -> None: ...
+
+
+def run_updates(items: list[QueuedUpload], updater: Optional[Updater]) -> list[Outcome]:
+    """Push the queued title, description and tags of every item that is
+    already on YouTube to its video (``updater=None`` is a dry run). An
+    item not uploaded yet is skipped — uploading stays an explicit run."""
+    outcomes: list[Outcome] = []
+    for item in items:
+        done = uploaded_record(item)
+        if done is None:
+            outcomes.append(Outcome(item, "skipped", "not uploaded yet"))
+            continue
+        if updater is None:
+            outcomes.append(Outcome(item, "planned", video_id=done.video_id))
+            continue
+        try:
+            updater.update_metadata(done.video_id, item.package)
+        except Exception as exc:  # report, keep going with the next record
+            outcomes.append(Outcome(item, "failed", f"{type(exc).__name__}: {exc}", done.video_id))
+            continue
+        outcomes.append(Outcome(item, "updated", video_id=done.video_id))
     return outcomes

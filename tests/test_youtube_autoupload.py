@@ -144,3 +144,27 @@ def test_cli_dry_run_lists_the_plan(cli, tmp_path, capsys):
     _queue(tmp_path, "talk", 1)
     assert cli.main(["--dry-run"]) == 0
     assert "would upload Название talk" in capsys.readouterr().out
+
+
+def test_updates_only_what_is_already_on_youtube(tmp_path):
+    from application.youtube_autoupload import run_updates
+
+    _queue(tmp_path, "talk", 1)
+    _queue(tmp_path, "later", 2)
+    items = find_queued(tmp_path / "output")
+    run_queue([i for i in items if i.record_id == 1], _FakeUploader())
+
+    class _Updater:
+        calls: list = []
+
+        def update_metadata(self, video_id, pkg):
+            self.calls.append((video_id, pkg.title))
+            if pkg.title == "boom":
+                raise RuntimeError("quota")
+
+    updater = _Updater()
+    assert [o.status for o in run_updates(items, None) if o.item.record_id == 1] == ["planned"]
+    outcomes = {o.item.record_id: o for o in run_updates(items, updater)}
+    assert outcomes[1].status == "updated" and outcomes[1].video_id == "id-1"
+    assert outcomes[2].status == "skipped"           # never uploaded: no update
+    assert updater.calls == [("id-1", items[[i.record_id for i in items].index(1)].package.title)]
