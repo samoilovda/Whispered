@@ -49,23 +49,23 @@ class ModelEntry:
 # ---------------------------------------------------------------------------
 # Whisper / faster-whisper GGML models (downloaded by the app on first use)
 # ---------------------------------------------------------------------------
-# NOTE: sha256 and size_bytes are filled in for models where we have verified
-# hashes.  Models not yet verified use empty sha256 and size_bytes=0 —
-# ModelRepository will skip integrity verification for those entries and emit
-# a warning.  Fill in the values as models are confirmed.
+# NOTE: sha256 and size_bytes come from the pinned commit's LFS metadata.
+# An entry with an empty sha256 or size_bytes=0 makes ModelRepository skip
+# that check and emit a warning.
 # ---------------------------------------------------------------------------
 
 MANIFEST: dict[str, ModelEntry] = {
     # Whisper GGML models served by ggerganov/whisper.cpp on Hugging Face.
-    # Commit SHA pinned to main@20240623 (stable checkpoint).
+    # Pinned to commit 5359861c (main on 2026-10-09); sizes and sha256 are
+    # the LFS metadata of that commit (tiny and large-v3-turbo re-hashed locally).
     "whisper-tiny": ModelEntry(
         key="whisper-tiny",
         url=(
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/"
-            "231bebf479c4ae7d3f87bbe2069d2caef8016e3f/ggml-tiny.bin"
+            "5359861c739e955e79d9a303bcbc70fb988958b1/ggml-tiny.bin"
         ),
-        size_bytes=77_704_715,
-        sha256="",  # TODO: fill in verified hash
+        size_bytes=77_691_713,
+        sha256="be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21",
         license="MIT",
         filename="ggml-tiny.bin",
     ),
@@ -73,10 +73,10 @@ MANIFEST: dict[str, ModelEntry] = {
         key="whisper-tiny-en",
         url=(
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/"
-            "231bebf479c4ae7d3f87bbe2069d2caef8016e3f/ggml-tiny.en.bin"
+            "5359861c739e955e79d9a303bcbc70fb988958b1/ggml-tiny.en.bin"
         ),
         size_bytes=77_704_715,
-        sha256="",
+        sha256="921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f",
         license="MIT",
         filename="ggml-tiny.en.bin",
     ),
@@ -84,10 +84,10 @@ MANIFEST: dict[str, ModelEntry] = {
         key="whisper-base",
         url=(
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/"
-            "231bebf479c4ae7d3f87bbe2069d2caef8016e3f/ggml-base.bin"
+            "5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.bin"
         ),
         size_bytes=147_951_465,
-        sha256="",
+        sha256="60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
         license="MIT",
         filename="ggml-base.bin",
     ),
@@ -95,10 +95,10 @@ MANIFEST: dict[str, ModelEntry] = {
         key="whisper-base-en",
         url=(
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/"
-            "231bebf479c4ae7d3f87bbe2069d2caef8016e3f/ggml-base.en.bin"
+            "5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.en.bin"
         ),
-        size_bytes=147_951_465,
-        sha256="",
+        size_bytes=147_964_211,
+        sha256="a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002",
         license="MIT",
         filename="ggml-base.en.bin",
     ),
@@ -106,10 +106,10 @@ MANIFEST: dict[str, ModelEntry] = {
         key="whisper-small",
         url=(
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/"
-            "231bebf479c4ae7d3f87bbe2069d2caef8016e3f/ggml-small.bin"
+            "5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small.bin"
         ),
-        size_bytes=487_601_519,
-        sha256="",
+        size_bytes=487_601_967,
+        sha256="1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
         license="MIT",
         filename="ggml-small.bin",
     ),
@@ -117,10 +117,10 @@ MANIFEST: dict[str, ModelEntry] = {
         key="whisper-small-en",
         url=(
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/"
-            "231bebf479c4ae7d3f87bbe2069d2caef8016e3f/ggml-small.en.bin"
+            "5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small.en.bin"
         ),
-        size_bytes=487_601_519,
-        sha256="",
+        size_bytes=487_614_201,
+        sha256="c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d",
         license="MIT",
         filename="ggml-small.en.bin",
     ),
@@ -128,10 +128,10 @@ MANIFEST: dict[str, ModelEntry] = {
         key="whisper-medium",
         url=(
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/"
-            "231bebf479c4ae7d3f87bbe2069d2caef8016e3f/ggml-medium.bin"
+            "5359861c739e955e79d9a303bcbc70fb988958b1/ggml-medium.bin"
         ),
-        size_bytes=1_533_774_781,
-        sha256="",
+        size_bytes=1_533_763_059,
+        sha256="6c14d5adee5f86394037b4e4e8b59f1673b6cee10e3cf0b11bbdbee79c156208",
         license="MIT",
         filename="ggml-medium.bin",
     ),
@@ -139,10 +139,10 @@ MANIFEST: dict[str, ModelEntry] = {
         key="whisper-medium-en",
         url=(
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/"
-            "231bebf479c4ae7d3f87bbe2069d2caef8016e3f/ggml-medium.en.bin"
+            "5359861c739e955e79d9a303bcbc70fb988958b1/ggml-medium.en.bin"
         ),
         size_bytes=1_533_774_781,
-        sha256="",
+        sha256="cc37e93478338ec7700281a7ac30a10128929eb8f427dda2e865faa8f6da4356",
         license="MIT",
         filename="ggml-medium.en.bin",
     ),
@@ -150,10 +150,10 @@ MANIFEST: dict[str, ModelEntry] = {
         key="whisper-large-v3",
         url=(
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/"
-            "231bebf479c4ae7d3f87bbe2069d2caef8016e3f/ggml-large-v3.bin"
+            "5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3.bin"
         ),
-        size_bytes=3_094_623_691,
-        sha256="",
+        size_bytes=3_095_033_483,
+        sha256="64d182b440b98d5203c4f9bd541544d84c605196c4f7b845dfa11fb23594d1e2",
         license="MIT",
         filename="ggml-large-v3.bin",
     ),
@@ -161,10 +161,10 @@ MANIFEST: dict[str, ModelEntry] = {
         key="whisper-large-v3-turbo",
         url=(
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/"
-            "231bebf479c4ae7d3f87bbe2069d2caef8016e3f/ggml-large-v3-turbo.bin"
+            "5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-turbo.bin"
         ),
-        size_bytes=874_182_671,
-        sha256="",
+        size_bytes=1_624_555_275,
+        sha256="1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69",
         license="MIT",
         filename="ggml-large-v3-turbo.bin",
     ),
