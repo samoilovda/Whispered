@@ -102,7 +102,7 @@ class SpeakerPhotoDialog(QDialog):
         self._out_dir = out_dir
         # Owns the search thread's lifetime (core.worker_registry): a search
         # still running when the dialog closes is retained until it ends.
-        self._registry = registry
+        self._registry = registry if registry is not None else _fallback_registry()
         self._result: Optional[CandidateSet] = load_candidates(out_dir, video)
         self._worker: Optional[CandidateSearchWorker] = None
         self._selected: dict[int, PhotoCandidate] = {}
@@ -161,10 +161,8 @@ class SpeakerPhotoDialog(QDialog):
         self._status.setText(tr("cover_variants_searching"))
         worker = CandidateSearchWorker(
             self._video, self._out_dir, self._duration, self._result, participants,
-            parent=None if self._registry is not None else self,
         )
-        if self._registry is not None:
-            self._registry.register(worker, name="cover_speaker_photos")
+        self._registry.register(worker, name="cover_speaker_photos")
         worker.percent.connect(self._progress.setValue)
         worker.ready.connect(self._on_ready)
         worker.failed.connect(self._on_failed)
@@ -286,11 +284,23 @@ class SpeakerPhotoDialog(QDialog):
                     signal.disconnect()
                 except TypeError:
                     pass
-            self._worker.cancel()
-            if self._registry is None:
-                self._worker.wait(5000)
+            self._registry.retire(self._worker)
             self._worker = None
         super().done(result)
+
+
+_FALLBACK_REGISTRY = None
+
+
+def _fallback_registry():
+    """A process-lifetime registry for a dialog opened without one, so a
+    search outliving the dialog is never dropped while running."""
+    global _FALLBACK_REGISTRY
+    if _FALLBACK_REGISTRY is None:
+        from core.worker_registry import WorkerRegistry
+
+        _FALLBACK_REGISTRY = WorkerRegistry()
+    return _FALLBACK_REGISTRY
 
 
 def _format_time(seconds: float) -> str:
