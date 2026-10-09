@@ -31,6 +31,11 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.12.0" date="2026-10-09">
+      <description>
+        <p>A reworked workspace: a Library of records, a transcript that reads as paragraphs with bookmarks and uncertain passages marked, your own notes for Insights, a menu-bar icon. Brand-deck covers with speaker photos, a three-step YouTube publish wizard, an upload queue and editing of uploaded videos. Batch transcription no longer stalls on the first file.</p>
+      </description>
+    </release>
     <release version="0.11.0" date="2026-10-07">
       <description>
         <p>Publish a finished YouTube package from the app: hand-off dialog and optional upload through the YouTube Data API. The YouTube tab becomes a step viewer with editable chapters, title picker and description blocks.</p>

@@ -19,7 +19,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-_FALLBACK = "0.11.0"
+_FALLBACK = "0.12.0"
 
 
 def _read_pyproject_version() -> Optional[str]:
