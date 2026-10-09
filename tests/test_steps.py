@@ -588,7 +588,7 @@ def test_cover_load_is_none_without_a_prior_run(tmp_path):
 
 def test_build_runners_and_cache_checks_work_with_job_engine(tmp_path, monkeypatch):
     """The registry's outputs plug directly into JobEngine — this is what
-    application/job_runner.py (Track B, B1) will do off a QThread."""
+    ui/job_runner.py (Track B, B1) will do off a QThread."""
     from text_processor import CleanedText, CoherentText, ProcessingResult
 
     class _FakeLMClient:

@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from application.artifact_provenance import (
+from domain.artifact_provenance import (
     source_fingerprint,
     transcript_revision as _transcript_revision,
 )
@@ -69,7 +69,7 @@ class StepContext:
     ``get_result`` looks up an already-finished dependency's return value
     by step name (e.g. the ``article`` step reading ``clean``'s output) —
     it's a callable rather than a plain dict because it's bound to the
-    live ``JobRun`` being executed (see ``application/job_runner.py``,
+    live ``JobRun`` being executed (see ``ui/job_runner.py``,
     Track B's B1), which only has entries for steps that have resolved
     *so far* at the time this step's runner actually calls it.
     """
@@ -965,7 +965,7 @@ def build_runners(
     *progress_factory*, when given, is called once per step name to get
     that step's own ``on_progress`` callback — a fresh :class:`StepContext`
     with it wired in is used for that step's runner instead of *context*
-    unchanged. ``application/job_runner.py`` (Track B, B1) passes its
+    unchanged. ``ui/job_runner.py`` (Track B, B1) passes its
     ``make_progress_callback`` here so each step's progress reports
     arrive tagged with the right step name, without every step's runner
     otherwise needing to know its own name.

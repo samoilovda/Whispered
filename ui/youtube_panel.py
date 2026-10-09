@@ -1315,7 +1315,7 @@ class YouTubePanel(QWidget):
         a manifest failure must not turn a successful save into an error.
         """
         try:
-            from application.artifact_provenance import source_fingerprint, transcript_revision
+            from domain.artifact_provenance import source_fingerprint, transcript_revision
             from domain.artifact import Artifact
             from infrastructure.persistence import artifact_store
 

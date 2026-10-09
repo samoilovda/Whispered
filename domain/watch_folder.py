@@ -16,7 +16,7 @@ from typing import Iterable, List, Set
 # recording, and this runs on every directory poll while a file is still
 # stabilizing (see core/watch_folder.py) — a whole-file hash would make
 # every poll as expensive as reading the entire file. Content_fingerprint()
-# is deliberately NOT application.artifact_provenance.source_fingerprint:
+# is deliberately NOT domain.artifact_provenance.source_fingerprint:
 # that one bakes the resolved path into its hash input (by design — see
 # its own docstring), so it cannot recognize the exact scenario this
 # module exists to catch, a copy of the same file dropped under a

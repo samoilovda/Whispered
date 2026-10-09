@@ -11,7 +11,7 @@ import pytest
 
 from application.job_engine import JobRun
 from application.steps import build_job_spec
-from core.job_runner import JobRunner
+from ui.job_runner import JobRunner
 from domain.job import StepOutcome, StepStatus
 from transcriber import Segment, TranscriptionResult
 

@@ -1024,9 +1024,9 @@ class HistoryStore:
         (or a live capture) is added to history. Keeps the revision-hash/
         payload-serialization logic in one place instead of MainWindow
         duplicating ``_result_to_payload`` and
-        ``application.artifact_provenance.transcript_revision`` itself.
+        ``domain.artifact_provenance.transcript_revision`` itself.
         """
-        from application.artifact_provenance import transcript_revision as _revision
+        from domain.artifact_provenance import transcript_revision as _revision
 
         revision = _revision(result.segments, result.language)
         payload = _result_to_payload(result, speaker_names=speaker_names)

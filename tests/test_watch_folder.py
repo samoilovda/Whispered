@@ -35,7 +35,7 @@ def test_new_files_filters_out_an_already_seen_fingerprint(tmp_path):
 def test_a_copy_under_a_different_name_is_not_new(tmp_path):
     """Acceptance criterion: dropping the same file again under a
     different name must not appear as new — content_fingerprint() is
-    path-independent (unlike application.artifact_provenance's
+    path-independent (unlike domain.artifact_provenance's
     source_fingerprint, which bakes the path in by design and would
     treat a rename/copy as a brand-new file)."""
     original = tmp_path / "session.mp3"

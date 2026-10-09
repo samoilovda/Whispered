@@ -57,7 +57,7 @@ class JobRun:
     resumes — steps that already have an outcome are not re-run.
 
     ``on_step_started``/``on_outcome`` are optional observer callbacks —
-    ``application/job_runner.py`` (a QThread wrapper around
+    ``ui/job_runner.py`` (a QThread wrapper around
     ``JobEngine.run()``) uses them to turn "a step began resolving" / "a
     step got an outcome" into Qt signals as they happen, rather than only
     learning about any of it once the whole run has finished. ``run()``

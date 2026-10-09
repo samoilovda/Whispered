@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 from PyQt6.QtWidgets import QMessageBox
 
-from application.artifact_provenance import transcript_revision
+from domain.artifact_provenance import transcript_revision
 from core.history import HistoryStore
 from core.i18n import load_locale
 from transcriber import Segment, TranscriptionResult

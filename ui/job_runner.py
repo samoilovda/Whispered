@@ -1,15 +1,9 @@
 """QThread wrapper around JobEngine.run() (see
 docs/UI_REDESIGN_PLAN_2026-09.ru.md, B1).
 
-Lives in ``core/`` rather than ``application/`` (the plan's own file list
-said the latter) to match this codebase's actual convention: every other
-QThread-based worker — ``core/base_worker.py``, ``core/insights_worker.py``,
-``core/chat_worker.py``, ``core/cover_worker.py``,
-``core/book_batch_worker.py`` — lives there, and every module in
-``application/`` so far (``document_session.py``, ``export_controller.py``,
-``job_engine.py``, ``artifact_provenance.py``, ``steps.py``) is deliberately
-Qt-free. ``JobRunner`` needs ``pyqtSignal``, so it belongs with the other
-Qt workers, not as the first Qt import into ``application/``.
+Lives in ``ui/`` because it is a Qt adapter (``pyqtSignal``/``QThread``)
+over the Qt-free ``application/job_engine.py``; ``core/`` and
+``application/`` must not depend on each other through it.
 
 ``JobEngine.run()`` is a single blocking call — CLAUDE.md's rule that
 anything longer than ~100ms goes through a QThread applies to it exactly

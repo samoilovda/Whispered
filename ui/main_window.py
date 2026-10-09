@@ -77,7 +77,7 @@ from domain.recipe import BUILTIN_RECIPES_BY_KEY, Recipe, TRANSCRIPT_ONLY
 from config import get_config, save_config
 from core.insights_cache import InsightsCache
 from core.base_worker import BaseWorker
-from core.job_runner import JobRunner
+from ui.job_runner import JobRunner
 from core.logger import get_logger
 from core.i18n import tr, on_language_changed
 from core.worker_registry import WorkerRegistry

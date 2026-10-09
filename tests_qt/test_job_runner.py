@@ -1,4 +1,4 @@
-"""Real-Qt tests for core/job_runner.py (see
+"""Real-Qt tests for ui/job_runner.py (see
 docs/UI_REDESIGN_PLAN_2026-09.ru.md, B1).
 """
 
@@ -7,7 +7,7 @@ from __future__ import annotations
 import threading
 
 from application.job_engine import JobRun
-from core.job_runner import JobRunner
+from ui.job_runner import JobRunner
 from domain.job import JobSpec, StepSpec, StepStatus
 
 

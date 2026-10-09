@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QFont
 
-from application.artifact_provenance import (
+from domain.artifact_provenance import (
     source_fingerprint,
     transcript_revision as compute_transcript_revision,
 )
@@ -385,7 +385,7 @@ class ArticleView(QWidget):
         """Called by MainWindow whenever the open transcript's identity
         changes — recorded into each "Export All" run's Artifact
         manifests. *segments*/*transcript_language* build the revision
-        identifier (see application/artifact_provenance.py); ArticleView
+        identifier (see domain/artifact_provenance.py); ArticleView
         doesn't otherwise track the transcript that produced its
         articles, only the generated Article objects themselves.
         """

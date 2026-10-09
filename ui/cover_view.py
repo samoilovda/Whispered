@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from application.artifact_provenance import source_fingerprint, transcript_revision
+from domain.artifact_provenance import source_fingerprint, transcript_revision
 from application import cover_setup
 from application.cover_setup import CoverSetup, PhotoSetup
 from config import get_config

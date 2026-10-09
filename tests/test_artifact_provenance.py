@@ -1,4 +1,4 @@
-"""Unit tests for application/artifact_provenance.py (R5-full step 3, see
+"""Unit tests for domain/artifact_provenance.py (R5-full step 3, see
 docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md).
 """
 
@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from application.artifact_provenance import source_fingerprint, transcript_revision
+from domain.artifact_provenance import source_fingerprint, transcript_revision
 
 
 # ---------------------------------------------------------------------------

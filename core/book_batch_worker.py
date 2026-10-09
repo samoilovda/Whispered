@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PyQt6.QtCore import pyqtSignal
 
-from application.artifact_provenance import source_fingerprint
+from domain.artifact_provenance import source_fingerprint
 from book_pipeline import BookPipeline
 from core.base_worker import BaseWorker
 from core.logger import get_logger
@@ -94,7 +94,7 @@ class BookBatchWorker(BaseWorker):
                     # ui/cover_view.py's identical sentinel). The revision
                     # is just a hash of the actual text this run used;
                     # there are no Segment objects in this flow to feed
-                    # application.artifact_provenance.transcript_revision().
+                    # domain.artifact_provenance.transcript_revision().
                     record_id="unsaved",
                     source_hash=source_fingerprint(path_str),
                     transcript_revision=hashlib.sha256(text.encode("utf-8")).hexdigest()[:16],
