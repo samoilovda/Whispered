@@ -1,7 +1,7 @@
 """Acceptance tests for R6's first step (DocumentSession.apply_result):
 every registered consumer must see a new result on each of the paths that
 produce or load one — the same fan-out list, not three independently
-maintained copies. See docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R6, and
+maintained copies. See docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R6, and
 application/document_session.py.
 """
 

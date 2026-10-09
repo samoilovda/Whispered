@@ -1,6 +1,6 @@
 """InsightsPanel's "Save to file" writes an Artifact manifest for each
 saved section (R5-full step 3 + the export feature added on top of it,
-see docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md). Needs real Qt only because
+see docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md). Needs real Qt only because
 InsightsPanel is a QWidget; _save_to_files() writes directly to
 core.paths.output_dir() with no file dialog involved, so no hang risk
 like the Cover/Article export flows.

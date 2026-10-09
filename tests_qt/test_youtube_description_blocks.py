@@ -1,4 +1,4 @@
-"""Y4a (docs/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md): the YouTube
+"""Y4a (docs/archive/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md): the YouTube
 description is assembled from blocks the user picks; the choice is kept
 in the user-edit overlay; size is checked against YouTube's limit.
 """

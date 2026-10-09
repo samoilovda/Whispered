@@ -1,4 +1,4 @@
-"""The user's own notes about a record (L1, docs/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md).
+"""The user's own notes about a record (L1, docs/archive/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md).
 
 Typed during a live session or later on the Insights tab, kept as
 ``notes.md`` in the record's output folder (beside the generated

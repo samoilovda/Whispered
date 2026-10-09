@@ -1,4 +1,4 @@
-"""Regression coverage for docs/UI_UX_AUDIT_2026-08.md P0 items 1, 2, 4.
+"""Regression coverage for docs/archive/UI_UX_AUDIT_2026-08.md P0 items 1, 2, 4.
 
 These are geometry/lifecycle bugs that are easy to reintroduce silently and
 cheap to pin down with a real (offscreen) QApplication.
@@ -290,7 +290,7 @@ def test_recipe_editor_save_with_changes_names_the_new_recipe(
 
 
 def test_library_filter_chips_not_narrower_than_their_text(process_events):
-    """Regression for docs/UI_UX_AUDIT_2026-08.md P1 item 8 / the clipped
+    """Regression for docs/archive/UI_UX_AUDIT_2026-08.md P1 item 8 / the clipped
     filter chips found in the 2026-09 gallery review ("Диктофон" -> "iктоф"
     at 1100x700): a chip must never be narrower than what its own label
     needs, in either locale. The filters now live in a menu; what is

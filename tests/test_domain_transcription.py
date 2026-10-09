@@ -1,5 +1,5 @@
 """domain/transcription.py must stay Qt-free (see R7-pre in
-docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md) and transcriber.py must re-export
+docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md) and transcriber.py must re-export
 the same objects rather than redefine them.
 """
 

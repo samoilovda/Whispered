@@ -1,6 +1,6 @@
 """File > Create YouTube package (and its Ctrl+K row): the one way to run
 the "youtube_package" step alone for the open record — see
-docs/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md, Y2a.
+docs/archive/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md, Y2a.
 """
 
 from __future__ import annotations

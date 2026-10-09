@@ -1,4 +1,4 @@
-"""Y1 (docs/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md): the YouTube
+"""Y1 (docs/archive/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md): the YouTube
 tab's chapters are clickable rows that move the player, listed exactly as
 the timecode block will be.
 """

@@ -4,7 +4,7 @@ version = "0.11.0"
 description = "Local-first transcription workspace: whisper.cpp, speaker diarization, and an offline-friendly content pipeline."
 requires-python = ">=3.11"
 
-# This is the canonical version source (see docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md,
+# This is the canonical version source (see docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md,
 # R9). version.py reads it at runtime for source/dev runs. Packaging config
 # that can't read this file at build time — packaging/windows/version_info.txt,
 # packaging/windows/installer.iss, appimage/io.github.whispered.metainfo.xml —

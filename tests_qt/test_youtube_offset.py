@@ -1,4 +1,4 @@
-"""Y5 (docs/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md): shift the YouTube
+"""Y5 (docs/archive/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md): shift the YouTube
 timecodes for an intro the recording lacks, without moving edits or seeks
 out of recording time.
 """

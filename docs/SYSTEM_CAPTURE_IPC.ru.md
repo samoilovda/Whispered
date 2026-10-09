@@ -94,7 +94,7 @@ process exit.
 `native/system_capture_helper/.../main.swift` (читает
 `WHISPERED_CAPTURE_NONCE` и кладёт в `hello`).
 
-**Не реализовано (известный gap, см. `docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md`,
+**Не реализовано (известный gap, см. `docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md`,
 R4):** проверка peer credentials на macOS (`LOCAL_PEERCRED`/`LOCAL_PEERPID`)
 как дополнительный слой поверх nonce handshake.
 

@@ -219,7 +219,7 @@ class BookPipeline:
             record_id, source_hash, transcript_revision: when *record_id*
                 and *transcript_revision* are both given, an Artifact
                 provenance manifest (see
-                docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R5-full step 3) is
+                docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R5-full step 3) is
                 written next to each stage's output file — the same
                 mechanism already used for Cover/article/YouTube exports.
                 The caller computes transcript_revision; this module is an

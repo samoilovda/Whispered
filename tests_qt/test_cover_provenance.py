@@ -1,5 +1,5 @@
 """CoverView writes an Artifact manifest on export (R5-full step 3, see
-docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md). Needs real Qt: CoverView renders
+docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md). Needs real Qt: CoverView renders
 a real QImage in __init__/set_segments.
 
 Exercises CoverView._write_provenance() directly against real exported

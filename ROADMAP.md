@@ -34,7 +34,7 @@ The original long-form development plan (2026-07) is preserved in
   playback keys; a start screen that says whether the recipe can run; the
   user's own notes feeding Insights; a grouped forgiving `Ctrl+K`; a
   menu-bar icon; a shortcuts sheet
-  (docs/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md).
+  (docs/archive/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md).
 - **Recipes** — five built-in step sets (transcript-only, YouTube video,
   podcast article, meeting notes, book) plus one user-editable custom
   slot, replacing the old Inspector checklist/preset chain: transcribe →
@@ -63,7 +63,7 @@ The original long-form development plan (2026-07) is preserved in
 ## Current focus
 
 *Last audit: 2026-08-13, execution tracked in
-[docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md](docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md).
+[docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md](docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md).
 P0 (worker lifecycle, model integrity, Recorder backpressure, system-audio
 IPC auth, output-path collisions) and P2 (Config validation, Cover template
 path containment, structured export/batch errors, FTS rebuild policy) are

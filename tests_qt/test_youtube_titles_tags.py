@@ -1,4 +1,4 @@
-"""Y4b (docs/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md): pick the title
+"""Y4b (docs/archive/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md): pick the title
 to publish, see title and tag lengths against YouTube's limits, and copy
 what the open section is for.
 """

@@ -1,6 +1,6 @@
 """Content-addressed cache for InsightsWorker results.
 
-See docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R8: YouTubePanel and
+See docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R8: YouTubePanel and
 InsightsPanel each spawn their own InsightsWorker for "chapters"
 independently, with no way to know the other panel already computed the
 exact same thing from the exact same transcript — so it was silently

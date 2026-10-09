@@ -686,7 +686,7 @@ def export_all_articles(
 
     When *record_id*/*transcript_revision* are given, also writes an
     Artifact provenance manifest next to each .md file (see
-    docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R5-full step 3) — answers
+    docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R5-full step 3) — answers
     "which transcript revision and source produced this file" later, the
     same mechanism already used for Cover exports. Best-effort: the .md
     file is already safely on disk by the time this runs, so a manifest

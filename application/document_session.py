@@ -1,7 +1,7 @@
 """Single fan-out point for distributing a transcription result to every UI
 consumer that needs it.
 
-Extracted from ui/main_window.py (see docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md,
+Extracted from ui/main_window.py (see docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md,
 R6). Three call sites — a fresh transcription finishing, opening a history
 record, and an in-place manual edit — each hand-maintained their own list of
 "which panel gets told about this result." That drift is exactly how Cover

@@ -1,4 +1,4 @@
-"""Y3 (docs/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md): the user edits
+"""Y3 (docs/archive/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md): the user edits
 YouTube chapters; the edits live in youtube_package.user.json beside the
 step's result, never in it, and win over it until the user says otherwise.
 """

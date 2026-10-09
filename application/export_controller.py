@@ -1,7 +1,7 @@
 """Coordinates exporting a transcription result to one or more formats.
 
 Extracted from ui/main_window.py::_export_result (see
-docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R6-cont). This module owns the
+docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R6-cont). This module owns the
 "what to export and whether it worked" decision — Qt-free and directly
 testable; the caller (ui/main_window.py) still owns file dialogs, message
 boxes, and toasts, since those are legitimately UI concerns.

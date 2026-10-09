@@ -1,7 +1,7 @@
 """Provenance record for a generated artifact (Cover PNG, article draft,
 YouTube package, insights, book chapter, ...).
 
-See docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R5-full/R8-pre. Answers, for
+See docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R5-full/R8-pre. Answers, for
 any artifact on disk: which transcript revision, which provider/model, and
 which prompt version produced it — exactly the cache key a resumable Job
 Engine (R8) needs to decide whether an artifact can be reused or must be

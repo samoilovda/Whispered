@@ -2802,7 +2802,7 @@ class MainWindow(QMainWindow):
 
     def _open_publish_dialog(self) -> None:
         """Hand the current YouTube package over to the publish dialog (see
-        docs/YOUTUBE_PUBLISH_PLAN_2026-10.ru.md). Texts come from the
+        docs/archive/YOUTUBE_PUBLISH_PLAN_2026-10.ru.md). Texts come from the
         YouTube tab so the user's edits are what gets published."""
         if not self.youtube_panel.has_publishable_content():
             show_toast(self, tr("yt_publish_nothing"), kind="info")

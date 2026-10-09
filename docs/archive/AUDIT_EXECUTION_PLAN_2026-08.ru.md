@@ -1,7 +1,7 @@
 # Whispered — план работ по итогам аудита (исполнительный)
 
 > Дата составления: 17 августа 2026 года.
-> Источник: `docs/CODEBASE_AUDIT_RECOMMENDATIONS_2026-08.ru.md` (аудит от
+> Источник: `docs/archive/CODEBASE_AUDIT_RECOMMENDATIONS_2026-08.ru.md` (аудит от
 > 13 августа 2026).
 > Аудитория: ИИ-агент, выполняющий изменения в кодовой базе.
 > Формат: последовательность задач с конкретными файлами, шагами, тестами и
@@ -798,9 +798,9 @@ Unit-тесты — системным python (Qt заглушен в `tests/con
 - [2026-08-17] [R1] `tests_qt/` фатально падал (`QThread: Destroyed while
   thread is still running`, `Fatal Python error: Aborted`) — не найдено в
   плане явно, обнаружено при прогоне gate. Причина: `BookPanel.shutdown()`
-  ([ui/book_panel.py](../ui/book_panel.py)) не трогал периодический
+  ([ui/book_panel.py](../../ui/book_panel.py)) не трогал периодический
   `_conn_timer`/`_checker` (LM Studio connection check), а
-  `SettingsDialog._on_ok()` ([ui/settings_dialog.py](../ui/settings_dialog.py))
+  `SettingsDialog._on_ok()` ([ui/settings_dialog.py](../../ui/settings_dialog.py))
   вообще не останавливал `_checker`. Оба переведены на уже созданный, но
   нигде не подключённый `WorkerRegistry`. Отдельно `tests_qt/conftest.py` не
   глушил реальный сетевой `LMStudioClient.probe` — real-Qt smoke тесты били

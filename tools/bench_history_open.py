@@ -2,7 +2,7 @@
 """Benchmark HistoryStore open time on a realistic-size database.
 
 Records the before/after numbers R13 asked for
-(docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md): opening a ~5000-row history.db
+(docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md): opening a ~5000-row history.db
 used to run a full FTS rebuild on every launch; it now only rebuilds on
 first creation or explicit repair_fts(). "Before" is simulated by forcing
 the old always-rebuild behavior for comparison.

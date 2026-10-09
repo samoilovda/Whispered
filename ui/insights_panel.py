@@ -605,7 +605,7 @@ class InsightsPanel(QWidget):
 
     def _write_provenance(self, path, insight_type: str) -> None:
         """Best-effort Artifact manifest write (see
-        docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R5-full step 3) — same
+        docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R5-full step 3) — same
         mechanism already used for Cover/article/YouTube/book exports. The
         .txt file is already safely on disk by the time this runs, so a
         manifest failure must not turn a successful save into an error."""

@@ -1,4 +1,4 @@
-"""Version stays in one place. See docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md,
+"""Version stays in one place. See docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md,
 R9 — before version.py/pyproject.toml existed, three packaging files each
 carried their own hardcoded version and had already drifted (0.1.0 in the
 two Windows files, 1.0.0 in the AppImage one). These tests don't generate

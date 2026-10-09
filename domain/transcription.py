@@ -1,6 +1,6 @@
 """Transcription result types.
 
-Extracted from ``transcriber.py`` (see docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md,
+Extracted from ``transcriber.py`` (see docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md,
 R7-pre): these dataclasses carry no Qt or IO dependency of their own, but
 living in ``transcriber.py`` — which imports ``PyQt6.QtCore`` for the
 ``Transcriber`` worker — meant anything that only needed the DTOs (exporters,

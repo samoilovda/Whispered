@@ -670,7 +670,7 @@ class CoverView(QWidget):
 
     def _write_provenance(self, files: list[Path]) -> None:
         """Record an Artifact manifest for this export's PNG (see
-        docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R5-full step 3) — answers
+        docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R5-full step 3) — answers
         "which transcript revision and source produced this file" later.
         Best-effort: the PNG/JPEG/sidecar are already safely written by
         the time this runs, so a manifest failure must not turn a

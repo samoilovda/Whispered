@@ -1,6 +1,6 @@
 """Unit tests for domain/artifact.py and
 infrastructure/persistence/artifact_store.py (R5-full/R8-pre, see
-docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md).
+docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md).
 """
 
 from __future__ import annotations

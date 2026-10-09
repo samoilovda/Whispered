@@ -119,7 +119,7 @@ class TestHtmlExport:
 
 class TestExportAllArticlesProvenance:
     """R5-full step 3: export_all_articles() optionally writes an Artifact
-    manifest per exported .md (see docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md)."""
+    manifest per exported .md (see docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md)."""
 
     @staticmethod
     def _article(fmt=ArticleFormat.SUMMARY, title="Test Article"):

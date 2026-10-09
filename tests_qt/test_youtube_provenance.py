@@ -1,5 +1,5 @@
 """YouTubePanel writes an Artifact manifest for each saved file (R5-full
-step 3, see docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md). Needs real Qt only
+step 3, see docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md). Needs real Qt only
 because YouTubePanel is a QWidget; neither save_all() nor _save_to_file()
 drives a file dialog, so no hang risk like the Cover/Article export flows.
 """

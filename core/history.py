@@ -155,7 +155,7 @@ def _v8_add_record_title(conn: sqlite3.Connection) -> None:
 
 
 def _v9_add_bookmarks(conn: sqlite3.Connection) -> None:
-    """Bookmarks (R3, docs/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md):
+    """Bookmarks (R3, docs/archive/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md):
     a moment in a record the user wants to come back to, with an
     optional note. Kept per record; deleted with it."""
     conn.executescript("""

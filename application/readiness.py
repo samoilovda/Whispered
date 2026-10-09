@@ -1,4 +1,4 @@
-"""Can the selected recipe run right now? (S1, docs/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md)
+"""Can the selected recipe run right now? (S1, docs/archive/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md)
 
 Qt-free: the start screen gathers the facts (model file present, ffmpeg
 found, LM Studio answering — from the status bar's existing probe, not

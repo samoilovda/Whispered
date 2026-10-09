@@ -1,6 +1,6 @@
 """Shared helpers for building an Artifact's provenance fields.
 
-See docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R5-full step 3: every
+See docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R5-full step 3: every
 generator that gets migrated onto Artifact needs the same two inputs — a
 stable identifier for the source media file, and a stable identifier for
 the transcript content actually used — so this is factored out once

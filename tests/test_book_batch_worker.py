@@ -1,5 +1,5 @@
 """Unit tests for core/book_batch_worker.py's Artifact provenance wiring
-(R5-full step 3, see docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md). Qt is
+(R5-full step 3, see docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md). Qt is
 stubbed via tests/conftest.py; _execute() is called directly rather than
 through .start(), matching the pattern used for other *_worker.py tests.
 """

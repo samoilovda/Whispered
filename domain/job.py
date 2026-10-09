@@ -1,6 +1,6 @@
 """Job/step specs for a resumable, dependency-ordered pipeline engine.
 
-See docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R8 — this is meant to replace
+See docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R8 — this is meant to replace
 the orchestration currently split across the preset chain controller, the
 YouTube/Insights workers' own extra-chain bookkeeping, and the two batch
 mechanisms, so that e.g. `chapters` stops being computed twice when both

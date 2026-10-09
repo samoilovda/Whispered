@@ -164,7 +164,7 @@ are not needed to construct the UI.
 
 `core/history.py` used to run a full FTS5 rebuild on every
 `HistoryStore.__init__`, regardless of whether the index already existed.
-R13 (docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md) made rebuild run only on
+R13 (docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md) made rebuild run only on
 first creation or an explicit `repair_fts()` call.
 
 ```bash

@@ -106,7 +106,7 @@ def artifact_dir(record_id: int | str, source: Path | str) -> Path:
     every transcription's outputs in their own directory regardless of how
     many source files share a stem.
 
-    This is the short-term fix (see docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md,
+    This is the short-term fix (see docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md,
     R5) ahead of a full Artifact/manifest model; existing output
     directories from before this change are left in place and not migrated.
     """

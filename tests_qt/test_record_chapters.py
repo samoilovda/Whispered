@@ -1,4 +1,4 @@
-"""Y6 (docs/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md): one chapter
+"""Y6 (docs/archive/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md): one chapter
 list per record — the YouTube tab's (with the user's edits) wins over the
 Insights step's own, in recording time.
 """

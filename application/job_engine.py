@@ -2,7 +2,7 @@
 concurrency limits, cache-skip (via domain.artifact.Artifact), retry, and
 cancellation.
 
-See docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R8.
+See docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R8.
 
 Independent steps (no dependency edge between them) run concurrently, each
 in its own thread; a step only starts once every step it depends on has

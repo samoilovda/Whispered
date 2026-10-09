@@ -1,5 +1,5 @@
 """YouTubePanel as a pure step viewer (Y2b in
-docs/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md): no provider/language
+docs/archive/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md): no provider/language
 controls of its own, one run link, and provider/language in Settings.
 """
 

@@ -1,7 +1,7 @@
 """Unit + integration tests for core/insights_cache.py — the mechanism
 that stops "chapters" (or any insight type) from being computed twice
 when both YouTubePanel and InsightsPanel want it for the same transcript.
-See docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R8.
+See docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R8.
 """
 
 from __future__ import annotations

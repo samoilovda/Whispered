@@ -1,7 +1,7 @@
 """Unit tests for application/export_controller.py — the Qt-free "what to
 export and whether it worked" logic extracted out of
 ui/main_window.py::_export_result (see
-docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R6-cont).
+docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R6-cont).
 """
 
 from __future__ import annotations

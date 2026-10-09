@@ -1,4 +1,4 @@
-"""Menu-bar / system-tray icon (T, docs/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md).
+"""Menu-bar / system-tray icon (T, docs/archive/UI_CONCEPT_IMPLEMENTATION_PLAN_2026-10.ru.md).
 
 A small menu for getting to work without hunting for the window: start
 or stop the recorder, open the live session, open a file, jump to a

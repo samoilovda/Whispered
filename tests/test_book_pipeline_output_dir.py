@@ -96,7 +96,7 @@ class TestBookPipelineOutputDir:
 
 
 class TestBookPipelineProvenance:
-    """R5-full step 3, see docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md: process()
+    """R5-full step 3, see docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md: process()
     optionally writes an Artifact manifest next to each stage's output."""
 
     def test_without_provenance_kwargs_no_manifest_is_written(self, tmp_path, monkeypatch):

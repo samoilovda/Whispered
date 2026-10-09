@@ -1,5 +1,5 @@
 """ArticleView.set_provenance() stores the state export_all_articles()
-needs (R5-full step 3, see docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md). The
+needs (R5-full step 3, see docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md). The
 actual manifest-writing logic is covered directly, without Qt, in
 tests/test_article_generator.py::TestExportAllArticlesProvenance; this
 only checks the wiring on the widget side. Driving _on_export_all()

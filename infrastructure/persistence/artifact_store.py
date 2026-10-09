@@ -1,6 +1,6 @@
 """Reads and writes an Artifact's provenance manifest next to its file.
 
-See docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R5-full/R8-pre.
+See docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R5-full/R8-pre.
 
 Manifest filename convention: ``<artifact path>.manifest.json``. Written via
 temp file + os.replace in the same directory, matching the atomic-write

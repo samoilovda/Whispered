@@ -1,6 +1,6 @@
 """Canonical application version.
 
-See docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R9: before this existed, three
+See docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R9: before this existed, three
 different files each carried their own hardcoded version
 (packaging/windows/version_info.txt, packaging/windows/installer.iss,
 appimage/io.github.whispered.metainfo.xml) and had already drifted out of

@@ -1320,7 +1320,7 @@ class YouTubePanel(QWidget):
 
     def _write_provenance(self, path: Path, file_key: str) -> None:
         """Record an Artifact manifest for a saved YouTube file (see
-        docs/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R5-full step 3) — same
+        docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md, R5-full step 3) — same
         mechanism already used for Cover and article exports. Best-effort:
         the .txt file is already safely on disk by the time this runs, so
         a manifest failure must not turn a successful save into an error.
