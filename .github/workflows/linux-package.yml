@@ -1,0 +1,79 @@
+name: Linux package
+
+# The Fedora-oriented PyInstaller tarball (CLAUDE.md rule 6: a preview
+# channel). release.yml calls this for every release; run it on its own
+# from the Actions tab or `gh workflow run linux-package.yml` to check the
+# Linux build without creating a release — the tarball is then attached to
+# that run as an artifact.
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Version in the tarball's name, e.g. v0.12.0"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version in the tarball's name"
+        required: false
+        type: string
+        default: dev
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux package (x86_64, Fedora)
+    runs-on: ubuntu-latest
+    # Build against Fedora's glibc/toolchain so the frozen binary runs on
+    # a current Fedora without pulling in a newer libc than the target.
+    container: fedora:41
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            python3.11 python3.11-devel python3-pip \
+            gcc gcc-c++ cmake make git tar gzip \
+            libxkbcommon-x11 mesa-libEGL mesa-libGL dbus-libs
+
+      # Fedora's python3-pip belongs to the default python3, not python3.11;
+      # a venv brings pip for 3.11 (Fedora's way for alternative Pythons).
+      - name: Install build dependencies
+        run: |
+          python3.11 -m venv /opt/whispered-venv
+          echo "/opt/whispered-venv/bin" >> "$GITHUB_PATH"
+          /opt/whispered-venv/bin/python -m pip install --upgrade pip
+          /opt/whispered-venv/bin/python -m pip install -r requirements-build-linux.txt
+
+      - name: Build frozen package
+        run: |
+          python -m PyInstaller --noconfirm --clean \
+            --distpath dist --workpath build/linux \
+            packaging/linux/Whispered.linux.spec
+
+      - name: Frozen smoke test
+        run: ./dist/Whispered/Whispered --smoke-test
+
+      - name: Stage desktop file and icon
+        run: |
+          install -Dm644 packaging/linux/whispered.desktop \
+            dist/Whispered/share/applications/whispered.desktop
+          install -Dm644 assets/icon.png \
+            dist/Whispered/share/icons/hicolor/512x512/apps/whispered.png
+
+      - name: Package
+        run: |
+          tar -C dist -czf "Whispered-${{ inputs.version }}-linux-x86_64.tar.gz" Whispered
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: "Whispered-${{ inputs.version }}-linux-x86_64.tar.gz"
+          if-no-files-found: error
