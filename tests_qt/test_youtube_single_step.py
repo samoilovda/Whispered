@@ -22,6 +22,7 @@ _PAYLOAD = {
     "yt_description": ["A hook.\n\nA summary."],
     "yt_tags": ["podcast"],
     "yt_questions": [],
+    "yt_hashtags": ["#podcast"],
 }
 
 

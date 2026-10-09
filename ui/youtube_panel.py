@@ -41,6 +41,7 @@ from application.youtube_publish import (
     tags_length,
 )
 from core.youtube_description import (
+    BLOCK_HASHTAGS,
     BLOCK_QUESTIONS,
     BLOCK_SIGNATURE,
     BLOCK_TEXT,
@@ -61,6 +62,7 @@ from core.youtube_description import (
     check_chapters,
     compose_description,
     format_chapter_lines,
+    normalize_hashtags,
     format_youtube_description,
     format_youtube_timestamp,
     parse_chapter_lines,
@@ -135,6 +137,7 @@ _DESC_BLOCK_LABELS = (
     (BLOCK_TIMECODES, "yt_desc_block_timecodes"),
     (BLOCK_QUESTIONS, "yt_desc_block_questions"),
     (BLOCK_SIGNATURE, "yt_desc_block_signature"),
+    (BLOCK_HASHTAGS, "yt_desc_block_hashtags"),
 )
 
 # Config.yt_language holds the name the prompt asks for; YouTube's
@@ -195,6 +198,8 @@ class YouTubePanel(QWidget):
         # is shown, copied and published is the edit when there is one.
         self._model_chapters: list | None = None
         self._questions: list = []
+        # The package's hashtags (yt_hashtags), shown after the signature.
+        self._hashtags: list = []
         self._titles: list[str] = []
         self._title_labels: list[tuple[str, QLabel]] = []
         self._overlay: dict[str, Any] = {}
@@ -675,6 +680,7 @@ class YouTubePanel(QWidget):
         self._description_text = None
         self._chapters_data = None
         self._questions = []
+        self._hashtags = []
         self._titles = []
         self._reset_chapter_edits()
         self._render_titles()
@@ -703,6 +709,7 @@ class YouTubePanel(QWidget):
         self._description_text = None
         self._chapters_data = None
         self._questions = []
+        self._hashtags = []
         self._titles = []
         self._reset_chapter_edits()
         self._render_titles()
@@ -767,6 +774,9 @@ class YouTubePanel(QWidget):
         else:
             self._questions = []
             self._questions_edit.setPlainText(str(questions) if questions else tr("youtube_empty"))
+
+        hashtags = payload.get("yt_hashtags")
+        self._hashtags = normalize_hashtags(hashtags) if hashtags else []
 
         # Last, once text, chapters and questions are all in.
         self._compose_description()
@@ -862,6 +872,7 @@ class YouTubePanel(QWidget):
             chapters=self._chapters_data,
             questions=shift_chapters(self._questions, self._offset()),
             signature=get_config().yt_channel_signature,
+            hashtags=self._hashtags,
             # Labels in the package's language, not the UI's: an English
             # description must not say "Тайм-коды:".
             timecodes_label=tr_in(self._publish_language(), "youtube_timecodes_label"),

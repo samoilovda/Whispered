@@ -535,6 +535,7 @@
   "yt_desc_block_timecodes": "Тайм-коды",
   "yt_desc_block_questions": "Ключевые вопросы",
   "yt_desc_block_signature": "Подпись канала",
+  "yt_desc_block_hashtags": "Хэштеги",
   "yt_desc_signature_empty": "Задайте подпись канала в Настройках → ИИ.",
   "yt_desc_questions_label": "Ключевые вопросы:",
   "yt_desc_size": "{count} / {limit} байт",

@@ -535,6 +535,7 @@
   "yt_desc_block_timecodes": "Timecodes",
   "yt_desc_block_questions": "Key questions",
   "yt_desc_block_signature": "Channel signature",
+  "yt_desc_block_hashtags": "Hashtags",
   "yt_desc_signature_empty": "Set the channel signature in Settings → AI.",
   "yt_desc_questions_label": "Key questions:",
   "yt_desc_size": "{count} / {limit} bytes",

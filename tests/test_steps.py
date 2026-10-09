@@ -294,7 +294,9 @@ def test_youtube_package_runner_calls_generate_insight_for_each_type(tmp_path, m
     runner = STEP_REGISTRY["youtube_package"].make_runner(context)
     result = runner()
 
-    assert calls == ["chapters", "yt_titles", "yt_description", "yt_tags", "yt_questions"]
+    assert calls == [
+        "chapters", "yt_titles", "yt_description", "yt_tags", "yt_questions", "yt_hashtags",
+    ]
     assert set(result) == set(calls)
     assert (context.artifact_dir / "youtube_package.json").exists()
 

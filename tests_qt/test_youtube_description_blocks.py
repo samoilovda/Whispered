@@ -66,7 +66,7 @@ def test_toggling_a_block_recomposes_and_is_remembered(signature):
     assert panel.publish_texts()["description"] == text
 
     saved = json.loads(panel._overlay_file().read_text(encoding="utf-8"))
-    assert saved["description_blocks"] == ["text", "timecodes", "questions"]
+    assert saved["description_blocks"] == ["text", "timecodes", "questions", "hashtags"]
 
     again = _panel()                      # same record: choice comes back
     assert again._desc_edit.toPlainText() == text
@@ -169,3 +169,19 @@ def test_labels_follow_the_package_language_not_the_ui(signature):
     finally:
         signature.yt_language = ""
         set_locale(original)
+
+
+def test_generated_hashtags_go_after_the_signature(signature):
+    panel = _panel({**_PAYLOAD, "yt_hashtags": ["#психология", "выгорание", "#Slow Life"]})
+    text = panel._desc_edit.toPlainText()
+    assert text.endswith("Subscribe: [link]\n\n#психология #выгорание #SlowLife")
+    assert panel._desc_block_btns["hashtags"].isChecked()
+    panel._desc_block_btns["hashtags"].click()          # can be switched off
+    assert "#психология" not in panel._desc_edit.toPlainText()
+    panel.close()
+
+
+def test_a_package_without_hashtags_has_no_hashtag_line(signature):
+    panel = _panel()
+    assert panel._desc_edit.toPlainText().endswith("Subscribe: [link]")
+    panel.close()

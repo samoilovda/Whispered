@@ -544,7 +544,9 @@ def _insights_load(context: StepContext) -> Optional[Any]:
 
 # ---------------------------------------------------------------- youtube_package
 
-_YOUTUBE_TYPES = ("chapters", "yt_titles", "yt_description", "yt_tags", "yt_questions")
+_YOUTUBE_TYPES = (
+    "chapters", "yt_titles", "yt_description", "yt_tags", "yt_questions", "yt_hashtags",
+)
 
 
 def _youtube_package_runner(context: StepContext) -> StepRunner:

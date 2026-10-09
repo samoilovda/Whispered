@@ -408,3 +408,25 @@ class TestShiftChapters:
         original = [{"start": 5, "title": "A"}]
         shift_chapters(original, 10)
         assert original == [{"start": 5, "title": "A"}]
+
+
+def test_hashtags_are_cleaned_for_youtube():
+    from core.youtube_description import normalize_hashtags
+
+    assert normalize_hashtags(
+        ["#психология", "выгорание", "#Slow Life", "#Психология", "ИИ!", "#2024", ""]
+    ) == ["#психология", "#выгорание", "#SlowLife", "#ИИ"]
+    assert normalize_hashtags("#a, #b #c") == ["#a", "#b", "#c"]
+    assert len(normalize_hashtags([f"#t{i}" for i in range(20)])) == 5
+    assert normalize_hashtags(None) == []
+
+
+def test_hashtags_follow_the_signature():
+    from core.youtube_description import DEFAULT_DESCRIPTION_BLOCKS, compose_description
+
+    text = compose_description(
+        blocks=DEFAULT_DESCRIPTION_BLOCKS, text="Hook.", signature="— Den",
+        hashtags=["#psychology", "#burnout"],
+    )
+    assert text == "Hook.\n\n— Den\n\n#psychology #burnout"
+    assert compose_description(blocks=DEFAULT_DESCRIPTION_BLOCKS, text="Hook.") == "Hook."

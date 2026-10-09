@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-_INSIGHT_TYPES = ("chapters", "action_items", "key_moments", "yt_titles", "yt_description", "yt_tags", "yt_questions", "thumb_title")
+_INSIGHT_TYPES = ("chapters", "action_items", "key_moments", "yt_titles", "yt_description", "yt_tags", "yt_questions", "yt_hashtags", "thumb_title")
 _TRANSCRIPT_MAX_CHARS = 48_000   # ~12 k tokens; matches chat_worker._CONTEXT_CHARS
 # LM Studio's DEFAULT_MAX_TOKENS (4096) truncated Cyrillic/multi-byte JSON
 # responses mid-string on longer insight types (chapters, descriptions);

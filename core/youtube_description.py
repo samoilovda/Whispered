@@ -256,8 +256,40 @@ BLOCK_TEXT = "text"                # the model's hook + summary
 BLOCK_TIMECODES = "timecodes"      # chapter timecodes (YouTube chapters)
 BLOCK_QUESTIONS = "questions"      # key questions with their own times
 BLOCK_SIGNATURE = "signature"      # the channel's fixed footer (Settings)
-DESCRIPTION_BLOCKS = (BLOCK_TEXT, BLOCK_TIMECODES, BLOCK_QUESTIONS, BLOCK_SIGNATURE)
-DEFAULT_DESCRIPTION_BLOCKS = (BLOCK_TEXT, BLOCK_TIMECODES, BLOCK_SIGNATURE)
+BLOCK_HASHTAGS = "hashtags"        # generated hashtags, after the footer
+DESCRIPTION_BLOCKS = (
+    BLOCK_TEXT, BLOCK_TIMECODES, BLOCK_QUESTIONS, BLOCK_SIGNATURE, BLOCK_HASHTAGS,
+)
+DEFAULT_DESCRIPTION_BLOCKS = (BLOCK_TEXT, BLOCK_TIMECODES, BLOCK_SIGNATURE, BLOCK_HASHTAGS)
+
+# YouTube ignores every hashtag of a description that has more than 15 and
+# shows the first three above the title; a handful reads best.
+MAX_HASHTAGS = 5
+_HASHTAG_JUNK = re.compile(r"[^\w]+", re.UNICODE)
+
+
+def normalize_hashtags(raw: object, limit: int = MAX_HASHTAGS) -> list[str]:
+    """Clean model output into YouTube hashtags: a list of strings (or one
+    string split on whitespace/commas) → ``#word`` with no spaces or
+    punctuation inside, duplicates (ignoring case) and empties dropped, at
+    most *limit*, original order kept."""
+    if isinstance(raw, str):
+        items: list[object] = re.split(r"[\s,]+", raw)
+    elif isinstance(raw, (list, tuple)):
+        items = list(raw)
+    else:
+        return []
+    seen: set[str] = set()
+    tags: list[str] = []
+    for item in items:
+        word = _HASHTAG_JUNK.sub("", str(item))
+        if not word or word.isdigit() or word.casefold() in seen:
+            continue
+        seen.add(word.casefold())
+        tags.append(f"#{word}")
+        if len(tags) == limit:
+            break
+    return tags
 
 
 def compose_description(
@@ -267,6 +299,7 @@ def compose_description(
     chapters: list[dict] | None = None,
     questions: list[dict] | None = None,
     signature: str | None = None,
+    hashtags: "list[str] | None" = None,
     timecodes_label: str = "Timecodes:",
     questions_label: str = "Key questions:",
 ) -> str:
@@ -291,6 +324,8 @@ def compose_description(
         elif block == BLOCK_QUESTIONS:
             lines = format_chapter_lines(questions or [])
             body = f"{questions_label}\n{lines}" if lines else ""
+        elif block == BLOCK_HASHTAGS:
+            body = " ".join(normalize_hashtags(hashtags or []))
         else:
             body = (signature or "").strip()
         if body:
