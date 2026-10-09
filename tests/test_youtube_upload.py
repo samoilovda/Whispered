@@ -350,6 +350,7 @@ def test_update_metadata_replaces_the_snippet_only(video):
 @pytest.mark.parametrize("response, exc", [
     (_Response(404, {}), up.YouTubeUploadError),
     (_error(403, "quotaExceeded"), up.QuotaExceeded),
+    (_error(403, "insufficientPermissions"), up.UploadForbidden),
     (_error(400, "invalidDescription"), up.YouTubeUploadError),
 ])
 def test_update_metadata_errors(video, response, exc):

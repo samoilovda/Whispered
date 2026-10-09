@@ -310,6 +310,10 @@ class UploadClient:
                 raise YouTubeUploadError(f"YouTube has no video {video_id} on this channel.")
             if status == 403 and reason in ("quotaExceeded", "dailyLimitExceeded", "rateLimitExceeded"):
                 raise QuotaExceeded("The YouTube API quota for today is used up.")
+            if status == 403 and reason in ("insufficientPermissions", "forbidden"):
+                raise UploadForbidden(
+                    "The YouTube login does not allow editing videos: reconnect the account "
+                    "in Settings → AI / LM Studio → YouTube account.")
             raise YouTubeUploadError(
                 f"YouTube rejected the update ({status} {reason})".strip())
 

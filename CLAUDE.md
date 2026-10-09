@@ -29,7 +29,9 @@ call sites).
    YouTube tab (`core/ai_provider.py`, default stays `lmstudio`), and for
    uploading a video to the user's own YouTube channel only when they press
    the button in the publish dialog or run `tools/youtube_autoupload.py`
-   for packages they explicitly queued on the wizard's last step
+   for packages they explicitly queued on the wizard's last step (and,
+   with `--update`, for pushing those packages' edited title, description
+   and tags to videos already uploaded)
    (`core/youtube_oauth.py`, `core/youtube_upload.py`,
    `application/youtube_autoupload.py`; `Config.yt_publish_mode` is `off`
    by default).

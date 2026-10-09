@@ -35,10 +35,15 @@ REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 CHANNELS_URL = "https://www.googleapis.com/youtube/v3/channels"
 
 # ``youtube.upload`` covers videos.insert and thumbnails.set;
-# ``youtube.readonly`` is only for showing the channel's name.
+# ``youtube.readonly`` is only for showing the channel's name;
+# ``youtube.force-ssl`` is the narrowest scope videos.update accepts — for
+# fixing an uploaded video's title, description and tags
+# (tools/youtube_autoupload.py --update). A login made before it was
+# added gets "insufficientPermissions" until the account is reconnected.
 SCOPES = (
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube.readonly",
+    "https://www.googleapis.com/auth/youtube.force-ssl",
 )
 
 REFRESH_TOKEN_SECRET = "youtube_refresh_token"
