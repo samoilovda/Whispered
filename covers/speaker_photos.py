@@ -134,16 +134,10 @@ def framing_for(
 
 def slot_size(template, layout: str, slot: str) -> Optional[tuple[float, float]]:
     """A photo slot's box size in *layout* of *template*, if it has one."""
-    spec = template.layouts.get(layout) if hasattr(template.layouts, "get") else None
-    if spec is None:
-        return None
-    for layer in spec.layers:
-        data = getattr(layer, "data", {}) or {}
-        if getattr(layer, "type", "") == "photo" and data.get("slot") == slot:
-            box = data.get("box") or []
-            if len(box) == 4:
-                return float(box[2]), float(box[3])
-    return None
+    from covers.photo_pan import photo_boxes
+
+    box = photo_boxes(template, layout).get(slot)
+    return (box[2], box[3]) if box else None
 
 
 # ── Sampling ───────────────────────────────────────────────────────────

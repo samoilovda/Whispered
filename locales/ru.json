@@ -734,6 +734,7 @@
   "cover_layout_text": "Только текст",
   "cover_choose_photo": "Выбрать фото",
   "cover_frame_from_video": "Кадр из видео",
+  "cover_preview_drag_tip": "Перетащите фото спикера, чтобы сдвинуть его в рамке; колёсико над фото меняет масштаб.",
   "cover_photo_variants": "Варианты фото спикеров…",
   "cover_photo_variants_tip": "Готовые фото каждого участника из видео, кадрированные по лицу, — сразу для обоих мест",
   "cover_variants_title": "Фото спикеров",

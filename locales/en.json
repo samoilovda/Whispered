@@ -734,6 +734,7 @@
   "cover_layout_text": "Text only",
   "cover_choose_photo": "Choose photo",
   "cover_frame_from_video": "Frame from video",
+  "cover_preview_drag_tip": "Drag a speaker photo to move it within its frame; scroll over it to zoom.",
   "cover_photo_variants": "Speaker photo variants…",
   "cover_photo_variants_tip": "Ready photos of each participant from the video, framed by the face — for both photos at once",
   "cover_variants_title": "Speaker photos",

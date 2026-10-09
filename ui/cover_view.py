@@ -32,6 +32,7 @@ from covers.renderer import render
 from covers.style import pick_style
 from covers.template import load_template
 from ui.cover_inspector import CoverInspector
+from ui.cover_preview import CoverPreview
 from ui.cover_frame_dialog import CoverFrameDialog, FrameGrabWorker
 
 logger = get_logger(__name__)
@@ -101,9 +102,21 @@ class CoverView(QWidget):
         title = self._i18n.text(QLabel(), "cover_workspace_title")
         title.setProperty("role", "section-title")
         preview_column.addWidget(title)
-        self.preview = QLabel()
-        self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Drag a speaker photo to move it in its slot, scroll to zoom.
+        self.preview = CoverPreview()
         self.preview.setMinimumSize(320, 220)
+        self.preview.setToolTip(tr("cover_preview_drag_tip"))
+        self.preview.photo_dragged.connect(self._on_photo_dragged)
+        self.preview.photo_zoomed.connect(self._on_photo_zoomed)
+        self.preview.framing_done.connect(self._on_photo_framed)
+        # Photo sizes by path, for the drag math (read once per photo).
+        self._photo_sizes: dict[str, tuple[int, int]] = {}
+        # Redraws while dragging are coalesced to one per event-loop turn
+        # and skip the setup save; the save follows on release.
+        self._drag_timer = QTimer(self)
+        self._drag_timer.setSingleShot(True)
+        self._drag_timer.setInterval(0)
+        self._drag_timer.timeout.connect(self._draw_preview)
         self.preview.setProperty("role", "card")
         preview_column.addWidget(self.preview, stretch=1)
         self.warning = QLabel()
@@ -528,6 +541,10 @@ class CoverView(QWidget):
     def render_preview(self) -> None:
         # First, so a just picked photo is drawn from the record's kept copy.
         self._save_setup()
+        self._draw_preview()
+
+    def _draw_preview(self) -> None:
+        """Render the cover into the preview without saving the setup."""
         try:
             layout, variant, decor_set, slots = self._state()
             self.last_image, warnings = render(
@@ -542,9 +559,68 @@ class CoverView(QWidget):
                 )
             )
             self.warning.setText(" · ".join(dict.fromkeys(warnings)))
+            from covers.photo_pan import photo_boxes
+
+            self.preview.set_photo_slots(
+                photo_boxes(self.template, layout),
+                {slot for slot, path in self.photos.items() if path},
+            )
             self.preview_changed.emit(self.last_image)
         except Exception as exc:
             self.warning.setText(str(exc))
+
+    # ── Framing by hand on the preview ─────────────────────────────────
+
+    def _photo_geometry(self, slot: str):
+        """``(slot size, photo size)`` for the drag math, or None."""
+        from covers.photo_pan import photo_boxes
+
+        path = self.photos.get(slot)
+        layout = self.inspector.layout_combo.currentData() or ""
+        box = photo_boxes(self.template, layout).get(slot)
+        if not path or box is None:
+            return None
+        size = self._photo_sizes.get(path)
+        if size is None:
+            from PyQt6.QtGui import QImageReader
+
+            read = QImageReader(path).size()
+            if not read.isValid() or read.width() <= 0 or read.height() <= 0:
+                return None
+            size = (read.width(), read.height())
+            self._photo_sizes[path] = size
+        return (box[2], box[3]), size
+
+    def _on_photo_dragged(self, slot: str, dx: float, dy: float) -> None:
+        from covers.photo_pan import pan
+
+        geometry = self._photo_geometry(slot)
+        if geometry is None:
+            return
+        focus, zoom = self.photo_framing(slot)
+        self._focus[slot] = pan(focus, zoom, geometry[0], geometry[1], dx, dy)
+        self._drag_timer.start()
+
+    def _on_photo_zoomed(self, slot: str, factor: float, ax: float, ay: float) -> None:
+        from covers.photo_pan import zoom_around
+
+        geometry = self._photo_geometry(slot)
+        if geometry is None:
+            return
+        focus, zoom = self.photo_framing(slot)
+        self._focus[slot], self._zoom[slot] = zoom_around(
+            focus, zoom, zoom * factor, geometry[0], geometry[1], (ax, ay)
+        )
+        self._drag_timer.start()
+        self._on_photo_framed(slot)
+
+    def _on_photo_framed(self, slot: str) -> None:
+        """A drag ended (or the wheel turned): show the framing in the
+        inspector and keep it — the debounced full render saves it."""
+        framing = self.inspector.framing.get(slot)
+        if framing is not None:
+            framing.set_framing(*self.photo_framing(slot))
+        self._timer.start()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
