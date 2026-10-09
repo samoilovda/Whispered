@@ -69,8 +69,15 @@ def main(argv: list[str] | None = None) -> int:
         from core.youtube_upload import UploadClient
 
         cfg = get_config()
-        if not (cfg.yt_oauth_client_id and cfg.yt_oauth_client_secret) or not youtube_oauth.is_connected():
-            print("YouTube is not connected: Settings → YouTube → import the OAuth client and Connect.")
+        # Say what is missing: the OAuth client (its secret can be lost on
+        # its own, e.g. a keyring entry removed) or the account login.
+        where = "Settings → AI / LM Studio → YouTube account"
+        if not (cfg.yt_oauth_client_id and cfg.yt_oauth_client_secret):
+            print(f"YouTube is not connected: the OAuth client is missing — {where} → "
+                  "\"Import client_secret.json…\".")
+            return 2
+        if not youtube_oauth.is_connected():
+            print(f"YouTube is not connected: nobody is signed in — {where} → \"Connect account\".")
             return 2
         uploader = UploadClient(youtube_oauth.TokenProvider(
             cfg.yt_oauth_client_id, cfg.yt_oauth_client_secret))
