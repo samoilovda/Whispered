@@ -47,6 +47,12 @@ call sites).
    for. If a business signal happens to be named `finished` (shadowing
    `QThread`'s own), the worker class needs a `_disconnect_business_signals()`
    override — see `core/insights_worker.py` for the pattern.
+   A thread that blocks waiting for another worker's signal (it has no
+   event loop) must connect with `Qt.ConnectionType.DirectConnection` —
+   an auto-connected plain callable is queued to the blocked thread and
+   never runs (`BatchWorker`, `Transcriber.transcribe(direct_callbacks=True)`).
+   Such paths need a real-Qt test in `tests_qt/`: the stubs in
+   `tests/conftest.py` never start a thread, so they cannot see it.
 4. **Settings go through `Config`** (`config.py` dataclass). New fields get
    defaults; the loader drops unknown keys, so backward compatibility is
    automatic.
