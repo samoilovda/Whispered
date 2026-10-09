@@ -43,11 +43,14 @@ from domain.artifact_provenance import (
     source_fingerprint,
     transcript_revision as _transcript_revision,
 )
+from core.logger import get_logger
 from core.prompts import prompt_version
 from application.artifacts import save_best_effort
 from domain.artifact import Artifact
 from domain.job import JobSpec, StepSpec
 from domain.transcription import TranscriptionResult
+
+logger = get_logger(__name__)
 
 StepRunner = Callable[[], object]
 
@@ -1183,3 +1186,64 @@ def reindex_artifacts() -> int:
                     artifact_type, record.id, exc,
                 )
     return indexed
+
+
+def step_outcome_result(
+    run: Any, name: str, context: Optional[StepContext], expected: "type | tuple[type, ...]",
+) -> "tuple[Optional[Any], str]":
+    """What a single-step job's finished slot shows: ``(result, "")`` when
+    step *name* of *run* succeeded or was cache-skipped (its artifact is
+    then loaded through *context*) and the result is an *expected*
+    instance, else ``(None, error)``."""
+    from domain.job import StepStatus
+
+    outcome = run.outcomes.get(name)
+    if outcome is None:
+        return None, ""
+    if outcome.status not in (StepStatus.SUCCEEDED, StepStatus.SKIPPED):
+        return None, outcome.error or ""
+    result = outcome.result
+    if result is None and outcome.status is StepStatus.SKIPPED and context is not None:
+        result = load_step_result(context, name)
+    if isinstance(result, expected):
+        return result, ""
+    return None, outcome.error or ""
+
+
+@dataclass(frozen=True)
+class RunSummary:
+    """A finished recipe run as the window reports it."""
+
+    succeeded: frozenset
+    had_error: bool
+    artifact_types: frozenset
+
+
+def summarize_run(run: Any) -> RunSummary:
+    """Which steps produced something, whether any failed, and the history
+    artifact types they amount to."""
+    from domain.job import StepStatus
+
+    succeeded = frozenset(
+        name for name, outcome in run.outcomes.items()
+        if outcome.status in (StepStatus.SUCCEEDED, StepStatus.SKIPPED)
+    )
+    had_error = any(o.status is StepStatus.FAILED for o in run.outcomes.values())
+    return RunSummary(succeeded, had_error, frozenset(artifact_types_for_steps(succeeded)))
+
+
+def record_run_artifacts(record_id: Any, artifact_types: Iterable[str]) -> None:
+    """Add *artifact_types* (plus the transcript) to the record's history
+    badges, keeping the ones it already has. Best effort: logged on failure."""
+    types = set(artifact_types)
+    if record_id is None or not types:
+        return
+    try:
+        from core.history import get_history_store
+
+        store = get_history_store()
+        current = store.get_record(record_id) or {}
+        artifacts = {"transcript", *types, *current.get("artifacts", [])}
+        store.set_artifacts(record_id, sorted(artifacts))
+    except Exception as exc:  # noqa: BLE001 - badges must not fail a finished run
+        logger.warning("Failed to persist recipe run artifacts: %s", exc)

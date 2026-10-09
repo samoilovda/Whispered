@@ -67,13 +67,15 @@ from application.steps import (
     STEP_REGISTRY,
     StepContext,
     build_cache_checks,
-    artifact_types_for_steps,
     build_job_spec,
     build_runners,
     build_step_context,
     llm_params,
     load_step_result,
     manifest_path_for_step,
+    record_run_artifacts,
+    step_outcome_result,
+    summarize_run,
 )
 from domain.job import JobSpec, StepOutcome, StepStatus
 from domain.recipe import BUILTIN_RECIPES_BY_KEY, Recipe, TRANSCRIPT_ONLY
@@ -2764,26 +2766,13 @@ class MainWindow(QMainWindow):
         self._reset_ui()
         self.run_view.set_finished(True)
 
-        succeeded = {
-            name for name, outcome in run.outcomes.items()
-            if outcome.status in (StepStatus.SUCCEEDED, StepStatus.SKIPPED)
-        }
-        had_error = any(
-            outcome.status is StepStatus.FAILED for outcome in run.outcomes.values()
-        )
+        summary = summarize_run(run)
+        succeeded, had_error = summary.succeeded, summary.had_error
+        artifact_types = summary.artifact_types
         self._save_recipe_run("failed" if had_error else "done")
         self.library_view.refresh()
         self._refresh_run_chip()
-        artifact_types = artifact_types_for_steps(succeeded)
-        if self._recipe_record_id is not None and artifact_types:
-            try:
-                from core.history import get_history_store
-                store = get_history_store()
-                current = store.get_record(self._recipe_record_id) or {}
-                artifacts = {"transcript", *artifact_types, *current.get("artifacts", [])}
-                store.set_artifacts(self._recipe_record_id, sorted(artifacts))
-            except Exception as exc:
-                logger.warning("Failed to persist recipe run artifacts: %s", exc)
+        record_run_artifacts(self._recipe_record_id, artifact_types)
 
         # _reset_ui() only hides the progress/cancel affordances — without
         # this the one persistent status line would keep reading "Running
@@ -3526,7 +3515,6 @@ class MainWindow(QMainWindow):
         """JobRunner.job_finished for the single-step "insights" job
         started by _start_insights_job() — hands the outcome to the panel."""
         self._insights_job = None
-        outcome = run.outcomes.get("insights")
         context = self._insights_job_context
         self._insights_job_context = None
         # _start_insights_job() showed the status bar's Cancel button;
@@ -3534,18 +3522,8 @@ class MainWindow(QMainWindow):
         # offering to cancel a job that had already finished.
         self._reset_ui()
 
-        result = outcome.result if outcome is not None else None
-        if (
-            result is None
-            and outcome is not None
-            and outcome.status is StepStatus.SKIPPED
-            and context is not None
-        ):
-            result = load_step_result(context, "insights")
-
-        if outcome is not None and outcome.status in (
-            StepStatus.SUCCEEDED, StepStatus.SKIPPED
-        ) and isinstance(result, dict):
+        result, error = step_outcome_result(run, "insights", context, dict)
+        if result is not None:
             self.insights_panel.set_result(result)
             return
 
@@ -3553,7 +3531,7 @@ class MainWindow(QMainWindow):
         # run can reach a CANCELLED outcome (see _on_clean_job_finished's
         # matching comment), so the only other case reaching here is a
         # real failure.
-        self.insights_panel.set_error(outcome.error if outcome is not None else "")
+        self.insights_panel.set_error(error)
 
     def _start_youtube_job(self) -> None:
         """Start the YouTube package (chapters/titles/description/tags/
@@ -3633,25 +3611,14 @@ class MainWindow(QMainWindow):
         """JobRunner.job_finished for the single-step "youtube_package"
         job started by _start_youtube_job() — hands the outcome to the panel."""
         self._youtube_job = None
-        outcome = run.outcomes.get("youtube_package")
         context = self._youtube_job_context
         self._youtube_job_context = None
         # Same as the insights job above: _start_youtube_job() showed the
         # Cancel button and nothing here took it back down.
         self._reset_ui()
 
-        result = outcome.result if outcome is not None else None
-        if (
-            result is None
-            and outcome is not None
-            and outcome.status is StepStatus.SKIPPED
-            and context is not None
-        ):
-            result = load_step_result(context, "youtube_package")
-
-        if outcome is not None and outcome.status in (
-            StepStatus.SUCCEEDED, StepStatus.SKIPPED
-        ) and isinstance(result, dict):
+        result, error = step_outcome_result(run, "youtube_package", context, dict)
+        if result is not None:
             self.youtube_panel.set_result(result)
             return
 
@@ -3659,7 +3626,7 @@ class MainWindow(QMainWindow):
         # run can reach a CANCELLED outcome (see _on_clean_job_finished's
         # matching comment), so the only other case reaching here is a
         # real failure.
-        self.youtube_panel.set_error(outcome.error if outcome is not None else "")
+        self.youtube_panel.set_error(error)
 
     def _on_clean_progress(self, _name: str, percentage: int, message: str) -> None:
         """JobRunner.step_progress for the single-step "clean" job."""
@@ -3674,24 +3641,11 @@ class MainWindow(QMainWindow):
         from text_processor import ProcessingResult
 
         self._clean_job = None
-        outcome = run.outcomes.get("clean")
         context = self._clean_job_context
         self._clean_job_context = None
         self.cleaned_view.set_busy(False)
-        result = outcome.result if outcome is not None else None
-        if (
-            result is None
-            and outcome is not None
-            and outcome.status is StepStatus.SKIPPED
-            and context is not None
-        ):
-            result = load_step_result(context, "clean")
-
-        if (
-            outcome is not None
-            and outcome.status in (StepStatus.SUCCEEDED, StepStatus.SKIPPED)
-            and isinstance(result, ProcessingResult)
-        ):
+        result, error = step_outcome_result(run, "clean", context, ProcessingResult)
+        if result is not None:
             self._reset_ui()
             self._cleaned_text = result.coherent.text
 
@@ -3714,7 +3668,6 @@ class MainWindow(QMainWindow):
         # _cancel_clean_job() disconnects this very signal before the run
         # can reach a CANCELLED outcome, so the only other case reaching
         # here is a real failure.
-        error = outcome.error if outcome is not None else ""
         self._reset_ui()
         self.status_label.setText(
             tr("status_ai_error", error=f"{error[:50]}...")
@@ -3737,24 +3690,11 @@ class MainWindow(QMainWindow):
         from article_generator import GenerationResult
 
         self._article_job = None
-        outcome = run.outcomes.get("article")
         context = self._article_job_context
         self._article_job_context = None
         self.article_view.set_busy(False)
-        result = outcome.result if outcome is not None else None
-        if (
-            result is None
-            and outcome is not None
-            and outcome.status is StepStatus.SKIPPED
-            and context is not None
-        ):
-            result = load_step_result(context, "article")
-
-        if (
-            outcome is not None
-            and outcome.status in (StepStatus.SUCCEEDED, StepStatus.SKIPPED)
-            and isinstance(result, GenerationResult)
-        ):
+        result, error = step_outcome_result(run, "article", context, GenerationResult)
+        if result is not None:
             self._reset_ui()
             self.article_view.set_articles(result.articles)
 
@@ -3772,7 +3712,6 @@ class MainWindow(QMainWindow):
         # run can reach a CANCELLED outcome (see _on_clean_job_finished's
         # matching comment), so the only other case reaching here is a
         # real failure.
-        error = outcome.error if outcome is not None else ""
         self._reset_ui()
         self.status_label.setText(
             tr("status_ai_error", error=f"{error[:50]}...")
@@ -3931,22 +3870,11 @@ class MainWindow(QMainWindow):
         self.book_panel.set_processing(False)
         self._reset_ui()
         self._book_job = None
-        outcome = run.outcomes.get("book")
         context = self._book_job_context
         self._book_job_context = None
 
-        result = outcome.result if outcome is not None else None
-        if (
-            result is None
-            and outcome is not None
-            and outcome.status is StepStatus.SKIPPED
-            and context is not None
-        ):
-            result = load_step_result(context, "book")
-
-        if outcome is not None and outcome.status in (
-            StepStatus.SUCCEEDED, StepStatus.SKIPPED
-        ) and isinstance(result, BookResult):
+        result, error_message = step_outcome_result(run, "book", context, BookResult)
+        if result is not None:
             if result.stages:
                 saved_paths = [s.output_path for s in result.stages if s.success and s.output_path]
                 if saved_paths:
@@ -3977,7 +3905,6 @@ class MainWindow(QMainWindow):
             # other case reaching here is the pipeline itself raising
             # (not a per-stage failure — that's the "succeeded" branch
             # above, since BookPipeline catches those itself).
-            error_message = outcome.error if outcome is not None else ""
             self.status_label.setText(tr("status_book_error", error=error_message[:60]))
             QMessageBox.warning(
                 self,
