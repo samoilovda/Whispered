@@ -15,6 +15,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from utils import get_cached_gpu
 from core.base_worker import BaseWorker
 from core.logger import get_logger
+from core.worker_registry import WorkerRegistry
 from domain.transcription import Segment, TranscriptionResult, Word, merge_confidence  # noqa: F401 (re-exported)
 
 logger = get_logger(__name__)
@@ -461,6 +462,16 @@ class TranscriptionWorker(BaseWorker):
     finished = pyqtSignal(object)     # TranscriptionResult or None
     error = pyqtSignal(str)           # Error message
 
+    def _disconnect_business_signals(self) -> None:
+        """WorkerRegistry hook: ``finished`` here is a business signal that
+        shadows ``QThread.finished``, which the registry's by-name sweep
+        skips — disconnect all three explicitly."""
+        for signal in (self.progress, self.finished, self.error):
+            try:
+                signal.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+
     def __init__(
         self,
         filepath: str,
@@ -587,6 +598,10 @@ class Transcriber:
 
     def __init__(self):
         self.current_worker: Optional[TranscriptionWorker] = None
+        # Retains a cancelled worker until its QThread really finishes (the
+        # child process may need a few seconds to die) instead of blocking
+        # the GUI thread in wait().
+        self._registry = WorkerRegistry()
         cached_device = get_cached_gpu()
         self.gpu_type, self.gpu_name = cached_device or (
             "detecting", "Detecting hardware…"
@@ -634,9 +649,7 @@ class Transcriber:
             The worker thread for additional control
         """
         # Cancel any existing job
-        if self.current_worker and self.current_worker.isRunning():
-            self.current_worker.cancel()
-            self.current_worker.wait()
+        self.cancel()
 
         if not models_ready and not self.prepare_models(model_name, enable_diarization):
             if on_error:
@@ -666,6 +679,7 @@ class Transcriber:
             worker.error.connect(on_error)
 
         self.current_worker = worker
+        self._registry.register(worker, name="transcription")
         worker.start()
 
         return worker
@@ -705,11 +719,18 @@ class Transcriber:
 
     def cancel(self):
         """Cancel the current transcription job."""
-        if self.current_worker and self.current_worker.isRunning():
-            self.current_worker.cancel()
-            self.current_worker.wait()
+        worker = self.current_worker
+        if worker and worker.isRunning():
+            worker.cancel()
+            # Non-blocking: the registry keeps the worker alive until it
+            # finishes and drops its late signals.
+            self._registry.retire(worker)
+        self.current_worker = None
 
     def shutdown(self) -> None:
-        """Part of the Shutdownable protocol (ui/shutdownable.py). cancel()
-        already no-ops when nothing is running."""
+        """Part of the Shutdownable protocol (ui/shutdownable.py). Cancels,
+        then waits a bounded time for the child process to exit."""
         self.cancel()
+        unfinished = self._registry.shutdown_all(timeout_ms=5000)
+        if unfinished:
+            logger.error("Transcription still running at shutdown: %s", unfinished)

@@ -114,6 +114,7 @@ def _install_pyqt6_stubs() -> None:
     qtcore.QObject = _FakeQObject
     qtcore.QThread = _FakeQThread
     qtcore.pyqtSignal = _FakeSignal
+    qtcore.pyqtSlot = lambda *args, **kwargs: (lambda func: func)
 
 
 def _install_core_stubs() -> None:
