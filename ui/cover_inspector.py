@@ -132,6 +132,8 @@ class CoverInspector(QWidget):
         self.variant_combo = QComboBox()
         self._i18n.combo_items(self.variant_combo, COVER_VARIANT_CHOICES)
         self.title_edit = QPlainTextEdit()
+        # Two lines of a long title stay readable however tall the window.
+        self.title_edit.setMinimumHeight(56)
         self.title_edit.setMaximumHeight(100)
         self.names_edit = QLineEdit()
         self._i18n.form_row(form, "cover_layout", self.layout_combo)
@@ -192,10 +194,15 @@ class CoverInspector(QWidget):
         self.save_button.setProperty("variant", "primary")
         self.save_button.setEnabled(False)
         self.save_button.clicked.connect(self.save_requested.emit)
-        layout.addWidget(self.save_button)
         self.export_button = self._i18n.text(QPushButton(), "cover_export")
         self.export_button.clicked.connect(self.export_requested.emit)
-        layout.addWidget(self.export_button)
+        # Not in this widget's own layout: the Cover workspace pins this row
+        # under the scrolling inspector so it stays visible.
+        self.actions = QWidget()
+        actions = QHBoxLayout(self.actions)
+        actions.setContentsMargins(0, 0, 0, 0)
+        actions.addWidget(self.save_button, 1)
+        actions.addWidget(self.export_button)
         layout.addStretch()
         self._i18n.bind()
         self.layout_combo.currentIndexChanged.connect(self.changed.emit)

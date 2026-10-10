@@ -10,10 +10,12 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -136,7 +138,17 @@ class CoverView(QWidget):
         preview_column.addWidget(self.warning)
         root.addLayout(preview_column, stretch=1)
         self.inspector = CoverInspector()
-        root.addWidget(self.inspector)
+        # Scrolls rather than squeezing its fields when the window is short.
+        inspector_scroll = QScrollArea()
+        inspector_scroll.setWidgetResizable(True)
+        inspector_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        inspector_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        inspector_scroll.setWidget(self.inspector)
+        inspector_scroll.setMinimumWidth(self.inspector.sizeHint().width() + 16)
+        side = QVBoxLayout()
+        side.addWidget(inspector_scroll, stretch=1)
+        side.addWidget(self.inspector.actions)
+        root.addLayout(side)
         cfg = get_config()
         # The Settings dialog's default layout/variant — without this the
         # combos always opened on their first item whatever was saved.
