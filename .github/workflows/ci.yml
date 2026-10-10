@@ -47,19 +47,11 @@ jobs:
       # with CLAUDE.md's "Pre-commit gate" / "Mypy blocking modules" — the
       # two had drifted, so modules documented as enforced were not
       # actually checked here.
-      - name: Type check (core, blocking)
+      - name: Type check (blocking)
         run: |
           mypy --ignore-missing-imports core/ transcriber.py diarizer.py \
             exporters.py utils.py config.py version.py domain/ application/ \
-            infrastructure/ batch_processor.py \
-            book_pipeline.py ui/transcript_view.py ui/live_transcript_view.py
-
-      # Informational: ui/ is not typed yet. Surfaced so regressions are
-      # visible; promote to blocking once the count reaches zero.
-      - name: Type check (ui, informational)
-        continue-on-error: true
-        run: |
-          mypy --ignore-missing-imports ui/
+            infrastructure/ batch_processor.py book_pipeline.py ui/
 
       - name: Run unit tests with coverage
         run: python -m pytest tests/ -v --cov=. --cov-report=term-missing
