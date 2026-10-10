@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import sys
 import types
 
 import pytest
@@ -340,13 +339,8 @@ _FAKE_TEMPLATE = types.SimpleNamespace(
 
 
 def test_cover_runner_calls_renderer_and_saves_image(tmp_path, monkeypatch):
-    # covers.renderer imports real PyQt6 QPointF/QRectF/QSize that the
-    # PyQt6 stand-ins in tests/conftest.py don't provide, so — unlike the
-    # other engines above — it can't be imported at all under system
-    # python, even just to monkeypatch an attribute on it. Replace the
-    # whole module in sys.modules before the runner's lazy `from
-    # covers.renderer import render` ever executes; covers.template (also
-    # imported lazily) needs no such stand-in, it's already Qt-free.
+    # The renderer comes in through params (the UI passes
+    # covers.renderer.render, which needs real Qt); a fake one here.
     calls = {}
 
     class _FakeImage:
@@ -363,12 +357,11 @@ def test_cover_runner_calls_renderer_and_saves_image(tmp_path, monkeypatch):
         calls["decor_set"] = decor_set
         return _FakeImage(), ["a warning"]
 
-    renderer_stub = types.ModuleType("covers.renderer")
-    renderer_stub.render = _fake_render
-    monkeypatch.setitem(sys.modules, "covers.renderer", renderer_stub)
     monkeypatch.setattr("covers.template.load_template", lambda name: _FAKE_TEMPLATE)
 
-    context = _context(tmp_path, provider=None, model="m", cover_layout="duo")
+    context = _context(
+        tmp_path, provider=None, model="m", cover_layout="duo", cover_renderer=_fake_render,
+    )
     runner = STEP_REGISTRY["cover"].make_runner(context)
     result = runner()
 
@@ -567,12 +560,11 @@ def test_cover_load_recovers_the_saved_path(tmp_path, monkeypatch):
     def _fake_render(template, layout, variant, slots, size, decor_set=None):
         return _FakeImage(), ["a warning"]
 
-    renderer_stub = types.ModuleType("covers.renderer")
-    renderer_stub.render = _fake_render
-    monkeypatch.setitem(sys.modules, "covers.renderer", renderer_stub)
     monkeypatch.setattr("covers.template.load_template", lambda name: _FAKE_TEMPLATE)
 
-    context = _context(tmp_path, provider=None, model="m", cover_layout="duo")
+    context = _context(
+        tmp_path, provider=None, model="m", cover_layout="duo", cover_renderer=_fake_render,
+    )
     STEP_REGISTRY["cover"].make_runner(context)()
 
     reloaded = load_step_result(context, "cover")
@@ -938,8 +930,8 @@ def test_reindex_artifacts_skips_a_missing_file_without_raising(tmp_path, monkey
 # ------------------------------------------------------------------ cover inputs
 
 def _stub_cover_render(monkeypatch):
-    """Replace the Qt renderer (see the runner test above) and record the
-    slots it was asked to draw."""
+    """A fake renderer for the cover step's params (see the runner test
+    above) that records the slots it was asked to draw."""
     seen = {}
 
     class _FakeImage:
@@ -952,17 +944,16 @@ def _stub_cover_render(monkeypatch):
         seen["slots"] = dict(slots)
         return _FakeImage(), []
 
-    renderer_stub = types.ModuleType("covers.renderer")
-    renderer_stub.render = _fake_render
-    monkeypatch.setitem(sys.modules, "covers.renderer", renderer_stub)
     monkeypatch.setattr("covers.template.load_template", lambda name: _FAKE_TEMPLATE)
+    seen["render"] = _fake_render
     return seen
 
 
 def test_cover_takes_the_generated_title_when_none_was_typed(tmp_path, monkeypatch):
     seen = _stub_cover_render(monkeypatch)
     context = dataclasses.replace(
-        _context(tmp_path, cover_slots={"title": "", "names": "Ведущий"}),
+        _context(tmp_path, cover_slots={"title": "", "names": "Ведущий"},
+                 cover_renderer=seen["render"]),
         get_result=lambda name: (
             {"yt_titles": ["1. «Почему психологу трудно»", "2. Другое"]}
             if name == "youtube_package" else None
@@ -976,7 +967,8 @@ def test_cover_takes_the_generated_title_when_none_was_typed(tmp_path, monkeypat
 def test_a_typed_cover_title_wins_over_the_generated_one(tmp_path, monkeypatch):
     seen = _stub_cover_render(monkeypatch)
     context = dataclasses.replace(
-        _context(tmp_path, cover_slots={"title": "Своё название"}),
+        _context(tmp_path, cover_slots={"title": "Своё название"},
+                 cover_renderer=seen["render"]),
         get_result=lambda name: {"yt_titles": ["Сгенерированное"]},
     )
     STEP_REGISTRY["cover"].make_runner(context)()
@@ -1021,3 +1013,8 @@ def test_cover_without_youtube_package_still_schedules(tmp_path):
     spec = build_job_spec("custom", ("transcribe", "cover"))
     cover = next(step for step in spec.steps if step.name == "cover")
     assert set(cover.depends_on) == {"transcribe"}
+
+
+def test_cover_runner_without_a_renderer_fails_clearly(tmp_path):
+    with pytest.raises(RuntimeError, match="cover_renderer"):
+        STEP_REGISTRY["cover"].make_runner(_context(tmp_path))()

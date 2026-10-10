@@ -536,6 +536,8 @@ class CoverView(QWidget):
             "cover_variant": variant,
             "cover_decor_set": decor_set,
             "cover_slots": slots,
+            # The step draws through Qt; application/ only receives it.
+            "cover_renderer": render,
         }
 
     def render_preview(self) -> None:

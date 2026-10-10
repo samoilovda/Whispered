@@ -750,11 +750,12 @@ def _cover_inputs(context: StepContext) -> str:
 
 def _cover_runner(context: StepContext) -> StepRunner:
     def run():
-        # Qt-dependent (QImage/QPainter) — imported here, not at module
-        # level, so importing application.steps never requires a real (or
-        # stubbed) PyQt6 install just to build the registry (see CLAUDE.md
-        # rule 7 on lazy imports for heavy/optional deps).
-        from covers.renderer import render
+        # Drawing is Qt (QImage/QPainter), so the UI hands the renderer in
+        # (CoverView.render_params(): covers.renderer.render); this layer
+        # stays Qt-free (tests/test_layer_imports.py).
+        render = context.params.get("cover_renderer")
+        if render is None:
+            raise RuntimeError("The cover step needs a renderer in its params ('cover_renderer').")
         from covers.style import pick_style
         from covers.template import load_template
 

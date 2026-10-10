@@ -45,7 +45,11 @@ def _is(module: str, *names: str) -> bool:
 def test_layer_is_qt_free(layer):
     bad = _violations(
         layer,
-        lambda m: _is(m, "PyQt6", "ui", "core.live", "transcriber", "batch_processor"),
+        lambda m: _is(
+            m, "PyQt6", "ui", "core.live", "transcriber", "batch_processor",
+            # the Qt parts of covers/ (QPainter rendering, export)
+            "covers.renderer", "covers.export", "covers.providers",
+        ),
     )
     assert not bad, f"{layer}/ must stay Qt-free:\n" + "\n".join(bad)
 
