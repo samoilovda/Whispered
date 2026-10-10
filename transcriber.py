@@ -5,8 +5,6 @@ Wrapper for pywhispercpp to handle transcription tasks
 
 import os
 import re
-import tempfile
-import subprocess
 import time
 from typing import Any, Callable, Optional
 from PyQt6.QtCore import QObject, Qt, pyqtSignal
@@ -21,65 +19,12 @@ from domain.transcription import Segment, TranscriptionResult, Word, merge_confi
 logger = get_logger(__name__)
 
 
-class MediaConversionError(RuntimeError):
-    """FFmpeg was available but could not produce a usable WAV file."""
-
-
-class FFmpegUnavailableError(MediaConversionError):
-    """No FFmpeg executable could be resolved for a required conversion."""
-
-
-def _convert_to_wav(input_path: str) -> str:
-    """
-    Convert audio/video file to WAV format using FFmpeg.
-    Return a unique temporary WAV path or raise a diagnostic error.
-    """
-    from core.external_tools import resolve_tool
-    ffmpeg = resolve_tool("ffmpeg")
-    if not ffmpeg:
-        raise FFmpegUnavailableError("FFmpeg is not installed")
-
-    # Reserve a unique temporary filename.  A deterministic name here lets
-    # concurrent transcriptions of equally named files overwrite each other.
-    base_name = os.path.splitext(os.path.basename(input_path))[0]
-    with tempfile.NamedTemporaryFile(suffix=".wav", prefix=f"{base_name}_", delete=False) as tmp:
-        output_path = tmp.name
-
-    error = "FFmpeg did not produce a usable WAV file"
-    try:
-        # Convert to 16kHz mono WAV (optimal for Whisper)
-        result = subprocess.run([
-            ffmpeg, '-y', '-i', input_path,
-            '-ar', '16000',  # 16kHz sample rate
-            '-ac', '1',       # Mono
-            '-c:a', 'pcm_s16le',  # 16-bit PCM
-            output_path
-        ], capture_output=True, text=True, timeout=3600)
-
-        if (
-            result.returncode == 0
-            and os.path.exists(output_path)
-            and os.path.getsize(output_path) > 44
-        ):
-            return output_path
-        detail = (result.stderr or "").strip()[-600:]
-        error = f"FFmpeg exited with code {result.returncode}"
-        if detail:
-            error += f": {detail}"
-    except subprocess.TimeoutExpired:
-        error = "FFmpeg conversion timed out after 3600 seconds"
-    except Exception as exc:
-        error = f"FFmpeg conversion failed: {exc}"
-
-    # FFmpeg did not produce a usable file. Do not leave an empty reservation
-    # in the system temporary directory.
-    try:
-        if os.path.exists(output_path):
-            os.unlink(output_path)
-    except OSError:
-        pass
-
-    raise MediaConversionError(error)
+# Re-exported: the transcription child and tests import them from here.
+from core.audio_convert import (  # noqa: E402,F401
+    FFmpegUnavailableError,
+    MediaConversionError,
+    convert_to_wav as _convert_to_wav,
+)
 
 
 # Formats that need FFmpeg conversion

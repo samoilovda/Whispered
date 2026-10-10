@@ -46,17 +46,11 @@ class SpeechWindow:
 
 def convert_track_to_wav(path: Path) -> str:
     """Decode a track (m4a or any ffmpeg-readable format) to a 16kHz mono
-    WAV, reusing transcriber.py's converter so both pipelines share one
-    FFmpeg invocation and error surface.
-
-    Imported lazily: several tests replace ``sys.modules['transcriber']``
-    with a lightweight stub (see tests/test_batch_processor.py,
-    tests/test_exporters.py), and a module-level import here would bind
-    whichever version happened to be installed first in that shared
-    process, depending on test collection order.
+    WAV with the converter transcriber.py also uses (core/audio_convert.py,
+    Qt-free), so both pipelines share one FFmpeg invocation and error surface.
     """
-    from transcriber import _convert_to_wav
-    return _convert_to_wav(str(path))
+    from core.audio_convert import convert_to_wav
+    return convert_to_wav(str(path))
 
 
 def read_wav_int16_mono(path: str) -> Tuple[bytes, int]:
@@ -277,8 +271,7 @@ def remap_segment_to_track_time(seg: Segment, mapping: Sequence[Tuple[float, flo
 def probe_media_duration(path: str) -> float:
     """Duration in seconds of any ffprobe-readable media file (m4a, mp4, ...).
 
-    Lazily resolves ffprobe for the same reason ``convert_track_to_wav``
-    lazily imports ``transcriber`` — keeps this module importable in test
+    Lazily resolves ffprobe — keeps this module importable in test
     processes where FFmpeg isn't necessarily on PATH and no track is
     actually being probed.
     """

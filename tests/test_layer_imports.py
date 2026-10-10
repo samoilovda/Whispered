@@ -69,6 +69,14 @@ def test_core_does_not_import_application_or_ui():
     assert not bad, "\n".join(bad)
 
 
+def test_core_does_not_import_the_qt_engines():
+    """transcriber.py and batch_processor.py are Qt-side engines (their
+    workers are QThreads); core/ shares their Qt-free parts instead
+    (e.g. core/audio_convert.py)."""
+    bad = _violations("core", lambda m: _is(m, "transcriber", "batch_processor"))
+    assert not bad, "\n".join(bad)
+
+
 def test_core_does_not_import_the_cover_feature():
     """Workers don't depend on covers/ (the cover feature sits above them)."""
     bad = _violations("core", lambda m: _is(m, "covers"))
