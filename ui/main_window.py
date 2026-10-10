@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
+from typing import Literal
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout,
     QLabel, QFileDialog, QMessageBox, QDialog,
@@ -894,6 +895,9 @@ class MainWindow(QMainWindow):
         self._record_index = self._stack.addWidget(self.record_view)
         self.cover_view = CoverView(insights_cache=self._insights_cache)
         self._shutdownables.append(self.cover_view)
+        self._cover_return_index: int | None = None
+        self.cover_view.back_requested.connect(self._leave_cover)
+        self.cover_view.save_requested.connect(self._save_cover)
         self._cover_index = self._stack.addWidget(self.cover_view)
         # Run view (docs/UI_REDESIGN_PLAN_2026-09.ru.md, B4): one row per
         # step in the whole registry, fixed order — a JobRun only ever
@@ -952,6 +956,8 @@ class MainWindow(QMainWindow):
     def _on_section_changed(self, key: str) -> None:
         """Compatibility entry point: top-level destinations are start sources."""
         if key == "cover":
+            if self._stack.currentIndex() != self._cover_index:
+                self._cover_return_index = self._stack.currentIndex()
             self._stack.setCurrentIndex(self._cover_index)
             self.status_bar.show_queue(False)
             return
@@ -965,6 +971,47 @@ class MainWindow(QMainWindow):
             self.start_view.set_source("file")
         if key == "live" and os.environ.get("WHISPERED_UI_GALLERY") != "1":
             self.live_view.setup.refresh_targets()
+
+    def _leave_cover(self) -> None:
+        """The Cover workspace's Back: to the page it was opened from (the
+        open record, usually), else the start page."""
+        index = self._cover_return_index
+        if index is None or index == self._cover_index:
+            index = self._start_index
+        self._stack.setCurrentIndex(index)
+        self.status_bar.show_queue(False)
+
+    def _save_cover(self) -> None:
+        """Cover's "Save to record": write the record's ``cover.png`` through
+        the recipe's own cover step (same PNG and manifest the YouTube
+        package and the next recipe run reuse), on a worker."""
+        from core.cover_worker import CoverWorker
+
+        result, record_id = self._current_result, self._last_record_id
+        if result is None or record_id is None:
+            show_toast(self, tr("cover_save_needs_record"), kind="info")
+            return
+        self.cover_view.set_provenance(record_id, self._record_source_path or self._source_filepath)
+        self.cover_view.render_preview()
+        context = build_step_context(
+            self._source_filepath or "",
+            result,
+            record_id,
+            artifact_source=self._artifact_source(),
+            params=self.cover_view.render_params(),
+        )
+        runner = STEP_REGISTRY["cover"].make_runner(context)
+        worker = CoverWorker(lambda **_ignored: runner(), parent=self)
+        self.cover_view.inspector.save_button.setEnabled(False)
+
+        def finish(message: str, kind: Literal["success", "error"]) -> None:
+            self.cover_view.inspector.save_button.setEnabled(self._last_record_id is not None)
+            show_toast(self, message, kind=kind)
+
+        worker.result.connect(lambda _payload: finish(tr("cover_saved"), "success"))
+        worker.error.connect(lambda msg: finish(tr("cover_save_failed", detail=msg), "error"))
+        self._registry.register(worker, name=f"save_cover_{id(worker)}")
+        worker.start()
 
     def _show_new_draft(self) -> None:
         self._stack.setCurrentIndex(self._start_index)

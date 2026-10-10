@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -57,6 +58,10 @@ class CoverView(QWidget):
     # The freshly rendered 1280x720 preview (QImage) — the YouTube publish
     # wizard shows it while the user tunes the cover there.
     preview_changed = pyqtSignal(object)
+    # "Back" leaves the workspace; "Save to record" asks MainWindow to write
+    # the record's cover.png through the recipe's own cover step.
+    back_requested = pyqtSignal()
+    save_requested = pyqtSignal()
 
     def __init__(self, parent=None, insights_cache=None):
         super().__init__(parent)
@@ -99,9 +104,15 @@ class CoverView(QWidget):
         self._i18n = Retranslator()
         root = QHBoxLayout(self)
         preview_column = QVBoxLayout()
+        header = QHBoxLayout()
+        self.back_button = self._i18n.text(QPushButton(), "cover_back")
+        self.back_button.clicked.connect(self.back_requested.emit)
+        header.addWidget(self.back_button)
         title = self._i18n.text(QLabel(), "cover_workspace_title")
         title.setProperty("role", "section-title")
-        preview_column.addWidget(title)
+        header.addWidget(title)
+        header.addStretch(1)
+        preview_column.addLayout(header)
         # Drag a speaker photo to move it in its slot, scroll to zoom.
         self.preview = CoverPreview()
         self.preview.setMinimumSize(320, 220)
@@ -150,6 +161,7 @@ class CoverView(QWidget):
         self.inspector.suggest_photos.connect(self._suggest_photos)
         self.inspector.framing_changed.connect(self._on_framing_changed)
         self.inspector.export_requested.connect(self._export)
+        self.inspector.save_requested.connect(self.save_requested.emit)
         self.inspector.suggest_requested.connect(self._suggest_title)
         self.inspector.shuffle_requested.connect(self._on_shuffle)
         self._i18n.bind()
@@ -331,6 +343,7 @@ class CoverView(QWidget):
             self._save_setup()
         self._record_id = record_id
         self._source_path = source_path
+        self.inspector.save_button.setEnabled(record_id is not None)
         if switched:
             self._reset_episode()
         if record_id != previous_id:

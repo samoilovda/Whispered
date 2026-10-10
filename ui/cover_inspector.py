@@ -111,6 +111,7 @@ class CoverInspector(QWidget):
     # slot, focus_x, focus_y, zoom
     framing_changed = pyqtSignal(str, float, float, float)
     export_requested = pyqtSignal()
+    save_requested = pyqtSignal()
     suggest_requested = pyqtSignal()
     shuffle_requested = pyqtSignal()
 
@@ -183,8 +184,16 @@ class CoverInspector(QWidget):
         self.variants_button.clicked.connect(self.suggest_photos.emit)
         self._frame_buttons.append(self.variants_button)
         layout.addWidget(self.variants_button)
+        # Writes the record's own cover.png (what the YouTube package and
+        # the next recipe run use); Export below saves files to a folder.
+        self.save_button = self._i18n.text(
+            QPushButton(), "cover_save", tooltip="cover_save_tip"
+        )
+        self.save_button.setProperty("variant", "primary")
+        self.save_button.setEnabled(False)
+        self.save_button.clicked.connect(self.save_requested.emit)
+        layout.addWidget(self.save_button)
         self.export_button = self._i18n.text(QPushButton(), "cover_export")
-        self.export_button.setProperty("variant", "primary")
         self.export_button.clicked.connect(self.export_requested.emit)
         layout.addWidget(self.export_button)
         layout.addStretch()
