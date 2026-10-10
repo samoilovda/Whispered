@@ -63,3 +63,26 @@ def test_infrastructure_does_not_import_application():
 def test_core_does_not_import_application_or_ui():
     bad = _violations("core", lambda m: _is(m, "application", "ui"))
     assert not bad, "\n".join(bad)
+
+
+def test_pure_live_modules_import_without_qt():
+    """core/multitrack_* reuse core.live's VAD, contracts and text
+    normalisation; importing them must not load the Qt capture sources
+    (core/live/__init__.py resolves its names lazily)."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys\n"
+        "class Block:\n"
+        "    def find_spec(self, name, path=None, target=None):\n"
+        "        if name.split('.')[0] == 'PyQt6':\n"
+        "            raise ImportError('PyQt6 import attempted: ' + name)\n"
+        "sys.meta_path.insert(0, Block())\n"
+        "import core.multitrack_audio, core.multitrack_bleed\n"
+        "import core.live.contracts, core.live.vad, core.live.echo_detector\n"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code], cwd=ROOT, capture_output=True, text=True
+    )
+    assert proc.returncode == 0, proc.stderr
