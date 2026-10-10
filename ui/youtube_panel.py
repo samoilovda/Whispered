@@ -167,6 +167,14 @@ class YouTubePanel(QWidget):
     only way to start it is ``_run_link``, which asks MainWindow for that
     same action through ``generate_requested``."""
 
+    # Created by _setup_ui() from _TAB_SPECS (setattr by name).
+    _chapters_edit: QPlainTextEdit
+    _titles_edit: QPlainTextEdit
+    _desc_edit: QPlainTextEdit
+    _tags_edit: QPlainTextEdit
+    _questions_edit: QPlainTextEdit
+
+
     # generate_requested: the run link was clicked — MainWindow runs the
     # same single-step job as the menu action. generation_finished: emitted
     # by set_result()/set_error() once MainWindow's "youtube_package"

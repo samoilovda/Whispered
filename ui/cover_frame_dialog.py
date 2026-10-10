@@ -8,6 +8,7 @@ the worker's queued signals still deliver while the dialog is open.
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -194,8 +195,8 @@ class CoverFrameDialog(QDialog):
                     )
                 )
             thumb.setCursor(Qt.CursorShape.PointingHandCursor)
-            thumb.mousePressEvent = (  # type: ignore[method-assign]
-                lambda _event, t=timestamp: self._pick_and_accept(t)
+            thumb.mousePressEvent = partial(  # type: ignore[method-assign]
+                self._thumb_pressed, timestamp
             )
             self._grid.addWidget(thumb, index // 4, index % 4)
         self._reap_worker()
@@ -211,6 +212,9 @@ class CoverFrameDialog(QDialog):
         if self._worker is not None:
             _worker_registry().retire(self._worker)
             self._worker = None
+
+    def _thumb_pressed(self, timestamp: float, _event: object) -> None:
+        self._pick_and_accept(timestamp)
 
     def _pick_and_accept(self, timestamp: float) -> None:
         self.selected_time = timestamp

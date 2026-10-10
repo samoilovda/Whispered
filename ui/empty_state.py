@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton
 from PyQt6.QtCore import Qt
 from ui.icons import IconColors, IconLabel
+from ui.qt_util import must
 
 class EmptyStateWidget(QWidget):
     """A centered empty state with an icon, a message, and an optional
@@ -101,8 +102,8 @@ class EmptyStateWidget(QWidget):
             self._ICON_SIZE_COMPACT if compact else self._ICON_SIZE_FULL
         )
         spacer = self._container_layout.itemAt(self._icon_spacer_index)
-        if spacer is not None:
-            spacer.spacerItem().changeSize(0, 4 if compact else 16)
+        if spacer is not None and spacer.spacerItem() is not None:
+            must(spacer.spacerItem()).changeSize(0, 4 if compact else 16)
         if self.hint_label is not None:
             self.hint_label.setVisible(not compact)
         self._container_layout.activate()

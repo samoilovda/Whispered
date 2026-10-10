@@ -27,6 +27,7 @@ from PyQt6.QtGui import QColor, QFontMetrics
 
 from ui.theme import SPACE_2, SPACE_3, SPACE_4, mark_elides, set_role
 from utils import format_duration
+from ui.qt_util import must
 
 
 class ElidedLabel(QLabel):
@@ -113,7 +114,7 @@ class ElidingComboBox(QComboBox):
         self.initStyleOption(opt)
         painter.drawComplexControl(QStyle.ComplexControl.CC_ComboBox, opt)
 
-        text_rect = self.style().subControlRect(
+        text_rect = must(self.style()).subControlRect(
             QStyle.ComplexControl.CC_ComboBox,
             opt,
             QStyle.SubControl.SC_ComboBoxEditField,

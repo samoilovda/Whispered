@@ -30,7 +30,8 @@ class ElidedLabel(QLabel):
         super().__init__(parent)
         self._full_text = ""
 
-    def setText(self, text: str) -> None:
+    def setText(self, text: str | None) -> None:
+        text = text or ""
         self._full_text = text
         self.setToolTip(text)
         self._update_elide()
@@ -180,10 +181,13 @@ class FileSelector(QWidget):
 
         layout.addWidget(self.file_info)
 
-    def dragEnterEvent(self, event: QDragEnterEvent):
+    def dragEnterEvent(self, event: QDragEnterEvent | None):
         """Handle drag enter event."""
-        if event.mimeData().hasUrls():
-            urls = event.mimeData().urls()
+        if event is None:
+            return
+        mime = event.mimeData()
+        if mime is not None and mime.hasUrls():
+            urls = mime.urls()
             if urls and urls[0].isLocalFile():
                 filepath = urls[0].toLocalFile()
                 if is_supported_format(filepath):
@@ -196,12 +200,15 @@ class FileSelector(QWidget):
         """Handle drag leave event."""
         self._reset_drop_zone_style()
 
-    def dropEvent(self, event: QDropEvent):
+    def dropEvent(self, event: QDropEvent | None):
         """Handle drop event."""
         self._reset_drop_zone_style()
+        if event is None:
+            return
 
-        if event.mimeData().hasUrls():
-            url = event.mimeData().urls()[0]
+        mime = event.mimeData()
+        if mime is not None and mime.hasUrls():
+            url = mime.urls()[0]
             if url.isLocalFile():
                 filepath = url.toLocalFile()
                 if is_supported_format(filepath):

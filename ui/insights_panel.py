@@ -21,6 +21,7 @@ from ui.i18n_helpers import Retranslator
 from core.paths import output_dir
 from ui.toast import show_toast
 from utils import format_duration
+from ui.qt_util import must
 
 logger = get_logger(__name__)
 
@@ -379,7 +380,7 @@ class InsightsPanel(QWidget):
         if not blocks:
             show_toast(self, tr("insights_nothing_to_save"), kind="error")
             return
-        QApplication.clipboard().setText("\n\n".join(blocks))
+        must(QApplication.clipboard()).setText("\n\n".join(blocks))
         show_toast(self, tr("toast_copied"), kind="success")
 
     # ── Public API ──────────────────────────────────────────────────
@@ -668,7 +669,7 @@ class InsightsPanel(QWidget):
     def _clear_section(layout: QVBoxLayout):
         while layout.count():
             item = layout.takeAt(0)
-            widget = item.widget()
+            widget = item.widget() if item is not None else None
             if widget:
                 # Detach now: deleteLater() alone leaves the old row in the
                 # tree (and in findChildren) until the event loop runs —

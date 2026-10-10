@@ -42,7 +42,7 @@ def _jpeg_bytes(image: QImage, budget: int) -> bytes:
         buffer.open(QIODevice.OpenModeFlag.WriteOnly)
         if not image.save(buffer, "JPEG", quality):
             raise RuntimeError("Could not encode cover as JPEG")
-        data = bytes(buffer.data())
+        data = buffer.data().data()
         if len(data) <= budget:
             best = data
             low = quality + 1
@@ -54,7 +54,7 @@ def _jpeg_bytes(image: QImage, budget: int) -> bytes:
     buffer.open(QIODevice.OpenModeFlag.WriteOnly)
     if not image.save(buffer, "JPEG", 60):
         raise RuntimeError("Could not encode cover as JPEG")
-    data = bytes(buffer.data())
+    data = buffer.data().data()
     if not data:
         raise RuntimeError("Could not encode cover as JPEG")
     return data

@@ -50,6 +50,7 @@ from ui.i18n_helpers import Retranslator
 from ui.icons import IconColors, IconLabel, get_icon
 from ui.option_labels import recipe_label as _recipe_display_label
 from utils import SUPPORTED_FORMATS, format_duration
+from ui.qt_util import must
 
 logger = get_logger(__name__)
 
@@ -244,8 +245,12 @@ class _RecordList(QListWidget):
 
     activate_current = pyqtSignal()
 
-    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and self.currentItem():
+    def keyPressEvent(self, event: QKeyEvent | None) -> None:  # noqa: N802
+        if (
+            event is not None
+            and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+            and self.currentItem()
+        ):
             self.activate_current.emit()
             return
         super().keyPressEvent(event)
@@ -258,13 +263,13 @@ class _RecordList(QListWidget):
         """Size every row to the viewport's width and the height its
         widget needs at that width: rows never get wider than the column
         (no horizontal scrolling) and a wrapped snippet gets its lines."""
-        width = self.viewport().width() - 2 * self.spacing()
+        width = must(self.viewport()).width() - 2 * self.spacing()
         if width <= 0:
             return
         for row in range(self.count()):
             item = self.item(row)
-            widget = self.itemWidget(item)
-            if widget is None:
+            widget = self.itemWidget(item) if item is not None else None
+            if item is None or widget is None:
                 continue
             layout = widget.layout()
             height = (

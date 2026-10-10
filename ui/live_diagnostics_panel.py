@@ -11,6 +11,7 @@ from config import get_config, save_config
 from core.i18n import tr
 from core.live.presentation import safe_metrics_snapshot
 from ui.components import CollapsiblePanel
+from ui.qt_util import must
 
 
 class LiveDiagnosticsPanel(CollapsiblePanel):
@@ -49,7 +50,7 @@ class LiveDiagnosticsPanel(CollapsiblePanel):
         return json.dumps(self._safe, ensure_ascii=False, indent=2, sort_keys=True)
 
     def copy_diagnostics(self) -> None:
-        QGuiApplication.clipboard().setText(self.diagnostics_text())
+        must(QGuiApplication.clipboard()).setText(self.diagnostics_text())
 
     @staticmethod
     def _save_expanded(expanded: bool) -> None:

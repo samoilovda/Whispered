@@ -19,6 +19,7 @@ from core.i18n import tr
 from core.logger import get_logger
 from ui.i18n_helpers import Retranslator
 from utils import format_duration
+from ui.qt_util import must
 
 logger = get_logger(__name__)
 
@@ -404,7 +405,8 @@ class PlayerWidget(QWidget):
         geometry = self._slider.geometry()
         if geometry.width() <= 0:
             return
-        outer = self.layout().contentsMargins() if self.layout() is not None else None
+        layout = self.layout()
+        outer = layout.contentsMargins() if layout is not None else None
         left_pad = outer.left() if outer is not None else 0
         right_pad = outer.right() if outer is not None else 0
         self._marks_row.setContentsMargins(
@@ -413,13 +415,13 @@ class PlayerWidget(QWidget):
         )
         option = QStyleOptionSlider()
         self._slider.initStyleOption(option)
-        handle = self._slider.style().subControlRect(
+        handle = must(self._slider.style()).subControlRect(
             QStyle.ComplexControl.CC_Slider, option, QStyle.SubControl.SC_SliderHandle, self._slider,
         )
         self._marks.set_inset(max(0, handle.width() // 2))
 
-    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802 — Qt override
-        if obj is self._slider:
+    def eventFilter(self, obj: QObject | None, event: QEvent | None) -> bool:  # noqa: N802 — Qt override
+        if obj is self._slider and event is not None:
             etype = event.type()
             if etype in (QEvent.Type.Resize, QEvent.Type.Move):
                 self._sync_marks_geometry()

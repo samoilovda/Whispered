@@ -100,6 +100,7 @@ from ui.transcription_progress import (
     localized_progress,
     timeline_stage_for_progress,
 )
+from ui.qt_util import must
 
 logger = get_logger(__name__)
 
@@ -452,7 +453,7 @@ class MainWindow(QMainWindow):
         if os.environ.get("WHISPERED_UI_GALLERY") == "1":
             return
         cfg = get_config()
-        cfg.window_geometry = bytes(self.saveGeometry().toBase64()).decode("ascii")
+        cfg.window_geometry = self.saveGeometry().toBase64().data().decode("ascii")
         if hasattr(self, "workspace_shell"):
             cfg.library_width = self.workspace_shell.library_width()
         save_config()
@@ -608,9 +609,9 @@ class MainWindow(QMainWindow):
             ("menu_help", "menu_help_docs", "", self._open_help_docs, False),
         )
 
-        menubar = self.menuBar()
+        menubar = must(self.menuBar())
         menubar.setNativeMenuBar(True)
-        menus: dict = {}
+        menus: dict[str, QMenu] = {}
         palette_actions = []
         # (object, key, setter) triples re-applied by _retranslate() on a
         # live UI-language switch (menu titles + action captions).
@@ -618,7 +619,7 @@ class MainWindow(QMainWindow):
         for menu_key, label_key, shortcut, slot, in_palette in table:
             menu = menus.get(menu_key)
             if menu is None:
-                menu = menubar.addMenu(tr(menu_key))
+                menu = must(menubar.addMenu(tr(menu_key)))
                 menus[menu_key] = menu
                 self._i18n_menu_items.append((menu, menu_key, "setTitle"))
             if label_key == _SEPARATOR:
@@ -630,7 +631,8 @@ class MainWindow(QMainWindow):
             if shortcut:
                 # "A|B": one action, several keys (Space and K both play).
                 action.setShortcuts([QKeySequence(key) for key in shortcut.split("|")])
-            action.triggered.connect(slot)
+            if slot is not None:
+                action.triggered.connect(slot)
             menu.addAction(action)
             self._i18n_menu_items.append((action, label_key, "setText"))
             if in_palette:
@@ -679,9 +681,9 @@ class MainWindow(QMainWindow):
     def _trigger_undo(self) -> None:
         """Trigger undo on the currently focused widget if supported."""
         from PyQt6.QtWidgets import QApplication
-        focus_widget = QApplication.focusWidget()
-        if hasattr(focus_widget, "undo") and callable(focus_widget.undo):
-            focus_widget.undo()
+        undo = getattr(QApplication.focusWidget(), "undo", None)
+        if callable(undo):
+            undo()
 
     def _trigger_find(self) -> None:
         """Open transcript search when a record is the active workspace."""
@@ -1071,7 +1073,7 @@ class MainWindow(QMainWindow):
         self._add_tab_menu.clear()
         for widget in hidden:
             label = self.main_tabs.tabText(self.main_tabs.indexOf(widget))
-            action = self._add_tab_menu.addAction(label)
+            action = must(self._add_tab_menu.addAction(label))
             action.triggered.connect(lambda _c=False, w=widget: self._show_tab(w))
         self._add_tab_btn.setVisible(bool(hidden))
 
@@ -1750,9 +1752,12 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ drag & drop
 
-    def dragEnterEvent(self, event: QDragEnterEvent):
-        if event.mimeData().hasUrls():
-            urls = event.mimeData().urls()
+    def dragEnterEvent(self, event: QDragEnterEvent | None):
+        if event is None:
+            return
+        mime = event.mimeData()
+        if mime is not None and mime.hasUrls():
+            urls = mime.urls()
             if any(self._is_droppable(url) for url in urls):
                 event.acceptProposedAction()
                 self._show_drop_overlay(True)
@@ -1802,12 +1807,15 @@ class MainWindow(QMainWindow):
                 skipped += 1
         return paths, skipped
 
-    def dropEvent(self, event: QDropEvent):
+    def dropEvent(self, event: QDropEvent | None):
         self._show_drop_overlay(False)
-        if not event.mimeData().hasUrls():
+        if event is None:
+            return
+        mime = event.mimeData()
+        if mime is None or not mime.hasUrls():
             event.ignore()
             return
-        paths, skipped = self._collect_dropped_paths(event.mimeData().urls())
+        paths, skipped = self._collect_dropped_paths(mime.urls())
         if not paths:
             event.ignore()
             return
@@ -1839,7 +1847,7 @@ class MainWindow(QMainWindow):
             self._drop_overlay = overlay
         ov = self._drop_overlay
         if visible:
-            ov.setGeometry(self.centralWidget().geometry())
+            ov.setGeometry(must(self.centralWidget()).geometry())
             ov.raise_()
             ov.show()
         else:
@@ -1850,7 +1858,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "file_selector"):
             self.file_selector.set_compact(event.size().height() < 650)
         if hasattr(self, "_drop_overlay") and self._drop_overlay.isVisible():
-            self._drop_overlay.setGeometry(self.centralWidget().geometry())
+            self._drop_overlay.setGeometry(must(self.centralWidget()).geometry())
 
     # ------------------------------------------------------------------ helpers
 

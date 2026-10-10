@@ -33,6 +33,7 @@ from exporters import EXPORT_FORMATS
 from ui.icons import get_icon, IconColors
 from ui.animated_button import AnimatedButton
 from ui.components import KeepOpenMenu
+from ui.qt_util import must
 
 # Order the Export menu lists formats in.  Keep every implemented exporter
 # reachable from the workspace; the redesign previously hid timestamped TXT
@@ -59,14 +60,14 @@ class _TitleEdit(QLineEdit):
         self.setText(text)
         self.setCursorPosition(0)
 
-    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
-        if event.key() == Qt.Key.Key_Escape:
+    def keyPressEvent(self, event: QKeyEvent | None) -> None:  # noqa: N802
+        if event is not None and event.key() == Qt.Key.Key_Escape:
             self.setText(self._shown)
             self.clearFocus()
             return
         super().keyPressEvent(event)
 
-    def focusOutEvent(self, event: QFocusEvent) -> None:  # noqa: N802
+    def focusOutEvent(self, event: QFocusEvent | None) -> None:  # noqa: N802
         super().focusOutEvent(event)
         self.setCursorPosition(0)
 
@@ -206,7 +207,7 @@ class RecordView(QWidget):
         # "collect the YouTube package" in one click, formats below a
         # separator for the existing pick-your-own-formats flow.
         for preset in BUILTIN_EXPORT_PRESETS:
-            act = menu.addAction(tr(f"export_preset_{preset.key}"))
+            act = must(menu.addAction(tr(f"export_preset_{preset.key}")))
             act.triggered.connect(
                 lambda _checked=False, key=preset.key: self.export_preset_requested.emit(key)
             )
@@ -215,14 +216,14 @@ class RecordView(QWidget):
         self._format_actions = {}
         for key in _FORMAT_KEYS:
             name, _ = EXPORT_FORMATS[key]
-            act = menu.addAction(name)
+            act = must(menu.addAction(name))
             act.setCheckable(True)
             act.setChecked(key in selected)
             act.toggled.connect(lambda checked, k=key: self._on_format_toggled(k, checked))
             self._format_actions[key] = act
 
         menu.addSeparator()
-        export_act = menu.addAction(tr("record_export_action"))
+        export_act = must(menu.addAction(tr("record_export_action")))
         export_act.triggered.connect(self.export_requested.emit)
 
         self.export_btn.setMenu(menu)

@@ -24,7 +24,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Optional, Protocol
 
-from PyQt6.QtCore import Qt, QUrl, pyqtSignal
+from PyQt6.QtCore import Qt, QUrl, pyqtBoundSignal, pyqtSignal
 from PyQt6.QtGui import QDesktopServices, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout,
@@ -45,6 +45,7 @@ from domain.youtube_publish import PublishPackage, UploadRecord
 from ui.cover_inspector import PhotoFraming
 from ui.theme import set_role
 from ui.toast import show_toast
+from ui.qt_util import must
 
 logger = get_logger(__name__)
 
@@ -64,7 +65,8 @@ class CoverStudio(Protocol):
     """What the wizard's cover step drives — ``ui.cover_view.CoverView``.
     ``preview_changed`` (a bound pyqtSignal) carries each re-render's QImage."""
 
-    preview_changed: object
+    @property
+    def preview_changed(self) -> pyqtBoundSignal: ...
 
     def set_cover_texts(self, title: str, host: str, guest: str) -> None: ...
     def shuffle(self) -> None: ...
@@ -626,7 +628,7 @@ class YouTubePublishDialog(QDialog):
     def _copy(self, text: str) -> None:
         if not text:
             return
-        QApplication.clipboard().setText(text)
+        must(QApplication.clipboard()).setText(text)
         show_toast(self, tr("yt_publish_copied"), kind="success")
 
     def _copy_title(self) -> None:

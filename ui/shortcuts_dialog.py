@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.i18n import tr
+from ui.qt_util import must
 
 # Shortcuts that are not on a menu: (key sequence, i18n key).
 _EXTRA = (
@@ -91,7 +92,7 @@ class ShortcutsDialog(QDialog):
 
         buttons = QDialogButtonBox()
         # Our own caption: Qt's standard "Close" isn't translated here.
-        close = buttons.addButton(tr("btn_close"), QDialogButtonBox.ButtonRole.RejectRole)
+        close = must(buttons.addButton(tr("btn_close"), QDialogButtonBox.ButtonRole.RejectRole))
         close.setDefault(True)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)

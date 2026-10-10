@@ -39,12 +39,12 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QVBoxLayout,
-    QWidget,
 )
 
 from application.steps import STEP_DEFINITIONS
 from core.i18n import tr
 from domain.recipe import Recipe
+from ui.transcribe_options import TranscribeOptions
 
 _STEP_BY_NAME = {step.name: step for step in STEP_DEFINITIONS}
 
@@ -62,7 +62,7 @@ _DEPENDENTS: dict[str, tuple[str, ...]] = {
 class RecipeEditorDialog(QDialog):
     def __init__(
         self,
-        transcribe_options: QWidget,
+        transcribe_options: TranscribeOptions,
         recipe: Recipe,
         existing_names: "frozenset[str] | set[str]" = frozenset(),
         parent=None,

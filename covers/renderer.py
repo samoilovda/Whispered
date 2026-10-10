@@ -287,12 +287,12 @@ def render(
                         )
                     zoom = float(photo_value.get("zoom", 1.0))
                 else:
-                    path = (
+                    photo_path = (
                         Path(str(photo_value))
                         if kind == "photo"
                         else _asset(template, "logo", str(photo_value))
                     )
-                    picture = QImage(str(path))
+                    picture = QImage(str(photo_path))
                 rect = box(layer)
                 painter.save()
                 radius = float(layer.get("radius_ratio", 0)) * min(

@@ -47,6 +47,7 @@ from core.i18n import on_language_changed, tr
 from domain.job import StepOutcome, StepStatus
 from ui.components import StatusBadge
 from ui.theme import SPACE_2, SPACE_4
+from ui.qt_util import must
 
 
 _STATUS_STATE = {
@@ -238,7 +239,7 @@ class RunStepRow(QWidget):
         if not self._can_regenerate:
             return
         menu = QMenu(self)
-        action = menu.addAction(tr("run_regenerate"))
+        action = must(menu.addAction(tr("run_regenerate")))
         action.triggered.connect(self.regenerate_clicked.emit)
         menu.exec(self.mapToGlobal(pos))
 

@@ -166,16 +166,10 @@ class LiveSetupPanel(FormSection):
         self.target_status.setWordWrap(True)
         self.body_layout.addWidget(self.target_status)
 
-        for control in (
-            self.mic_check,
-            self.system_check,
-            self.mic_combo,
-            self.target_combo,
-            self.model_combo,
-            self.language_combo,
-        ):
-            signal = getattr(control, "toggled", None) or control.currentIndexChanged
-            signal.connect(self._changed)
+        for check in (self.mic_check, self.system_check):
+            check.toggled.connect(self._changed)
+        for combo in (self.mic_combo, self.target_combo, self.model_combo, self.language_combo):
+            combo.currentIndexChanged.connect(self._changed)
         self.system_check.toggled.connect(self._sync_target_visibility)
         self._sync_target_visibility(system_audio_supported)
 

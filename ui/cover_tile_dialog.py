@@ -30,7 +30,9 @@ def image_to_rgb(image: QImage) -> np.ndarray:
     width, height = rgb.width(), rgb.height()
     pointer = rgb.constBits()
     pointer.setsize(rgb.sizeInBytes())
-    rows = np.frombuffer(pointer, np.uint8).reshape(height, rgb.bytesPerLine())
+    # voidptr supports the buffer protocol; PyQt6's stub doesn't say so.
+    rows = np.frombuffer(pointer, np.uint8).reshape(  # type: ignore[call-overload]
+        height, rgb.bytesPerLine())
     return rows[:, : width * 3].reshape(height, width, 3).copy()
 
 

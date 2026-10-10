@@ -20,6 +20,7 @@ from core.live.contracts import SegmentState, SegmentUpdate
 from core.live.presentation import LiveTranscriptModel
 from ui.components import StatusBadge
 from utils import format_duration
+from ui.qt_util import must
 
 
 @dataclass
@@ -53,7 +54,7 @@ class LiveTranscriptView(QWidget):
         layout.addLayout(heading)
         self.list = QListWidget()
         self.list.setAlternatingRowColors(True)
-        self.list.verticalScrollBar().valueChanged.connect(self._sync_latest_button)
+        must(self.list.verticalScrollBar()).valueChanged.connect(self._sync_latest_button)
         layout.addWidget(self.list, 1)
         self._i18n.bind()
 
@@ -108,7 +109,7 @@ class LiveTranscriptView(QWidget):
         row.state.set_status(tr("live_final") if final else tr("live_partial"),
                              "success" if final else "info")
         row.text.setText(update.segment.text.strip())
-        row.item.setSizeHint(self.list.itemWidget(row.item).sizeHint())
+        row.item.setSizeHint(must(self.list.itemWidget(row.item)).sizeHint())
 
     def _update_relationships(self) -> None:
         relationships = self._model.relationships()
@@ -119,7 +120,7 @@ class LiveTranscriptView(QWidget):
             row.flags.setToolTip("\n".join(values))
 
     def _at_bottom(self) -> bool:
-        bar = self.list.verticalScrollBar()
+        bar = must(self.list.verticalScrollBar())
         return bar.maximum() - bar.value() <= 2
 
     def _sync_latest_button(self) -> None:

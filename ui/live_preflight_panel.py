@@ -49,7 +49,7 @@ class LivePreflightPanel(FormSection):
     def show_checks(self, checks: tuple[PreflightCheck, ...]) -> None:
         while self.body_layout.count() > 2:
             item = self.body_layout.takeAt(2)
-            widget = item.widget()
+            widget = item.widget() if item is not None else None
             if widget:
                 widget.deleteLater()
         for check in checks:

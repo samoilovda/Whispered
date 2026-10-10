@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import QMenu, QSystemTrayIcon
 
 from core.i18n import tr
 from core.logger import get_logger
+from ui.qt_util import must
 
 logger = get_logger(__name__)
 
@@ -79,7 +80,7 @@ class TrayController(QObject):
         window.activateWindow()
 
     def _add(self, text: str, slot, enabled: bool = True) -> QAction:
-        action = self._menu.addAction(text)
+        action = must(self._menu.addAction(text))
         action.setEnabled(enabled)
         if slot is not None:
             action.triggered.connect(slot)
@@ -104,7 +105,7 @@ class TrayController(QObject):
         self._add(tr("tray_live"), lambda: self._then_show(lambda: window._on_section_changed("live")))
         self._add(tr("tray_open_file"), lambda: self._then_show(window._menu_open_file))
 
-        recent = menu.addMenu(tr("tray_recent"))
+        recent = must(menu.addMenu(tr("tray_recent")))
         try:
             from core.history import get_history_store
             from ui.library_view import display_name
@@ -114,11 +115,11 @@ class TrayController(QObject):
             logger.debug("Tray: no recent records: %s", exc)
             records = []
         if not records:
-            empty = recent.addAction(tr("tray_no_records"))
+            empty = must(recent.addAction(tr("tray_no_records")))
             empty.setEnabled(False)
         for record in records:
             name = display_name(getattr(record, "title", "") or record.source_name)
-            action = recent.addAction(name)
+            action = must(recent.addAction(name))
             action.triggered.connect(
                 lambda _c=False, rid=record.id: self._then_show(lambda: window._open_record_view(rid))
             )

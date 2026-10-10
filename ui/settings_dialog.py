@@ -743,22 +743,22 @@ class SettingsDialog(QDialog):
         ProviderDialog(kind=kind, parent=self).exec()
 
     def _connect_dirty_signals(self) -> None:
-        for widget in self.findChildren(QComboBox):
-            widget.currentIndexChanged.connect(self._mark_dirty)
-        for widget in self.findChildren(QCheckBox):
-            widget.toggled.connect(self._mark_dirty)
+        for combo in self.findChildren(QComboBox):
+            combo.currentIndexChanged.connect(self._mark_dirty)
+        for check in self.findChildren(QCheckBox):
+            check.toggled.connect(self._mark_dirty)
         # _search_edit filters the category list; it holds no setting of
         # its own and must not enable Apply just because the user searched.
-        for widget in self.findChildren(QLineEdit):
-            if widget is self._search_edit:
+        for line in self.findChildren(QLineEdit):
+            if line is self._search_edit:
                 continue
-            widget.textChanged.connect(self._mark_dirty)
-        for widget in self.findChildren(QPlainTextEdit):
-            widget.textChanged.connect(self._mark_dirty)
-        for widget in self.findChildren(QSpinBox):
-            widget.valueChanged.connect(self._mark_dirty)
-        for widget in self.findChildren(QDoubleSpinBox):
-            widget.valueChanged.connect(self._mark_dirty)
+            line.textChanged.connect(self._mark_dirty)
+        for text in self.findChildren(QPlainTextEdit):
+            text.textChanged.connect(self._mark_dirty)
+        for spin in self.findChildren(QSpinBox):
+            spin.valueChanged.connect(self._mark_dirty)
+        for dspin in self.findChildren(QDoubleSpinBox):
+            dspin.valueChanged.connect(self._mark_dirty)
 
     def _mark_dirty(self, *_args) -> None:
         if self._retranslating:

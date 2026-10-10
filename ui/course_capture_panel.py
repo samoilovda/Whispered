@@ -41,6 +41,7 @@ from ui.empty_state import EmptyStateWidget
 from ui.live_setup_panel import LiveSetupPanel
 from ui.theme import set_role
 from ui.toast import show_toast
+from ui.qt_util import must
 
 logger = get_logger(__name__)
 
@@ -174,7 +175,7 @@ class CourseCapturePanel(QWidget):
 
         self.item_list = QListWidget()
         self.item_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
-        self.item_list.model().rowsMoved.connect(self._sync_visual_order)
+        must(self.item_list.model()).rowsMoved.connect(self._sync_visual_order)
         layout.addWidget(self.item_list, stretch=1)
 
         self.empty_state = EmptyStateWidget(

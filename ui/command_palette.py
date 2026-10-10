@@ -356,7 +356,8 @@ class CommandPalette(QDialog):
             candidate += direction
             if candidate < 0 or candidate >= count:
                 break
-            if self.results.item(candidate).flags() & Qt.ItemFlag.ItemIsSelectable:
+            item = self.results.item(candidate)
+            if item is not None and item.flags() & Qt.ItemFlag.ItemIsSelectable:
                 target = candidate
                 remaining -= 1
         if target != row and target >= 0:

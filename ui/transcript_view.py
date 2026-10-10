@@ -38,6 +38,7 @@ from ui.icons import get_icon, IconColors
 from ui.theme import SPEAKER_PALETTE, get_theme
 from core.i18n import tr, tr_count
 from ui.i18n_helpers import Retranslator
+from ui.qt_util import must
 
 # Speaker color palette (keyed by original speaker id)
 SPEAKER_COLORS = {
@@ -1218,15 +1219,15 @@ class TranscriptView(QWidget):
         span = self._target_span(point)
         cursor = self.text_edit.textCursor()
         menu = QMenu(self)
-        copy = menu.addAction(tr("btn_copy"))
+        copy = must(menu.addAction(tr("btn_copy")))
         copy.setEnabled(cursor.hasSelection())
         copy.triggered.connect(self.text_edit.copy)
-        copy_ts = menu.addAction(tr("transcript_copy_with_time"))
+        copy_ts = must(menu.addAction(tr("transcript_copy_with_time")))
         copy_ts.setEnabled(span is not None)
         menu.addSeparator()
-        play = menu.addAction(tr("transcript_play_from_here"))
-        bookmark = menu.addAction(tr("transcript_bookmark_here"))
-        chapter = menu.addAction(tr("transcript_chapter_here"))
+        play = must(menu.addAction(tr("transcript_play_from_here")))
+        bookmark = must(menu.addAction(tr("transcript_bookmark_here")))
+        chapter = must(menu.addAction(tr("transcript_chapter_here")))
         for action in (play, bookmark, chapter):
             action.setEnabled(span is not None)
         if span is not None and not self._can_add_chapter():
@@ -1235,10 +1236,11 @@ class TranscriptView(QWidget):
         menu.addSeparator()
         targets = self._indices_in_selection(span)
         all_cut = bool(targets) and all(i in self._cut_indices for i in targets)
-        cut = menu.addAction(tr("transcript_keep_in_edit" if all_cut else "transcript_cut_from_edit"))
+        cut = must(menu.addAction(
+            tr("transcript_keep_in_edit" if all_cut else "transcript_cut_from_edit")))
         cut.setEnabled(bool(targets))
         menu.addSeparator()
-        select_all = menu.addAction(tr("transcript_select_all"))
+        select_all = must(menu.addAction(tr("transcript_select_all")))
         select_all.triggered.connect(self.text_edit.selectAll)
         chosen = menu.exec(self.text_edit.viewport().mapToGlobal(point))
         if chosen is cut and targets:
@@ -1266,7 +1268,7 @@ class TranscriptView(QWidget):
             text = self._result.segments[span.index].text.strip()
         else:
             text = ""
-        QApplication.clipboard().setText(f"[{format_duration(span.seconds)}] {text}")
+        must(QApplication.clipboard()).setText(f"[{format_duration(span.seconds)}] {text}")
 
     def _chapter_suggestion(self, span: _Span) -> str:
         """The segment's first words, as a starting point for a title."""
