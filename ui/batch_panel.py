@@ -364,7 +364,7 @@ class BatchPanel(QWidget):
         translate: bool = False,
         n_threads: int = 4,
         enable_diarization: bool = False,
-        num_speakers: int = None,
+        num_speakers: int | None = None,
         use_gpu: bool = True,
     ):
         """Start the batch processing with given settings."""

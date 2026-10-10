@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QLabel, QFileDialog, QMessageBox, QDialog,
     QApplication, QTabWidget,
     QTextEdit, QLineEdit, QPlainTextEdit, QStackedWidget, QToolButton, QMenu, QInputDialog,
+    QProgressBar, QPushButton,
 )
 from PyQt6.QtCore import QByteArray, Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices, QKeySequence, QShortcut, QDragEnterEvent, QDropEvent
@@ -243,6 +244,23 @@ def _record_subtitle(record: dict) -> str:
 
 class MainWindow(QMainWindow):
     """Main application window with header-bar settings layout."""
+
+    # Widgets built by _setup_ui(), declared so their types are known where
+    # they are used before (or outside) the method that assigns them.
+    status_bar: StatusBar
+    status_label: QLabel
+    progress_bar: QProgressBar
+    cancel_btn: QPushButton
+    device_btn: QPushButton
+    progress_timeline: ProgressTimeline
+    start_view: StartView
+    run_view: RunView
+    cover_view: CoverView
+    workspace_shell: WorkspaceShell
+    _draft_queue_button: AnimatedButton
+    _start_index: int
+    _record_index: int
+    _timeline_stage_keys: tuple[str, ...]
 
     def __init__(self):
         super().__init__()
@@ -524,7 +542,7 @@ class MainWindow(QMainWindow):
         """
         from PyQt6.QtGui import QAction, QKeySequence
 
-        _SEPARATOR = object()
+        _SEPARATOR = ""  # an empty label key marks a menu separator
         # macOS moves an action into the application ("Whispered") menu
         # only when it carries the matching QAction.MenuRole. Qt can guess
         # the role from the *English* caption ("Settings" → PreferencesRole),
@@ -603,7 +621,7 @@ class MainWindow(QMainWindow):
                 menu = menubar.addMenu(tr(menu_key))
                 menus[menu_key] = menu
                 self._i18n_menu_items.append((menu, menu_key, "setTitle"))
-            if label_key is _SEPARATOR:
+            if label_key == _SEPARATOR:
                 menu.addSeparator()
                 continue
             action = QAction(tr(label_key), self)
@@ -1078,7 +1096,7 @@ class MainWindow(QMainWindow):
                 self._last_record_id,
                 artifact_source=self._artifact_source(),
             )
-        failed = getattr(self, "_last_run_failed_steps", set())
+        failed: set[str] = getattr(self, "_last_run_failed_steps", set())
         keys = dict((id(widget), key) for widget, key in self._i18n_doc_tabs)
         for attr, step in self._TAB_STEPS.items():
             widget = getattr(self, attr)
@@ -2347,6 +2365,8 @@ class MainWindow(QMainWindow):
             return None
         if outcome.result is not None:
             return outcome.result
+        if self._recipe_context is None:
+            return None
         return load_step_result(self._recipe_context, name)
 
     def _open_recipe_editor(self) -> None:
@@ -2390,7 +2410,7 @@ class MainWindow(QMainWindow):
             save_config()
             self.start_view.refresh_recipe_chips()
             self.library_view.refresh_recipe_filters()
-        elif action in ("save", "save_as_new"):
+        elif action in ("save", "save_as_new") and name is not None and steps is not None:
             final_name = (
                 name if action == "save" else self._unique_recipe_name(name, existing_names)
             )
@@ -2592,6 +2612,8 @@ class MainWindow(QMainWindow):
         used both by _run_recipe() and by _on_recipe_retry() below, since
         JobEngine.run() only (re)runs steps missing from run_state.outcomes
         (see application/job_engine.py)."""
+        if self._recipe_spec is None or self._recipe_context is None:
+            return
         self._recipe_job = JobRunner(self._recipe_spec, run_state=self._recipe_run)
         runners = build_runners(
             self._recipe_context, self._recipe_step_names,
@@ -2619,7 +2641,7 @@ class MainWindow(QMainWindow):
         if self._recipe_job is not None and self._recipe_job.isRunning():
             return
         if self._recipe_run.is_cancelled():
-            self._recipe_run = self._run_after_cancel()
+            self._recipe_run = self._run_after_cancel(self._recipe_run, self._recipe_context)
         self._save_recipe_run("running")
         self._launch_recipe_job()
 
@@ -2653,11 +2675,11 @@ class MainWindow(QMainWindow):
             except OSError as exc:
                 logger.warning("Failed to delete manifest for regenerate (%s): %s", name, exc)
         if self._recipe_run.is_cancelled():
-            self._recipe_run = self._run_after_cancel()
+            self._recipe_run = self._run_after_cancel(self._recipe_run, self._recipe_context)
         self._save_recipe_run("running")
         self._launch_recipe_job()
 
-    def _run_after_cancel(self) -> JobRun:
+    def _run_after_cancel(self, cancelled: JobRun, context: StepContext) -> JobRun:
         """A fresh JobRun carrying the cancelled one's outcomes forward.
 
         ``JobRun.cancel()`` latches a threading.Event that nothing clears,
@@ -2676,10 +2698,10 @@ class MainWindow(QMainWindow):
         """
         import dataclasses
 
-        fresh = JobRun(spec=self._recipe_spec)
-        fresh.outcomes.update(self._recipe_run.outcomes)
+        fresh = JobRun(spec=cancelled.spec)
+        fresh.outcomes.update(cancelled.outcomes)
         self._recipe_context = dataclasses.replace(
-            self._recipe_context,
+            context,
             get_result=lambda name: self._recipe_get_result(fresh, name),
             is_cancelled=fresh.is_cancelled,
         )
@@ -2726,7 +2748,7 @@ class MainWindow(QMainWindow):
         if outcome.status not in (StepStatus.SUCCEEDED, StepStatus.SKIPPED):
             return
         result = outcome.result
-        if result is None:
+        if result is None and self._recipe_context is not None:
             result = load_step_result(self._recipe_context, name)
         self._show_step_result(STEP_REGISTRY[name].viewer, result)
 

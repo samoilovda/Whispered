@@ -195,7 +195,7 @@ class CommandPalette(QDialog):
     def _bookmark_rows(self, query: str, store) -> list:
         rows = []
         seen: set = set()
-        own = list(self._bookmarks_provider()) if self._bookmarks_provider is not None else []
+        own: list = list(self._bookmarks_provider()) if self._bookmarks_provider is not None else []
         for bookmark in own:
             label = tr("command_bookmark", time=format_duration(bookmark.at_seconds), note=bookmark.note)
             score = match_score(query, label)
@@ -279,7 +279,7 @@ class CommandPalette(QDialog):
         return rows
 
     def _step_rows(self, query: str) -> list:
-        rows = []
+        rows: list = []
         if self._run_view is None:
             return rows
         for name, step_label in self._run_view.retriable_steps():

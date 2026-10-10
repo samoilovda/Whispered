@@ -19,12 +19,18 @@ class LivePreflightWorker(BaseWorker):
     def __init__(self, *, use_mic: bool, use_system: bool, model_name: str,
                  target_available: bool, helper_path: Path, parent=None) -> None:
         super().__init__(parent)
-        self._options = dict(use_mic=use_mic, use_system=use_system,
-                             model_name=model_name, target_available=target_available,
-                             helper_path=helper_path)
+        self._use_mic = use_mic
+        self._use_system = use_system
+        self._model_name = model_name
+        self._target_available = target_available
+        self._helper_path = helper_path
 
     def _execute(self) -> None:
-        self.completed.emit(LivePreflight().run(**self._options))
+        self.completed.emit(LivePreflight().run(
+            use_mic=self._use_mic, use_system=self._use_system,
+            model_name=self._model_name, target_available=self._target_available,
+            helper_path=self._helper_path,
+        ))
 
     # No error signal exists for this worker — a failing check has nowhere
     # to report to. BaseWorker.run() already logs the exception; leaving

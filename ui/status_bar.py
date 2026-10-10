@@ -47,6 +47,11 @@ class _QueueOverlay(QDialog):
     course capture existed.
     """
 
+    # Built in __init__ after lambdas that refer to them.
+    _course_btn: QPushButton
+    _stack: QStackedWidget
+
+
     def __init__(self, batch_widget: QWidget, parent=None) -> None:
         super().__init__(parent)
         self.setModal(False)

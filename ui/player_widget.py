@@ -321,13 +321,14 @@ class PlayerWidget(QWidget):
 
     def load(self, filepath: str):
         """Load a media file. Pass an empty string to unload."""
-        if not self._available:
+        player = self._player
+        if not self._available or player is None:
             return
         if not filepath:
-            self._player.stop()
-            self._player.setSource(QUrl())
+            player.stop()
+            player.setSource(QUrl())
             return
-        self._player.setSource(QUrl.fromLocalFile(filepath))
+        player.setSource(QUrl.fromLocalFile(filepath))
         self._play_btn.setText("▶")
 
     def seek_to(self, seconds: float):
@@ -483,7 +484,7 @@ class PlayerWidget(QWidget):
             self._player.play()
 
     def _seek_relative(self, delta_sec: float):
-        if not self._available:
+        if not self._available or self._player is None:
             return
         current = self._player.position() / 1000.0
         self.seek_to(current + delta_sec)

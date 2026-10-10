@@ -266,12 +266,10 @@ class YouTubePublishDialog(QDialog):
         self._regenerate_btn.clicked.connect(self._regenerate_cover)
         row.addWidget(self._regenerate_btn)
         self._guest_photo_btn = QPushButton(tr("yt_wizard_guest_photo"))
-        self._guest_photo_btn.clicked.connect(
-            lambda: self._cover_studio and self._cover_studio.choose_photo("photo_b"))
+        self._guest_photo_btn.clicked.connect(self._choose_guest_photo)
         row.addWidget(self._guest_photo_btn)
         self._guest_frame_btn = QPushButton(tr("cover_frame_from_video"))
-        self._guest_frame_btn.clicked.connect(
-            lambda: self._cover_studio and self._cover_studio.grab_frame("photo_b"))
+        self._guest_frame_btn.clicked.connect(self._grab_guest_frame)
         row.addWidget(self._guest_frame_btn)
         row.addStretch(1)
         layout.addLayout(row)
@@ -454,6 +452,14 @@ class YouTubePublishDialog(QDialog):
     def _on_guest_framing(self, fx: float, fy: float, zoom: float) -> None:
         if self._cover_studio is not None:
             self._cover_studio.set_photo_framing("photo_b", (fx, fy), zoom)
+
+    def _choose_guest_photo(self) -> None:
+        if self._cover_studio is not None:
+            self._cover_studio.choose_photo("photo_b")
+
+    def _grab_guest_frame(self) -> None:
+        if self._cover_studio is not None:
+            self._cover_studio.grab_frame("photo_b")
 
     def _regenerate_cover(self) -> None:
         if self._cover_studio is not None:
