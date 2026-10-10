@@ -1231,20 +1231,3 @@ def summarize_run(run: Any) -> RunSummary:
     )
     had_error = any(o.status is StepStatus.FAILED for o in run.outcomes.values())
     return RunSummary(succeeded, had_error, frozenset(artifact_types_for_steps(succeeded)))
-
-
-def record_run_artifacts(record_id: Any, artifact_types: Iterable[str]) -> None:
-    """Add *artifact_types* (plus the transcript) to the record's history
-    badges, keeping the ones it already has. Best effort: logged on failure."""
-    types = set(artifact_types)
-    if record_id is None or not types:
-        return
-    try:
-        from core.history import get_history_store
-
-        store = get_history_store()
-        current = store.get_record(record_id) or {}
-        artifacts = {"transcript", *types, *current.get("artifacts", [])}
-        store.set_artifacts(record_id, sorted(artifacts))
-    except Exception as exc:  # noqa: BLE001 - badges must not fail a finished run
-        logger.warning("Failed to persist recipe run artifacts: %s", exc)

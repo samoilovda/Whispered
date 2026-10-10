@@ -62,6 +62,7 @@ from utils import (
 )
 from application.document_session import DocumentSession
 from application.job_engine import JobRun
+from application.records import add_record_badges, save_new_record
 from application.steps import (
     STEP_DEFINITIONS,
     STEP_REGISTRY,
@@ -73,7 +74,6 @@ from application.steps import (
     llm_params,
     load_step_result,
     manifest_path_for_step,
-    record_run_artifacts,
     step_outcome_result,
     summarize_run,
 )
@@ -2779,7 +2779,7 @@ class MainWindow(QMainWindow):
         self._save_recipe_run("failed" if had_error else "done")
         self.library_view.refresh()
         self._refresh_run_chip()
-        record_run_artifacts(self._recipe_record_id, artifact_types)
+        add_record_badges(self._recipe_record_id, artifact_types)
 
         # _reset_ui() only hides the progress/cancel affordances — without
         # this the one persistent status line would keep reading "Running
@@ -2968,17 +2968,8 @@ class MainWindow(QMainWindow):
         if self._yt_dialog is not None:
             self._yt_dialog.set_upload_done(record)
         QDesktopServices.openUrl(QUrl(studio_edit_url(record.video_id)))
-        record_id = self._yt_upload_record_id
-        if record_id is not None:
-            try:
-                from core.history import get_history_store
-                store = get_history_store()
-                current = store.get_record(record_id) or {}
-                artifacts = {"transcript", "youtube_upload", *current.get("artifacts", [])}
-                store.set_artifacts(record_id, sorted(artifacts))
-                self.library_view.refresh()
-            except Exception as exc:
-                logger.warning("Failed to record the YouTube upload in history: %s", exc)
+        if add_record_badges(self._yt_upload_record_id, {"youtube_upload"}):
+            self.library_view.refresh()
 
     def _on_youtube_upload_cancelled(self) -> None:
         self.status_label.setText("")
@@ -2998,35 +2989,18 @@ class MainWindow(QMainWindow):
         """Persist a result to history (if enabled). Remembers the new
         row id in self._last_record_id so a preset chain (Phase C.3) that
         runs afterward can attach its artifacts to the right record."""
-        self._last_record_id = None
         self._record_source_path = source_path or None
-        cfg = get_config()
-        if not getattr(cfg, "history_enabled", True):
-            return
-        try:
-            from core.history import get_history_store
-            store = get_history_store()
-            self._last_record_id = store.add(
-                result,
-                source_path=source_path,
-                model=model,
-                speaker_names=speaker_names or {},
-                source_kind=self._source_kind,
-                source_name=source_name,
-            )
-            # First transcript version ("as transcribed" — B8,
-            # docs/IMPROVEMENT_PLAN_2026-08.ru.md item 2), written
-            # immediately rather than waiting for the manual-edit
-            # debounce so a record that's never edited still has a
-            # baseline version to restore to.
-            store.save_current_revision(
-                self._last_record_id, result, speaker_names or {},
-                keep=get_config().transcript_revisions_kept,
-            )
+        self._last_record_id = save_new_record(
+            result,
+            source_path=source_path,
+            model=model,
+            speaker_names=speaker_names,
+            source_kind=self._source_kind,
+            source_name=source_name,
+        )
+        if self._last_record_id is not None:
             self.library_view.refresh()
             self.record_view.set_has_record(True)
-        except Exception as e:
-            logger.warning("Failed to save history: %s", e)
 
     def _on_batch_item_progress(self, index: int, percentage: int, _message: str) -> None:
         """Status bar: which file of the batch runs and how far it is."""

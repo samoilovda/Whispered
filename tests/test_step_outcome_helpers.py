@@ -1,11 +1,12 @@
-"""step_outcome_result / summarize_run / record_run_artifacts."""
+"""step_outcome_result / summarize_run, and application.records."""
 
 from types import SimpleNamespace
 
 import pytest
 
 import application.steps as steps
-from application.steps import record_run_artifacts, step_outcome_result, summarize_run
+from application.records import add_record_badges
+from application.steps import step_outcome_result, summarize_run
 from domain.job import StepOutcome, StepStatus
 
 
@@ -67,16 +68,51 @@ class _Store:
         self.saved = (record_id, artifacts)
 
 
-def test_record_run_artifacts_merges_with_existing(monkeypatch):
+def test_add_record_badges_merges_with_existing(monkeypatch):
     store = _Store(["book"])
     monkeypatch.setattr("core.history.get_history_store", lambda: store)
-    record_run_artifacts(7, {"youtube"})
+    add_record_badges(7, {"youtube"})
     assert store.saved == (7, ["book", "transcript", "youtube"])
 
 
-def test_record_run_artifacts_skips_nothing_to_record(monkeypatch):
+def test_add_record_badges_skips_nothing_to_record(monkeypatch):
     store = _Store([])
     monkeypatch.setattr("core.history.get_history_store", lambda: store)
-    record_run_artifacts(None, {"youtube"})
-    record_run_artifacts(7, set())
+    add_record_badges(None, {"youtube"})
+    add_record_badges(7, set())
     assert store.saved is None
+
+
+class _NewRecordStore:
+    def __init__(self):
+        self.calls = []
+
+    def add(self, result, **kwargs):
+        self.calls.append(("add", kwargs["source_path"], kwargs["source_kind"]))
+        return 42
+
+    def save_current_revision(self, record_id, result, speaker_names, keep):
+        self.calls.append(("revision", record_id, keep))
+
+
+def test_save_new_record_adds_the_record_and_its_first_version(monkeypatch):
+    import config
+    from application.records import save_new_record
+
+    store = _NewRecordStore()
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+    monkeypatch.setattr(config, "_config", config.Config(transcript_revisions_kept=5))
+    assert save_new_record(object(), source_path="/a.mp3", model="tiny",
+                           source_kind="live") == 42
+    assert store.calls == [("add", "/a.mp3", "live"), ("revision", 42, 5)]
+
+
+def test_save_new_record_respects_history_off(monkeypatch):
+    import config
+    from application.records import save_new_record
+
+    store = _NewRecordStore()
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+    monkeypatch.setattr(config, "_config", config.Config(history_enabled=False))
+    assert save_new_record(object(), source_path="/a.mp3", model="tiny") is None
+    assert store.calls == []
