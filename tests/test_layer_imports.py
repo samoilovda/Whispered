@@ -69,6 +69,12 @@ def test_core_does_not_import_application_or_ui():
     assert not bad, "\n".join(bad)
 
 
+def test_core_does_not_import_the_cover_feature():
+    """Workers don't depend on covers/ (the cover feature sits above them)."""
+    bad = _violations("core", lambda m: _is(m, "covers"))
+    assert not bad, "\n".join(bad)
+
+
 def test_core_live_does_not_read_global_settings():
     """Live sources get their settings from the caller (core/live/runtime.py),
     not from the global Config."""

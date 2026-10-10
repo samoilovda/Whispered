@@ -333,7 +333,7 @@ def generate_insight(
         raise RuntimeError(_no_response_message(lm_url, provider))
 
     if insight_type == "thumb_title":
-        from covers.title import parse_title_suggestions
+        from core.thumb_titles import parse_title_suggestions
 
         suggestions = parse_title_suggestions(raw)
         if cache is not None and cache_key is not None:

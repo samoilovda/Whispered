@@ -1,4 +1,4 @@
-from covers.title import parse_title_suggestions
+from core.thumb_titles import parse_title_suggestions
 
 
 def test_title_parser_tolerates_preamble_and_marks_long_lines():
