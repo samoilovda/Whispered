@@ -116,3 +116,23 @@ def test_save_new_record_respects_history_off(monkeypatch):
     monkeypatch.setattr(config, "_config", config.Config(history_enabled=False))
     assert save_new_record(object(), source_path="/a.mp3", model="tiny") is None
     assert store.calls == []
+
+
+def test_finalize_live_record_replaces_the_result_and_saves_a_version(monkeypatch):
+    import config
+    from application.records import finalize_live_record
+
+    calls = []
+
+    class _Store:
+        def update_result(self, record_id, result, speaker_names):
+            calls.append(("update", record_id, speaker_names))
+
+        def save_current_revision(self, record_id, result, speaker_names, keep):
+            calls.append(("revision", record_id, keep))
+
+    monkeypatch.setattr("core.history.get_history_store", lambda: _Store())
+    monkeypatch.setattr(config, "_config", config.Config(transcript_revisions_kept=3))
+    result = SimpleNamespace(speaker_names={"S1": "Ann"})
+    assert finalize_live_record(9, result) is True
+    assert calls == [("update", 9, {"S1": "Ann"}), ("revision", 9, 3)]

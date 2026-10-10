@@ -42,10 +42,8 @@ from ui.insights_panel import InsightsPanel
 from ui.youtube_panel import YouTubePanel
 from ui.cover_view import CoverView
 from ui.live_view import LiveView
-from ui.live_preflight_panel import LivePreflightWorker
 from ui.progress_timeline import ProgressTimeline
 from ui.animated_button import AnimatedButton
-from ui.live_checkpoint_tracker import LiveCheckpointTracker
 from ui.shutdownable import Shutdownable
 from ui.run_view import RunView
 from ui.recipe_editor import RecipeEditorDialog
@@ -63,8 +61,9 @@ from utils import (
 )
 from application.document_session import DocumentSession
 from application.job_engine import JobRun
-from application.records import add_record_badges, save_new_record
+from application.records import add_record_badges, finalize_live_record, save_new_record
 from ui.youtube_publish_controller import YouTubePublishController
+from ui.live_session_controller import LiveSessionController
 from application.steps import (
     STEP_DEFINITIONS,
     STEP_REGISTRY,
@@ -92,8 +91,6 @@ from transcriber import _build_initial_prompt
 from timeline_export import write_edl
 from video_edit import mark_pauses
 from video_cut import assemble_draft
-from core.live.preflight import default_helper_path
-from core.live.contracts import SegmentState
 from core.live.runtime import LiveRuntime
 from ui.transcription_progress import (
     format_eta,
@@ -159,7 +156,7 @@ class _WorkerShutdown:
     """Adapts an ``Optional[QThread]`` attribute to the Shutdownable
     protocol (ui/shutdownable.py).
 
-    ``_recipe_job``, ``_gpu_worker`` and ``_live_preflight_worker`` (along
+    ``_recipe_job`` and ``_gpu_worker`` (along
     with the five single-step ``_*_job`` attributes) are not persistent
     objects like the panels — they are created per-operation, set back to
     ``None`` when idle, and sometimes replaced while running.
@@ -342,7 +339,7 @@ class MainWindow(QMainWindow):
         self._transcription_start: float = 0.0
         self._last_record_id: int | None = None
         self._versions_dialog = None  # B8: TranscriptVersionsDialog, lazily created
-        self._live_checkpoint = LiveCheckpointTracker()
+        self.live_session = LiveSessionController(self)
         # Debounced transcript-version save (B8,
         # docs/IMPROVEMENT_PLAN_2026-08.ru.md item 2): a version is
         # written 5s after the last edit, not on every keystroke —
@@ -792,20 +789,12 @@ class MainWindow(QMainWindow):
         """Create Live once; StartView owns its visible placement."""
         self.live_view = LiveView()
         self.live_runtime = LiveRuntime(self)
-        self._live_preflight_worker = None
         self._shutdownables.append(self.live_view)
         self._shutdownables.append(self.live_runtime)
-        self._shutdownables.append(
-            _WorkerShutdown(self, "_live_preflight_worker", wait_ms=2500)
-        )
-        self.live_view.preflight_requested.connect(self._run_live_preflight)
-        self.live_view.start_requested.connect(self._start_live)
-        self.live_view.pause_requested.connect(self._pause_live)
-        self.live_view.stop_requested.connect(self._stop_live)
-        self.live_runtime.segment_update.connect(self._on_live_segment_update)
+        self._shutdownables.append(self.live_session)
+        self.live_session.wire()
         self.live_runtime.source_state_changed.connect(self.live_view.set_source_state)
         self.live_runtime.level_changed.connect(self.live_view.set_level)
-        self.live_runtime.error_occurred.connect(self._on_live_error)
         self.live_runtime.finished.connect(self._on_live_finished)
         self.live_runtime.session_state_changed.connect(self.live_view.set_session_state)
         self.live_runtime.session_state_changed.connect(
@@ -814,7 +803,6 @@ class MainWindow(QMainWindow):
             )
         )
         self.live_view.open_record_requested.connect(self._open_completed_live)
-        self.live_view._timer.timeout.connect(self._update_live_metrics)
 
     def _build_record_section(self) -> None:
         """Build document content, inspector pages, draft and shell."""
@@ -1356,131 +1344,25 @@ class MainWindow(QMainWindow):
             if tab is not None:
                 self._show_tab(getattr(self, tab))
 
-    def _live_options(self):
-        use_mic, use_system = self.live_view.selected_sources()
-        return use_mic, use_system, self.live_view.selected_model()
-
-    def _run_live_preflight(self):
-        if self._live_preflight_worker and self._live_preflight_worker.isRunning():
-            return
-        use_mic, use_system, model = self._live_options()
-        self.live_view.set_preflighting()
-        worker = LivePreflightWorker(
-            use_mic=use_mic,
-            use_system=use_system,
-            model_name=model,
-            target_available=not use_system or self.live_view.selected_target() is not None,
-            helper_path=default_helper_path(),
-            parent=self,
-        )
-        worker.completed.connect(self.live_view.show_preflight)
-        self._live_preflight_worker = worker
-        worker.start()
-
-    def _start_live(self):
-        use_mic, use_system, model = self._live_options()
-        discovered = self.live_view.selected_target()
-        if use_system and discovered is None:
-            self.live_view.invalidate_preflight()
-            return
-        # A missing model downloads here, verified, before the session
-        # starts — not unverified inside the live worker process.
-        if not self._ensure_whisper_model(model):
-            return
-        self.live_view.reset_session()
-        self._live_checkpoint.start(
-            source_name=time.strftime("Live %Y-%m-%d %H:%M"),
-            model_name=model,
-        )
-        started = self.live_runtime.start(
-            use_mic=use_mic,
-            use_system=use_system,
-            model_name=model,
-            language=self.live_view.selected_language(),
-            mic_device=self.live_view.selected_mic_device(),
-            target=discovered.capture_target() if discovered else None,
-            helper_path=default_helper_path(),
-        )
-        if started:
-            self.live_view._timer.start()
-
-    def _pause_live(self, paused: bool):
-        if paused:
-            self.live_runtime.pause()
-        else:
-            self.live_runtime.resume()
-
-    def _stop_live(self):
-        self.live_runtime.stop()
-
-    def _update_live_metrics(self):
-        if self.live_runtime.session_state.value not in {"idle", "completed"}:
-            self.live_view.set_metrics(self.live_runtime.metrics())
-
-    def _on_live_error(self, source: str, message: str):
-        self.live_view.set_source_state(source, "failed")
-        logger.error("Live %s failure: %s", source, message)
-
-    def _on_live_segment_update(self, update) -> None:
-        """Render an update and checkpoint only immutable live text."""
-        self.live_view.accept_update(update)
-        if update.state is not SegmentState.FINAL:
-            return
-        self._live_checkpoint.accept_final(update.segment_id, update.segment)
-        self._checkpoint_live_history()
-
-    def _checkpoint_live_history(self) -> None:
-        """Persist finalized text during a meeting without writing audio."""
-        if not getattr(get_config(), "history_enabled", True):
-            return
-        try:
-            from core.history import get_history_store
-
-            wrote = self._live_checkpoint.checkpoint(
-                get_history_store(), self.live_view.selected_language()
-            )
-            if wrote:
-                self._last_record_id = self._live_checkpoint.history_record_id
-                self.library_view.refresh()
-        except Exception as exc:
-            logger.warning("Failed to checkpoint live transcript: %s", exc)
-
     def _on_live_finished(self, result: TranscriptionResult, source_path: str):
         self.live_view._timer.stop()
         self._source_filepath = source_path or None
         self._record_source_path = None
         self._source_kind = "live"
         self._transcription_start = self.live_runtime._started_at
-        if self._live_checkpoint.history_record_id is not None:
-            try:
-                from core.history import get_history_store
-                store = get_history_store()
-                store.update_result(
-                    self._live_checkpoint.history_record_id,
-                    result,
-                    speaker_names=getattr(result, "speaker_names", {}) or {},
-                )
-                # First transcript version for a live-originated record
-                # (B8) — the periodic checkpoints above are an in-place
-                # save, not a version worth keeping individually; only
-                # the finished transcript gets a baseline to restore to.
-                store.save_current_revision(
-                    self._live_checkpoint.history_record_id, result,
-                    getattr(result, "speaker_names", {}) or {},
-                    keep=get_config().transcript_revisions_kept,
-                )
-                self._last_record_id = self._live_checkpoint.history_record_id
+        record_id = self.live_session.checkpoint.history_record_id
+        if record_id is not None:
+            if finalize_live_record(record_id, result):
+                self._last_record_id = record_id
                 self.library_view.refresh()
-            except Exception as exc:
-                logger.warning("Failed to finalize live transcript history: %s", exc)
             self._save_live_notes()
             self._on_finished(result, open_record=False, save_history=False)
         else:
             self._save_to_history(
                 result,
                 source_path="",
-                source_name=self._live_checkpoint.source_name,
-                model=self._live_checkpoint.model_name,
+                source_name=self.live_session.checkpoint.source_name,
+                model=self.live_session.checkpoint.model_name,
                 speaker_names=getattr(result, "speaker_names", {}) or {},
             )
             self._save_live_notes()
@@ -2286,8 +2168,8 @@ class MainWindow(QMainWindow):
             self.youtube_panel.set_source_name(Path(self._source_filepath).stem)
             self.insights_panel.set_source_name(Path(self._source_filepath).stem)
         elif self._source_kind == "live":
-            self.youtube_panel.set_source_name(self._live_checkpoint.source_name)
-            self.insights_panel.set_source_name(self._live_checkpoint.source_name)
+            self.youtube_panel.set_source_name(self.live_session.checkpoint.source_name)
+            self.insights_panel.set_source_name(self.live_session.checkpoint.source_name)
 
         # Cut tab's video actions depend on source media, not the result
         # content — cut_view.set_result() itself already ran via
@@ -2299,7 +2181,7 @@ class MainWindow(QMainWindow):
         # view so the user immediately sees what they just produced.
         title = (
             Path(self._source_filepath).stem if self._source_filepath
-            else self._live_checkpoint.source_name if self._source_kind == "live" else tr("app_title")
+            else self.live_session.checkpoint.source_name if self._source_kind == "live" else tr("app_title")
         )
         self.record_view.set_title(title)
         self.record_view.set_has_result(True)

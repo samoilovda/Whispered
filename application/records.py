@@ -73,3 +73,24 @@ def add_record_badges(record_id: Any, artifact_types: Iterable[str]) -> bool:
     except Exception as exc:  # noqa: BLE001 - badges never fail what produced them
         logger.warning("Failed to update the badges of record %s: %s", record_id, exc)
         return False
+
+
+def finalize_live_record(record_id: int, result: Any) -> bool:
+    """A Live session ended: replace its checkpointed record with the
+    finished transcript and keep that as the record's first version (the
+    checkpoints during the meeting are in-place saves, not versions).
+    ``False`` (and logged) when the write failed."""
+    from config import get_config
+    from core.history import get_history_store
+
+    speaker_names = getattr(result, "speaker_names", {}) or {}
+    try:
+        store = get_history_store()
+        store.update_result(record_id, result, speaker_names=speaker_names)
+        store.save_current_revision(
+            record_id, result, speaker_names, keep=get_config().transcript_revisions_kept,
+        )
+        return True
+    except Exception as exc:  # noqa: BLE001 - the transcript stays open on screen
+        logger.warning("Failed to finalize live transcript history: %s", exc)
+        return False
