@@ -51,14 +51,14 @@ def test_results_of_a_run_stay_with_its_record(window, monkeypatch, process_even
     b = store.add(_result("beta"), source_path="/media/b.mp4", model="")
 
     window._open_record_view(a)
-    window._run_recipe(window._current_result, show_run_screen=False)
+    window.recipe_run.start(window._current_result, show_run_screen=False)
     assert started.wait(3)
-    assert window._recipe_record_id == a
+    assert window.recipe_run.record_id == a
 
     window._open_record_view(b)          # the user moves on mid-run
     process_events()
     release.set()
-    assert window._recipe_job is None or window._recipe_job.wait(5000)
+    assert window.recipe_run.job is None or window.recipe_run.job.wait(5000)
     process_events()
 
     assert not window.insights_panel._results       # B's tab untouched

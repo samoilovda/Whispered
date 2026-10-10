@@ -61,9 +61,10 @@ from utils import (
 )
 from application.document_session import DocumentSession
 from application.job_engine import JobRun
-from application.records import add_record_badges, finalize_live_record, save_new_record
+from application.records import finalize_live_record, save_new_record
 from ui.youtube_publish_controller import YouTubePublishController
 from ui.live_session_controller import LiveSessionController
+from ui.recipe_run_controller import RecipeRunController
 from application.steps import (
     STEP_DEFINITIONS,
     STEP_REGISTRY,
@@ -74,11 +75,9 @@ from application.steps import (
     build_step_context,
     llm_params,
     load_step_result,
-    manifest_path_for_step,
     step_outcome_result,
-    summarize_run,
 )
-from domain.job import JobSpec, StepOutcome, StepStatus
+from domain.job import StepStatus
 from domain.recipe import BUILTIN_RECIPES_BY_KEY, Recipe, TRANSCRIPT_ONLY
 from config import get_config, save_config
 from core.insights_cache import InsightsCache
@@ -156,7 +155,7 @@ class _WorkerShutdown:
     """Adapts an ``Optional[QThread]`` attribute to the Shutdownable
     protocol (ui/shutdownable.py).
 
-    ``_recipe_job`` and ``_gpu_worker`` (along
+    ``_gpu_worker`` and ``_draft_worker`` (along
     with the five single-step ``_*_job`` attributes) are not persistent
     objects like the panels — they are created per-operation, set back to
     ``None`` when idle, and sometimes replaced while running.
@@ -288,33 +287,14 @@ class MainWindow(QMainWindow):
         # StepContext of whichever job is currently running, kept around
         # so its _on_*_job_finished handler can reload a SKIPPED (cache
         # hit — B1) outcome's result from disk via load_step_result(),
-        # the same way _recipe_get_result()/_on_recipe_step_finished() do
-        # for the recipe path.
+        # the same way RecipeRunController does for the recipe path.
         self._clean_job_context: StepContext | None = None
         self._article_job_context: StepContext | None = None
         self._insights_job_context: StepContext | None = None
         self._youtube_job_context: StepContext | None = None
         self._book_job_context: StepContext | None = None
-        # A recipe-driven launch (see _run_recipe, B6) runs the rest of the
-        # selected recipe's steps as one JobRunner once transcription
-        # finishes — separate from the five single-step _*_job attributes
-        # above, which stay as each panel's own direct re-run/retry path.
-        self._recipe_job: JobRunner | None = None
-        # The current recipe run's spec/state/context, kept around so a
-        # RunView retry (_on_recipe_retry) can rebuild a fresh JobRunner
-        # against the same JobRun instead of starting the whole run over.
-        self._recipe_run: JobRun | None = None
-        self._recipe_spec: JobSpec | None = None
-        self._recipe_step_names: tuple = ()
-        self._recipe_context: StepContext | None = None
-        # The job_runs row id for the run above, once persisted (B8, see
-        # application/run_store.py) — None until there's a real history
-        # record to attach it to.
-        self._recipe_run_id: int | None = None
-        # The record the current recipe run belongs to — fixed when the run
-        # starts. The user may open another record while it runs; its
-        # results, run row and badges must still go to this one.
-        self._recipe_record_id: int | None = None
+        # The recipe run (launch, resume, retry, cancel — B6/B8).
+        self.recipe_run = RecipeRunController(self)
         self._gpu_worker: GPUDetectionWorker | None = None
         # The publish wizard and the YouTube upload, which outlives it.
         self.youtube_publish = YouTubePublishController(self)
@@ -324,7 +304,7 @@ class MainWindow(QMainWindow):
         self._shutdownables.append(_WorkerShutdown(self, "_insights_job"))
         self._shutdownables.append(_WorkerShutdown(self, "_youtube_job"))
         self._shutdownables.append(_WorkerShutdown(self, "_book_job"))
-        self._shutdownables.append(_WorkerShutdown(self, "_recipe_job"))
+        self._shutdownables.append(self.recipe_run)
         self._shutdownables.append(self.youtube_publish)
         self._shutdownables.append(_WorkerShutdown(self, "_gpu_worker", wait_ms=1500))
         # Cancellation stops ffmpeg via SIGTERM (falling back to SIGKILL
@@ -439,7 +419,7 @@ class MainWindow(QMainWindow):
     def _tray_status_text(self) -> str:
         """The status bar's line while something is running, else ""."""
         busy = (
-            (self._recipe_job is not None and self._recipe_job.isRunning())
+            self.recipe_run.is_running()
             or self.recorder_widget.is_recording()
             or self.cancel_btn.isVisible()
         )
@@ -775,7 +755,7 @@ class MainWindow(QMainWindow):
 
         self.library_view = LibraryView()
         self.library_view.open_record.connect(self._open_record_view)
-        self.library_view.resume_run.connect(self._resume_run)
+        self.library_view.resume_run.connect(self.recipe_run.resume)
         self.library_view.open_cover.connect(lambda: self._on_section_changed("cover"))
         self.library_view.record_renamed.connect(self._on_record_renamed)
 
@@ -927,10 +907,7 @@ class MainWindow(QMainWindow):
             step_order=[d.name for d in STEP_DEFINITIONS],
             labels={d.name: tr(d.label_key) for d in STEP_DEFINITIONS},
         )
-        self.run_view.retry_requested.connect(self._on_recipe_retry)
-        self.run_view.regenerate_requested.connect(self._on_recipe_regenerate)
-        self.run_view.overall_progress_changed.connect(self._on_recipe_overall_progress)
-        self.run_view.cancel_requested.connect(self._cancel_recipe_job)
+        self.recipe_run.wire()
         self.run_view.open_record_requested.connect(
             lambda: self._stack.setCurrentIndex(self._record_index)
         )
@@ -1121,7 +1098,7 @@ class MainWindow(QMainWindow):
     def _refresh_run_chip(self) -> None:
         """The header chip: the open record's last recipe run at a glance
         (glyph + count, never colour alone), each step in the tooltip."""
-        if self._recipe_job is not None and self._recipe_job.isRunning():
+        if self.recipe_run.is_running():
             self.record_view.set_run_summary(
                 tr("record_run_running"), tr("record_run_open_tooltip"), clickable=True,
             )
@@ -1156,7 +1133,6 @@ class MainWindow(QMainWindow):
         if other:
             parts.append(f"– {other}")
         text = f"{recipe_label(recipe)} · " + "  ".join(parts)
-        from application.steps import STEP_REGISTRY
 
         glyphs = {
             StepStatus.SUCCEEDED.value: "✓", StepStatus.SKIPPED.value: "✓",
@@ -1178,10 +1154,10 @@ class MainWindow(QMainWindow):
         self.record_view.set_run_summary(text, "\n".join(lines), clickable=bool(resumable))
 
     def _on_run_chip_clicked(self) -> None:
-        if self._recipe_job is not None and self._recipe_job.isRunning():
+        if self.recipe_run.is_running():
             self._stack.setCurrentIndex(self._run_index)
         elif self._last_record_id is not None:
-            self._resume_run(self._last_record_id)
+            self.recipe_run.resume(self._last_record_id)
 
     def _rename_open_record(self, title: str) -> None:
         record_id = self._last_record_id
@@ -1920,7 +1896,7 @@ class MainWindow(QMainWindow):
         # this guard they'd start a second transcription mid-run (and the
         # youtube_panel.clear() below would kill the run's workers while it
         # still waits on them, hanging the UI).
-        if self._recipe_job is not None and self._recipe_job.isRunning():
+        if self.recipe_run.is_running():
             return
         filepath = self.file_selector.get_file()
         if not filepath:
@@ -2001,33 +1977,6 @@ class MainWindow(QMainWindow):
             on_error=self._on_error
         )
 
-    def _cancel_recipe_job(self) -> None:
-        """Cancel the current recipe run without blocking the GUI thread.
-
-        Mirrors the five single-step ``_cancel_*_job`` methods: disconnects
-        business signals immediately (so a late step/job-finished can't
-        reach UI state that already believes the run was cancelled) and
-        hands it to WorkerRegistry, which deletes it once its QThread
-        actually finishes.
-
-        Reporting the cancellation lives here rather than in the status
-        bar's own handler: retiring the runner disconnects job_finished,
-        so _on_recipe_job_finished never runs and nothing else takes the
-        screen out of its "running" state. A run cancelled from a step
-        row's own Cancel button used to leave "Running the recipe…" on the
-        status bar, the Cancel button still offering to cancel it, and the
-        run screen with no way out.
-        """
-        if self._recipe_job is not None and self._recipe_job.isRunning():
-            self._registry.retire(self._recipe_job)
-            self._recipe_job = None
-            self._save_recipe_run("cancelled")
-            self.library_view.refresh()
-            self._refresh_run_chip()
-            self.status_label.setText(tr("status_chain_cancelled"))
-            self._reset_ui()
-            self.run_view.set_finished(True)
-
     def _cancel_operation(self):
         """Cancel the current operation (transcription, a recipe run, or
         one of the five single-step re-run/retry jobs)."""
@@ -2036,11 +1985,11 @@ class MainWindow(QMainWindow):
             self.status_label.setText(tr("status_cancelled"))
             return
 
-        if self._recipe_job is not None and self._recipe_job.isRunning():
-            # _cancel_recipe_job() reports and resets on its own — the run
+        if self.recipe_run.is_running():
+            # RecipeRunController.cancel() reports and resets on its own — the run
             # screen's per-step Cancel reaches it directly, without coming
             # through here.
-            self._cancel_recipe_job()
+            self.recipe_run.cancel()
             return
 
         if self._clean_job is not None and self._clean_job.isRunning():
@@ -2194,7 +2143,7 @@ class MainWindow(QMainWindow):
         self._record_artifacts = set()
         self._schedule_tab_refresh()
 
-        self._run_recipe(result, show_run_screen=open_record)
+        self.recipe_run.start(result, show_run_screen=open_record)
 
     # Reverse of application.steps.STEP_ARTIFACT_TYPES (B7) — which main_tabs page a materials
     # search hit's artifact type opens on. Attribute names, resolved via
@@ -2237,27 +2186,6 @@ class MainWindow(QMainWindow):
         while f"{base} ({n})" in existing_names:
             n += 1
         return f"{base} ({n})"
-
-    def _recipe_get_result(self, run: JobRun, name: str):
-        """``StepContext.get_result`` for the recipe run: a finished
-        step's real return value, or — for a step JobEngine resolved via
-        cache-skip (``StepOutcome.result`` is ``None`` on a SKIPPED
-        outcome, since the runner that would have produced it never ran)
-        — its artifact reloaded from disk (see
-        application/steps.py::load_step_result and
-        docs/IMPROVEMENT_PLAN_2026-08.ru.md, B1). Without this, a step
-        that reads a cache-skipped dependency (e.g. "article" reading
-        "clean") would see None and treat it as though that dependency
-        had never run at all.
-        """
-        outcome = run.outcomes.get(name)
-        if outcome is None:
-            return None
-        if outcome.result is not None:
-            return outcome.result
-        if self._recipe_context is None:
-            return None
-        return load_step_result(self._recipe_context, name)
 
     def _open_recipe_editor(self) -> None:
         """"Настроить…"/"Изменить" on the start screen (see
@@ -2316,332 +2244,6 @@ class MainWindow(QMainWindow):
             self.start_view.set_recipe(original_key)
         self.start_view.refresh_summary()
 
-    def _run_recipe(self, result: TranscriptionResult, show_run_screen: bool = True) -> None:
-        """After a fresh transcription, run the rest of the selected
-        recipe's steps as one JobRunner (see
-        docs/UI_REDESIGN_PLAN_2026-09.ru.md, B6) — replaces the old
-        preset chain's one-button-click-per-step orchestration now that
-        every generator is a job-engine step (B5). *show_run_screen* is
-        False for a live-finished/batch result (_on_finished's own
-        open_record=False callers): the run still executes, it just
-        doesn't yank the view away from wherever the user already is."""
-        from core.ai_provider import provider_from_config
-
-        recipe = self._resolve_recipe(self.start_view.current_recipe_key())
-        spec = recipe.to_job_spec(build_job_spec)
-        step_names = tuple(step.name for step in spec.steps)
-
-        # A live session (B7, docs/UI_REDESIGN_PLAN_2026-09.ru.md) already
-        # produced this result by streaming, not by running the job-engine
-        # "transcribe"/"diarize" steps — SKIPPED (not SUCCEEDED) is the
-        # honest status for a step this run never actually executed, and
-        # matches how a real cache-skip renders on the run screen.
-        already_streamed = self._source_kind == "live"
-        transcribe_status = StepStatus.SKIPPED if already_streamed else StepStatus.SUCCEEDED
-        run = JobRun(spec=spec)
-        if "transcribe" in step_names:
-            run.outcomes["transcribe"] = StepOutcome(
-                "transcribe", transcribe_status, result=result
-            )
-        if "diarize" in step_names and any(seg.speaker for seg in result.segments):
-            run.outcomes["diarize"] = StepOutcome(
-                "diarize", transcribe_status, result=result
-            )
-
-        cfg = get_config()
-        provider = provider_from_config(cfg)
-        record_id = self._last_record_id if self._last_record_id is not None else "unsaved"
-
-        self._recipe_run = run
-        self._recipe_spec = spec
-        self._recipe_step_names = step_names
-        self._recipe_context = build_step_context(
-            self._source_filepath or "",
-            result,
-            record_id,
-            artifact_source=self._artifact_source(),
-            params=llm_params(
-                cfg,
-                result,
-                provider=provider,
-                # Shared with InsightsPanel/YouTubePanel so a type more
-                # than one step generates (e.g. "chapters") isn't
-                # recomputed — see core/insights_cache.py.
-                insights_cache=self._insights_cache,
-                do_unwrap=self.book_panel.chk_unwrap.isChecked(),
-                do_custom=self.book_panel.chk_custom.isChecked(),
-                custom_prompt_path=self.book_panel.custom_prompt_edit.text().strip(),
-                # The "YouTube video" recipe includes the cover step, so it
-                # has to render what the Cover workspace is actually set to
-                # rather than _cover_runner's own fallback defaults.
-                **self.cover_view.render_params(),
-            ),
-            get_result=lambda name: self._recipe_get_result(run, name),
-            is_cancelled=run.is_cancelled,
-        )
-
-        self._recipe_run_id = None
-        self._recipe_record_id = self._last_record_id
-        self.run_view.bind_run(run)
-        self.run_view.set_recipe_name(recipe_label(recipe))
-        self.run_view.set_finished(False)
-        self.run_view.set_publish_available(False)
-        if show_run_screen:
-            self._stack.setCurrentIndex(self._run_index)
-        self._save_recipe_run("running")
-        self._launch_recipe_job()
-
-    def _resume_run(self, record_id: int) -> None:
-        """LibraryView.resume_run (B2, docs/IMPROVEMENT_PLAN_2026-08.ru.md):
-        pick up a run that stopped short — failed, or was interrupted by
-        a crash (run_store.mark_stale_running_as_interrupted) — from
-        wherever it left off.
-
-        Needs B1: a restored StepOutcome's result is always None (see
-        run_store's own module docstring), so a dependent step reads a
-        SUCCEEDED/SKIPPED predecessor's real output from disk via
-        load_step_result(), exactly like a cache-skipped step already
-        does. Resumes by the run's *saved* step composition (its own
-        recipe, resolved by name) rather than assuming nothing changed —
-        the recipe could have been edited since (B4 makes that easy) or
-        deleted outright, in which case _resolve_recipe() already falls
-        back to transcript-only and the mismatch note below explains why
-        the run screen looks different from what actually ran.
-        """
-        from application import run_store
-        from core.ai_provider import provider_from_config
-
-        if not self._load_from_history(record_id):
-            return
-        stored = run_store.load_latest_run(record_id)
-        if stored is None:
-            return
-        result = self._current_result
-        if result is None:
-            return
-
-        recipe = self._resolve_recipe(stored.recipe)
-        spec = build_job_spec(stored.recipe, recipe.steps)
-        step_names = tuple(step.name for step in spec.steps)
-        run = JobRun(spec=spec)
-        run_store.apply_stored_outcomes(run, stored)
-
-        cfg = get_config()
-        provider = provider_from_config(cfg)
-
-        self._recipe_run = run
-        self._recipe_spec = spec
-        self._recipe_step_names = step_names
-        self._recipe_context = build_step_context(
-            self._source_filepath or "",
-            result,
-            record_id,
-            artifact_source=self._artifact_source(),
-            params=llm_params(
-                cfg,
-                result,
-                provider=provider,
-                # Shared with InsightsPanel/YouTubePanel so a type more
-                # than one step generates (e.g. "chapters") isn't
-                # recomputed — see core/insights_cache.py.
-                insights_cache=self._insights_cache,
-                do_unwrap=self.book_panel.chk_unwrap.isChecked(),
-                do_custom=self.book_panel.chk_custom.isChecked(),
-                custom_prompt_path=self.book_panel.custom_prompt_edit.text().strip(),
-                # The "YouTube video" recipe includes the cover step, so it
-                # has to render what the Cover workspace is actually set to
-                # rather than _cover_runner's own fallback defaults.
-                **self.cover_view.render_params(),
-            ),
-            get_result=lambda name: self._recipe_get_result(run, name),
-            is_cancelled=run.is_cancelled,
-        )
-
-        self._recipe_run_id = stored.id
-        self._recipe_record_id = record_id
-        self.run_view.bind_run(run)
-        name = recipe_label(recipe)
-        if set(stored.outcomes) - set(recipe.steps):
-            name = tr("run_resumed_mismatch", name=name)
-        self.run_view.set_recipe_name(name)
-        self.run_view.set_finished(False)
-        self.run_view.set_publish_available(False)
-        self._stack.setCurrentIndex(self._run_index)
-        # JobEngine never re-resolves a step already in run.outcomes, so
-        # _launch_recipe_job() below won't fire step_finished for any of
-        # these restored SUCCEEDED/SKIPPED outcomes — without this loop
-        # their tabs (Clean, Article, ...) would stay empty until the
-        # user happened to trigger some other refresh.
-        for step_name, outcome in run.outcomes.items():
-            if outcome.status in (StepStatus.SUCCEEDED, StepStatus.SKIPPED):
-                self._on_recipe_step_finished(step_name, outcome)
-        self._save_recipe_run("running")
-        self._launch_recipe_job()
-
-    def _save_recipe_run(self, status: str) -> None:
-        """Persist self._recipe_run's current outcomes to job_runs (B8,
-        see application/run_store.py) — a no-op until there's a real
-        history record to attach the run to. Reuses self._recipe_run_id
-        across calls so this updates one row instead of inserting a new
-        one for every step/retry."""
-        if self._recipe_record_id is None or self._recipe_run is None or self._recipe_spec is None:
-            return
-        from application import run_store
-
-        try:
-            self._recipe_run_id = run_store.save_run(
-                self._recipe_record_id, self._recipe_spec.name, self._recipe_run,
-                run_id=self._recipe_run_id, status=status,
-            )
-        except Exception as exc:
-            logger.warning("Failed to persist recipe run: %s", exc)
-
-    def _launch_recipe_job(self) -> None:
-        """(Re)start the current recipe run's JobRunner against whatever
-        steps ``self._recipe_run`` doesn't already have an outcome for —
-        used both by _run_recipe() and by _on_recipe_retry() below, since
-        JobEngine.run() only (re)runs steps missing from run_state.outcomes
-        (see application/job_engine.py)."""
-        if self._recipe_spec is None or self._recipe_context is None:
-            return
-        self._recipe_job = JobRunner(self._recipe_spec, run_state=self._recipe_run)
-        runners = build_runners(
-            self._recipe_context, self._recipe_step_names,
-            progress_factory=self._recipe_job.make_progress_callback,
-        )
-        cache_checks = build_cache_checks(self._recipe_context, self._recipe_step_names)
-        self._recipe_job.set_runners(runners, cache_checks=cache_checks)
-        self._recipe_job.step_started.connect(self.run_view.on_step_started)
-        self._recipe_job.step_progress.connect(self.run_view.on_step_progress)
-        self._recipe_job.step_finished.connect(self.run_view.on_step_finished)
-        self._recipe_job.step_finished.connect(self._on_recipe_step_finished)
-        self._recipe_job.job_finished.connect(self._on_recipe_job_finished)
-        self.cancel_btn.setVisible(True)
-        self.transcribe_btn.setEnabled(False)
-        self.status_label.setText(tr("status_chain_running"))
-        self._recipe_job.start()
-        self._refresh_run_chip()
-
-    def _on_recipe_retry(self, name: str) -> None:
-        """RunView.retry_requested: it has already reset *name* (and any
-        dependent step only CANCELLED because of it) on the same JobRun
-        we're about to reuse — see RunView._on_retry."""
-        if self._recipe_context is None or self._recipe_run is None:
-            return
-        if self._recipe_job is not None and self._recipe_job.isRunning():
-            return
-        if self._recipe_run.is_cancelled():
-            self._recipe_run = self._run_after_cancel(self._recipe_run, self._recipe_context)
-        self._save_recipe_run("running")
-        self._launch_recipe_job()
-
-    def _on_recipe_overall_progress(self, percent: int) -> None:
-        """RunView.overall_progress_changed (B3): mirrors the run screen's
-        own N-of-M bar into the persistent status bar, so the overall
-        percentage is visible without switching to the run screen. Guarded
-        on an actually-running recipe job so a RunView recompute from
-        something else (a fixture bind, a retried/regenerated step's
-        reset) never overwrites an unrelated status-bar operation."""
-        if self._recipe_job is None or not self._recipe_job.isRunning():
-            return
-        self.status_bar.set_operation(tr("status_chain_running"), progress=percent)
-
-    def _on_recipe_regenerate(self, name: str) -> None:
-        """RunView.regenerate_requested: same reused-run mechanics as
-        _on_recipe_retry, plus deleting *name*'s on-disk manifest first —
-        RunView already reset the step's outcome, but a still-valid cache
-        would otherwise just re-mark it SKIPPED with the same old result
-        (B1's "forced regeneration": revision/hash/prompt-version already
-        invalidate the cache on their own; wanting a different result from
-        unchanged inputs is the one case only this manual action covers)."""
-        if self._recipe_context is None or self._recipe_run is None:
-            return
-        if self._recipe_job is not None and self._recipe_job.isRunning():
-            return
-        manifest = manifest_path_for_step(self._recipe_context, name)
-        if manifest is not None and manifest.exists():
-            try:
-                manifest.unlink()
-            except OSError as exc:
-                logger.warning("Failed to delete manifest for regenerate (%s): %s", name, exc)
-        if self._recipe_run.is_cancelled():
-            self._recipe_run = self._run_after_cancel(self._recipe_run, self._recipe_context)
-        self._save_recipe_run("running")
-        self._launch_recipe_job()
-
-    def _run_after_cancel(self, cancelled: JobRun, context: StepContext) -> JobRun:
-        """A fresh JobRun carrying the cancelled one's outcomes forward.
-
-        ``JobRun.cancel()`` latches a threading.Event that nothing clears,
-        and every step resolves through it (``JobEngine._resolve_step``
-        marks a step CANCELLED before running it, and each runner's
-        ``StepContext.is_cancelled`` is bound to it) — so retrying a step
-        on a run that was ever cancelled would immediately re-resolve it
-        CANCELLED without running anything at all.
-
-        Clearing the flag in place is not the fix: ``_cancel_recipe_job()``
-        retires the JobRunner rather than blocking on it (see its
-        docstring), so the cancelled worker may still be inside a step
-        that is watching this very flag, and un-cancelling underneath it
-        would let it resume and race the retry. A new JobRun leaves that
-        worker with the old, still-cancelled one it already holds.
-        """
-        import dataclasses
-
-        fresh = JobRun(spec=cancelled.spec)
-        fresh.outcomes.update(cancelled.outcomes)
-        self._recipe_context = dataclasses.replace(
-            context,
-            get_result=lambda name: self._recipe_get_result(fresh, name),
-            is_cancelled=fresh.is_cancelled,
-        )
-        self.run_view.bind_run(fresh)
-        return fresh
-
-    def _on_recipe_step_finished(self, name: str, outcome: StepOutcome) -> None:
-        """Feed a just-finished recipe step's result to whichever tab
-        shows it. Mirrors the success branch of each single-step
-        _on_*_job_finished (this recipe run and those five buttons' own
-        jobs share application/steps.py's runners; only where the result
-        lands differs) — transcribe/diarize/cover have no tab to push
-        into, so they're left to the run screen's own row status.
-
-        A SKIPPED step (cache hit — B1) never ran its runner, so
-        outcome.result is None; so does every restored outcome a resumed
-        run (B2) feeds through here, regardless of its own status —
-        run_store's contract is that a StepOutcome read back from storage
-        always has result=None (see application/run_store.py's module
-        docstring). Either way, the tab still needs populating from the
-        artifact already on disk via load_step_result(), the same
-        reconstruction _recipe_get_result() uses to feed dependent steps.
-        """
-        self._save_recipe_run("running")
-        # The Library card shows the run in progress and, once a step
-        # fails, which one.
-        self.library_view.refresh()
-        if self._recipe_record_id != self._last_record_id:
-            # Another record is open now. The result is on disk in the
-            # run's own record folder and comes back when that record is
-            # opened; it must not land in this record's tabs.
-            return
-        if outcome.status is StepStatus.FAILED:
-            # Only these two panels have a set_error()/retry affordance of
-            # their own (ui/youtube_panel.py, ui/insights_panel.py) — a
-            # failed "clean"/"article"/"book" step is still visible on the
-            # run screen's own row, same as before this branch existed.
-            viewer = STEP_REGISTRY[name].viewer
-            if viewer == "youtube":
-                self.youtube_panel.set_error(outcome.error)
-            elif viewer == "insights":
-                self.insights_panel.set_error(outcome.error)
-            return
-        if outcome.status not in (StepStatus.SUCCEEDED, StepStatus.SKIPPED):
-            return
-        result = outcome.result
-        if result is None and self._recipe_context is not None:
-            result = load_step_result(self._recipe_context, name)
-        self._show_step_result(STEP_REGISTRY[name].viewer, result)
-
     def _show_step_result(self, viewer: str, result) -> None:
         """Hand a step's result to the panel named by ``StepDefinition.viewer``."""
         if viewer == "cleaned_text":
@@ -2673,49 +2275,6 @@ class MainWindow(QMainWindow):
                     removed_fillers=0,
                     paragraphs=result.final_text.count("\n\n") + 1,
                 )
-
-    def _on_recipe_job_finished(self, run: JobRun) -> None:
-        """Persist the finished run (B8, job_runs — the Library card's run
-        composition) and whichever steps actually produced an artifact to
-        this record's history badges (mirroring the old preset chain's
-        own bookkeeping), and report how many came out of it."""
-        self._recipe_job = None
-        self._reset_ui()
-        self.run_view.set_finished(True)
-
-        summary = summarize_run(run)
-        succeeded, had_error = summary.succeeded, summary.had_error
-        artifact_types = summary.artifact_types
-        self._save_recipe_run("failed" if had_error else "done")
-        self.library_view.refresh()
-        self._refresh_run_chip()
-        add_record_badges(self._recipe_record_id, artifact_types)
-
-        # _reset_ui() only hides the progress/cancel affordances — without
-        # this the one persistent status line would keep reading "Running
-        # the recipe…" long after the run ended, since no other call site
-        # writes to it until the next operation starts.
-        if had_error:
-            self.status_label.setText(tr("status_chain_failed"))
-        else:
-            self.status_label.setText(
-                tr("status_chain_done", count=len(artifact_types))
-            )
-
-        if had_error:
-            show_toast(self, tr("toast_chain_error"), kind="error")
-        elif artifact_types:
-            show_toast(
-                self, tr("toast_chain_done", count=len(artifact_types)), kind="success"
-            )
-
-        # Publishing reads the YouTube tab — only the run's own record's.
-        can_publish = (
-            "youtube_package" in succeeded and self._recipe_record_id == self._last_record_id
-        )
-        self.run_view.set_publish_available(can_publish)
-        if can_publish and get_config().yt_publish_mode != "off":
-            QTimer.singleShot(0, self.youtube_publish.open_dialog)
 
     def _save_to_history(self, result: TranscriptionResult, source_path: str,
                          model: str, speaker_names: dict,
@@ -2935,10 +2494,10 @@ class MainWindow(QMainWindow):
 
     def _reset_ui(self):
         """Reset UI to ready state — unless a recipe run is still going
-        (see _run_recipe), in which case Cancel must stay reachable and
+        (see RecipeRunController), in which case Cancel must stay reachable and
         Process must stay disabled so the user can't start a second
         transcription mid-run."""
-        run_active = bool(self._recipe_job is not None and self._recipe_job.isRunning())
+        run_active = self.recipe_run.is_running()
         self.start_view.set_process_enabled(
             not run_active and self.file_selector.get_file() is not None
         )
@@ -3118,7 +2677,7 @@ class MainWindow(QMainWindow):
 
     def _cancel_clean_job(self) -> None:
         """Cancel the running "clean" JobRunner, mirroring
-        _cancel_recipe_job()'s non-blocking retire-through-the-registry
+        RecipeRunController.cancel()'s non-blocking retire-through-the-registry
         pattern (see its docstring)."""
         if self._clean_job is not None and self._clean_job.isRunning():
             self._registry.retire(self._clean_job)

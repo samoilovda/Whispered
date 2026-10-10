@@ -416,7 +416,7 @@ def test_cover_step_never_fails_on_speaker_photos(tmp_path, monkeypatch):
 # What a cache-skip needs load_step_result() to recover — run the real
 # runner (writing the artifact to disk, same as any other test above),
 # then read it back and check the reconstructed value is usable the same
-# way MainWindow._on_recipe_step_finished uses a real (non-cached) one.
+# way RecipeRunController.on_step_finished uses a real (non-cached) one.
 
 def test_transcribe_and_diarize_have_nothing_to_load(tmp_path):
     # Never cache-checked (make_artifact returns None) — confirms the
@@ -456,7 +456,7 @@ def test_clean_load_recovers_a_processing_result(tmp_path, monkeypatch):
     # The pre-clean length is genuinely recoverable from context.result;
     # the filler/sentence counts never made it to disk, so 0 is honest
     # rather than a guess — same posture the "book" branch of
-    # MainWindow._on_recipe_step_finished already uses for its own
+    # RecipeRunController.on_step_finished already uses for its own
     # unavailable counts.
     assert len(reloaded.original) == len(context.result.full_text)
     assert reloaded.cleaned.removed_fillers == 0
@@ -625,7 +625,7 @@ def test_build_runners_and_cache_checks_work_with_job_engine(tmp_path, monkeypat
     # B1's "forced regeneration": deleting the manifest is what a
     # "Generate again" action does to make a cache-valid step actually
     # rerun (see ui/run_view.py's RunView.regenerate_step /
-    # ui/main_window.py's MainWindow._on_recipe_regenerate).
+    # ui/recipe_run_controller.py's RecipeRunController.regenerate).
     manifest = manifest_path_for_step(context, "clean")
     assert manifest is not None
     assert manifest.exists()

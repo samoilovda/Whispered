@@ -88,13 +88,13 @@ def test_retry_after_cancelling_a_run_actually_reruns_the_step(window, monkeypat
 
     monkeypatch.setattr("text_processor.TextProcessor", _BlockingProcessor)
 
-    window._run_recipe(_result())
+    window.recipe_run.start(_result())
     assert started.wait(3)
 
-    window._cancel_recipe_job()
+    window.recipe_run.cancel()
     release.set()
     process_events()
-    assert window._recipe_run.is_cancelled()
+    assert window.recipe_run.job_run.is_cancelled()
 
     # Second attempt: a runner that succeeds immediately.
     class _FastProcessor(_BlockingProcessor):
@@ -116,35 +116,35 @@ def test_retry_after_cancelling_a_run_actually_reruns_the_step(window, monkeypat
 
     window.run_view.retry_step("clean")
     process_events()
-    runner = window._recipe_job
+    runner = window.recipe_run.job
     assert runner is not None
     assert runner.wait(5000)
     process_events()
 
     assert len(ran) == 2, "the retried step never executed"
-    assert window._recipe_run.outcomes["clean"].status is StepStatus.SUCCEEDED
-    assert not window._recipe_run.is_cancelled()
+    assert window.recipe_run.job_run.outcomes["clean"].status is StepStatus.SUCCEEDED
+    assert not window.recipe_run.job_run.is_cancelled()
 
 
 def test_retry_keeps_the_already_succeeded_steps(window, monkeypatch, process_events):
     """The fresh JobRun a cancelled retry builds must carry the finished
     outcomes forward, or the run screen would forget them."""
-    window._run_recipe(_result())
-    assert window._recipe_job.wait(3000)
+    window.recipe_run.start(_result())
+    assert window.recipe_run.job.wait(3000)
     process_events()
 
-    outcomes_before = dict(window._recipe_run.outcomes)
+    outcomes_before = dict(window.recipe_run.job_run.outcomes)
     assert outcomes_before["transcribe"].status is StepStatus.SUCCEEDED
 
-    window._recipe_run.cancel()
+    window.recipe_run.job_run.cancel()
     window.run_view.retry_step("clean")
     process_events()
-    if window._recipe_job is not None:
-        window._recipe_job.wait(3000)
+    if window.recipe_run.job is not None:
+        window.recipe_run.job.wait(3000)
     process_events()
 
-    assert window._recipe_run.outcomes["transcribe"].status is StepStatus.SUCCEEDED
-    assert window.run_view._run is window._recipe_run
+    assert window.recipe_run.job_run.outcomes["transcribe"].status is StepStatus.SUCCEEDED
+    assert window.run_view._run is window.recipe_run.job_run
 
 
 # ---------------------------------------------------------------- finished status
@@ -156,11 +156,11 @@ def test_finished_run_clears_the_running_status_line(window, process_events):
     operation starts."""
     from core.i18n import tr
 
-    window._run_recipe(_result())
-    assert window._recipe_job.wait(10000)
+    window.recipe_run.start(_result())
+    assert window.recipe_run.job.wait(10000)
     process_events()
 
-    assert window._recipe_job is None
+    assert window.recipe_run.job is None
     text = window.status_label.text()
     assert tr("status_chain_running") not in text
     assert text in (
@@ -174,12 +174,12 @@ def test_finished_run_offers_the_way_to_the_record(window, process_events):
     the record once the run ends."""
     # isVisibleTo(), not isVisible(): this fixture never show()s the
     # window, so every descendant reports isVisible() False regardless.
-    window._run_recipe(_result())
+    window.recipe_run.start(_result())
     assert window.run_view._heading.isVisibleTo(window.run_view)
     assert window.run_view._heading.text()
     assert not window.run_view._open_button.isVisibleTo(window.run_view)
 
-    assert window._recipe_job.wait(10000)
+    assert window.recipe_run.job.wait(10000)
     process_events()
 
     assert window.run_view._open_button.isVisibleTo(window.run_view)
@@ -192,7 +192,7 @@ def test_cancelling_from_a_step_row_reports_it_like_the_status_bar_does(
     window, monkeypatch, process_events,
 ):
     """Regression: RunView's per-step Cancel goes straight to
-    _cancel_recipe_job, which retires the runner — so job_finished never
+    RecipeRunController.cancel, which retires the runner — so job_finished never
     fires and nothing reset the screen. The status bar kept reading
     "Running the recipe…", its Cancel button stayed up, and the run screen
     offered no way out."""
@@ -214,7 +214,7 @@ def test_cancelling_from_a_step_row_reports_it_like_the_status_bar_does(
 
     monkeypatch.setattr("text_processor.TextProcessor", _BlockingProcessor)
 
-    window._run_recipe(_result())
+    window.recipe_run.start(_result())
     assert started.wait(3)
 
     window.run_view.cancel_requested.emit()
@@ -230,7 +230,7 @@ def test_cancelling_from_a_step_row_reports_it_like_the_status_bar_does(
 
 def test_recipe_run_renders_the_cover_the_workspace_is_set_to(window, monkeypatch, process_events):
     """Regression: the "YouTube video" recipe includes the cover step,
-    but _run_recipe passed no cover_* params at all, so it silently
+    but RecipeRunController.start passed no cover_* params at all, so it silently
     rendered with _cover_runner's own fallbacks (layout "solo") instead
     of the user's Cover workspace selection."""
     import application.steps as steps
@@ -246,11 +246,11 @@ def test_recipe_run_renders_the_cover_the_workspace_is_set_to(window, monkeypatc
         seen.update(context.params)
         return real_build(context, names, **kwargs)
 
-    monkeypatch.setattr("ui.main_window.build_runners", capture)
+    monkeypatch.setattr("ui.recipe_run_controller.build_runners", capture)
 
-    window._run_recipe(_result())
-    if window._recipe_job is not None:
-        window._recipe_job.wait(5000)
+    window.recipe_run.start(_result())
+    if window.recipe_run.job is not None:
+        window.recipe_run.job.wait(5000)
     process_events()
 
     # "auto" is resolved by the workspace, so the recipe gets the exact
@@ -307,8 +307,8 @@ def test_second_recipe_run_on_the_same_record_skips_and_populates_panels(
     monkeypatch.setattr("text_processor.TextProcessor", _FakeTextProcessor)
     monkeypatch.setattr("article_generator.ArticleGenerator", _FakeArticleGenerator)
 
-    window._run_recipe(_result())
-    assert window._recipe_job.wait(5000)
+    window.recipe_run.start(_result())
+    assert window.recipe_run.job.wait(5000)
     process_events()
     assert window._cleaned_text == "Cleaned and coherent text."
     assert window.article_view.has_articles()
@@ -327,11 +327,11 @@ def test_second_recipe_run_on_the_same_record_skips_and_populates_panels(
     window.cleaned_view.set_text("")
     window.article_view.set_articles([])
 
-    window._run_recipe(_result())
-    assert window._recipe_job.wait(5000)
+    window.recipe_run.start(_result())
+    assert window.recipe_run.job.wait(5000)
     process_events()
 
-    run = window._recipe_run
+    run = window.recipe_run.job_run
     assert run.outcomes["clean"].status is StepStatus.SKIPPED
     assert run.outcomes["article"].status is StepStatus.SKIPPED
     assert window._cleaned_text == "Cleaned and coherent text."
@@ -383,18 +383,18 @@ def test_regenerate_deletes_the_manifest_and_actually_reruns_the_step(
     monkeypatch.setattr("text_processor.TextProcessor", _CountingTextProcessor)
     monkeypatch.setattr("article_generator.ArticleGenerator", _CountingArticleGenerator)
 
-    window._run_recipe(_result())
-    assert window._recipe_job.wait(5000)
+    window.recipe_run.start(_result())
+    assert window.recipe_run.job.wait(5000)
     process_events()
     assert len(clean_calls) == 1
     assert len(article_calls) == 1
     first_text = window._cleaned_text
 
     # Re-run with the same inputs: both steps must SKIP (cache hit).
-    window._run_recipe(_result())
-    assert window._recipe_job.wait(5000)
+    window.recipe_run.start(_result())
+    assert window.recipe_run.job.wait(5000)
     process_events()
-    assert window._recipe_run.outcomes["clean"].status is StepStatus.SKIPPED
+    assert window.recipe_run.job_run.outcomes["clean"].status is StepStatus.SKIPPED
     assert len(clean_calls) == 1, "cache hit must not call TextProcessor.process() again"
     assert len(article_calls) == 1, "cache hit must not call generate_all_formats() again"
 
@@ -403,12 +403,12 @@ def test_regenerate_deletes_the_manifest_and_actually_reruns_the_step(
     # relationship retry_step() has to a row's own retry button).
     window.run_view.regenerate_step("clean")
     process_events()
-    assert window._recipe_job is not None
-    assert window._recipe_job.wait(5000)
+    assert window.recipe_run.job is not None
+    assert window.recipe_run.job.wait(5000)
     process_events()
 
     assert len(clean_calls) == 2, "regenerate must actually rerun the step"
     assert len(article_calls) == 1, "article wasn't reset — it must stay cached"
-    assert window._recipe_run.outcomes["clean"].status is StepStatus.SUCCEEDED
+    assert window.recipe_run.job_run.outcomes["clean"].status is StepStatus.SUCCEEDED
     assert window._cleaned_text == "Cleaned attempt 2."
     assert window._cleaned_text != first_text

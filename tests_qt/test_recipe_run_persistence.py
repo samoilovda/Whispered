@@ -29,8 +29,8 @@ def test_a_finished_recipe_run_is_persisted_to_job_runs(monkeypatch, tmp_path, p
     window._document_session.apply_result(_result())
     window._last_record_id = store.add(_result(), source_path="", model="")
 
-    window._run_recipe(_result())
-    runner = window._recipe_job
+    window.recipe_run.start(_result())
+    runner = window.recipe_run.job
     assert runner is not None
     assert runner.wait(2000)
     process_events()
@@ -127,21 +127,21 @@ def test_resume_run_only_executes_the_missing_steps(monkeypatch, tmp_path, proce
     from ui.main_window import MainWindow
 
     window = MainWindow()
-    window._resume_run(record_id)
-    # Captured immediately, before any process_events() — _launch_recipe_job()
-    # sets self._recipe_job synchronously, but a fast-finishing run can
+    window.recipe_run.resume(record_id)
+    # Captured immediately, before any process_events() — RecipeRunController._launch()
+    # sets self.job synchronously, but a fast-finishing run can
     # have job_finished (which resets it to None) already queued by the
     # time control returns here, and the very next process_events() call
     # would deliver it.
-    runner = window._recipe_job
+    runner = window.recipe_run.job
     assert runner is not None
     assert runner.wait(5000)
     process_events()
 
     assert len(article_calls) == 1
     assert article_calls[0] == "Cleaned before the crash."
-    assert window._recipe_run.outcomes["clean"].status is StepStatus.SUCCEEDED
-    assert window._recipe_run.outcomes["article"].status is StepStatus.SUCCEEDED
+    assert window.recipe_run.job_run.outcomes["clean"].status is StepStatus.SUCCEEDED
+    assert window.recipe_run.job_run.outcomes["article"].status is StepStatus.SUCCEEDED
     assert window._cleaned_text == "Cleaned before the crash."
     assert window.article_view.has_articles()
 

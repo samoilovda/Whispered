@@ -18,7 +18,7 @@ def _run(**statuses: StepStatus):
 
 
 def _finish(window, process_events, **statuses):
-    window._on_recipe_job_finished(_run(**statuses))
+    window.recipe_run.on_job_finished(_run(**statuses))
     process_events()
 
 
