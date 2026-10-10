@@ -57,7 +57,7 @@ class ModelEntry:
 MANIFEST: dict[str, ModelEntry] = {
     # Whisper GGML models served by ggerganov/whisper.cpp on Hugging Face.
     # Pinned to commit 5359861c (main on 2026-10-09); sizes and sha256 are
-    # the LFS metadata of that commit (tiny and large-v3-turbo re-hashed locally).
+    # the LFS metadata of that commit (tiny, large-v3-turbo and its q5_0/q8_0 re-hashed locally).
     "whisper-tiny": ModelEntry(
         key="whisper-tiny",
         url=(
@@ -168,4 +168,33 @@ MANIFEST: dict[str, ModelEntry] = {
         license="MIT",
         filename="ggml-large-v3-turbo.bin",
     ),
+    "whisper-large-v3-turbo-q5_0": ModelEntry(
+        key="whisper-large-v3-turbo-q5_0",
+        url=(
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/"
+            "5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-turbo-q5_0.bin"
+        ),
+        size_bytes=574_041_195,
+        sha256="394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+        license="MIT",
+        filename="ggml-large-v3-turbo-q5_0.bin",
+    ),
+    "whisper-large-v3-turbo-q8_0": ModelEntry(
+        key="whisper-large-v3-turbo-q8_0",
+        url=(
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/"
+            "5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-turbo-q8_0.bin"
+        ),
+        size_bytes=874_188_075,
+        sha256="317eb69c11673c9de1e1f0d459b253999804ec71ac4c23c17ecf5fbe24e259a1",
+        license="MIT",
+        filename="ggml-large-v3-turbo-q8_0.bin",
+    ),
 }
+
+
+def whisper_entry(model_name: str) -> "ModelEntry | None":
+    """The manifest entry for whisper model *model_name* (``"tiny"``,
+    ``"large-v3-turbo-q8_0"``…), matched by its ``ggml-<name>.bin`` file."""
+    filename = f"ggml-{model_name}.bin"
+    return next((e for e in MANIFEST.values() if e.filename == filename), None)

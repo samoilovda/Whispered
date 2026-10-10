@@ -49,9 +49,10 @@ def test_a_present_file_of_the_wrong_size_is_not_reported_downloaded(tmp_path, m
 
 
 def test_a_model_with_no_manifest_entry_falls_back_to_existence_only(tmp_path, monkeypatch):
-    """large-v3-turbo-q5_0/q8_0 have no core.model_manifest entry at
-    all — any non-empty file at the expected path must count."""
+    """A model the manifest doesn't list: any file at the expected path
+    counts (every offered model has an entry today)."""
     monkeypatch.setattr("utils.get_models_dir", lambda: str(tmp_path))
+    monkeypatch.setattr("core.model_manifest.whisper_entry", lambda key: None)
     (tmp_path / "ggml-large-v3-turbo-q5_0.bin").write_bytes(b"\0" * 123)
 
     result = dict((key, downloaded) for key, _label, downloaded in whisper_model_options_with_state())

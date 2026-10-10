@@ -630,6 +630,7 @@
   "download_failed_title": "Ошибка загрузки",
   "download_failed_message": "Не удалось загрузить модель:\n{error}",
   "download_error_not_found": "Файл модели не найден на сервере (404).",
+  "download_error_integrity": "Скачанная модель не прошла проверку целостности (размер или SHA-256). Попробуйте ещё раз.",
   "download_error_http": "Ошибка HTTP: {error}",
   "download_error_generic": "Ошибка загрузки: {error}",
   "download_error_diarization_missing": "Не установлены pyannote.audio или torch.",

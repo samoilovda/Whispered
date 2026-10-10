@@ -630,6 +630,7 @@
   "download_failed_title": "Download failed",
   "download_failed_message": "Failed to download model:\n{error}",
   "download_error_not_found": "Model file was not found on the server (404).",
+  "download_error_integrity": "The downloaded model did not pass the integrity check (size or SHA-256). Try again.",
   "download_error_http": "HTTP error: {error}",
   "download_error_generic": "Download failed: {error}",
   "download_error_diarization_missing": "pyannote.audio or torch is not installed.",

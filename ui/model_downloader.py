@@ -5,6 +5,7 @@ Dynamic downloader for Whisper models and Pyannote models
 
 import os
 import time
+from pathlib import Path
 from typing import Optional
 
 import requests
@@ -37,12 +38,20 @@ class DownloadWorker(BaseWorker):
             except (RuntimeError, TypeError):
                 pass
 
-    def __init__(self, url: str, target_path: str, parent=None):
+    def __init__(self, url: str, target_path: str, parent=None,
+                 manifest_key: Optional[str] = None):
         super().__init__(parent)
         self.url = url
         self.target_path = target_path
+        # A model in core/model_manifest.py downloads through ModelRepository:
+        # pinned URL, size and sha256 checked, atomic replace.
+        self.manifest_key = manifest_key
 
     def _execute(self) -> None:
+        if self.manifest_key is not None:
+            self._download_verified(self.manifest_key)
+            return
+
         # Create a temporary file path
         temp_path = self.target_path + ".download"
 
@@ -81,6 +90,29 @@ class DownloadWorker(BaseWorker):
         os.rename(temp_path, self.target_path)
 
         self.finished.emit(True, self.target_path)
+
+    def _download_verified(self, key: str) -> None:
+        from core.model_repository import Cancelled, IntegrityError, ModelRepository
+
+        repo = ModelRepository(models_dir=Path(self.target_path).parent)
+        try:
+            path = repo.ensure(
+                key,
+                progress=lambda done, total: self.progress.emit(done, total),
+                cancel=self.is_cancelled,
+            )
+        except Cancelled:
+            self.finished.emit(False, "Cancelled")
+            return
+        except IntegrityError:
+            self.finished.emit(False, tr("download_error_integrity"))
+            return
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response is not None else 0
+            self.finished.emit(False, tr("download_error_not_found") if status == 404
+                               else tr("download_error_http", error=str(e)))
+            return
+        self.finished.emit(True, str(path))
 
     def _on_error(self, msg: str) -> None:
         self.finished.emit(False, tr("download_error_generic", error=msg))
@@ -215,7 +247,13 @@ class ModelDownloaderDialog(QDialog):
             self.worker.start()
         else:
             # Whisper downloading
-            self.worker = DownloadWorker(self.url, self.target_path, parent=self)
+            from core.model_manifest import whisper_entry
+
+            entry = whisper_entry(self.model_name)
+            self.worker = DownloadWorker(
+                self.url, self.target_path, parent=self,
+                manifest_key=entry.key if entry is not None else None,
+            )
             self.worker.progress.connect(self._on_progress)
             self.worker.finished.connect(self._on_download_finished)
             self._registry.register(self.worker, name="model_download")

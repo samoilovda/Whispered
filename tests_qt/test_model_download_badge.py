@@ -198,3 +198,61 @@ def test_opening_the_recipe_editor_refreshes_the_model_combo(
 
     tiny_index = window.transcribe_options.model_combo.findData("tiny")
     assert tr("model_state_downloaded") in window.transcribe_options.model_combo.itemText(tiny_index)
+
+
+def _run_download(monkeypatch, models_dir, process_events, served: bytes, expected: bytes):
+    """DownloadWorker for a manifest model, the network replaced by *served*."""
+    import hashlib
+    import time
+    from unittest.mock import MagicMock
+
+    from core.model_manifest import ModelEntry
+    from ui.model_downloader import DownloadWorker
+
+    entry = ModelEntry(
+        key="whisper-test", url="https://example.invalid/ggml-test.bin",
+        size_bytes=len(expected), sha256=hashlib.sha256(expected).hexdigest(),
+        license="MIT", filename="ggml-test.bin",
+    )
+    monkeypatch.setitem(MANIFEST, "whisper-test", entry)
+    response = MagicMock()
+    response.headers = {"content-length": str(len(served))}
+    response.iter_content.return_value = [served]
+    response.raise_for_status.return_value = None
+    monkeypatch.setattr("core.model_repository.requests.get", lambda *a, **k: response)
+
+    target = models_dir / "ggml-test.bin"
+    outcome: list = []
+    worker = DownloadWorker(entry.url, str(target), manifest_key="whisper-test")
+    worker.finished.connect(lambda ok, detail: outcome.append((ok, detail)))
+    worker.start()
+    deadline = time.monotonic() + 5
+    while not outcome and time.monotonic() < deadline:
+        process_events()
+    worker.wait(2000)
+    return outcome, target
+
+
+def test_download_of_a_manifest_model_is_verified(monkeypatch, models_dir, process_events):
+    outcome, target = _run_download(
+        monkeypatch, models_dir, process_events, served=b"model", expected=b"model")
+    assert outcome == [(True, str(target))]
+    assert target.read_bytes() == b"model"
+
+
+def test_a_corrupted_download_is_rejected_and_not_kept(monkeypatch, models_dir, process_events):
+    outcome, target = _run_download(
+        monkeypatch, models_dir, process_events, served=b"mode!", expected=b"model")
+    assert outcome == [(False, tr("download_error_integrity"))]
+    assert not target.exists()
+    assert not (models_dir / "ggml-test.bin.download").exists()
+
+
+def test_every_offered_whisper_model_has_a_verified_manifest_entry():
+    from core.model_manifest import whisper_entry
+    from utils import WHISPER_MODELS
+
+    for key, _label in WHISPER_MODELS:
+        entry = whisper_entry(key)
+        assert entry is not None, key
+        assert entry.size_bytes and len(entry.sha256) == 64, key

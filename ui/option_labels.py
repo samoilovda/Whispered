@@ -39,7 +39,7 @@ def whisper_model_options_with_state() -> list[tuple[str, str, bool]]:
     """
     from pathlib import Path
 
-    from core.model_manifest import MANIFEST
+    from core.model_manifest import whisper_entry
     from utils import get_models_dir
 
     models_dir = Path(get_models_dir())
@@ -47,7 +47,7 @@ def whisper_model_options_with_state() -> list[tuple[str, str, bool]]:
     for key, _ in WHISPER_MODELS:
         label = tr(f"whisper_model_{key.replace('-', '_')}")
         target = models_dir / f"ggml-{key}.bin"
-        entry = MANIFEST.get(f"whisper-{key}")
+        entry = whisper_entry(key)
         expected_size = entry.size_bytes if entry is not None and entry.size_bytes else None
         downloaded = target.exists() and (
             expected_size is None or target.stat().st_size == expected_size
