@@ -8,7 +8,6 @@ from typing import Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from config import get_config
 from core.live.audio_buffer import BoundedAudioRing, MonotonicTimestamp, RingStats
 from core.live.contracts import AudioFrame
 from core.recorder import Recorder
@@ -33,7 +32,7 @@ class MicSource(QObject):
         parent=None,
         *,
         source: str = "mic",
-        enabled: bool | None = None,
+        enabled: bool,
         device: Optional[int] = None,
         capacity_frames: int = 100,
         capacity_bytes: int | None = None,
@@ -45,9 +44,7 @@ class MicSource(QObject):
             raise ValueError("source must not be empty")
 
         self.source = source
-        self.enabled = (
-            get_config().live_transcription_enabled if enabled is None else enabled
-        )
+        self.enabled = enabled
         self.device = device
         self._capacity_frames = capacity_frames
         self._capacity_bytes = capacity_bytes

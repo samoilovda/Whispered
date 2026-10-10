@@ -12,7 +12,6 @@ import math
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from config import get_config
 from core.live.audio_buffer import BoundedAudioRing, MonotonicTimestamp, RingStats
 from core.live.contracts import AudioFrame
 from core.live.system_capture_protocol import (
@@ -44,7 +43,7 @@ class SystemAudioSource(QObject):
         parent=None,
         *,
         socket_path: str,
-        enabled: bool | None = None,
+        enabled: bool,
         helper_command: Sequence[str] | None = None,
         socket_factory: Callable[[str], object] | None = None,
         capacity_frames: int = 100,
@@ -53,9 +52,7 @@ class SystemAudioSource(QObject):
         super().__init__(parent)
         if not socket_path:
             raise ValueError("socket_path must not be empty")
-        self.enabled = (
-            get_config().live_transcription_enabled if enabled is None else enabled
-        )
+        self.enabled = enabled
         self.socket_path = socket_path
         self.helper_command = tuple(helper_command or ())
         self._socket_factory = socket_factory or _connect_unix_socket

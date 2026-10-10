@@ -65,6 +65,13 @@ def test_core_does_not_import_application_or_ui():
     assert not bad, "\n".join(bad)
 
 
+def test_core_live_does_not_read_global_settings():
+    """Live sources get their settings from the caller (core/live/runtime.py),
+    not from the global Config."""
+    bad = _violations("core/live", lambda m: _is(m, "config"))
+    assert not bad, "\n".join(bad)
+
+
 def test_pure_live_modules_import_without_qt():
     """core/multitrack_* reuse core.live's VAD, contracts and text
     normalisation; importing them must not load the Qt capture sources
