@@ -47,8 +47,8 @@ def _run_ffmpeg(command: list[str], output: Path, timeout: float) -> None:
         proc.kill()
         try:
             proc.communicate()
-        except Exception:
-            pass
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass  # killed above; only reaping it here
         try:
             output.unlink(missing_ok=True)
         except OSError:

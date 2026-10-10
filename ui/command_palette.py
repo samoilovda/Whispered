@@ -32,12 +32,15 @@ from config import get_config
 from core.date_format import parse_iso, relative_stamp
 from core.fuzzy import match_score
 from core.i18n import tr
+from core.logger import get_logger
 from domain.recipe import BUILTIN_RECIPES, Recipe
 from ui.i18n_helpers import Retranslator
 from ui.library_view import display_name
 from ui.option_labels import recipe_label
 from ui.theme import get_theme
 from utils import format_duration
+
+logger = get_logger(__name__)
 
 # Extra item roles: the right-aligned hint (shortcut, date) and whether a
 # row is a group header (no payload, not selectable).
@@ -316,8 +319,8 @@ class CommandPalette(QDialog):
                     type_label = tr(self._MATERIAL_LABEL_KEYS.get(hit.type, hit.type))
                     label = tr("command_material", type=type_label, name=hit.source_name)
                     material_rows.append((-rank, label, "", ("material", (hit.record_id, hit.type)), True))
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 - the palette still offers commands
+            logger.warning("Command palette: history search failed: %s", exc)
 
         if query:
             self._add_group(tr("command_group_actions"), self._action_rows(query))
@@ -338,7 +341,8 @@ class CommandPalette(QDialog):
     def _safe_bookmark_rows(self, query: str, store) -> list:
         try:
             return self._bookmark_rows(query, store)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - the palette still offers everything else
+            logger.warning("Command palette: bookmarks unavailable: %s", exc)
             return []
 
     def move_selection(self, step: int) -> None:

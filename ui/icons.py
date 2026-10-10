@@ -11,7 +11,10 @@ from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtCore import QByteArray, Qt
 from PyQt6.QtWidgets import QLabel
 
+from core.logger import get_logger
 from ui.theme import IconColors  # noqa: F401  (re-exported for existing `from ui.icons import IconColors` call sites)
+
+logger = get_logger(__name__)
 
 _ICON_FILE_CACHE: dict[tuple[str, str, int], str] = {}
 
@@ -271,9 +274,8 @@ def get_icon(name: str, color: str | None = None, size: int = 24) -> QIcon:
         pixmap_disabled = _render_pixmap(svg_data, t.text_disabled, size)
         icon.addPixmap(pixmap_disabled, QIcon.Mode.Disabled, QIcon.State.Off)
         icon.addPixmap(pixmap_disabled, QIcon.Mode.Disabled, QIcon.State.On)
-    except Exception:
-        # Fallback if theme system is not yet initialized
-        pass
+    except Exception as exc:  # noqa: BLE001 - the plain icon above still works
+        logger.debug("Icon state pixmaps unavailable: %s", exc)
 
     return icon
 

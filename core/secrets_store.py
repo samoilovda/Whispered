@@ -119,5 +119,5 @@ def delete_secret(name: str) -> None:
         return
     try:
         keyring.delete_password(_SERVICE_NAME, name)
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 - documented as never raising
+        logger.debug("Keyring: nothing removed for %s: %s", name, exc)

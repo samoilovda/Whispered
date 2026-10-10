@@ -1221,6 +1221,6 @@ def apply_theme(app, name: str = "dark") -> Theme:
         try:
             import qdarktheme
             qdarktheme.setup_theme("dark", custom_colors={"primary": "#6366f1"})
-        except Exception:
-            pass
+        except Exception as fallback_exc:  # noqa: BLE001 - last resort: stay on Qt's default look
+            logger.warning("The fallback theme failed too: %s", fallback_exc)
     return t

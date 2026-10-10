@@ -39,6 +39,9 @@ from ui.theme import SPEAKER_PALETTE, get_theme
 from core.i18n import tr, tr_count
 from ui.i18n_helpers import Retranslator
 from ui.qt_util import must
+from core.logger import get_logger
+
+logger = get_logger(__name__)
 
 # Speaker color palette (keyed by original speaker id)
 SPEAKER_COLORS = {
@@ -65,7 +68,7 @@ def _parse_vtt_to_seconds(ts: str) -> float:
         h, m, rest = ts.split(":")
         s, ms = rest.split(".")
         return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
-    except Exception:
+    except ValueError:  # also a wrong number of ":"/"." parts
         return 0.0
 
 
@@ -175,7 +178,8 @@ class TranscriptView(QWidget):
             _cfg = get_config()
             self._show_timestamps = _cfg.show_timestamps
             self._show_speakers = _cfg.show_speaker_labels
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - defaults keep the view usable
+            logger.warning("Transcript display settings unavailable: %s", exc)
             self._show_timestamps = True
             self._show_speakers = True
         self._edit_mode = False
@@ -508,7 +512,8 @@ class TranscriptView(QWidget):
         try:
             from config import get_config
             cfg = get_config()
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - keep the current display
+            logger.warning("Transcript display settings unavailable: %s", exc)
             return
         self._show_timestamps = cfg.show_timestamps
         self._show_speakers = cfg.show_speaker_labels
@@ -853,8 +858,8 @@ class TranscriptView(QWidget):
         try:
             from core.history import get_history_store
             suggestions = get_history_store().list_speaker_aliases()
-        except Exception:
-            pass  # History unavailable/disabled — dialog still works, just with no hints.
+        except Exception as exc:  # noqa: BLE001 - the dialog works without hints
+            logger.debug("No speaker name suggestions: %s", exc)
         dlg = _SpeakerRenameDialog(self._speaker_names, self, suggestions=suggestions)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._speaker_names = dlg.get_names()

@@ -269,8 +269,8 @@ class Recorder(QObject):
         if self._wav is not None:
             try:
                 self._wav.close()
-            except Exception:
-                pass
+            except Exception as exc:  # noqa: BLE001 - the recording's outcome is decided below
+                logger.warning("Closing the WAV file failed: %s", exc)
             self._wav = None
 
         # Determine outcome

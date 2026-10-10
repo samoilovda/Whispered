@@ -107,7 +107,7 @@ def _run_probe(
                 return process.returncode == 0, stdout
             except subprocess.TimeoutExpired:
                 continue
-    except Exception:
+    except (OSError, ValueError, subprocess.SubprocessError):
         return False, ""
 
 

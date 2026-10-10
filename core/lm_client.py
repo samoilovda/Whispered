@@ -140,8 +140,8 @@ class LMStudioClient:
                 if models:
                     self._cached_model = models[0].get('id', 'Unknown')
                     return self._cached_model
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 - a probe: None means "no model known"
+            logger.debug("LM Studio model probe failed: %s", exc)
         return None
 
     def probe(self, timeout: float = 5) -> tuple[bool, str]:
@@ -408,6 +408,6 @@ class LMStudioClient:
             for resp in response_box:
                 try:
                     resp.close()
-                except Exception:
-                    pass
+                except OSError as exc:
+                    logger.debug("Closing the LM Studio stream failed: %s", exc)
             reader.join(timeout=_STREAM_POLL_S)

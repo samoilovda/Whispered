@@ -12,6 +12,9 @@ from pathlib import Path
 from core.external_tools import resolve_tool
 from core.paths import macos_bundle_path
 from core.platform_support import live_system_audio_unavailable_message, supports_live_system_audio
+from core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class PreflightStatus(str, Enum):
@@ -130,7 +133,8 @@ class LivePreflight:
             try:
                 from core.recorder import list_input_devices
                 devices = list_input_devices()
-            except Exception:
+            except Exception as exc:  # noqa: BLE001 - reported as "no microphone" below
+                logger.warning("Listing input devices failed: %s", exc)
                 devices = []
             checks.append(PreflightCheck(
                 "microphone",

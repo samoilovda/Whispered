@@ -949,8 +949,8 @@ class SettingsDialog(QDialog):
             from core.recorder import list_input_devices
             for dev in list_input_devices():
                 self._mic_combo.addItem(dev["name"], dev["index"])
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 - "default microphone" stays available
+            logger.warning("Could not list input devices: %s", exc)
 
     def _clear_history(self):
         reply = QMessageBox.question(

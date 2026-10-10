@@ -633,8 +633,9 @@ class InsightsPanel(QWidget):
                 row = ChapterRow(start, title, self._ch_container)
                 row.seek_requested.connect(self.seek_requested)
                 self._ch_layout.addWidget(row)
-            except Exception:
-                pass
+            except (AttributeError, TypeError, ValueError) as exc:
+                # One malformed item from the model doesn't hide the rest.
+                logger.debug("Skipping a malformed insights item %r: %s", item, exc)
 
     def _render_action_items(self, data: list):
         for item in data:
@@ -648,8 +649,9 @@ class InsightsPanel(QWidget):
                 )
                 row.seek_requested.connect(self.seek_requested)
                 self._ai_layout.addWidget(row)
-            except Exception:
-                pass
+            except (AttributeError, TypeError, ValueError) as exc:
+                # One malformed item from the model doesn't hide the rest.
+                logger.debug("Skipping a malformed insights item %r: %s", item, exc)
 
     def _render_key_moments(self, data: list):
         for item in data:
@@ -662,8 +664,9 @@ class InsightsPanel(QWidget):
                 row = _MomentRow(start, quote, note, self._km_container)
                 row.seek_requested.connect(self.seek_requested)
                 self._km_layout.addWidget(row)
-            except Exception:
-                pass
+            except (AttributeError, TypeError, ValueError) as exc:
+                # One malformed item from the model doesn't hide the rest.
+                logger.debug("Skipping a malformed insights item %r: %s", item, exc)
 
     @staticmethod
     def _clear_section(layout: QVBoxLayout):

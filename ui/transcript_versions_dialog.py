@@ -28,6 +28,9 @@ from PyQt6.QtWidgets import (
 )
 
 from core.i18n import tr
+from core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def _fmt_date(iso: str) -> str:
@@ -36,7 +39,7 @@ def _fmt_date(iso: str) -> str:
         if dt.tzinfo is not None:
             dt = dt.astimezone()
         return dt.strftime("%d %b %Y, %H:%M")
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         return iso
 
 
@@ -133,7 +136,8 @@ class TranscriptVersionsDialog(QDialog):
         self._diff_view.clear()
         try:
             self._revisions = get_history_store().list_transcript_revisions(self._record_id)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - an empty list, not a broken dialog
+            logger.warning("Could not read transcript versions of record %s: %s", self._record_id, exc)
             self._revisions = []
         for meta in self._revisions:
             delta = meta.size_delta

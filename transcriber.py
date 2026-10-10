@@ -293,8 +293,8 @@ def _run_transcription_process(
             import wave
             with wave.open(audio_path, 'rb') as f:
                 duration = f.getnframes() / float(f.getframerate())
-        except Exception:
-            duration = 1.0
+        except (OSError, EOFError, wave.Error, ZeroDivisionError):
+            duration = 1.0  # progress only; whisper reads the file itself
 
         def segment_cb(seg):
             if duration > 1.0:
@@ -396,7 +396,9 @@ def _run_transcription_process(
         # result was delivered.  This explicit sentinel closes that protocol.
         try:
             q.put(('terminal',))
-        except Exception:
+        except (OSError, ValueError):
+            # The parent already closed the queue (it cancelled us); there
+            # is nobody left to tell.
             pass
 
 class TranscriptionWorker(BaseWorker):

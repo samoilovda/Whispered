@@ -174,7 +174,8 @@ class CoverView(QWidget):
             from video_input import probe_video
 
             _, duration = probe_video(self._video)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - frames are still picked without a length
+            logger.debug("Could not probe %s: %s", self._video, exc)
             duration = 0.0
         if self._frame_dir is None:
             self._frame_dir = tempfile.mkdtemp(prefix="whispered-cover-frames-")
@@ -211,7 +212,8 @@ class CoverView(QWidget):
             from video_input import probe_video
 
             _, duration = probe_video(self._video)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - frames are still picked without a length
+            logger.debug("Could not probe %s: %s", self._video, exc)
             duration = 0.0
         if self._frame_dir is None:
             self._frame_dir = tempfile.mkdtemp(prefix="whispered-cover-frames-")
