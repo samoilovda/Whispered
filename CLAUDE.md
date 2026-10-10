@@ -78,8 +78,10 @@ ruff check .                     # must be clean
 python -m pytest tests/ -q      # system python — Qt is stubbed in tests/conftest.py
 python -m compileall -q . -x '.venv|.claude|build|dist|docs/archive'
 # mypy is a blocking gate for all of this, ui/ included — clean, and it
-# must stay clean (see "Mypy blocking modules").
-python -m mypy --ignore-missing-imports core/ transcriber.py diarizer.py \
+# must stay clean (see "Mypy blocking modules"). Run it from the venv, where
+# real PyQt6 is installed: system python would type every Qt call as Any.
+# (One-time: .venv/bin/python -m pip install mypy==1.17.1 types-requests)
+.venv/bin/python -m mypy --ignore-missing-imports core/ transcriber.py diarizer.py \
     exporters.py utils.py config.py version.py domain/ application/ infrastructure/ \
     batch_processor.py book_pipeline.py ui/
 # real-Qt headless smoke (PyQt6 lives only in the project venv):
@@ -87,7 +89,8 @@ QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests_qt/ -q
 ```
 
 Unit tests run with **system python** against PyQt6 stubs; anything that
-needs real Qt runs with `.venv/bin/python` and `QT_QPA_PLATFORM=offscreen`.
+needs real Qt — the real-Qt suite and mypy — runs with `.venv/bin/python`
+(`QT_QPA_PLATFORM=offscreen` for the tests).
 CI mirrors all of the above (`.github/workflows/ci.yml`).
 
 ## Standalone build gotchas
