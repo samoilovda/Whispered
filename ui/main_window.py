@@ -1365,6 +1365,10 @@ class MainWindow(QMainWindow):
         if use_system and discovered is None:
             self.live_view.invalidate_preflight()
             return
+        # A missing model downloads here, verified, before the session
+        # starts — not unverified inside the live worker process.
+        if not self._ensure_whisper_model(model):
+            return
         self.live_view.reset_session()
         self._live_checkpoint.start(
             source_name=time.strftime("Live %Y-%m-%d %H:%M"),

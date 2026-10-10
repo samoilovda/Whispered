@@ -154,7 +154,9 @@ class LivePreflight:
         from utils import get_models_dir
         try:
             model_dir = Path(get_models_dir())
-            candidates = tuple(model_dir.glob(f"*{model_name}*")) if model_name else ()
+            # Exact file: a glob would let "large-v3-turbo" match the q8_0 file.
+            model_file = model_dir / f"ggml-{model_name}.bin"
+            candidates = (model_file,) if model_name and model_file.is_file() else ()
         except OSError:
             # Preflight is read-only. A restricted profile must report a
             # warning rather than fail while merely checking model presence.
