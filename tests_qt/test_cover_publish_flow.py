@@ -105,9 +105,9 @@ def test_approved_cover_is_saved_with_a_reusable_manifest(window, tmp_path, proc
     window.cover_view.set_cover_texts("Почему психологу трудно", "Денис Самойлов", "")
     art_dir = tmp_path / "artifacts"
     dialog = _FakeDialog()
-    window._yt_dialog = dialog
+    window.youtube_publish.dialog = dialog
 
-    window._render_publish_cover(dialog, 7, str(tmp_path / "talk.mp4"), art_dir)
+    window.youtube_publish.render_cover(dialog, 7, str(tmp_path / "talk.mp4"), art_dir)
     deadline = time.monotonic() + 10
     while dialog.ready is None and dialog.failed is None and time.monotonic() < deadline:
         process_events()

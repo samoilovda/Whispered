@@ -28,7 +28,7 @@ def _window(monkeypatch, mode):
     get_config().yt_publish_mode = mode
     window = MainWindow()
     opened = []
-    monkeypatch.setattr(window, "_open_publish_dialog", lambda: opened.append(True))
+    monkeypatch.setattr(window.youtube_publish, "open_dialog", lambda: opened.append(True))
     return window, opened
 
 
@@ -112,7 +112,8 @@ def test_publishing_with_nothing_generated_only_toasts(monkeypatch):
 
     window = MainWindow()
     toasts = []
-    monkeypatch.setattr("ui.main_window.show_toast", lambda *a, **k: toasts.append(a[1]))
-    window._open_publish_dialog()
+    monkeypatch.setattr(
+        "ui.youtube_publish_controller.show_toast", lambda *a, **k: toasts.append(a[1]))
+    window.youtube_publish.open_dialog()
     assert toasts and "YouTube" in toasts[0]
     window.close()

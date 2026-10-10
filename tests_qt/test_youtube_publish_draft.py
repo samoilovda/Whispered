@@ -152,10 +152,10 @@ def test_main_window_keeps_the_draft_per_record(monkeypatch):
         return 0
 
     monkeypatch.setattr(YouTubePublishDialog, "exec", fake_exec)
-    window._open_publish_dialog()
-    window._open_publish_dialog()
+    window.youtube_publish.open_dialog()
+    window.youtube_publish.open_dialog()
     record["id"] = 2
-    window._open_publish_dialog()
+    window.youtube_publish.open_dialog()
     assert seen == [
         ("Почему психологу трудно в личной терапии?", ""),
         ("Мой собственный заголовок", "Анна Иванова"),

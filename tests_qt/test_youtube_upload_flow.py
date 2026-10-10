@@ -172,15 +172,15 @@ def _start(window, record_id, tmp_path, video):
     from domain.youtube_publish import PublishPackage
 
     pkg = PublishPackage(video, "T", "D", ("a",), None)
-    window._start_youtube_upload(
+    window.youtube_publish.start_upload(
         pkg, record_id, tmp_path / "youtube_upload.json", tmp_path / "youtube_upload.pending.json")
-    assert window._yt_upload is not None
-    assert window._yt_upload.wait(5000)
+    assert window.youtube_publish.upload is not None
+    assert window.youtube_publish.upload.wait(5000)
 
 
 def test_successful_upload_reports_opens_studio_and_marks_the_record(monkeypatch, tmp_path, video, process_events):
     window, store, record_id = _window(monkeypatch, tmp_path)
-    monkeypatch.setattr(window, "_youtube_upload_ready", lambda: True)
+    monkeypatch.setattr(window.youtube_publish, "upload_ready", lambda: True)
     opened = []
     monkeypatch.setattr("PyQt6.QtGui.QDesktopServices.openUrl", lambda url: opened.append(url.toString()) or True)
 
@@ -190,7 +190,7 @@ def test_successful_upload_reports_opens_studio_and_marks_the_record(monkeypatch
 
     _fake_worker(monkeypatch, execute)
     dialog = _FakeDialog()
-    window._yt_dialog = dialog
+    window.youtube_publish.dialog = dialog
     _start(window, record_id, tmp_path, video)
     process_events()
     assert dialog.events == [("progress", 50), ("done", "vid42")]
@@ -201,10 +201,10 @@ def test_successful_upload_reports_opens_studio_and_marks_the_record(monkeypatch
 
 def test_failed_upload_with_expired_login_asks_to_reconnect(monkeypatch, tmp_path, video, process_events):
     window, _store, record_id = _window(monkeypatch, tmp_path)
-    monkeypatch.setattr(window, "_youtube_upload_ready", lambda: True)
+    monkeypatch.setattr(window.youtube_publish, "upload_ready", lambda: True)
     _fake_worker(monkeypatch, lambda worker: worker.failed.emit("expired", True))
     dialog = _FakeDialog()
-    window._yt_dialog = dialog
+    window.youtube_publish.dialog = dialog
     _start(window, record_id, tmp_path, video)
     process_events()
     assert dialog.events == [("failed", dialog_module.tr("yt_publish_relogin"))]
@@ -215,13 +215,13 @@ def test_upload_is_refused_without_a_connected_account(monkeypatch, tmp_path, vi
     from domain.youtube_publish import PublishPackage
 
     window, _store, record_id = _window(monkeypatch, tmp_path)
-    monkeypatch.setattr(window, "_youtube_upload_ready", lambda: False)
+    monkeypatch.setattr(window.youtube_publish, "upload_ready", lambda: False)
     dialog = _FakeDialog()
-    window._yt_dialog = dialog
-    window._start_youtube_upload(
+    window.youtube_publish.dialog = dialog
+    window.youtube_publish.start_upload(
         PublishPackage(video, "T", "D", (), None), record_id,
         tmp_path / "r.json", tmp_path / "p.json")
-    assert window._yt_upload is None
+    assert window.youtube_publish.upload is None
     assert dialog.events == [("failed", dialog_module.tr("yt_publish_relogin"))]
     window.close()
 
@@ -236,13 +236,13 @@ def test_upload_ready_requires_api_mode_client_and_login(monkeypatch):
     monkeypatch.setattr(youtube_oauth, "is_connected", lambda: True)
     cfg.yt_oauth_client_id, cfg.yt_oauth_client_secret = "cid", "csec"
     cfg.yt_publish_mode = "handoff"
-    assert not window._youtube_upload_ready()
+    assert not window.youtube_publish.upload_ready()
     cfg.yt_publish_mode = "api"
-    assert window._youtube_upload_ready()
+    assert window.youtube_publish.upload_ready()
     cfg.yt_oauth_client_secret = ""
-    assert not window._youtube_upload_ready()
+    assert not window.youtube_publish.upload_ready()
     cfg.yt_oauth_client_secret = "csec"
     monkeypatch.setattr(youtube_oauth, "is_connected", lambda: False)
-    assert not window._youtube_upload_ready()
+    assert not window.youtube_publish.upload_ready()
     cfg.yt_oauth_client_id = cfg.yt_oauth_client_secret = ""
     window.close()
