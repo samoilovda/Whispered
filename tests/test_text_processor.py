@@ -260,3 +260,23 @@ class TestLongTextRegressions:
         assert "Обрезанный ответ" not in result.text
         assert result.text.count("номер 59 ") == 12
         assert "cut short" in caplog.text
+
+
+def test_russian_speech_gets_the_russian_prompt():
+    from text_processor import (
+        CLEANING_PROMPT_TEMPLATE, CLEANING_PROMPT_TEMPLATE_RU, CLEANING_SYSTEM_PROMPT,
+        CLEANING_SYSTEM_PROMPT_RU, TextCleaner, _cleaning_prompt,
+    )
+
+    client = object()
+    assert TextCleaner(client, language="ru")._prompts() == (
+        CLEANING_SYSTEM_PROMPT_RU, CLEANING_PROMPT_TEMPLATE_RU,
+    )
+    assert "слова-паразиты" in CLEANING_SYSTEM_PROMPT_RU
+    for language in ("en", None):
+        assert TextCleaner(client, language=language)._prompts() == (
+            CLEANING_SYSTEM_PROMPT, CLEANING_PROMPT_TEMPLATE,
+        )
+    prompt = _cleaning_prompt("ну вот текст", CLEANING_PROMPT_TEMPLATE_RU)
+    assert "ну вот текст" in prompt
+    assert prompt.rstrip().endswith("Выведи только очищенный текст:")

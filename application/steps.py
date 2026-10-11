@@ -316,7 +316,10 @@ def _clean_runner(context: StepContext) -> StepRunner:
         from text_processor import TextProcessor
 
         lm_url = context.params.get("lm_url")
-        processor = TextProcessor(lm_url) if lm_url else TextProcessor()
+        language = context.result.language
+        processor = (
+            TextProcessor(lm_url, language=language) if lm_url else TextProcessor(language=language)
+        )
         processor.lm_client.is_cancelled = context.is_cancelled
         use_ai = bool(context.params.get("use_ai", True))
         result = processor.process(
@@ -335,8 +338,9 @@ def _clean_runner(context: StepContext) -> StepRunner:
 # clean.md made by the older pipeline is redone (v2: chunks no longer
 # overlap, paragraphs are organized per chunk instead of timing out;
 # v3: the AI clean answers instead of thinking until max_tokens, and
-# paragraphs it already wrote are kept rather than rewritten).
-_CLEAN_PIPELINE_VERSION = 3
+# paragraphs it already wrote are kept rather than rewritten; v4: 4000-
+# character chunks and a Russian prompt for Russian speech).
+_CLEAN_PIPELINE_VERSION = 4
 
 
 def _clean_artifact(context: StepContext) -> Artifact:
@@ -349,7 +353,7 @@ def _clean_artifact(context: StepContext) -> Artifact:
         path=str(context.artifact_dir / "clean.md"),
         provider=_provider_label(context),
         model=_model_label(context),
-        prompt_version=f"{_composite_prompt_version('cleaning', 'coherence', 'glossary')}+{_CLEAN_PIPELINE_VERSION}",
+        prompt_version=f"{_composite_prompt_version('cleaning', 'cleaning_ru', 'coherence', 'glossary')}+{_CLEAN_PIPELINE_VERSION}",
     )
 
 

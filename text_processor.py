@@ -19,8 +19,11 @@ logger = get_logger(__name__)
 # CONFIGURATION
 # ============================================================================
 
-# Chunk size for processing long texts (in characters)
-TEXT_CHUNK_SIZE = 8000
+# Chunk size for processing long texts (in characters). 4000 rather than
+# 8000: on a 45-minute Russian recording gemma-4-12b kept more of the
+# speaker's words and wrote more paragraphs in about the same total time
+# (docs/LLM_BENCHMARKS.ru.md).
+TEXT_CHUNK_SIZE = 4000
 # Chunks are cleaned independently and their results concatenated, so
 # they must not overlap — an overlap came out twice in the cleaned text.
 TEXT_CHUNK_OVERLAP = 0
@@ -116,12 +119,33 @@ Transcription:
 {glossary}
 Output the cleaned text only:"""
 
+# Russian speech gets a Russian prompt (prompts/cleaning_ru.md holds the
+# role and the rules): the English one lists English fillers, and with it
+# gemma-4-12b removed 12 of 49 Russian fillers on a test chunk; with this
+# one, 41 — and it applied the glossary's spellings more reliably.
+CLEANING_SYSTEM_PROMPT_RU = load_prompt("cleaning_ru", fallback="")
+
+CLEANING_PROMPT_TEMPLATE_RU = """Расшифровка:
+---
+{text}
+---
+{glossary}
+Выведи только очищенный текст:"""
+
 
 class TextCleaner:
     """Clean raw transcription text using LM Studio."""
 
-    def __init__(self, lm_client: Optional[LMStudioClient] = None):
+    def __init__(self, lm_client: Optional[LMStudioClient] = None, language: Optional[str] = None):
         self.lm_client = lm_client or LMStudioClient()
+        # The transcript's language code ("ru", "en", ...); picks the prompt.
+        self.language = language
+
+    def _prompts(self) -> tuple[str, str]:
+        """(system prompt, request template) for the transcript's language."""
+        if (self.language or "").lower().startswith("ru") and CLEANING_SYSTEM_PROMPT_RU:
+            return CLEANING_SYSTEM_PROMPT_RU, CLEANING_PROMPT_TEMPLATE_RU
+        return CLEANING_SYSTEM_PROMPT, CLEANING_PROMPT_TEMPLATE
 
     def _quick_clean(self, text: str) -> str:
         """Quick regex-based cleaning for when LM Studio is unavailable."""
@@ -213,10 +237,10 @@ class TextCleaner:
             if on_progress:
                 on_progress(20, "Processing with AI...")
 
-            prompt = _cleaning_prompt(text)
+            system, template = self._prompts()
             result = self.lm_client.chat_completion(
-                prompt=prompt,
-                system_prompt=CLEANING_SYSTEM_PROMPT,
+                prompt=_cleaning_prompt(text, template),
+                system_prompt=system,
                 temperature=0.3,  # Lower temperature for more consistent cleaning
                 reasoning_effort=_NO_REASONING,
             )
@@ -229,16 +253,16 @@ class TextCleaner:
         # For long texts, process in chunks
         chunks = self._split_into_chunks(text)
         cleaned_chunks = []
+        system, template = self._prompts()
 
         for i, chunk in enumerate(chunks):
             progress = int(20 + (70 * i / len(chunks)))
             if on_progress:
                 on_progress(progress, f"Processing chunk {i+1}/{len(chunks)}...")
 
-            prompt = _cleaning_prompt(chunk)
             result = self.lm_client.chat_completion(
-                prompt=prompt,
-                system_prompt=CLEANING_SYSTEM_PROMPT,
+                prompt=_cleaning_prompt(chunk, template),
+                system_prompt=system,
                 temperature=0.3,
                 reasoning_effort=_NO_REASONING,
             )
@@ -295,11 +319,11 @@ Text:
 Output the organized text with clear paragraph breaks:"""
 
 
-def _cleaning_prompt(text: str) -> str:
+def _cleaning_prompt(text: str, template: str = CLEANING_PROMPT_TEMPLATE) -> str:
     """The cleaning request for *text*, with the glossary terms that occur
     in it (core/glossary.py) between the text and the closing line."""
     block = glossary_block(text)
-    return CLEANING_PROMPT_TEMPLATE.format(text=text, glossary=f"\n{block}\n" if block else "")
+    return template.format(text=text, glossary=f"\n{block}\n" if block else "")
 
 
 def _usable(result: Optional[str], source: str) -> bool:
@@ -466,9 +490,9 @@ class CoherenceProcessor:
 class TextProcessor:
     """Main text processing pipeline combining cleaning and coherence."""
 
-    def __init__(self, lm_studio_url: str = DEFAULT_LM_STUDIO_URL):
+    def __init__(self, lm_studio_url: str = DEFAULT_LM_STUDIO_URL, language: Optional[str] = None):
         self.lm_client = LMStudioClient(lm_studio_url)
-        self.cleaner = TextCleaner(self.lm_client)
+        self.cleaner = TextCleaner(self.lm_client, language=language)
         self.coherence = CoherenceProcessor(self.lm_client)
 
     def is_available(self) -> bool:
