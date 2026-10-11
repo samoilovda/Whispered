@@ -349,7 +349,7 @@ def _clean_artifact(context: StepContext) -> Artifact:
         path=str(context.artifact_dir / "clean.md"),
         provider=_provider_label(context),
         model=_model_label(context),
-        prompt_version=f"{_composite_prompt_version('cleaning', 'coherence')}+{_CLEAN_PIPELINE_VERSION}",
+        prompt_version=f"{_composite_prompt_version('cleaning', 'coherence', 'glossary')}+{_CLEAN_PIPELINE_VERSION}",
     )
 
 
@@ -514,7 +514,7 @@ def _insights_prompt_version(context: StepContext) -> str:
     """Prompt version of the Insights step: its prompts plus, when the
     user has notes, a fingerprint of them — edited notes make the next
     run regenerate instead of reusing the cached result."""
-    version = _composite_prompt_version(*_INSIGHTS_TYPES)
+    version = _composite_prompt_version(*_INSIGHTS_TYPES, "glossary")
     notes = _user_notes(context)
     if not notes.strip():
         return version
@@ -587,7 +587,7 @@ def _youtube_package_prompt_version(context: StepContext) -> str:
     """The prompts' version plus the output language: the package is
     written in that language, so a different one is a different result —
     without this a language change in Settings was answered from cache."""
-    joined = f"{_composite_prompt_version(*_YOUTUBE_TYPES)}|lang={_youtube_language(context) or ''}"
+    joined = f"{_composite_prompt_version(*_YOUTUBE_TYPES, 'glossary')}|lang={_youtube_language(context) or ''}"
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()[:16]
 
 

@@ -23,6 +23,7 @@ import json
 import re
 from typing import Callable, Optional, TYPE_CHECKING
 
+from core.glossary import glossary_block
 from core.insights_cache import InsightsCache
 from core.llm_text import sample_lines_evenly
 from core.logger import get_logger
@@ -166,7 +167,8 @@ def _build_prompt_text(
     after the task instructions to force the output into that language.
     *notes* — the user's own notes about the record
     (application/user_notes.py) — go between the transcript and the task
-    instructions, introduced by prompts/user_notes.md.
+    instructions, introduced by prompts/user_notes.md. The glossary terms
+    the transcript uses (prompts/glossary.md) come right after it.
     """
     system_prompt = load_prompt(insight_type, fallback="")
     lines = []
@@ -202,6 +204,10 @@ def _build_prompt_text(
     _flush()
     transcript = sample_lines_evenly(lines, max_transcript_chars)
     lang_directive = f"Write all output in {language}.\n" if language else ""
+    # Terms the transcript uses (core/glossary.py): they depend only on
+    # the transcript, so the block keeps the shared per-record prefix.
+    glossary = glossary_block(transcript)
+    glossary_section = f"{glossary}\n\n" if glossary else ""
     notes_block = ""
     if notes.strip():
         intro = load_prompt("user_notes", fallback="The user's own notes about this recording:")
@@ -212,7 +218,7 @@ def _build_prompt_text(
     # instructions — with the task first, all of them re-read it in full.
     return (
         _TRANSCRIPT_HEADER + "\n" + transcript + "\n\n"
-        + notes_block + _task_instructions(system_prompt) + "\n" + lang_directive
+        + glossary_section + notes_block + _task_instructions(system_prompt) + "\n" + lang_directive
     )
 
 

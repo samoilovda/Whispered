@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional, Callable
 
+from core.glossary import glossary_block
 from core.lm_client import LMStudioClient, DEFAULT_LM_STUDIO_URL
 from core.llm_text import split_into_chunks
 from core.logger import get_logger
@@ -112,7 +113,7 @@ Transcription:
 ---
 {text}
 ---
-
+{glossary}
 Output the cleaned text only:"""
 
 
@@ -212,7 +213,7 @@ class TextCleaner:
             if on_progress:
                 on_progress(20, "Processing with AI...")
 
-            prompt = CLEANING_PROMPT_TEMPLATE.format(text=text)
+            prompt = _cleaning_prompt(text)
             result = self.lm_client.chat_completion(
                 prompt=prompt,
                 system_prompt=CLEANING_SYSTEM_PROMPT,
@@ -234,7 +235,7 @@ class TextCleaner:
             if on_progress:
                 on_progress(progress, f"Processing chunk {i+1}/{len(chunks)}...")
 
-            prompt = CLEANING_PROMPT_TEMPLATE.format(text=chunk)
+            prompt = _cleaning_prompt(chunk)
             result = self.lm_client.chat_completion(
                 prompt=prompt,
                 system_prompt=CLEANING_SYSTEM_PROMPT,
@@ -292,6 +293,13 @@ Text:
 ---
 
 Output the organized text with clear paragraph breaks:"""
+
+
+def _cleaning_prompt(text: str) -> str:
+    """The cleaning request for *text*, with the glossary terms that occur
+    in it (core/glossary.py) between the text and the closing line."""
+    block = glossary_block(text)
+    return CLEANING_PROMPT_TEMPLATE.format(text=text, glossary=f"\n{block}\n" if block else "")
 
 
 def _usable(result: Optional[str], source: str) -> bool:
