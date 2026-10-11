@@ -52,6 +52,18 @@ _RESPONSE_MAX_TOKENS = 16_000
 # 137 s, with chapters/titles/descriptions/tags/questions of the same
 # quality (the chapters prompt already asks not to deliberate).
 _LOCAL_REASONING_EFFORT: dict[str, str] = {name: "none" for name in _INSIGHT_TYPES}
+# Types whose first answer is a draft that a second request reviews
+# against the same transcript (prompts/<type>_review.md, the draft in its
+# {draft} slot). On a 45-minute recording with gemma-4-12b: titles drawn as
+# 12 candidates and narrowed to 5 lost the invented "3 ways to..." and got
+# more specific; the description review fixed who-did-what mix-ups. Each
+# costs ~10 s — the transcript is already in LM Studio's prefix cache.
+_REVIEWED_TYPES = ("yt_titles", "yt_description")
+# Sampling temperature per type; the rest use _DEFAULT_TEMPERATURE. Title
+# candidates should differ from each other — the review picks among them.
+_DEFAULT_TEMPERATURE = 0.2
+_TEMPERATURE = {"yt_titles": 0.8}
+_NUMBER = re.compile(r"\d+")
 # Socket-read timeout per stream. The client default (300s) fired on long
 # prefills/reasoning stretches where LM Studio sends no content deltas.
 _STREAM_TIMEOUT_S = 600
@@ -328,7 +340,7 @@ def generate_insight(
     raw = client.chat_completion_stream(
         messages=messages,
         is_cancelled=is_cancelled,
-        temperature=0.2,
+        temperature=_TEMPERATURE.get(insight_type, _DEFAULT_TEMPERATURE),
         max_tokens=_RESPONSE_MAX_TOKENS,
         timeout=_STREAM_TIMEOUT_S,
         **extra,
@@ -369,6 +381,73 @@ def generate_insight(
                 cache.put(cache_key, raw)
             return raw
 
+    if insight_type in _REVIEWED_TYPES and result:
+        result = _review(
+            insight_type, result, segments, client=client, extra=extra,
+            is_cancelled=is_cancelled, max_transcript_chars=max_transcript_chars,
+            language=language, notes=notes,
+        )
+    if insight_type == "yt_titles":
+        result = _drop_unsaid_numbers(result, segments)
+
     if cache is not None and cache_key is not None:
         cache.put(cache_key, result)
     return result
+
+
+def _review(
+    insight_type: str,
+    draft: list,
+    segments,
+    *,
+    client,
+    extra: dict,
+    is_cancelled: Callable[[], bool],
+    max_transcript_chars: int,
+    language: Optional[str],
+    notes: str,
+) -> list:
+    """Second pass over *draft* with prompts/<insight_type>_review.md:
+    the reviewed list, or *draft* itself when there is no review prompt or
+    the review came back empty or unparseable — a review may improve a
+    result but must never lose it."""
+    review_type = f"{insight_type}_review"
+    if not load_prompt(review_type, fallback=""):
+        return draft
+    items = [str(item) for item in draft]
+    shown = items[0] if len(items) == 1 else "\n".join(f"- {item}" for item in items)
+    prompt = _build_prompt_text(
+        review_type, segments, max_transcript_chars=max_transcript_chars,
+        language=language, notes=notes,
+    ).replace("{draft}", shown)
+    raw = client.chat_completion_stream(
+        messages=[{"role": "user", "content": prompt}],
+        is_cancelled=is_cancelled,
+        temperature=_DEFAULT_TEMPERATURE,
+        max_tokens=_RESPONSE_MAX_TOKENS,
+        timeout=_STREAM_TIMEOUT_S,
+        **extra,
+    )
+    reviewed = _parse_json_response(raw) if raw and not is_cancelled() else None
+    if not reviewed or not all(isinstance(item, str) and item.strip() for item in reviewed):
+        logger.warning("%s review gave no usable answer; keeping the draft", insight_type)
+        return draft
+    if len(draft) == 1 and len(reviewed) > 1:
+        # A one-string answer (the description) sometimes comes back split
+        # into hook and paragraph; consumers read only its first item.
+        return ["\n\n".join(item.strip() for item in reviewed)]
+    return reviewed
+
+
+def _drop_unsaid_numbers(titles, segments):
+    """*titles* without those quoting a number nobody said ("3 ways to…"
+    in a talk with no three ways) — unless that would drop them all."""
+    if not isinstance(titles, list):
+        return titles
+    said = set(_NUMBER.findall(" ".join(
+        (seg.get("text", "") if isinstance(seg, dict) else seg.text) for seg in segments
+    )))
+    kept = [t for t in titles if set(_NUMBER.findall(str(t))) <= said]
+    if len(kept) < len(titles):
+        logger.info("Dropped %d title(s) with numbers not in the transcript", len(titles) - len(kept))
+    return kept or titles

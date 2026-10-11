@@ -554,6 +554,8 @@ def _insights_load(context: StepContext) -> Optional[Any]:
 _YOUTUBE_TYPES = (
     "chapters", "yt_titles", "yt_description", "yt_tags", "yt_questions", "yt_hashtags",
 )
+# Second-pass prompts core.insights runs for some of those types.
+_YOUTUBE_REVIEWS = ("yt_titles_review", "yt_description_review")
 
 
 def _youtube_package_runner(context: StepContext) -> StepRunner:
@@ -591,7 +593,7 @@ def _youtube_package_prompt_version(context: StepContext) -> str:
     """The prompts' version plus the output language: the package is
     written in that language, so a different one is a different result —
     without this a language change in Settings was answered from cache."""
-    joined = f"{_composite_prompt_version(*_YOUTUBE_TYPES, 'glossary')}|lang={_youtube_language(context) or ''}"
+    joined = f"{_composite_prompt_version(*_YOUTUBE_TYPES, *_YOUTUBE_REVIEWS, 'glossary')}|lang={_youtube_language(context) or ''}"
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()[:16]
 
 
