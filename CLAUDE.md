@@ -177,6 +177,9 @@ CI mirrors all of the above (`.github/workflows/ci.yml`).
 - `input/`, `output/` are git-ignored user data.
 - Executed plans and historical docs live in `docs/archive/`; strategy docs
   in `docs/`. The public roadmap is `ROADMAP.md`.
+- `docs/LLM_RESEARCH.ru.md` is the single record of local-LLM limits,
+  measurements and decisions: read it before changing an LLM step or
+  prompt, and add every new experiment and idea there (its §9 template).
 
 ## Mypy blocking modules
 

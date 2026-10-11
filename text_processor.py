@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 # Chunk size for processing long texts (in characters). 4000 rather than
 # 8000: on a 45-minute Russian recording gemma-4-12b kept more of the
 # speaker's words and wrote more paragraphs in about the same total time
-# (docs/LLM_BENCHMARKS.ru.md).
+# (docs/LLM_RESEARCH.ru.md).
 TEXT_CHUNK_SIZE = 4000
 # Chunks are cleaned independently and their results concatenated, so
 # they must not overlap — an overlap came out twice in the cleaned text.

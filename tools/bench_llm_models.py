@@ -5,7 +5,7 @@ Runs, on one history record's transcript, what the "YouTube video"
 recipe asks of the local model — AI cleaning of the first N chunks and
 the five YouTube package insights — and saves timings plus the outputs,
 so models can be compared on speed *and* quality. Results and the
-comparison so far: docs/LLM_BENCHMARKS.ru.md.
+comparison so far: docs/LLM_RESEARCH.ru.md.
 
 Load exactly one model first (two rarely fit in memory), e.g.:
     lms unload --all && lms load google/gemma-4-e4b -y --gpu max
