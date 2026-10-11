@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Callable, Optional, TYPE_CHECKING
+from typing import Callable, Mapping, Optional, Sequence, TYPE_CHECKING
 
 from core.glossary import glossary_block
 from core.insights_cache import InsightsCache
@@ -167,6 +167,7 @@ def _build_prompt_text(
     max_transcript_chars: int = _TRANSCRIPT_MAX_CHARS,
     language: Optional[str] = None,
     notes: str = "",
+    style_examples: Optional[Mapping[str, Sequence[str]]] = None,
 ) -> str:
     """Build the full prompt including the timestamped transcript.
 
@@ -181,6 +182,10 @@ def _build_prompt_text(
     (application/user_notes.py) — go between the transcript and the task
     instructions, introduced by prompts/user_notes.md. The glossary terms
     the transcript uses (prompts/glossary.md) come right after it.
+    *style_examples* — ``{insight type: texts}`` the host wrote or approved
+    on other records (application/style_examples.py) — go after the notes
+    for the types that have them, introduced by prompts/style_examples.md;
+    a ``<type>_review`` uses the examples of ``<type>``.
     """
     system_prompt = load_prompt(insight_type, fallback="")
     lines = []
@@ -224,14 +229,32 @@ def _build_prompt_text(
     if notes.strip():
         intro = load_prompt("user_notes", fallback="The user's own notes about this recording:")
         notes_block = f"{intro.strip()}\n\nUSER NOTES:\n{notes.strip()}\n\n"
+    examples_block = _style_examples_block(insight_type, style_examples)
     # Transcript first, task last: every insight type of a record then
     # starts with the same tokens, so LM Studio's prompt cache reads the
     # transcript once and each further type only prefills its own
     # instructions — with the task first, all of them re-read it in full.
     return (
         _TRANSCRIPT_HEADER + "\n" + transcript + "\n\n"
-        + glossary_section + notes_block + _task_instructions(system_prompt) + "\n" + lang_directive
+        + glossary_section + notes_block + examples_block + _task_instructions(system_prompt) + "\n" + lang_directive
     )
+
+
+def _style_examples_block(
+    insight_type: str, style_examples: Optional[Mapping[str, Sequence[str]]],
+) -> str:
+    """The host's own examples for *insight_type*, or "". They differ per
+    type, so they come after everything the types of a record share."""
+    if not style_examples:
+        return ""
+    items = [str(item).strip() for item in
+             style_examples.get(insight_type.removesuffix("_review")) or ()]
+    items = [item for item in items if item]
+    if not items:
+        return ""
+    intro = load_prompt("style_examples", fallback="Examples of the host's own style:")
+    shown = "\n\n".join(f"Example {n}:\n{item}" for n, item in enumerate(items, 1))
+    return f"{intro.strip()}\n\n{shown}\n\n"
 
 
 _TRANSCRIPT_HEADER = "TRANSCRIPT (with timestamps in seconds):"
@@ -271,6 +294,7 @@ def generate_insight(
     is_cancelled: Callable[[], bool] = lambda: False,
     max_transcript_chars: Optional[int] = None,
     notes: str = "",
+    style_examples: Optional[Mapping[str, Sequence[str]]] = None,
 ):
     """Generate one insight type from a transcript, synchronously.
 
@@ -282,6 +306,8 @@ def generate_insight(
     max_transcript_chars : defaults to ``Config.insights_context_chars``
         when not given — callers with no config context (e.g. tests) may
         pass it explicitly.
+    style_examples : ``{insight type: texts}`` from
+        ``application.style_examples`` (see ``_build_prompt_text``)
 
     Returns the parsed insight list, a list of suggestions (thumb_title),
     the raw response text if it never parsed as JSON after a retry, or
@@ -310,7 +336,7 @@ def generate_insight(
 
     prompt = _build_prompt_text(
         insight_type, segments, max_transcript_chars=max_transcript_chars, language=language,
-        notes=notes,
+        notes=notes, style_examples=style_examples,
     )
 
     provider_id = provider.kind if provider else "lmstudio"
@@ -385,7 +411,7 @@ def generate_insight(
         result = _review(
             insight_type, result, segments, client=client, extra=extra,
             is_cancelled=is_cancelled, max_transcript_chars=max_transcript_chars,
-            language=language, notes=notes,
+            language=language, notes=notes, style_examples=style_examples,
         )
     if insight_type == "yt_titles":
         result = _drop_unsaid_numbers(result, segments)
@@ -406,6 +432,7 @@ def _review(
     max_transcript_chars: int,
     language: Optional[str],
     notes: str,
+    style_examples: Optional[Mapping[str, Sequence[str]]] = None,
 ) -> list:
     """Second pass over *draft* with prompts/<insight_type>_review.md:
     the reviewed list, or *draft* itself when there is no review prompt or
@@ -418,7 +445,7 @@ def _review(
     shown = items[0] if len(items) == 1 else "\n".join(f"- {item}" for item in items)
     prompt = _build_prompt_text(
         review_type, segments, max_transcript_chars=max_transcript_chars,
-        language=language, notes=notes,
+        language=language, notes=notes, style_examples=style_examples,
     ).replace("{draft}", shown)
     raw = client.chat_completion_stream(
         messages=[{"role": "user", "content": prompt}],

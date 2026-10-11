@@ -37,7 +37,7 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional
 
 from domain.artifact_provenance import (
     source_fingerprint,
@@ -49,6 +49,9 @@ from application.artifacts import save_best_effort
 from domain.artifact import Artifact
 from domain.job import JobSpec, StepSpec
 from domain.transcription import TranscriptionResult
+
+if TYPE_CHECKING:
+    from application.style_examples import StyleExamples
 
 logger = get_logger(__name__)
 
@@ -566,13 +569,14 @@ def _youtube_package_runner(context: StepContext) -> StepRunner:
         provider = context.params.get("provider")
         cache = context.params.get("insights_cache")
         language = _youtube_language(context)
+        examples = _style_examples(context).for_insights()
 
         payload: dict[str, Any] = {}
         for insight_type in _YOUTUBE_TYPES:
             payload[insight_type] = generate_insight(
                 insight_type, context.result.segments,
                 lm_url=lm_url, language=language, provider=provider, cache=cache,
-                is_cancelled=context.is_cancelled,
+                is_cancelled=context.is_cancelled, style_examples=examples,
             )
         youtube_path = context.artifact_dir / "youtube_package.json"
         _write_json(youtube_path, payload)
@@ -589,11 +593,28 @@ def _youtube_language(context: StepContext) -> Any:
     return context.params.get("yt_language") or context.params.get("language")
 
 
+def _style_examples(context: StepContext) -> "StyleExamples":
+    """The host's own titles/descriptions from other records, or none when
+    ``params["yt_style_examples"]`` (Config.yt_style_examples) is off."""
+    from application.style_examples import StyleExamples, collect_style_examples
+
+    if not context.params.get("yt_style_examples"):
+        return StyleExamples()
+    return collect_style_examples(
+        context.artifact_dir.parent, exclude_record_id=context.record_id_str(),
+    )
+
+
 def _youtube_package_prompt_version(context: StepContext) -> str:
     """The prompts' version plus the output language: the package is
     written in that language, so a different one is a different result —
-    without this a language change in Settings was answered from cache."""
+    without this a language change in Settings was answered from cache.
+    The host's style examples count too: new ones make the next run
+    regenerate."""
     joined = f"{_composite_prompt_version(*_YOUTUBE_TYPES, *_YOUTUBE_REVIEWS, 'glossary')}|lang={_youtube_language(context) or ''}"
+    examples = _style_examples(context)
+    if examples:
+        joined += f"|style={_composite_prompt_version('style_examples')}:{examples.fingerprint()}"
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()[:16]
 
 
@@ -1070,6 +1091,7 @@ def llm_params(
         params["language"] = language_name_for_code(result.language)
     if provider is not None:
         params["yt_language"] = cfg.yt_language
+        params["yt_style_examples"] = getattr(cfg, "yt_style_examples", True)
         params["provider"] = None if provider.kind == "lmstudio" else provider
     if insights_cache is not None:
         params["insights_cache"] = insights_cache

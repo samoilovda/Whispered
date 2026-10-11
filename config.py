@@ -161,6 +161,10 @@ class Config:
     # The channel's fixed footer (links, a sign-off) for the YouTube
     # description's "Channel signature" block. Empty = no such block.
     yt_channel_signature: str = ""
+    # Show the local model the titles and descriptions the user approved or
+    # edited on other records as examples of their style
+    # (application/style_examples.py).
+    yt_style_examples: bool = True
 
     # What happens after a "Video for YouTube" run: nothing, open the
     # hand-off dialog (copy text, reveal video, open Studio), or also allow

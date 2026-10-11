@@ -12,7 +12,7 @@ Load exactly one model first (two rarely fit in memory), e.g.:
 
 Usage:
     .venv/bin/python tools/bench_llm_models.py [--record 48] [--chunks 1]
-        [--tasks clean,youtube] [--out output/bench/llm]
+        [--tasks clean,youtube] [--out output/bench/llm] [--no-style-examples]
 
 Per-call token counts and timings go to stdout via core.lm_client's
 "LLM ..." log lines; outputs land in <out>/<model>/.
@@ -90,7 +90,7 @@ def _bench_clean(client: LMStudioClient, result: TranscriptionResult, chunks: in
     return {"chunks": summary}
 
 
-def _bench_youtube(lm_url: str, result: TranscriptionResult, out: Path) -> dict:
+def _bench_youtube(lm_url: str, result: TranscriptionResult, out: Path, examples: dict) -> dict:
     from core.insights import generate_insight
     from utils import language_name_for_code
 
@@ -100,6 +100,7 @@ def _bench_youtube(lm_url: str, result: TranscriptionResult, out: Path) -> dict:
         started = time.monotonic()
         payload[insight_type] = generate_insight(
             insight_type, result.segments, lm_url=lm_url, language=language,
+            style_examples=examples,
         )
         seconds[insight_type] = round(time.monotonic() - started, 1)
         print(f"{insight_type}: {seconds[insight_type]}s", flush=True)
@@ -116,6 +117,8 @@ def main() -> None:
     parser.add_argument("--chunks", type=int, default=1, help="cleaning chunks to run")
     parser.add_argument("--tasks", default="clean,youtube")
     parser.add_argument("--out", default="output/bench/llm")
+    parser.add_argument("--no-style-examples", action="store_true",
+                        help="leave out the host's titles/descriptions from other records")
     args = parser.parse_args()
 
     handler = logging.StreamHandler(sys.stdout)
@@ -138,7 +141,15 @@ def main() -> None:
     if "clean" in tasks:
         summary["clean"] = _bench_clean(LMStudioClient(lm_url, model=model), result, args.chunks, out)
     if "youtube" in tasks:
-        summary["youtube"] = _bench_youtube(lm_url, result, out)
+        examples: dict = {}
+        if not args.no_style_examples:
+            # What the youtube_package step shows the model (application/steps.py).
+            from application.style_examples import collect_style_examples
+            from core.paths import output_dir
+
+            examples = collect_style_examples(output_dir(), exclude_record_id=args.record).for_insights()
+        summary["style_examples"] = examples
+        summary["youtube"] = _bench_youtube(lm_url, result, out, examples)
     (out / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"saved to {out}", flush=True)
 

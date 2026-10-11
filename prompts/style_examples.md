@@ -1,0 +1,1 @@
+Examples of the host's own style — titles and descriptions the host wrote or approved for other videos on this channel. They are about other conversations: imitate their tone, length, wording and structure, but take every fact, name and topic from the transcript above only.
