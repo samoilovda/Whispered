@@ -405,7 +405,7 @@ class MainWindow(QMainWindow):
         """Show or hide the menu-bar / tray icon per Config.tray_icon_enabled."""
         from ui.tray import TrayController
 
-        wanted = bool(getattr(get_config(), "tray_icon_enabled", True))
+        wanted = bool(getattr(get_config(), "tray_icon_enabled", False))
         if os.environ.get("WHISPERED_UI_GALLERY") == "1" or not TrayController.available():
             wanted = False
         if wanted and self._tray is None:
@@ -544,6 +544,7 @@ class MainWindow(QMainWindow):
             ("menu_file", "menu_run_youtube_package", "", self._menu_run_youtube_package, True),
             ("menu_file", _SEPARATOR, "", None, False),
             ("menu_file", "menu_settings", "Ctrl+,", self._open_settings, True),
+            ("menu_file", "menu_close_window", "Ctrl+W", self.close, False),
 
             ("menu_edit", "menu_undo", "", self._trigger_undo, False),
             ("menu_edit", "menu_find", "", self._trigger_find, False),

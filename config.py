@@ -83,7 +83,7 @@ class Config:
     library_width: int = 0
     # A menu-bar (macOS) / tray icon with the recorder, live session,
     # open file and recent records (ui/tray.py).
-    tray_icon_enabled: bool = True
+    tray_icon_enabled: bool = False
 
     # UI language
     ui_language: str = "auto"   # "auto" | "en" | "ru"

@@ -689,6 +689,7 @@
   "menu_open": "Открыть файл…",
   "menu_export": "Экспорт…",
   "menu_settings": "Настройки",
+  "menu_close_window": "Закрыть окно",
   "menu_edit": "Правка",
   "menu_undo": "Отменить",
   "menu_find": "Найти",

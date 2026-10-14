@@ -628,7 +628,7 @@ class SettingsDialog(QDialog):
         idx = self._theme_combo.findData(cfg.theme)
         self._theme_combo.setCurrentIndex(idx if idx >= 0 else 0)
         self._history_chk.setChecked(cfg.history_enabled)
-        self._tray_chk.setChecked(getattr(cfg, "tray_icon_enabled", True))
+        self._tray_chk.setChecked(getattr(cfg, "tray_icon_enabled", False))
         self._live_chk.setChecked(getattr(cfg, "live_transcription_enabled", False))
         idx = self._lang_ui_combo.findData(getattr(cfg, "ui_language", "auto"))
         self._lang_ui_combo.setCurrentIndex(idx if idx >= 0 else 0)

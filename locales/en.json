@@ -689,6 +689,7 @@
   "menu_open": "Open File…",
   "menu_export": "Export…",
   "menu_settings": "Settings",
+  "menu_close_window": "Close Window",
   "menu_edit": "Edit",
   "menu_undo": "Undo",
   "menu_find": "Find",
