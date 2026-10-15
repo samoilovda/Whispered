@@ -190,6 +190,33 @@ MANIFEST: dict[str, ModelEntry] = {
         license="MIT",
         filename="ggml-large-v3-turbo-q8_0.bin",
     ),
+    # Speaker diarization (diarizer.py, sherpa-onnx). Public, ungated ONNX
+    # exports by the sherpa-onnx author; the same files as the k2-fsa
+    # GitHub release assets (sha256 checked against both).
+    "diarization-segmentation": ModelEntry(
+        key="diarization-segmentation",
+        url=(
+            "https://huggingface.co/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0/resolve/"
+            "9403a6902bb58e3d5ae8c7e77c3422de279db2e0/model.onnx"
+        ),
+        size_bytes=5_992_913,
+        sha256="220ad67ca923bef2fa91f2390c786097bf305bceb5e261d4af67b38e938e1079",
+        license="MIT",
+        filename="diarization-pyannote-segmentation-3.0.onnx",
+        extra={"source": "pyannote/segmentation-3.0"},
+    ),
+    "diarization-embedding": ModelEntry(
+        key="diarization-embedding",
+        url=(
+            "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/"
+            "0743f301363dec56491a490f6d6cbc9d67f9a3bf/nemo_en_titanet_small.onnx"
+        ),
+        size_bytes=40_257_283,
+        sha256="ad4a1802485d8b34c722d2a9d04249662f2ece5d28a7a039063ca22f515a789e",
+        license="CC-BY-4.0",
+        filename="diarization-nemo-titanet-small.onnx",
+        extra={"source": "nvidia/speakerverification_titanet_small"},
+    ),
 }
 
 

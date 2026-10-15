@@ -73,6 +73,10 @@ requests==2.34.2
     #   pywhispercpp
 ruff==0.15.20
     # via -r requirements-dev.txt
+sherpa-onnx==1.13.8
+    # via -r requirements.txt
+sherpa-onnx-core==1.13.8
+    # via sherpa-onnx
 sounddevice==0.5.5
     # via -r requirements.txt
 tomli==2.4.1

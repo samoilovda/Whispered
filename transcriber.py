@@ -299,7 +299,10 @@ def _run_transcription_process(
         def segment_cb(seg):
             if duration > 1.0:
                 current_time = seg.t1 / 100.0
-                pct = min(89, int(20 + 70 * (current_time / duration)))
+                # Speaker detection takes roughly half as long again as
+                # whisper itself — leave it room on the bar.
+                span = 45 if enable_diarization else 70
+                pct = min(20 + span, int(20 + span * (current_time / duration)))
                 q.put(('progress', pct, f"Transcribing... {int(current_time)}s / {int(duration)}s"))
 
         # Run transcription
@@ -310,7 +313,7 @@ def _run_transcription_process(
             audio_path, new_segment_callback=segment_cb, extract_probability=True, **params,
         )
 
-        q.put(('progress', 90, "Processing results..."))
+        q.put(('progress', 65 if enable_diarization else 90, "Processing results..."))
 
         # Convert to our Segment format
         if word_timestamps:
@@ -330,31 +333,31 @@ def _run_transcription_process(
 
         # Run diarization if enabled
         if enable_diarization:
-            q.put(('progress', 85, "Identifying speakers..."))
+            q.put(('progress', 65, "Identifying speakers..."))
             try:
                 from diarizer import Diarizer
+                from domain.diarization import assign_speakers
                 diarizer = Diarizer()
                 if not diarizer.is_available():
+                    logger.warning("Diarization skipped: sherpa-onnx is not installed")
                     q.put(('progress', 90, "Diarization not available, skipping..."))
                 else:
-                    # Run diarization
+                    if num_speakers is None:
+                        from config import get_config
+                        num_speakers = get_config().default_num_speakers
                     diarization = diarizer.diarize(
                         audio_path,
                         num_speakers=num_speakers,
-                        on_progress=lambda p, m: q.put(('progress', 85 + int(p * 0.1), m))
+                        on_progress=lambda p, m: q.put(('progress', 65 + int(p * 0.34), m))
                     )
-
-                    # Merge speaker labels with segments
-                    for seg in segments:
-                        midpoint = (seg.start + seg.end) / 2
-                        speaker = diarization.get_speaker_at(midpoint)
-                        if speaker is None:
-                            speaker = diarization.get_speaker_at(seg.start)
-                        seg.speaker = speaker
-
-                    q.put(('progress', 95, f"Found {diarization.num_speakers} speakers"))
+                    # Before _coalesce_batch_segments below, which then
+                    # never joins two speakers' sentences into one cue.
+                    assign_speakers(segments, diarization)
+                    q.put(('progress', 99, f"Found {diarization.num_speakers} speakers"))
             except Exception as e:
-                q.put(('progress', 90, f"Diarization error: {str(e)[:30]}..."))
+                # The transcript is still worth delivering without labels.
+                logger.exception("Diarization failed")
+                q.put(('progress', 99, f"Diarization error: {str(e)[:120]}"))
 
         # Word-timestamp mode deliberately keeps its finer phrase grouping for
         # Cut.  The default offline path benefits from sentence-level cues.
@@ -661,10 +664,8 @@ class Transcriber:
                     model_file,
                 )
                 return False
-            if enable_diarization:
-                # Diarization models live in the HuggingFace cache;
-                # their presence is verified by the UI layer before calling here.
-                pass
+            # Diarization models are not checked here: diarizer.py
+            # downloads them (46 MB, sha256-pinned) on first use.
             return True
         except Exception as exc:
             logger.warning("Model check failed: %s", exc)

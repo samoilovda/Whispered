@@ -45,6 +45,10 @@ requests==2.34.2
     # via
     #   -r requirements.txt
     #   pywhispercpp
+sherpa-onnx==1.13.8
+    # via -r requirements.txt
+sherpa-onnx-core==1.13.8
+    # via sherpa-onnx
 sounddevice==0.5.5
     # via -r requirements.txt
 tqdm==4.68.4

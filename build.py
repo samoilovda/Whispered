@@ -95,6 +95,9 @@ def build_app(bundle_libs: bool = False) -> None:
         "--add-data=assets/fonts:assets/fonts",
         # Imported dynamically (theme fallback), invisible to analysis
         "--hidden-import=qdarktheme",
+        # diarizer.py imports it lazily (in the transcription child); its
+        # native libs sit next to the extension module
+        "--collect-all=sherpa_onnx",
         # The whole point of this build: whisper stays external
         "--exclude-module=pywhispercpp",
         "--exclude-module=_pywhispercpp",

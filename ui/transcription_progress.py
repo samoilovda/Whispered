@@ -28,6 +28,10 @@ def localized_progress(message: str) -> str:
         "Processing results...": "progress_processing_results",
         "Identifying speakers...": "progress_identifying_speakers",
         "Diarization not available, skipping...": "progress_diarization_skipped",
+        "Loading speaker models...": "progress_loading_speaker_models",
+        "Downloading speaker models...": "progress_downloading_speaker_models",
+        "Finding speaker turns...": "progress_finding_speaker_turns",
+        "Comparing speaker voices...": "progress_comparing_speaker_voices",
         "Complete!": "progress_complete",
         "Cancelling...": "progress_cancelling",
     }
@@ -54,7 +58,8 @@ def timeline_stage_for_progress(percentage: int, message: str) -> tuple[int, int
     if "convert" in m or "extract" in m:
         return 1, min(100, percentage * 10)  # ~5% global
     if "speaker" in m or "diariz" in m:
-        return 3, max(0, min(100, int((percentage - 85) / 10 * 100)))
+        # transcriber.py gives speaker detection 65-99 % of the bar.
+        return 3, max(0, min(100, int((percentage - 65) / 34 * 100)))
     # Loading / preparing / transcribing / processing results: 10-90% global
     return 2, max(0, min(100, int((percentage - 10) / 80 * 100)))
 

@@ -454,27 +454,6 @@ class SettingsDialog(QDialog):
         self._tt(self._diarization_chk, "settings_diarization_enable")
         layout.addRow(self._diarization_chk)
 
-        # HF token
-        token_row = QHBoxLayout()
-        self._hf_token_edit = QLineEdit()
-        self._hf_token_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self._hf_token_edit.setPlaceholderText("hf_…")
-        token_row.addWidget(self._hf_token_edit, stretch=1)
-
-        show_btn = QPushButton()
-        self._tt(show_btn, "settings_show_secret")
-        show_btn.setCheckable(True)
-        show_btn.toggled.connect(
-            lambda checked: self._hf_token_edit.setEchoMode(
-                QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
-            )
-        )
-        token_row.addWidget(show_btn)
-
-        token_container = QWidget()
-        token_container.setLayout(token_row)
-        self._row(layout, "settings_hf_token", token_container)
-
         # Number of speakers
         self._speakers_spin = QSpinBox()
         self._tt(self._speakers_spin, "speakers_auto", "setSpecialValueText")
@@ -650,7 +629,6 @@ class SettingsDialog(QDialog):
 
         # Diarization
         self._diarization_chk.setChecked(cfg.diarization_enabled)
-        self._hf_token_edit.setText(cfg.hf_token or "")
         self._speakers_spin.setValue(cfg.default_num_speakers or 0)
 
         # AI
@@ -704,7 +682,6 @@ class SettingsDialog(QDialog):
 
         # Diarization
         cfg.diarization_enabled = self._diarization_chk.isChecked()
-        cfg.hf_token = self._hf_token_edit.text().strip() or None
         speakers = self._speakers_spin.value()
         cfg.default_num_speakers = speakers if speakers > 0 else None
 

@@ -408,11 +408,9 @@ class StartView(QWidget):
             from core.external_tools import resolve_tool
             self._ffmpeg_found = resolve_tool("ffmpeg") is not None
         if self._diarize_installed is None:
-            import importlib.util
-            try:
-                self._diarize_installed = importlib.util.find_spec("pyannote.audio") is not None
-            except (ImportError, ValueError):
-                self._diarize_installed = False
+            # Models are not checked: diarizer.py downloads them on first use.
+            from diarizer import is_installed
+            self._diarize_installed = is_installed()
         provider = getattr(cfg, "yt_provider", "lmstudio") or "lmstudio"
         key_field = {"openai": "yt_openai_api_key", "anthropic": "yt_anthropic_api_key"}.get(provider)
         model_label, downloaded = self._selected_model()
@@ -423,7 +421,7 @@ class StartView(QWidget):
             llm_provider=provider,
             llm_reachable=self._llm_reachable,
             cloud_key_set=bool(key_field and getattr(cfg, key_field, "")),
-            diarize_ready=bool(self._diarize_installed and getattr(cfg, "hf_token", None)),
+            diarize_ready=bool(self._diarize_installed),
         )
 
     def refresh_readiness(self) -> None:

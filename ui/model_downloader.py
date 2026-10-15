@@ -1,6 +1,7 @@
 """
 Whispered UI - Model Downloader
-Dynamic downloader for Whisper models and Pyannote models
+Dynamic downloader for Whisper models (diarization models download
+themselves, see diarizer.py)
 """
 
 import os
@@ -118,52 +119,12 @@ class DownloadWorker(BaseWorker):
         self.finished.emit(False, tr("download_error_generic", error=msg))
 
 
-class DiarizationCacheWorker(BaseWorker):
-    """Worker thread for initializing pyannote to force model caching."""
-
-    finished = pyqtSignal(bool, str)
-
-    def _disconnect_business_signals(self) -> None:
-        """WorkerRegistry hook — see DownloadWorker._disconnect_business_signals."""
-        try:
-            self.finished.disconnect()
-        except (RuntimeError, TypeError):
-            pass
-
-    def __init__(self, hf_token: str, parent=None):
-        super().__init__(parent)
-        self.hf_token = hf_token
-
-    def _execute(self) -> None:
-        try:
-            # Importing here to prevent main thread blocking and missing dependencies at startup
-            import torch  # noqa: F401
-            from pyannote.audio import Pipeline
-        except ImportError:
-            self.finished.emit(False, tr("download_error_diarization_missing"))
-            return
-
-        # Loading the pipeline will trigger huggingface_hub to download all required models
-        # to the local ~/.cache/huggingface/hub directory if they don't exist
-        Pipeline.from_pretrained(
-            "pyannote/speaker-diarization-3.1",
-            use_auth_token=self.hf_token
-        )
-        self.finished.emit(True, "Success")
-
-    def _on_error(self, msg: str) -> None:
-        self.finished.emit(False, tr("download_error_diarization", error=msg))
-
-
 class ModelDownloaderDialog(QDialog):
     """Dialog showing download progress for missing models."""
 
-    def __init__(self, model_name: str, is_diarization: bool = False,
-                 hf_token: Optional[str] = None, parent=None):
+    def __init__(self, model_name: str, parent=None):
         super().__init__(parent)
         self.model_name = model_name
-        self.is_diarization = is_diarization
-        self.hf_token = hf_token
         self.download_successful = False
 
         # Whisper details
@@ -188,22 +149,12 @@ class ModelDownloaderDialog(QDialog):
         layout.setSpacing(12)
 
         # Title
-        title_text = (
-            tr("download_pyannote_title")
-            if self.is_diarization
-            else tr("download_model_name", model=self.model_name)
-        )
-        self.title_label = QLabel(title_text)
+        self.title_label = QLabel(tr("download_model_name", model=self.model_name))
         self.title_label.setStyleSheet("font-size: 14px; font-weight: bold;")
         layout.addWidget(self.title_label)
 
         # Info
-        info_text = (
-            tr("download_pyannote_info")
-            if self.is_diarization
-            else tr("download_model_info")
-        )
-        self.info_label = QLabel(info_text)
+        self.info_label = QLabel(tr("download_model_info"))
         self.info_label.setProperty("role", "muted")
         self.info_label.setStyleSheet("font-size: 12px;")
         self.info_label.setWordWrap(True)
@@ -213,8 +164,6 @@ class ModelDownloaderDialog(QDialog):
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
-        if self.is_diarization:
-            self.progress_bar.setRange(0, 0) # Indeterminate mode for pyannote
         layout.addWidget(self.progress_bar)
 
         # Stats
@@ -239,25 +188,18 @@ class ModelDownloaderDialog(QDialog):
         """Start the background download."""
         self.start_time = time.time()
 
-        if self.is_diarization:
-            # Pyannote caching
-            self.worker = DiarizationCacheWorker(self.hf_token, parent=self)
-            self.worker.finished.connect(self._on_download_finished)
-            self._registry.register(self.worker, name="model_download")
-            self.worker.start()
-        else:
-            # Whisper downloading
-            from core.model_manifest import whisper_entry
+        # Whisper downloading
+        from core.model_manifest import whisper_entry
 
-            entry = whisper_entry(self.model_name)
-            self.worker = DownloadWorker(
-                self.url, self.target_path, parent=self,
-                manifest_key=entry.key if entry is not None else None,
-            )
-            self.worker.progress.connect(self._on_progress)
-            self.worker.finished.connect(self._on_download_finished)
-            self._registry.register(self.worker, name="model_download")
-            self.worker.start()
+        entry = whisper_entry(self.model_name)
+        self.worker = DownloadWorker(
+            self.url, self.target_path, parent=self,
+            manifest_key=entry.key if entry is not None else None,
+        )
+        self.worker.progress.connect(self._on_progress)
+        self.worker.finished.connect(self._on_download_finished)
+        self._registry.register(self.worker, name="model_download")
+        self.worker.start()
 
     def _on_progress(self, bytes_read: int, total_bytes: int):
         """Update progress bar and stats."""
@@ -306,12 +248,8 @@ class ModelDownloaderDialog(QDialog):
     def _on_cancel(self):
         """Cancel download.
 
-        Only DownloadWorker's ``_execute`` loop actually polls
-        ``is_cancelled()``; DiarizationCacheWorker's pyannote pipeline load
-        has no cancellation point once started (a real limitation of
-        huggingface_hub's blocking download, not something a flag flip can
-        fix), so cancel() is called for both cases but only DownloadWorker
-        can react to it before its own natural completion. Either way, the
+        DownloadWorker's ``_execute`` loop polls ``is_cancelled()`` between
+        chunks, so it stops soon but not at once. The
         dialog must not close (and Python must not drop the worker's last
         reference) while it's still running — that combination is what Qt
         aborts the process for. Wait for the QThread to actually finish

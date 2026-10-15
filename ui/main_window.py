@@ -1988,9 +1988,11 @@ class MainWindow(QMainWindow):
         # Determine thread count based on performance mode
         n_threads = get_thread_count(perf_mode)
 
+        # A recipe with the "diarize" step needs speakers from this pass:
+        # its runner only passes the transcription result through.
         enable_diarization = (
             params["diarization"] if "diarization" in params
-            else self.diarization_checkbox.isChecked()
+            else "diarize" in recipe.steps or self.diarization_checkbox.isChecked()
         )
 
         if not self._ensure_whisper_model(model):

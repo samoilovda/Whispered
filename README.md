@@ -11,7 +11,7 @@
 usable content.**
 
 Whispered is a PyQt6 desktop application. It transcribes recordings with
-`whisper.cpp`, can label speakers with `pyannote.audio`, keeps a searchable
+`whisper.cpp`, can label speakers (offline, sherpa-onnx), keeps a searchable
 history, and runs *recipes* — named sets of steps that turn a transcript into
 cleaned text, an article, insights, a YouTube package, a book draft, or a
 cover — plus subtitles and an editing timeline.
@@ -136,7 +136,7 @@ cover frames, and video editing.
 
 ### Speakers
 
-Optional `pyannote.audio` diarization adds speaker labels. Speakers can be
+Diarization adds speaker labels. Speakers can be
 renamed or merged; names are saved in history and used by exporters. Names you
 have typed before are offered again as suggestions when renaming speakers in
 other records. This is a hint list, not speaker recognition — the same
@@ -310,13 +310,17 @@ validation gates in `docs/WINDOWS_SUPPORT_PLAN.ru.md` have been completed.
 
 ### Speaker diarization
 
-```bash
-.venv/bin/pip install "pyannote.audio>=3.1" "torch>=2.0"
-.venv/bin/python setup_diarization.py
-```
+Runs offline through `sherpa-onnx` (in `requirements.txt`): pyannote's
+segmentation-3.0 and the NVIDIA TitaNet-small voice model as ONNX files, no torch and no
+Hugging Face account. The first run downloads the two models (46 MB,
+sha256-checked). Turn on 👥 Speakers or pick a recipe with the Speakers step;
+Settings → Diarization takes the number of speakers when you know it (auto
+otherwise). To check it against a Zoom call recorded with separate
+per-participant audio:
 
-You need a Hugging Face read token and accepted terms for
-`pyannote/speaker-diarization-3.1` and `pyannote/segmentation-3.0`.
+```bash
+.venv/bin/python tools/bench_diarization.py ~/Documents/Zoom/<call>
+```
 
 ### LM Studio
 
@@ -406,9 +410,9 @@ See [TESTING.md](TESTING.md), [ROADMAP.md](ROADMAP.md), and
 - Windows has source, packaging, and CI-preview support, but is not yet a
   validated release platform. Its real-hardware, clean-VM, and signing gates
   remain open.
-- Diarization requires separate heavyweight dependencies, a Hugging Face
-  token, and accepted model terms. Speaker-name suggestions are not automatic
-  speaker recognition.
+- Diarization labels one speaker per transcript sentence, so a quick
+  interjection inside someone else's sentence is not split out.
+  Speaker-name suggestions are not automatic speaker recognition.
 - Local LM Studio calls are serialized process-wide. Long generations can
   still delay cancellation while the current HTTP response is being read.
 - AI requests use a configured context cap; for long recordings, chapters and

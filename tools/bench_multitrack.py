@@ -14,8 +14,8 @@ Usage:
 
 Modes:
     mixed              Mode A: transcribe the single mixed-down file.
-    mixed+diarization  Mode B: mixed file + pyannote diarization (skipped
-                        with a note if pyannote/HF token aren't configured).
+    mixed+diarization  Mode B: mixed file + diarizer.py speaker labels
+                        (skipped with a note if sherpa-onnx isn't installed).
     multitrack         Mode C: per-track VAD gating + bleed suppression.
     multitrack-naive   Mode C-naive: per-track, whole file, no VAD gate,
                         no bleed suppression — the control that shows what
@@ -454,7 +454,7 @@ def run_benchmark(
             try:
                 from diarizer import Diarizer
                 if not Diarizer().is_available():
-                    skipped[mode] = "pyannote/HF token not configured (Diarizer.is_available() == False)"
+                    skipped[mode] = "sherpa-onnx not installed (Diarizer.is_available() == False)"
                     print(f"  skipped: {skipped[mode]}", file=sys.stderr)
                     continue
             except Exception as exc:

@@ -43,7 +43,7 @@ class TestTimelineStageForProgress:
         assert local == 100
 
     def test_diarization_maps_to_stage_three(self):
-        stage, local = timeline_stage_for_progress(90, "Identifying speakers...")
+        stage, local = timeline_stage_for_progress(82, "Finding speaker turns...")
         assert stage == 3
         assert local == 50
 

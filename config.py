@@ -46,7 +46,7 @@ _VALID_UI_LANGUAGES = frozenset({"auto", "en", "ru"})
 class Config:
     """User configuration settings."""
 
-    # Hugging Face settings (for pyannote)
+    # Hugging Face token (no longer used by diarization; kept as a stored secret)
     hf_token: Optional[str] = None
 
     # Diarization settings
