@@ -33,6 +33,7 @@ what a cache-valid rerun would look like.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from dataclasses import dataclass, field
@@ -293,13 +294,47 @@ def _transcribe_load(context: StepContext) -> Optional[Any]:
 
 # ---------------------------------------------------------------- diarize
 
+def has_speakers(result: TranscriptionResult) -> bool:
+    """True when any segment of *result* already carries a speaker."""
+    return any(seg.speaker for seg in result.segments)
+
+
 def _diarize_runner(context: StepContext) -> StepRunner:
+    """Label an existing transcript's segments with speakers.
+
+    A transcript that already has speakers (the transcription pass ran the
+    diarizer itself, see ``transcriber.py``) is returned unchanged. Otherwise
+    the source media is diarized and a *copy* of the result comes back with
+    ``assign_speakers`` applied — ``speaker_names`` (the user's renames)
+    carried over. Needs the source media: a missing file fails the step.
+    """
     def run() -> TranscriptionResult:
-        # Diarization currently runs as part of the transcription pass
-        # itself (Config.diarization_enabled), not as a separately
-        # re-invoked step — same pass-through as transcribe until a real
-        # standalone diarize runner is wired in.
-        return context.result
+        if has_speakers(context.result):
+            return context.result
+        source = context.source_path
+        if not source or not Path(source).is_file():
+            raise FileNotFoundError(
+                f"Speaker detection needs the source audio, which is missing: {source or '(none)'}"
+            )
+        from config import get_config
+        from diarizer import DiarizationCancelled, Diarizer
+        from domain.diarization import assign_speakers
+
+        diarizer = Diarizer()
+        if not diarizer.is_available():
+            raise RuntimeError("Speaker detection is not available: sherpa-onnx is not installed")
+        try:
+            diarization = diarizer.diarize(
+                source,
+                num_speakers=get_config().default_num_speakers,
+                on_progress=context.on_progress,
+                is_cancelled=context.is_cancelled,
+            )
+        except DiarizationCancelled:
+            raise RuntimeError("Speaker detection was cancelled") from None
+        result = copy.deepcopy(context.result)
+        assign_speakers(result.segments, diarization)
+        return result
 
     return run
 

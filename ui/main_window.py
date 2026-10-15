@@ -63,6 +63,7 @@ from utils import (
 from application.document_session import DocumentSession
 from application.job_engine import JobRun
 from application.records import finalize_live_record, save_new_record
+from ui.speaker_detection_controller import SpeakerDetectionController
 from ui.youtube_publish_controller import YouTubePublishController
 from ui.live_session_controller import LiveSessionController
 from ui.recipe_run_controller import RecipeRunController
@@ -299,6 +300,9 @@ class MainWindow(QMainWindow):
         self._gpu_worker: GPUDetectionWorker | None = None
         # The publish wizard and the YouTube upload, which outlives it.
         self.youtube_publish = YouTubePublishController(self)
+        # "Detect Speakers" on an existing transcript, and where a recipe
+        # run's diarize result lands.
+        self.speaker_detection = SpeakerDetectionController(self)
         self._draft_worker: DraftAssemblyWorker | None = None
         self._shutdownables.append(_WorkerShutdown(self, "_clean_job"))
         self._shutdownables.append(_WorkerShutdown(self, "_article_job"))
@@ -307,6 +311,7 @@ class MainWindow(QMainWindow):
         self._shutdownables.append(_WorkerShutdown(self, "_book_job"))
         self._shutdownables.append(self.recipe_run)
         self._shutdownables.append(self.youtube_publish)
+        self._shutdownables.append(self.speaker_detection)
         self._shutdownables.append(_WorkerShutdown(self, "_gpu_worker", wait_ms=1500))
         # Cancellation stops ffmpeg via SIGTERM (falling back to SIGKILL
         # after 5s) — bound generously above that worst case so close()
@@ -567,6 +572,7 @@ class MainWindow(QMainWindow):
 
             ("menu_transcribe", "menu_start_transcription", "Ctrl+T", self._start_transcription, False),
             ("menu_transcribe", "menu_toggle_recording", "Ctrl+R", self._menu_toggle_recording, False),
+            ("menu_transcribe", "menu_detect_speakers", "", self.speaker_detection.start, True),
 
             ("menu_playback", "menu_play_pause", "Space|K", self._space_play_pause, False),
             ("menu_playback", "menu_seek_back", "J", lambda: self._playback_key(lambda: self.player.seek_relative(-10)), True),
@@ -2296,7 +2302,11 @@ class MainWindow(QMainWindow):
 
     def _show_step_result(self, viewer: str, result) -> None:
         """Hand a step's result to the panel named by ``StepDefinition.viewer``."""
-        if viewer == "cleaned_text":
+        if viewer == "transcript":
+            # transcribe passes the open transcript through (a no-op);
+            # diarize returns a labelled copy that becomes a new version.
+            self.speaker_detection.apply(result, self._last_record_id)
+        elif viewer == "cleaned_text":
             from text_processor import ProcessingResult
             if isinstance(result, ProcessingResult):
                 self._cleaned_text = result.coherent.text

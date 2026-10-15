@@ -6,6 +6,7 @@ FTS5 full-text search with unicode61 tokeniser (Cyrillic-aware).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
@@ -1016,6 +1017,7 @@ class HistoryStore:
 
     def save_current_revision(
         self, record_id: int, result: Any, speaker_names: dict | None = None, keep: int = 20,
+        *, include_speakers: bool = False,
     ) -> Optional[int]:
         """Compute *result*'s ``transcript_revision`` hash and save it as
         a new version if it differs from the last saved one — used by the
@@ -1025,10 +1027,17 @@ class HistoryStore:
         payload-serialization logic in one place instead of MainWindow
         duplicating ``_result_to_payload`` and
         ``domain.artifact_provenance.transcript_revision`` itself.
+
+        ``include_speakers`` also tells versions apart by their speaker
+        labels (the text-only revision ignores them): speaker detection on
+        an existing transcript is a new version even though no word changed.
         """
         from domain.artifact_provenance import transcript_revision as _revision
 
         revision = _revision(result.segments, result.language)
+        if include_speakers:
+            labels = "\n".join(str(seg.speaker or "") for seg in result.segments)
+            revision += "+" + hashlib.sha256(labels.encode("utf-8")).hexdigest()[:8]
         payload = _result_to_payload(result, speaker_names=speaker_names)
         return self.add_transcript_revision(record_id, revision, payload, keep=keep)
 

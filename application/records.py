@@ -75,6 +75,35 @@ def add_record_badges(record_id: Any, artifact_types: Iterable[str]) -> bool:
         return False
 
 
+def save_record_version(record_id: Any, result: Any) -> bool:
+    """Make *result* the record's current transcript and save it as a new
+    version (a step such as speaker detection produced a new transcript
+    for an existing record). The result's ``speaker_names`` — the user's
+    renames — are stored with it, and the record keeps its badges (the
+    generated files are still there). ``False`` (and logged) when the
+    write failed or there is no record."""
+    if record_id is None:
+        return False
+    from config import get_config
+    from core.history import get_history_store
+
+    speaker_names = getattr(result, "speaker_names", {}) or {}
+    try:
+        store = get_history_store()
+        badges = (store.get_record(record_id) or {}).get("artifacts") or []
+        store.update_result(record_id, result, speaker_names=speaker_names)
+        if badges:
+            store.set_artifacts(record_id, badges)
+        store.save_current_revision(
+            record_id, result, speaker_names,
+            keep=get_config().transcript_revisions_kept, include_speakers=True,
+        )
+        return True
+    except Exception as exc:  # noqa: BLE001 - the transcript stays open on screen
+        logger.warning("Failed to save a new version of record %s: %s", record_id, exc)
+        return False
+
+
 def finalize_live_record(record_id: int, result: Any) -> bool:
     """A Live session ended: replace its checkpointed record with the
     finished transcript and keep that as the record's first version (the
