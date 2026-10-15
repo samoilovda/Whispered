@@ -26,7 +26,9 @@ datas = [
     (str(ASSETS / "covers"), "assets/covers"),
     (str(ASSETS / "fonts"), "assets/fonts"),
 ]
-binaries = collect_dynamic_libs("pywhispercpp")
+# diarizer.py imports sherpa_onnx lazily, so analysis does not see it;
+# its native libraries ship inside the package.
+binaries = collect_dynamic_libs("pywhispercpp") + collect_dynamic_libs("sherpa_onnx")
 hiddenimports = [
     "qdarktheme",
     "article_generator",
@@ -39,6 +41,7 @@ hiddenimports = [
     "video_edit",
     "video_input",
     *collect_submodules("pywhispercpp"),
+    *collect_submodules("sherpa_onnx"),
 ]
 
 a = Analysis(
