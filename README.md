@@ -216,8 +216,13 @@ field (prefilled from the player position) and a gallery of candidate frames,
 extracted with `ffmpeg` in the background. Each photo slot also has a focal-point
 (crop) selector.
 
-Zoom-tile detection, ONNX face restoration, and the localhost ComfyUI adapter
-exist as experimental core modules and are not yet wired into the workspace.
+For a Zoom-style gallery recording, a grabbed frame that shows several
+participants asks whose photo goes into the slot, and **Speaker photo
+variants…** prepares a few stills of each participant, framed by the face, to
+fill both photo slots at once.
+
+ONNX face restoration and the localhost ComfyUI adapter exist as experimental
+core modules and are not yet wired into the workspace.
 
 ### Editing
 
@@ -420,9 +425,8 @@ See [TESTING.md](TESTING.md), [ROADMAP.md](ROADMAP.md), and
 - Cloud providers apply only to the YouTube package.
 - Files queued from a folder, a multi-file drop, or the watch folder are
   transcribed and saved to history only; recipe steps are not run per file.
-- Zoom-tile detection, ONNX restoration, and ComfyUI for covers are not
-  connected to the UI. Zoom multitrack (per-participant audio) transcript
-  merging exists only as engine modules with no UI entry point.
+- ONNX restoration and ComfyUI for covers are not connected to the UI.
+  Zoom multitrack (per-participant audio) transcript merging exists only as engine modules with no UI entry point.
 - Live and Course Capture system-audio capture is macOS-only and remains
   experimental.
 

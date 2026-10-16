@@ -7,7 +7,8 @@ The original long-form development plan (2026-07) is preserved in
 ## Shipped
 
 - **Core pipeline** — whisper.cpp transcription in a cancellable child
-  process, pyannote speaker diarization, ffmpeg format conversion.
+  process, offline speaker diarization (sherpa-onnx, no torch), ffmpeg
+  format conversion.
 - **Workspace shell redesign** — a two-column shell (Library / center):
   one start screen (source chips, a five-recipe picker plus a step-level
   recipe editor, a single Launch button) replaces the old inspector rail
@@ -54,8 +55,11 @@ The original long-form development plan (2026-07) is preserved in
   external whisper stack), Linux source setup, and an unvalidated AppImage
   build script.
 - **Prosvet cover MVP** — declarative 16:9/9:16 templates, QPainter preview,
-  manual portraits, title suggestion, and PNG/JPEG/sidecar export. Frame,
-  Zoom-tile, ONNX, and ComfyUI modules exist but are not yet connected to UI.
+  manual portraits, title suggestion, and PNG/JPEG/sidecar export. Portraits
+  can also come from the record's video: a frame picker, a "whose photo is
+  this?" choice of Zoom gallery tiles, and per-speaker photo variants framed
+  by the face. ONNX face restoration and the ComfyUI adapter exist but are
+  not yet connected to UI.
 - **Quality** — a unit suite with fully stubbed Qt plus a separate
   offscreen real-Qt smoke suite (`tests_qt/`), ruff-clean codebase, blocking
   mypy on `core/`/engines, headless UI smoke checks in the pre-commit gate.
@@ -75,10 +79,10 @@ preset chain this paragraph originally tracked; the `Artifact` provenance
 model is now wired into every generator that writes a file — Cover,
 article, YouTube, book, and Insights (which gained a "Save to file"
 button — one .txt per section — since it previously had no export
-action at all to attach provenance to).
-`provider`/`model`/`prompt_version` stay unfilled everywhere (no reliable
-way to tell whether a saved file's text still matches the exact LLM call
-that produced it, versus being hand-edited after). Release metadata
+action at all to attach provenance to). The LLM steps fill
+`provider`/`model`/`prompt_version`, so a changed prompt or model
+invalidates the cached artifact; user edits to a generated result are kept
+apart from it (`application/user_edits.py`). Release metadata
 (`pyproject.toml`/`version.py` as the single version source) is in
 place; the resource-manifest/CI parts of that work need a real build
 environment to validate and are not attempted from here.*
@@ -104,11 +108,9 @@ environment to validate and are not attempted from here.*
 round: nine design cleanups plus eleven features, each with the files to
 touch, acceptance criteria and tests —
 [docs/IMPROVEMENT_PLAN_2026-08.ru.md](docs/IMPROVEMENT_PLAN_2026-08.ru.md).
-It also found that R8's cache-skip is further along than the paragraph
-above claims: `build_cache_checks()`, per-step `make_artifact()` and
-`JobRunner`'s `cache_checks` argument all exist and are tested — only the
-six `set_runners()` call sites in `main_window.py` never pass them, and
-skipped steps need a way to reload their artifact (plan item B1).*
+Its plan item B1 (cache-skip) is done: recipe runs and single-step jobs
+pass `build_cache_checks()` to `JobRunner`, and a skipped step reloads its
+artifact through its `load_artifact`.*
 
 - **Live transcription stabilization** — the opt-in L1–L14 foundation is in
   the development branch, including the UI-independent session pipeline and
@@ -130,9 +132,10 @@ skipped steps need a way to reload their artifact (plan item B1).*
   coverage of the capture flow itself yet, only the Qt-free queue model.
 - **Distribution** — Flathub package for Linux; signed, notarized DMG for
   macOS. Goal: install without cloning the repo.
-- **Cover portrait pipeline** — connect the existing frame picker/extraction,
-  Zoom-tile, ONNX, and ComfyUI modules through cancellable UI workers and add
-  model download/integrity handling.
+- **Cover portrait pipeline** — the frame picker, Zoom-tile choice and
+  speaker photo variants are connected; what is left is connecting the ONNX
+  restoration and ComfyUI modules through cancellable UI workers, with model
+  download/integrity handling.
 - **Windows support** — setup/run scripts, packaging (PyInstaller + Inno
   Setup), and a CI job that builds the frozen package and runs a smoke test
   on every push are in place. What's left before calling it a supported
