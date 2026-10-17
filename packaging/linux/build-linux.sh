@@ -23,7 +23,7 @@ DIST_NAME="Whispered-linux-${ARCH}"
 
 echo "==> Installing build dependencies"
 "$PYTHON" -m pip install --upgrade pip
-"$PYTHON" -m pip install -r requirements-build-linux.txt
+"$PYTHON" -m pip install -r requirements-build-linux.lock
 
 echo "==> Running PyInstaller"
 rm -rf dist build/linux

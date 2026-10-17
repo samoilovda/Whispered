@@ -421,7 +421,7 @@ class PlayerWidget(QWidget):
         self._marks.set_inset(max(0, handle.width() // 2))
 
     def eventFilter(self, obj: QObject | None, event: QEvent | None) -> bool:  # noqa: N802 — Qt override
-        if obj is self._slider and event is not None:
+        if isinstance(obj, QSlider) and obj is self._slider and event is not None:
             etype = event.type()
             if etype in (QEvent.Type.Resize, QEvent.Type.Move):
                 self._sync_marks_geometry()

@@ -98,14 +98,42 @@ def test_uploading_twice_asks_first(video, tmp_path, monkeypatch):
 def test_an_interrupted_upload_offers_resume_without_the_duplicate_question(video, tmp_path, monkeypatch):
     youtube_upload.save_upload_record(
         tmp_path / "youtube_upload.json", UploadRecord("old", "2026-10-01T00:00:00+00:00", "T", "private"))
-    youtube_upload.save_pending(tmp_path / "youtube_upload.pending.json", video, "https://s/1", "T")
     dlg = _dialog(video, tmp_path)
+    pkg = dlg.upload_package()
+    youtube_upload.save_pending(tmp_path / "youtube_upload.pending.json", video, "https://s/1", pkg.title, pkg=pkg)
+    dlg._refresh_upload_button()
     assert dlg._upload_btn.text() == dialog_module.tr("yt_publish_resume")
     monkeypatch.setattr(dlg, "_confirm_duplicate", lambda r: pytest.fail("must not ask"))
     seen = []
     dlg.upload_requested.connect(seen.append)
     dlg._upload_btn.click()
     assert len(seen) == 1
+
+
+@pytest.mark.parametrize("restart", [False, True])
+def test_changed_pending_package_needs_explicit_restart(video, tmp_path, monkeypatch, restart):
+    from dataclasses import replace
+
+    dlg = _dialog(video, tmp_path)
+    current = dlg.upload_package()
+    old = replace(current, privacy="unlisted")
+    pending = tmp_path / "youtube_upload.pending.json"
+    youtube_upload.save_pending(pending, video, "https://s/1", old.title, pkg=old)
+    questions = []
+
+    def question(*args):
+        questions.append(args)
+        return dialog_module.QMessageBox.StandardButton.Yes if restart else dialog_module.QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(dialog_module.QMessageBox, "question", question)
+    seen = []
+    dlg.upload_requested.connect(seen.append)
+    dlg._start_upload()
+    assert len(questions) == 1
+    assert len(seen) == int(restart)
+    assert pending.exists() is not restart
+    if restart:
+        assert seen[0].privacy == "private"
 
 
 def test_an_oversized_cover_is_reencoded_as_jpeg(video, tmp_path, monkeypatch):

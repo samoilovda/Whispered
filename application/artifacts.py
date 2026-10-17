@@ -2,8 +2,8 @@
 
 The generated file is already safely on disk when these run, so a manifest
 failure is logged and never turned into a reported failure. Panels call
-:func:`record_export` instead of each assembling an ``Artifact`` by hand;
-the step registry shares :func:`save_best_effort`.
+:func:`record_export` instead of assembling an ``Artifact`` by hand. Job
+steps use artifact_store.commit and require successful provenance instead.
 """
 
 from __future__ import annotations

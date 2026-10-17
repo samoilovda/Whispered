@@ -6,6 +6,8 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.request
+import pytest
 from unittest.mock import patch, MagicMock
 
 # Qt stand-ins come from tests/conftest.py, which also installs a bare
@@ -13,6 +15,25 @@ from unittest.mock import patch, MagicMock
 # exercises the real module.
 sys.modules.pop("core.lm_client", None)
 from core.lm_client import LMStudioClient
+
+
+@pytest.fixture(autouse=True)
+def _fake_stream_transport(monkeypatch):
+    """Unit tests inject the transport; real sockets have a separate suite."""
+    class Transport:
+        response = None
+
+        def open(self, req, *, timeout):
+            self.response = urllib.request.urlopen(req, timeout=timeout)
+            return self.response
+
+        def abort(self):
+            if self.response is not None:
+                self.response.close()
+
+    # Some existing suites replace sys.modules['core.lm_client'] during
+    # collection. Patch the globals of the class this file actually uses.
+    monkeypatch.setitem(LMStudioClient.chat_completion_stream.__globals__, "CancellableHTTPStream", Transport)
 
 
 def _fake_response(payload: dict):

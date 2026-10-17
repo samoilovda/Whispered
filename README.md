@@ -407,6 +407,11 @@ See [TESTING.md](TESTING.md), [ROADMAP.md](ROADMAP.md), and
 
 ## Known limitations
 
+Deleting a Library entry removes its database history, runs, transcript versions,
+and bookmarks. It leaves source media, generated files, notes, logs, and approved
+YouTube queue files on disk. Remove its `youtube_upload.queued.json` file before running the upload tool
+if the approved package should no longer be uploaded.
+
 - Windows has source, packaging, and CI-preview support, but is not yet a
   validated release platform. Its real-hardware, clean-VM, and signing gates
   remain open.

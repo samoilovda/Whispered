@@ -3193,11 +3193,10 @@ class MainWindow(QMainWindow):
             self._current_result,
             record_id,
             out_dir=out_dir,
-            params={
-                "do_unwrap": do_unwrap,
-                "do_custom": do_custom,
-                "custom_prompt_path": custom_prompt_path,
-            },
+            params=llm_params(
+                get_config(), do_unwrap=do_unwrap, do_custom=do_custom,
+                custom_prompt_path=custom_prompt_path,
+            ),
             is_cancelled=self._book_job.run_state.is_cancelled,
         )
         self._book_job_context = context

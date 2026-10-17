@@ -1,0 +1,103 @@
+# Linux x86_64 / CPython 3.11 CPU build lock.
+# Regenerate: uv pip compile requirements-build-linux.txt --python-version 3.11 -o requirements-build-linux.lock
+altgraph==0.17.5
+    # via pyinstaller
+certifi==2026.6.17
+    # via
+    #   -r requirements.lock
+    #   requests
+cffi==2.1.0
+    # via
+    #   -r requirements.lock
+    #   sounddevice
+charset-normalizer==3.4.9
+    # via
+    #   -r requirements.lock
+    #   requests
+darkdetect==0.7.1
+    # via
+    #   -r requirements.lock
+    #   pyqtdarktheme
+flatbuffers==25.12.19
+    # via
+    #   -r requirements.lock
+    #   onnxruntime
+idna==3.18
+    # via
+    #   -r requirements.lock
+    #   requests
+lxml==6.1.1
+    # via
+    #   -r requirements.lock
+    #   python-docx
+numpy==2.4.6
+    # via
+    #   -r requirements.lock
+    #   onnxruntime
+    #   pywhispercpp
+onnxruntime==1.28.0
+    # via -r requirements.lock
+packaging==26.3
+    # via
+    #   -r requirements.lock
+    #   onnxruntime
+    #   pyinstaller
+    #   pyinstaller-hooks-contrib
+platformdirs==4.10.0
+    # via
+    #   -r requirements.lock
+    #   pywhispercpp
+protobuf==7.35.1
+    # via
+    #   -r requirements.lock
+    #   onnxruntime
+pycparser==3.0
+    # via
+    #   -r requirements.lock
+    #   cffi
+pyinstaller==6.21.0
+    # via -r requirements-build-linux.txt
+pyinstaller-hooks-contrib==2026.8
+    # via pyinstaller
+pyqt6==6.11.0
+    # via -r requirements.lock
+pyqt6-qt6==6.11.1
+    # via
+    #   -r requirements.lock
+    #   pyqt6
+pyqt6-sip==13.11.1
+    # via
+    #   -r requirements.lock
+    #   pyqt6
+pyqtdarktheme==2.1.0
+    # via -r requirements.lock
+python-docx==1.2.0
+    # via -r requirements.lock
+pywhispercpp==1.5.0
+    # via -r requirements.lock
+requests==2.34.2
+    # via
+    #   -r requirements.lock
+    #   pywhispercpp
+setuptools==84.0.0
+    # via pyinstaller
+sherpa-onnx==1.13.8
+    # via -r requirements.lock
+sherpa-onnx-core==1.13.8
+    # via
+    #   -r requirements.lock
+    #   sherpa-onnx
+sounddevice==0.5.5
+    # via -r requirements.lock
+tqdm==4.68.4
+    # via
+    #   -r requirements.lock
+    #   pywhispercpp
+typing-extensions==4.16.0
+    # via
+    #   -r requirements.lock
+    #   python-docx
+urllib3==2.8.0
+    # via
+    #   -r requirements.lock
+    #   requests

@@ -179,9 +179,9 @@
   "history_search_placeholder": "Search history…",
   "history_clear_all": "Clear All",
   "history_delete_title": "Delete",
-  "history_delete_msg": "Delete this history entry? The original file is not affected.",
+  "history_delete_msg": "Delete this Library entry and its saved runs, versions and bookmarks? Source media, exports, notes, logs and queued upload files will remain on disk.",
   "history_clear_title": "Clear History",
-  "history_clear_msg": "Delete ALL history entries? This cannot be undone.",
+  "history_clear_msg": "Delete ALL Library entries, including saved runs, versions and bookmarks? This cannot be undone. Media, exports, notes, logs and queued upload files will remain on disk.",
   "library_chip_transcript": "transcript",
   "library_chip_youtube": "YouTube",
   "library_chip_article": "article",
@@ -1051,5 +1051,7 @@
   "record_tab_failed": "This step failed in the last run — retry it on the run screen or with Ctrl+K.",
   "record_tab_stale": "Made from an older version of the transcript — it was edited since. Rerun the step to update.",
   "library_running": "processing",
-  "chat_system_prompt_timed": "You are a helpful assistant. Answer questions ONLY based on the transcription provided below. If the answer is not in the transcription, say so clearly. The transcription is split into blocks, each starting with its time [MM:SS]. When you refer to a moment in the recording, give its time in square brackets exactly like [12:34] — the user can jump there with one click.\n\nTRANSCRIPTION:\n{transcript}"
+  "chat_system_prompt_timed": "You are a helpful assistant. Answer questions ONLY based on the transcription provided below. If the answer is not in the transcription, say so clearly. The transcription is split into blocks, each starting with its time [MM:SS]. When you refer to a moment in the recording, give its time in square brackets exactly like [12:34] — the user can jump there with one click.\n\nTRANSCRIPTION:\n{transcript}",
+  "yt_publish_restart_title": "Restart this upload?",
+  "yt_publish_restart_text": "The video or approved package has changed since the interrupted upload, or its metadata cannot be verified. The previous upload may already exist on YouTube. Check YouTube Studio before proceeding. Start a new upload with the current title, description and visibility?"
 }

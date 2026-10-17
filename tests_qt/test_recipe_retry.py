@@ -276,6 +276,8 @@ def test_second_recipe_run_on_the_same_record_skips_and_populates_panels(
     load_artifact() round-trips off disk."""
     from domain.job import StepStatus
 
+    monkeypatch.setattr("core.lm_client.LMStudioClient.get_loaded_model", lambda self, timeout=2: "test-model")
+
     class _FakeTextProcessor:
         def __init__(self, *_a, **_k) -> None:
             self.lm_client = type("C", (), {"is_cancelled": None})()
@@ -347,6 +349,8 @@ def test_regenerate_deletes_the_manifest_and_actually_reruns_the_step(
     second plain run, which must stay SKIPPED and call nothing."""
     from domain.job import StepStatus
 
+    monkeypatch.setattr("core.lm_client.LMStudioClient.get_loaded_model", lambda self, timeout=2: "test-model")
+
     clean_calls = []
     article_calls = []
 
@@ -398,7 +402,7 @@ def test_regenerate_deletes_the_manifest_and_actually_reruns_the_step(
     assert len(clean_calls) == 1, "cache hit must not call TextProcessor.process() again"
     assert len(article_calls) == 1, "cache hit must not call generate_all_formats() again"
 
-    # Force regeneration of "clean" only, via the run screen's context menu
+    # Regenerating clean invalidates the article derived from its output.
     # ("Generate again" — regenerate_step() is its public equivalent, same
     # relationship retry_step() has to a row's own retry button).
     window.run_view.regenerate_step("clean")
@@ -408,7 +412,8 @@ def test_regenerate_deletes_the_manifest_and_actually_reruns_the_step(
     process_events()
 
     assert len(clean_calls) == 2, "regenerate must actually rerun the step"
-    assert len(article_calls) == 1, "article wasn't reset — it must stay cached"
+    assert len(article_calls) == 2, "the dependent article must use the new clean output"
+    assert article_calls[-1] == "Cleaned attempt 2."
     assert window.recipe_run.job_run.outcomes["clean"].status is StepStatus.SUCCEEDED
     assert window._cleaned_text == "Cleaned attempt 2."
     assert window._cleaned_text != first_text

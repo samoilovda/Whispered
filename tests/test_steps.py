@@ -11,6 +11,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import types
+import sys
 
 import pytest
 
@@ -27,6 +28,23 @@ from application.steps import (
 from application.job_engine import JobEngine
 from domain.job import StepStatus
 from domain.transcription import Segment, TranscriptionResult
+
+
+@pytest.fixture(autouse=True)
+def _local_client_interface(monkeypatch):
+    """Keep this suite runnable without other files installing client stubs."""
+    module = types.ModuleType("core.lm_client")
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            self._model = ""
+
+        def get_loaded_model(self, timeout=2):
+            return "test-model"
+
+    module.LMStudioClient = Client
+    module.DEFAULT_LM_STUDIO_URL = "http://localhost:1234/v1"
+    monkeypatch.setitem(sys.modules, "core.lm_client", module)
 
 
 def _result() -> TranscriptionResult:

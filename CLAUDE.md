@@ -80,7 +80,7 @@ python -m compileall -q . -x '.venv|.claude|build|dist|docs/archive'
 # mypy is a blocking gate for all of this, ui/ included — clean, and it
 # must stay clean (see "Mypy blocking modules"). Run it from the venv, where
 # real PyQt6 is installed: system python would type every Qt call as Any.
-# (One-time: .venv/bin/python -m pip install mypy==1.17.1 types-requests)
+# (One-time: .venv/bin/python -m pip install mypy==1.20.2 types-requests)
 .venv/bin/python -m mypy --ignore-missing-imports core/ transcriber.py diarizer.py \
     exporters.py utils.py config.py version.py domain/ application/ infrastructure/ \
     batch_processor.py book_pipeline.py ui/

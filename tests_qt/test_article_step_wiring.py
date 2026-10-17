@@ -107,6 +107,9 @@ def test_second_articles_click_on_the_same_input_skips_and_reuses_the_artifact(
     transcript and params must not call generate_all_formats() at all —
     it should read articles.json straight off disk via
     application/steps.py::_article_load()."""
+
+    # A cache hit requires an identified model, not an unknown auto backend.
+    monkeypatch.setattr("core.lm_client.LMStudioClient.get_loaded_model", lambda self, timeout=2: "test-model")
     from domain.job import StepStatus
 
     monkeypatch.setattr("article_generator.ArticleGenerator", _FakeArticleGenerator)

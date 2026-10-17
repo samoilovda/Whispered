@@ -419,11 +419,9 @@ if __name__ == "__main__":
     config = get_config()
     print("\nCurrent config:")
     for key, value in asdict(config).items():
-        # Mask any secret-shaped field (token/key in the name), not just
-        # hf_token — the yt_openai_api_key / yt_anthropic_api_key fields
-        # would otherwise print in plain text.
-        if isinstance(value, str) and value and ('token' in key.lower() or 'key' in key.lower()):
-            value = value[:8] + "..." if len(value) > 8 else "***"
+        # Use the same classification as persistence; no secret prefixes.
+        if key in _SECRET_FIELDS:
+            value = "configured" if value else "empty"
         print(f"  {key}: {value}")
 
     print(f"\nHF token configured: {config.has_hf_token()}")

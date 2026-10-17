@@ -36,3 +36,7 @@ Runtime needs `ffmpeg` (`dnf install ffmpeg-free`) for media workflows and
 - RPM / Flatpak packaging and a reproducible `requirements-linux.lock`.
 - `appimage/build-appimage.sh` is an older, separate experiment and is
   not a validated release channel.
+
+Development builds install `requirements-build-linux.lock` (CPython 3.11, CPU),
+which pins the runtime and PyInstaller toolchain. Regenerate it from
+`requirements-build-linux.txt`; verify a frozen smoke test on the target distribution.

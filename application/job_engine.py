@@ -13,19 +13,10 @@ at the same time, but two steps that both hit LM Studio never do, without
 the caller having to hand-serialize unrelated generators the way
 `_serialized_completion` in core/lm_client.py currently does per-call.
 
-Scope of this first version — deliberately not attempted here, tracked as
-open follow-up (mirrors how R5-full's Artifact migration was scoped):
-- Not wired into any real generator yet (preset chain, YouTube, Insights,
-  book pipeline). Migrating those is separate, incremental work; forcing
-  it into the same change as the engine itself would be exactly the kind
-  of large, hard-to-review, hard-to-revert step the audit plan warns
-  against.
-- No SQLite-persisted state — "resume" here means continuing a JobRun
-  object still held in memory (e.g. after a step failed or was
-  cancelled), not surviving a process restart/crash. JobRun.outcomes is a
-  plain dict a caller could serialize, but this module doesn't do it.
-- Retry is "the caller calls JobRun.reset_step() and calls run() again",
-  not automatic retry-with-backoff.
+The production adapters live in application.steps and ui.job_runner.
+application.run_store persists snapshots; prepare_resumed_run validates
+them before replay. Retry is explicit: reset_step invalidates a step and
+its descendants, then a new run executes the unresolved work.
 """
 
 from __future__ import annotations
@@ -35,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
 from core.logger import get_logger
+from domain.cancellation import OperationCancelled
 from domain.job import JobSpec, StepOutcome, StepSpec, StepStatus
 
 logger = get_logger(__name__)
@@ -90,21 +82,22 @@ class JobRun:
             self.on_outcome(outcome)
 
     def reset_step(self, name: str) -> None:
-        """Discard *name*'s outcome so the next run() call retries it —
-        along with any step that was itself marked CANCELLED only because
-        *name* hadn't succeeded yet, so they get reconsidered too.
-        """
-        if name not in self.outcomes:
-            return
-        del self.outcomes[name]
-        for outcome in list(self.outcomes.values()):
-            step = next((s for s in self.spec.steps if s.name == outcome.name), None)
-            if (
-                step is not None
-                and name in step.depends_on
-                and outcome.status is StepStatus.CANCELLED
-            ):
-                self.reset_step(outcome.name)
+        """Retry a step and invalidate every output derived from it."""
+        invalidated = self.dependents(name) | {name}
+        with self._lock:
+            for step_name in invalidated:
+                self.outcomes.pop(step_name, None)
+
+    def dependents(self, name: str) -> set[str]:
+        """All transitive descendants, including ones not resolved yet."""
+        found = {name}
+        while True:
+            expanded = found | {
+                step.name for step in self.spec.steps if found.intersection(step.depends_on)
+            }
+            if expanded == found:
+                return found - {name}
+            found = expanded
 
 
 class JobEngine:
@@ -213,9 +206,15 @@ class JobEngine:
                 return StepOutcome(step.name, StepStatus.CANCELLED)
             try:
                 result = runner()
+            except OperationCancelled:
+                return StepOutcome(step.name, StepStatus.CANCELLED)
             except Exception as exc:
+                if run_state.is_cancelled():
+                    return StepOutcome(step.name, StepStatus.CANCELLED)
                 logger.warning("Job step %r failed: %s", step.name, exc)
                 return StepOutcome(step.name, StepStatus.FAILED, error=str(exc))
+            if run_state.is_cancelled():
+                return StepOutcome(step.name, StepStatus.CANCELLED)
             return StepOutcome(step.name, StepStatus.SUCCEEDED, result=result)
         finally:
             if lock is not None:

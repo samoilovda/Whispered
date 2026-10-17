@@ -89,7 +89,7 @@ typing-extensions==4.16.0
     # via
     #   mypy
     #   python-docx
-urllib3==2.7.0
+urllib3==2.8.0
     # via
     #   requests
     #   types-requests

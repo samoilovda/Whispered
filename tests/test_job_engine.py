@@ -174,7 +174,7 @@ def test_cancel_mid_run_stops_remaining_steps():
         "c": lambda: calls.append("c"),
     }, run_state=run_state)
     assert calls == ["a"]
-    assert run_state.outcomes["a"].status is StepStatus.SUCCEEDED
+    assert run_state.outcomes["a"].status is StepStatus.CANCELLED
     assert run_state.outcomes["b"].status is StepStatus.CANCELLED
     assert run_state.outcomes["c"].status is StepStatus.CANCELLED
 

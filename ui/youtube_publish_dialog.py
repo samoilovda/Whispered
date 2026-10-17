@@ -754,8 +754,25 @@ class YouTubePublishDialog(QDialog):
     def _start_upload(self) -> None:
         if self._uploading or self._blocking_issues():
             return
+        pkg = self.upload_package()
+        restarting = False
+        if self._pending_path is not None and self._pending_path.exists():
+            from core.youtube_upload import UploadPackageChanged, clear_pending, load_pending
+
+            try:
+                load_pending(self._pending_path, pkg.video_path, pkg=pkg)
+            except UploadPackageChanged:
+                answer = QMessageBox.question(
+                    self, tr("yt_publish_restart_title"), tr("yt_publish_restart_text"),
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if answer != QMessageBox.StandardButton.Yes:
+                    return
+                clear_pending(self._pending_path)
+                restarting = True
         record = self._existing_record()
-        if record is not None and not self._has_pending_upload() and not self._confirm_duplicate(record):
+        if record is not None and not restarting and not self._has_pending_upload() and not self._confirm_duplicate(record):
             return
         self._uploading = True
         self._upload_btn.setEnabled(False)
@@ -765,7 +782,7 @@ class YouTubePublishDialog(QDialog):
         self._upload_progress.setVisible(True)
         self._show_upload_status("", None)
         self._refresh_wizard_buttons()
-        self.upload_requested.emit(self.upload_package())
+        self.upload_requested.emit(pkg)
 
     def _show_upload_status(self, text: str, role: Optional[str]) -> None:
         self._upload_status.setText(text)

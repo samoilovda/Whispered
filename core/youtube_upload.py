@@ -14,6 +14,7 @@ next to the artifacts so an interrupted upload can be continued later.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import tempfile
@@ -54,6 +55,10 @@ class UploadForbidden(YouTubeUploadError):
 
 class UploadSessionExpired(YouTubeUploadError):
     """The resumable session no longer exists; start over."""
+
+
+class UploadPackageChanged(YouTubeUploadError):
+    """An old session cannot safely publish the currently approved package."""
 
 
 class UploadCancelled(YouTubeUploadError):
@@ -124,14 +129,27 @@ def load_upload_record(path: Path) -> Optional[UploadRecord]:
 
 def _fingerprint(video: Path) -> dict:
     stat = video.stat()
-    return {"path": str(video), "size": stat.st_size, "mtime": int(stat.st_mtime)}
+    return {"path": str(video.resolve()), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
 
 
-def save_pending(path: Path, video: Path, session_uri: str, title: str) -> None:
-    _atomic_write_json(path, {"session_uri": session_uri, "title": title, **_fingerprint(video)})
+def _package_fingerprint(pkg: PublishPackage) -> str:
+    thumbnail = None
+    if pkg.thumbnail_path is not None:
+        thumbnail = hashlib.sha256(pkg.thumbnail_path.read_bytes()).hexdigest()
+    data = {"metadata": build_metadata(pkg), "video": _fingerprint(pkg.video_path), "thumbnail": thumbnail}
+    return hashlib.sha256(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
 
 
-def load_pending(path: Path, video: Path) -> Optional[str]:
+def save_pending(
+    path: Path, video: Path, session_uri: str, title: str, *, pkg: Optional[PublishPackage] = None,
+) -> None:
+    _atomic_write_json(path, {
+        "session_uri": session_uri, "title": title, **_fingerprint(video),
+        "package_hash": _package_fingerprint(pkg) if pkg is not None else None,
+    })
+
+
+def load_pending(path: Path, video: Path, *, pkg: Optional[PublishPackage] = None) -> Optional[str]:
     """Session URI of an interrupted upload of exactly this file, if any."""
     data = _read_json(path)
     if not data or not data.get("session_uri"):
@@ -140,6 +158,14 @@ def load_pending(path: Path, video: Path) -> Optional[str]:
         current = _fingerprint(video)
     except OSError:
         return None
+    if pkg is not None and (
+        data.get("package_hash") != _package_fingerprint(pkg)
+        or any(data.get(key) != value for key, value in current.items())
+    ):
+        raise UploadPackageChanged(
+            "The pending upload belongs to different or unverified metadata/media. "
+            "Check YouTube Studio, then explicitly restart from the publish dialog."
+        )
     if any(data.get(key) != value for key, value in current.items()):
         return None
     return str(data["session_uri"])
@@ -256,7 +282,8 @@ class UploadClient:
         if size <= 0:
             raise YouTubeUploadError("The video file is empty.")
 
-        session_uri = load_pending(pending_path, pkg.video_path)
+        self._expected_metadata = build_metadata(pkg)
+        session_uri = load_pending(pending_path, pkg.video_path, pkg=pkg)
         offset = 0
         if session_uri is not None:
             try:
@@ -268,7 +295,7 @@ class UploadClient:
                 session_uri, offset = None, 0
         if session_uri is None:
             session_uri = self._start_session(pkg, size, is_cancelled)
-            save_pending(pending_path, pkg.video_path, session_uri, pkg.title)
+            save_pending(pending_path, pkg.video_path, session_uri, pkg.title, pkg=pkg)
 
         return self._send_chunks(
             pkg.video_path, session_uri, size, offset, on_progress, is_cancelled)
@@ -439,7 +466,15 @@ class UploadClient:
 
     def _video_id(self, response: Any) -> str:
         try:
-            return str(response.json()["id"])
+            body = response.json()
+            expected = getattr(self, "_expected_metadata", {})
+            for section, field in (("snippet", "title"), ("status", "privacyStatus")):
+                actual = body.get(section, {}).get(field)
+                if actual is not None and actual != expected.get(section, {}).get(field):
+                    raise YouTubeUploadError(
+                        "YouTube returned different title/visibility. Check the video in Studio before retrying."
+                    )
+            return str(body["id"])
         except (ValueError, KeyError, TypeError) as exc:
             raise YouTubeUploadError("YouTube accepted the video but returned no id.") from exc
 

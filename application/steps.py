@@ -46,9 +46,10 @@ from domain.artifact_provenance import (
 )
 from core.logger import get_logger
 from core.prompts import prompt_version
-from application.artifacts import save_best_effort
+from application.job_engine import JobRun
 from domain.artifact import Artifact
-from domain.job import JobSpec, StepSpec
+from domain.cancellation import check_cancelled
+from domain.job import JobSpec, StepSpec, StepStatus
 from domain.transcription import TranscriptionResult
 
 if TYPE_CHECKING:
@@ -67,8 +68,8 @@ class StepContext:
 
     ``params`` carries recipe- and run-level configuration a step's
     runner pulls specific keys from (documented per step below): ``lm_url``,
-    ``provider`` (a ``core.ai_provider.ProviderSettings`` or ``None`` for
-    LM Studio), ``model`` (LM Studio's loaded model name, when known —
+    ``provider`` (YouTube-only ``core.ai_provider.ProviderSettings`` or ``None``),
+    ``model`` (LM Studio's loaded model name, when known —
     cloud providers carry their own on ``provider.model``), ``language``,
     and step-specific options (``use_ai``, ``article_formats``,
     ``do_unwrap``/``do_custom``/``custom_prompt_path``, cover
@@ -95,7 +96,9 @@ class StepContext:
         return source_fingerprint(self.source_path)
 
     def revision(self) -> str:
-        return _transcript_revision(self.result.segments, self.result.language)
+        return _transcript_revision(
+            self.result.segments, self.result.language, self.result.speaker_names,
+        )
 
     def record_id_str(self) -> str:
         return str(self.record_id) if self.record_id is not None else "unsaved"
@@ -140,26 +143,91 @@ def _composite_prompt_version(*names: str) -> str:
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()[:16]
 
 
-def _provider_label(context: StepContext) -> str:
+def _provider_label(context: StepContext, step: str = "youtube_package") -> str:
+    if step not in ("youtube_package", "cover"):
+        return "lmstudio"
     provider = context.params.get("provider")
     return getattr(provider, "kind", None) or "lmstudio"
 
 
-def _model_label(context: StepContext) -> str:
+def _model_label(context: StepContext, step: str = "youtube_package") -> str:
     provider = context.params.get("provider")
-    provider_model = getattr(provider, "model", "") if provider is not None else ""
+    provider_model = (
+        getattr(provider, "model", "")
+        if provider is not None and step in ("youtube_package", "cover") else ""
+    )
     if provider_model:
         return str(provider_model)
-    return str(context.params.get("model", "") or "")
+    return str(
+        context.params.get("_bound_models", {}).get(step)
+        or (context.params.get("book_model", context.params.get("model", ""))
+            if step == "book" else context.params.get("model", "")) or ""
+    )
 
 
-def _write_json(path: Path, data: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+def _bind_model(context: StepContext, step: str) -> None:
+    """Resolve auto-selected models on a worker, then pin that run to it."""
+    if step == "cover" or _provider_label(context, step) != "lmstudio":
+        return
+    models = context.params.setdefault("_bound_models", {})
+    if step in models:
+        return
+    model = _model_label(context, step)
+    if not model:
+        from core.lm_client import LMStudioClient
+
+        url = context.params.get("book_lm_url" if step == "book" else "lm_url")
+        client = LMStudioClient(url) if url else LMStudioClient()
+        model = client.get_loaded_model(timeout=2) or ""
+    models[step] = model
+
+
+def _input_text(context: StepContext) -> str:
+    cleaned = context.get_result("clean")
+    return cleaned.coherent.text if cleaned is not None else context.result.full_text
+
+
+def _generation_key(context: StepContext, step: str, version: str) -> str:
+    """Hash only result-affecting settings; never persist credentials."""
+    provider = context.params.get("provider") if step == "youtube_package" else None
+    params = context.params
+    inputs: dict[str, Any] = {
+        "version": version,
+        "endpoint": (getattr(provider, "base_url", "") if provider else
+                     params.get("book_lm_url" if step == "book" else "lm_url")
+                     or "http://localhost:1234/v1").rstrip("/"),
+    }
+    if step == "clean":
+        inputs["use_ai"] = bool(params.get("use_ai", True))
+    elif step in ("article", "book"):
+        inputs["upstream"] = hashlib.sha256(_input_text(context).encode("utf-8")).hexdigest()
+        if step == "article":
+            from article_generator import ArticleFormat
+
+            inputs["formats"] = [
+                getattr(fmt, "value", fmt) for fmt in params.get("article_formats") or list(ArticleFormat)
+            ]
+        else:
+            inputs.update({
+                "unwrap": bool(params.get("do_unwrap", True)),
+                "custom": bool(params.get("do_custom", False)),
+                "temperature": params.get("book_temperature", 0.3),
+            })
+            if inputs["custom"]:
+                custom = str(params.get("custom_prompt_path") or "")
+                try:
+                    inputs["custom_prompt"] = Path(custom).read_text(encoding="utf-8")
+                except OSError:
+                    inputs["custom_prompt"] = {"missing": custom}
+    elif step in ("insights", "youtube_package"):
+        inputs["context_chars"] = params.get("insights_context_chars", 48000)
+    return "v2:" + hashlib.sha256(
+        json.dumps(inputs, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
 
 
 def _read_json(path: Path) -> Optional[Any]:
-    """The read side of ``_write_json`` — used by ``load_artifact``
+    """The read side of ``_commit_json`` — used by ``load_artifact``
     implementations. ``None`` (not an exception) for a missing or
     corrupt file: a stale cache-check race (the file existed when
     ``is_cache_valid()`` ran, gone or mid-write by the time this reads
@@ -178,10 +246,15 @@ def _read_text(path: Path) -> Optional[str]:
         return None
 
 
-def _save_artifact(context: StepContext, artifact: Artifact) -> None:
-    """Best-effort provenance write — never turn a successful step into a
-    reported failure just because the manifest couldn't be written."""
-    save_best_effort(artifact)
+def _commit_text(context: StepContext, artifact: Artifact, text: str) -> None:
+    """Commit only complete, non-cancelled output and its provenance."""
+    from infrastructure.persistence import artifact_store
+
+    artifact_store.write_text(artifact, text, is_cancelled=context.is_cancelled)
+
+
+def _commit_json(context: StepContext, artifact: Artifact, data: Any) -> None:
+    _commit_text(context, artifact, json.dumps(data, ensure_ascii=False, indent=2))
 
 
 # ------------------------------------------------------------- search text (B7)
@@ -243,7 +316,7 @@ def _flatten_insight_strings(payload: dict) -> str:
 def _index_artifact_text(context: StepContext, artifact_type: str, path: Path, text: str) -> None:
     """Best-effort: extract+store searchable text for one generated
     material (B7). Never turn a successful step into a reported failure
-    over an indexing problem (same posture as _save_artifact above) — and
+    over an indexing problem (best effort for the search index) — and
     never index a run whose result hasn't been saved to history yet
     (record_id is the "unsaved" placeholder, not a real row to attach
     artifact_texts to)."""
@@ -353,20 +426,20 @@ def _clean_runner(context: StepContext) -> StepRunner:
     def run():
         from text_processor import TextProcessor
 
+        check_cancelled(context.is_cancelled)
+        artifact = _clean_artifact(context)
         lm_url = context.params.get("lm_url")
         language = context.result.language
         processor = (
             TextProcessor(lm_url, language=language) if lm_url else TextProcessor(language=language)
         )
         processor.lm_client.is_cancelled = context.is_cancelled
+        processor.lm_client._model = _model_label(context, "clean")
         use_ai = bool(context.params.get("use_ai", True))
         result = processor.process(
             context.result.full_text, use_ai=use_ai, on_progress=context.on_progress,
         )
-        path = context.artifact_dir / "clean.md"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(result.coherent.text, encoding="utf-8")
-        _save_artifact(context, _clean_artifact(context))
+        _commit_text(context, artifact, result.coherent.text)
         return result
 
     return run
@@ -389,9 +462,9 @@ def _clean_artifact(context: StepContext) -> Artifact:
         transcript_revision=context.revision(),
         type="cleaned_text",
         path=str(context.artifact_dir / "clean.md"),
-        provider=_provider_label(context),
-        model=_model_label(context),
-        prompt_version=f"{_composite_prompt_version('cleaning', 'cleaning_ru', 'coherence', 'glossary')}+{_CLEAN_PIPELINE_VERSION}",
+        provider=_provider_label(context, "clean"),
+        model=_model_label(context, "clean"),
+        prompt_version=_generation_key(context, "clean", f"{_composite_prompt_version('cleaning', 'cleaning_ru', 'coherence', 'glossary')}+{_CLEAN_PIPELINE_VERSION}"),
     )
 
 
@@ -434,11 +507,13 @@ def _article_runner(context: StepContext) -> StepRunner:
         from article_generator import ArticleFormat, ArticleGenerator
         from core.lm_client import LMStudioClient
 
-        cleaned = context.get_result("clean")
-        text = cleaned.coherent.text if cleaned is not None else context.result.full_text
+        check_cancelled(context.is_cancelled)
+        text = _input_text(context)
+        artifact = _article_artifact(context)
 
         lm_url = context.params.get("lm_url")
         client = LMStudioClient(lm_url) if lm_url else LMStudioClient()
+        client._model = _model_label(context, "article")
         generator = ArticleGenerator(client)
         generator.lm_client.is_cancelled = context.is_cancelled
         formats = context.params.get("article_formats") or list(ArticleFormat)
@@ -450,8 +525,7 @@ def _article_runner(context: StepContext) -> StepRunner:
             for article in result.articles
         }
         articles_path = context.artifact_dir / "articles.json"
-        _write_json(articles_path, payload)
-        _save_artifact(context, _article_artifact(context))
+        _commit_json(context, artifact, payload)
         _index_artifact_text(context, "article", articles_path, _extract_article_text(payload))
         return result
 
@@ -471,9 +545,9 @@ def _article_artifact(context: StepContext) -> Artifact:
         transcript_revision=context.revision(),
         type="article",
         path=str(context.artifact_dir / "articles.json"),
-        provider=_provider_label(context),
-        model=_model_label(context),
-        prompt_version=_composite_prompt_version(*_ARTICLE_PROMPT_NAMES),
+        provider=_provider_label(context, "article"),
+        model=_model_label(context, "article"),
+        prompt_version=_generation_key(context, "article", _composite_prompt_version(*_ARTICLE_PROMPT_NAMES)),
     )
 
 
@@ -523,22 +597,25 @@ def _insights_runner(context: StepContext) -> StepRunner:
     def run():
         from core.insights import generate_insight
 
+        check_cancelled(context.is_cancelled)
+        artifact = _insights_artifact(context)
         lm_url = context.params.get("lm_url", "") or ""
-        provider = context.params.get("provider")
         cache = context.params.get("insights_cache")
         language = context.params.get("language")
 
         notes = _user_notes(context)
         payload: dict[str, Any] = {}
         for insight_type in _INSIGHTS_TYPES:
+            check_cancelled(context.is_cancelled)
             payload[insight_type] = generate_insight(
                 insight_type, context.result.segments,
-                lm_url=lm_url, language=language, provider=provider, cache=cache,
+                lm_url=lm_url, language=language, cache=cache,
+                model=_model_label(context, "insights"),
+                max_transcript_chars=context.params.get("insights_context_chars"),
                 is_cancelled=context.is_cancelled, notes=notes,
             )
         insights_path = context.artifact_dir / "insights.json"
-        _write_json(insights_path, payload)
-        _save_artifact(context, _insights_artifact(context))
+        _commit_json(context, artifact, payload)
         _index_artifact_text(context, "insights", insights_path, _flatten_insight_strings(payload))
         return payload
 
@@ -556,7 +633,7 @@ def _insights_prompt_version(context: StepContext) -> str:
     """Prompt version of the Insights step: its prompts plus, when the
     user has notes, a fingerprint of them — edited notes make the next
     run regenerate instead of reusing the cached result."""
-    version = _composite_prompt_version(*_INSIGHTS_TYPES, "glossary")
+    version = _composite_prompt_version(*_INSIGHTS_TYPES, "glossary", "user_notes")
     notes = _user_notes(context)
     if not notes.strip():
         return version
@@ -573,9 +650,9 @@ def _insights_artifact(context: StepContext) -> Artifact:
         transcript_revision=context.revision(),
         type="insights",
         path=str(context.artifact_dir / "insights.json"),
-        provider=_provider_label(context),
-        model=_model_label(context),
-        prompt_version=_insights_prompt_version(context),
+        provider=_provider_label(context, "insights"),
+        model=_model_label(context, "insights"),
+        prompt_version=_generation_key(context, "insights", _insights_prompt_version(context)),
     )
 
 
@@ -600,6 +677,8 @@ def _youtube_package_runner(context: StepContext) -> StepRunner:
     def run():
         from core.insights import generate_insight
 
+        check_cancelled(context.is_cancelled)
+        artifact = _youtube_package_artifact(context)
         lm_url = context.params.get("lm_url", "") or ""
         provider = context.params.get("provider")
         cache = context.params.get("insights_cache")
@@ -608,14 +687,16 @@ def _youtube_package_runner(context: StepContext) -> StepRunner:
 
         payload: dict[str, Any] = {}
         for insight_type in _YOUTUBE_TYPES:
+            check_cancelled(context.is_cancelled)
             payload[insight_type] = generate_insight(
                 insight_type, context.result.segments,
                 lm_url=lm_url, language=language, provider=provider, cache=cache,
+                model=_model_label(context, "youtube_package"),
+                max_transcript_chars=context.params.get("insights_context_chars"),
                 is_cancelled=context.is_cancelled, style_examples=examples,
             )
         youtube_path = context.artifact_dir / "youtube_package.json"
-        _write_json(youtube_path, payload)
-        _save_artifact(context, _youtube_package_artifact(context))
+        _commit_json(context, artifact, payload)
         _index_artifact_text(context, "youtube", youtube_path, _flatten_insight_strings(payload))
         return payload
 
@@ -663,7 +744,7 @@ def _youtube_package_artifact(context: StepContext) -> Artifact:
         path=str(context.artifact_dir / "youtube_package.json"),
         provider=_provider_label(context),
         model=_model_label(context),
-        prompt_version=_youtube_package_prompt_version(context),
+        prompt_version=_generation_key(context, "youtube_package", _youtube_package_prompt_version(context)),
     )
 
 
@@ -679,13 +760,23 @@ def _book_runner(context: StepContext) -> StepRunner:
     def run():
         from book_pipeline import BookPipeline
 
+        check_cancelled(context.is_cancelled)
         pipeline = BookPipeline()
+        # Bind the actual client to the same snapshot used by the cache key.
+        if hasattr(pipeline, "_client"):
+            pipeline._client._model = _model_label(context, "book")
+            if context.params.get("book_lm_url"):
+                pipeline._client.base_url = context.params["book_lm_url"].rstrip("/")
+            pipeline._temperature = context.params.get("book_temperature", pipeline._temperature)
         do_unwrap = bool(context.params.get("do_unwrap", True))
         do_custom = bool(context.params.get("do_custom", False))
         custom_prompt_path = str(context.params.get("custom_prompt_path", "") or "")
+        if do_custom and not custom_prompt_path:
+            raise ValueError("A custom prompt file is required for the custom book stage")
+        artifact = _book_artifact(context)
         book_dir = context.artifact_dir / "book"
         result = pipeline.process(
-            context.result.full_text,
+            _input_text(context),
             context.source_path,
             output_dir=book_dir,
             do_unwrap=do_unwrap,
@@ -700,10 +791,15 @@ def _book_runner(context: StepContext) -> StepRunner:
             # one complete manifest itself, below, for the deterministic
             # wrapper file it controls instead.
         )
+        check_cancelled(context.is_cancelled)
+        required_stages = ({"unwrap"} if do_unwrap else set()) | ({"custom"} if do_custom else set())
+        completed_stages = {stage.stage for stage in result.stages if stage.success}
+        if (not result.success or not required_stages or not required_stages.issubset(completed_stages)
+                or not result.final_text.strip()):
+            errors = "; ".join(stage.error for stage in result.stages if not stage.success)
+            raise RuntimeError(errors or "The book pipeline produced no complete result")
         path = context.artifact_dir / "book.md"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(result.final_text, encoding="utf-8")
-        _save_artifact(context, _book_artifact(context))
+        _commit_text(context, artifact, result.final_text)
         _index_artifact_text(context, "book", path, result.final_text)
         return result
 
@@ -718,9 +814,9 @@ def _book_artifact(context: StepContext) -> Artifact:
         transcript_revision=context.revision(),
         type="book",
         path=str(context.artifact_dir / "book.md"),
-        provider=_provider_label(context),
-        model=_model_label(context),
-        prompt_version=prompt_version("расшивка"),
+        provider=_provider_label(context, "book"),
+        model=_model_label(context, "book"),
+        prompt_version=_generation_key(context, "book", prompt_version("расшивка")),
     )
 
 
@@ -806,6 +902,7 @@ def _cover_inputs(context: StepContext) -> str:
     if not str(slots.get("title") or "").strip():
         # The title will come from youtube_package — key on what produced it.
         inputs["title_from"] = _youtube_package_prompt_version(context)
+        inputs["generated_title"] = _cover_title(context, slots)
     payload = json.dumps(inputs, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
@@ -815,6 +912,8 @@ def _cover_runner(context: StepContext) -> StepRunner:
         # Drawing is Qt (QImage/QPainter), so the UI hands the renderer in
         # (CoverView.render_params(): covers.renderer.render); this layer
         # stays Qt-free (tests/test_layer_imports.py).
+        check_cancelled(context.is_cancelled)
+        artifact = _cover_artifact(context)
         render = context.params.get("cover_renderer")
         if render is None:
             raise RuntimeError("The cover step needs a renderer in its params ('cover_renderer').")
@@ -840,10 +939,13 @@ def _cover_runner(context: StepContext) -> StepRunner:
         image, warnings = render(template, layout, variant, slots, size, decor_set)
         _prepare_speaker_photos(context)
         path = context.artifact_dir / "cover.png"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if not image.save(str(path), "PNG"):
-            raise RuntimeError(f"Failed to save cover image to {path}")
-        _save_artifact(context, _cover_artifact(context))
+        from infrastructure.persistence import artifact_store
+
+        def write_image(temporary: Path) -> None:
+            if not image.save(str(temporary), "PNG"):
+                raise RuntimeError(f"Failed to save cover image to {path}")
+
+        artifact_store.commit(artifact, write_image, is_cancelled=context.is_cancelled)
         return {
             "path": str(path), "warnings": warnings,
             "variant": variant, "decor_set": decor_set, "title": slots["title"],
@@ -1035,7 +1137,17 @@ def build_runners(
         step_context = context
         if progress_factory is not None:
             step_context = dataclasses.replace(context, on_progress=progress_factory(name))
-        runners[name] = STEP_REGISTRY[name].make_runner(step_context)
+        runner = STEP_REGISTRY[name].make_runner(step_context)
+
+        def execute(
+            name: str = name, runner: StepRunner = runner, step_context: StepContext = step_context,
+        ) -> object:
+            check_cancelled(step_context.is_cancelled)
+            if name not in ("transcribe", "diarize"):
+                _bind_model(step_context, name)
+            return runner()
+
+        runners[name] = execute
     return runners
 
 
@@ -1048,13 +1160,53 @@ def build_cache_checks(context: StepContext, step_names: "tuple[str, ...] | list
 
     checks = {}
     for name in step_names:
-        expected = STEP_REGISTRY[name].make_artifact(context)
-        if expected is None:
+        if name in ("transcribe", "diarize"):
             continue
-        checks[name] = lambda expected=expected: artifact_store.is_cache_valid(
-            expected.path, expected
-        )
+
+        def check(name: str = name) -> bool:
+            check_cancelled(context.is_cancelled)
+            _bind_model(context, name)
+            # The server may be unavailable or unable to name its model.
+            # Unidentified auto models must never reuse another model's work.
+            if name != "cover" and not _model_label(context, name):
+                return False
+            expected = STEP_REGISTRY[name].make_artifact(context)
+            return expected is not None and artifact_store.is_cache_valid(expected.path, expected)
+
+        checks[name] = check
     return checks
+
+
+def prepare_resumed_run(run: JobRun, context: StepContext) -> None:
+    """Keep only completed steps whose saved output still fits this run."""
+    from infrastructure.persistence import artifact_store
+
+    names = {step.name for step in run.spec.steps}
+    for name in set(run.outcomes) - names:
+        run.outcomes.pop(name)
+    for name in run.spec.topological_order():
+        outcome = run.outcomes.get(name)
+        if outcome is None or outcome.status not in (StepStatus.SUCCEEDED, StepStatus.SKIPPED):
+            run.reset_step(name)
+            continue
+        if name == "transcribe":
+            outcome.result = context.result
+            continue
+        if name == "diarize":
+            if has_speakers(context.result):
+                outcome.result = context.result
+            else:
+                run.reset_step(name)
+            continue
+        expected = STEP_REGISTRY[name].make_artifact(context)
+        saved = artifact_store.load(expected.path) if expected is not None else None
+        if saved and not _model_label(context, name):
+            context.params.setdefault("_bound_models", {})[name] = saved.model
+        expected = STEP_REGISTRY[name].make_artifact(context)
+        if (expected is None or not artifact_store.is_cache_valid(expected.path, expected)
+                or load_step_result(context, name) is None):
+            context.params.get("_bound_models", {}).pop(name, None)
+            run.reset_step(name)
 
 
 # Step name -> the history artifact type it produces (``HistoryRecord.artifacts``
@@ -1119,7 +1271,13 @@ def llm_params(
     """Shared ``StepContext.params`` for LLM-backed steps: LM Studio URL,
     optionally the output language (from *result*), the YouTube language and
     cloud provider (``None`` for LM Studio), and the shared insights cache."""
-    params: dict = {"lm_url": cfg.lm_studio_url}
+    params: dict = {
+        "lm_url": cfg.lm_studio_url,
+        "book_lm_url": getattr(cfg, "book_lm_url", "http://localhost:1234/v1"),
+        "book_model": getattr(cfg, "book_model_name", ""),
+        "book_temperature": getattr(cfg, "book_temperature", 0.3),
+        "insights_context_chars": getattr(cfg, "insights_context_chars", 48000),
+    }
     if result is not None:
         from utils import language_name_for_code
 

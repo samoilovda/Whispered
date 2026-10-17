@@ -74,6 +74,9 @@ def test_second_generate_click_on_the_same_input_skips_and_reuses_the_artifact(
     transcript and params must not call generate_insight() at all — it
     should read youtube_package.json straight off disk via
     application/steps.py::_youtube_package_load()."""
+
+    # A cache hit requires an identified model, not an unknown auto backend.
+    monkeypatch.setattr("core.lm_client.LMStudioClient.get_loaded_model", lambda self, timeout=2: "test-model")
     from domain.job import StepStatus
 
     monkeypatch.setattr("core.insights.generate_insight", _fake_generate_insight)

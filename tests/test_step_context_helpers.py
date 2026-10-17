@@ -38,7 +38,10 @@ def test_llm_params_lmstudio_provider_is_none():
 
 def test_llm_params_minimal():
     cfg = SimpleNamespace(lm_studio_url="u", yt_language="")
-    assert llm_params(cfg) == {"lm_url": "u"}
+    assert llm_params(cfg) == {
+        "lm_url": "u", "book_lm_url": "http://localhost:1234/v1", "book_model": "",
+        "book_temperature": 0.3, "insights_context_chars": 48000,
+    }
 
 
 def test_build_step_context_unsaved_and_out_dir(tmp_path):
