@@ -117,7 +117,7 @@ def main():
     app.setFont(font)
 
     # Apply theme from config (falls back to qdarktheme on error)
-    apply_theme(app, cfg.theme)
+    apply_theme(app, cfg.theme, getattr(cfg, "text_scale", 100))
 
     # Create and show main window
     window = MainWindow()

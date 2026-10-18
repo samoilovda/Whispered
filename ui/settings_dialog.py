@@ -275,6 +275,15 @@ class SettingsDialog(QDialog):
         self._theme_combo.currentIndexChanged.connect(self._on_theme_changed)
         self._row(layout, "settings_theme", self._theme_combo)
 
+        # Text size (UX-12): previewed at once, saved with Apply/OK, undone
+        # by Cancel — and "Reset" is simply picking 100% again.
+        self._scale_combo = QComboBox()
+        self._scale_combo.setAccessibleName(tr("settings_text_scale"))
+        for percent in (100, 125, 150, 200):
+            self._scale_combo.addItem(f"{percent}%", percent)
+        self._scale_combo.currentIndexChanged.connect(self._on_scale_changed)
+        self._row(layout, "settings_text_scale", self._scale_combo)
+
         # Menu-bar / tray icon (ui/tray.py)
         self._tray_chk = QCheckBox()
         self._tt(self._tray_chk, "settings_tray_icon")
@@ -615,6 +624,8 @@ class SettingsDialog(QDialog):
         # General
         idx = self._theme_combo.findData(cfg.theme)
         self._theme_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        scale_idx = self._scale_combo.findData(getattr(cfg, "text_scale", 100))
+        self._scale_combo.setCurrentIndex(scale_idx if scale_idx >= 0 else 0)
         self._history_chk.setChecked(cfg.history_enabled)
         self._tray_chk.setChecked(getattr(cfg, "tray_icon_enabled", False))
         self._live_chk.setChecked(getattr(cfg, "live_transcription_enabled", False))
@@ -674,6 +685,7 @@ class SettingsDialog(QDialog):
 
         # General
         cfg.theme = self._theme_combo.currentData() or "dark"
+        cfg.text_scale = self._scale_combo.currentData() or 100
         cfg.history_enabled = self._history_chk.isChecked()
         cfg.tray_icon_enabled = self._tray_chk.isChecked()
         cfg.live_transcription_enabled = self._live_chk.isChecked()
@@ -759,6 +771,17 @@ class SettingsDialog(QDialog):
         if app:
             apply_theme(app, name)
         self._pending_theme = name
+
+    def _on_scale_changed(self, _index: int) -> None:
+        """Preview the text size immediately (same as the theme)."""
+        if self._retranslating:
+            return
+        from PyQt6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app:
+            apply_theme(app, self._theme_combo.currentData() or "dark",
+                        self._scale_combo.currentData() or 100)
+        self._pending_theme = self._theme_combo.currentData() or "dark"
 
     def _apply_language_change(self) -> None:
         """Switch the UI language in-place (no restart) when it changed.
@@ -889,7 +912,7 @@ class SettingsDialog(QDialog):
             from PyQt6.QtWidgets import QApplication
             app = QApplication.instance()
             if app:
-                apply_theme(app, self._cfg.theme)
+                apply_theme(app, self._cfg.theme, getattr(self._cfg, "text_scale", 100))
         super().reject()
 
     def _open_models_dir(self):

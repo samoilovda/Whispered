@@ -10,7 +10,7 @@ from typing import Literal
 from PyQt6.QtWidgets import QLabel, QWidget
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
 
-from ui.theme import get_theme, rgba
+from ui.theme import px, get_theme, rgba
 
 ToastKind = Literal["success", "info", "error", "warning"]
 
@@ -46,13 +46,17 @@ class Toast(QLabel):
         icon = _ICONS.get(kind, "ℹ")
 
         self.setText(f"  {icon}  {message}  ")
+        # Named for a screen reader. PyQt6 does not bind QAccessible, so no
+        # alert event can be raised from here: a toast is reachable by the
+        # reader's object navigation, but is not pushed at the user (UX-12).
+        self.setAccessibleName(message)
         self.setStyleSheet(f"""
             QLabel {{
                 background-color: {bg_color};
                 border: 1px solid {border_color};
                 border-radius: 8px;
                 color: {text_color};
-                font-size: 13px;
+                font-size: {px(13)}px;
                 font-weight: bold;
                 padding: 8px 16px;
             }}

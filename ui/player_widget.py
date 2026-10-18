@@ -244,6 +244,7 @@ class PlayerWidget(QWidget):
 
         self._speed_btn = QToolButton()
         self._speed_btn.setProperty("role", "toolbar-icon")
+        self._speed_btn.setAccessibleName(tr("player_speed_tooltip"))
         self._speed_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._speed_menu = QMenu(self._speed_btn)
         self._speed_group = QActionGroup(self)

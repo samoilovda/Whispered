@@ -227,6 +227,32 @@ LIGHT = Theme(
 THEMES: dict[str, Theme] = {"dark": DARK, "light": LIGHT}
 _active_theme: Theme = DARK
 
+# Text scale (UI/UX audit 2026-10-18, UX-12 / T12b): every font size —
+# the theme's and the widgets' own px literals, via px() — is multiplied by
+# the user's chosen percentage. Default 100; applied with the theme.
+TEXT_SCALES = (100, 125, 150, 200)
+_text_scale: int = 100
+
+
+def get_text_scale() -> int:
+    return _text_scale
+
+
+def px(size: int) -> int:
+    """*size* (a design px at 100%) at the current text scale."""
+    return max(1, round(size * _text_scale / 100))
+
+
+def _scaled(theme: Theme, scale: int) -> Theme:
+    """*theme* with its font sizes multiplied by *scale* percent."""
+    if scale == 100:
+        return theme
+    from dataclasses import replace
+
+    sizes = {name: f"{round(int(getattr(theme, name)[:-2]) * scale / 100)}px"
+             for name in ("font_xs", "font_sm", "font_md", "font_lg")}
+    return replace(theme, **sizes)
+
 
 def get_theme() -> Theme:
     return _active_theme
@@ -1020,6 +1046,14 @@ def build_stylesheet(t: Theme) -> str:
     QLineEdit:focus, QListWidget:focus {{
         border-color: {t.accent};
     }}
+    /* Keyboard focus must be visible everywhere (UX-12). */
+    QCheckBox:focus, QRadioButton:focus, QSlider:focus, QLabel:focus {{
+        border: 1px solid {t.accent};
+        border-radius: {t.radius_sm};
+    }}
+    QTabBar::tab:focus {{
+        border: 1px solid {t.accent};
+    }}
     QWidget[role="accent-card"] {{
         background-color: {rgba(t.accent, 0.1)};
         border-radius: {t.radius_md};
@@ -1234,10 +1268,15 @@ def build_stylesheet(t: Theme) -> str:
     """
 
 
-def apply_theme(app, name: str = "dark") -> Theme:
-    """Apply a named theme to the application. Returns the active Theme."""
-    global _active_theme
-    t = THEMES.get(name, DARK)
+def apply_theme(app, name: str = "dark", scale: "int | None" = None) -> Theme:
+    """Apply a named theme to the application. Returns the active Theme.
+
+    *scale* is the text scale in percent; ``None`` keeps the current one
+    (``Config.text_scale`` is applied at startup and from Settings)."""
+    global _active_theme, _text_scale
+    if scale is not None:
+        _text_scale = scale if scale in TEXT_SCALES else 100
+    t = _scaled(THEMES.get(name, DARK), _text_scale)
     _active_theme = t
     try:
         app.setStyleSheet(build_stylesheet(t))

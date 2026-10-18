@@ -22,6 +22,7 @@ from core.paths import output_dir
 from ui.toast import show_toast
 from utils import format_duration
 from ui.qt_util import must
+from ui.theme import px
 
 logger = get_logger(__name__)
 
@@ -52,7 +53,7 @@ class _ActionRow(QWidget):
             ts_btn.setFixedWidth(48)
             ts_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             ts_btn.setProperty("role", "timestamp-link")
-            ts_btn.setStyleSheet("font-size: 11px;")
+            ts_btn.setStyleSheet(f"font-size: {px(11)}px;")
             ts_btn.clicked.connect(lambda: self.seek_requested.emit(start))
             layout.addWidget(ts_btn, alignment=Qt.AlignmentFlag.AlignTop)
         else:
@@ -65,7 +66,7 @@ class _ActionRow(QWidget):
         label = QLabel("\n".join(parts))
         label.setWordWrap(True)
         label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        label.setStyleSheet("font-size: 12px;")
+        label.setStyleSheet(f"font-size: {px(12)}px;")
         layout.addWidget(label, stretch=1)
 
 
@@ -94,20 +95,20 @@ class _MomentRow(QWidget):
         ts_btn.setFixedWidth(48)
         ts_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         ts_btn.setProperty("role", "timestamp-link")
-        ts_btn.setStyleSheet("font-size: 11px;")
+        ts_btn.setStyleSheet(f"font-size: {px(11)}px;")
         ts_btn.clicked.connect(lambda: self.seek_requested.emit(start))
         top.addWidget(ts_btn)
 
         quote_lbl = QLabel(f'"{quote}"')
         quote_lbl.setWordWrap(True)
-        quote_lbl.setStyleSheet("font-size: 12px; font-style: italic;")
+        quote_lbl.setStyleSheet(f"font-size: {px(12)}px; font-style: italic;")
         top.addWidget(quote_lbl, stretch=1)
         layout.addLayout(top)
 
         note_lbl = QLabel(note)
         note_lbl.setWordWrap(True)
         note_lbl.setProperty("role", "muted")
-        note_lbl.setStyleSheet("font-size: 11px; padding-left: 56px;")
+        note_lbl.setStyleSheet(f"font-size: {px(11)}px; padding-left: 56px;")
         layout.addWidget(note_lbl)
 
 
@@ -177,7 +178,7 @@ class InsightsPanel(QWidget):
         self._placeholder = QLabel(tr("insights_placeholder"))
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._placeholder.setProperty("role", "dim")
-        self._placeholder.setStyleSheet("font-size: 13px;")
+        self._placeholder.setStyleSheet(f"font-size: {px(13)}px;")
         self._placeholder.setWordWrap(True)
         outer.addWidget(self._placeholder)
 
@@ -251,7 +252,7 @@ class InsightsPanel(QWidget):
         self._ch_note = QLabel(tr("insights_chapters_shared"))
         self._ch_note.setWordWrap(True)
         self._ch_note.setProperty("role", "muted")
-        self._ch_note.setStyleSheet("font-size: 11px;")
+        self._ch_note.setStyleSheet(f"font-size: {px(11)}px;")
         self._ch_note.setVisible(False)
         self._content.addWidget(self._ch_note)
         self._ch_container = QWidget()
@@ -299,7 +300,7 @@ class InsightsPanel(QWidget):
     def _empty_label() -> QLabel:
         label = QLabel()
         label.setProperty("role", "dim")
-        label.setStyleSheet("font-size: 12px; padding: 2px 0 6px 56px;")
+        label.setStyleSheet(f"font-size: {px(12)}px; padding: 2px 0 6px 56px;")
         label.setVisible(False)
         return label
 

@@ -69,7 +69,7 @@ from core.youtube_description import (
     shift_chapters,
 )
 from ui.components import ChapterRow
-from ui.theme import set_role
+from ui.theme import px, set_role
 from ui.toast import show_toast
 
 logger = get_logger(__name__)
@@ -267,7 +267,7 @@ class YouTubePanel(QWidget):
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._placeholder.setWordWrap(True)
         self._placeholder.setProperty("role", "dim")
-        self._placeholder.setStyleSheet("font-size: 13px;")
+        self._placeholder.setStyleSheet(f"font-size: {px(13)}px;")
         layout.addWidget(self._placeholder)
 
         controls = QHBoxLayout()
@@ -301,7 +301,7 @@ class YouTubePanel(QWidget):
         self._state_label = QLabel()
         self._state_label.setWordWrap(True)
         self._state_label.setProperty("role", "dim")
-        self._state_label.setStyleSheet("font-size: 11px;")
+        self._state_label.setStyleSheet(f"font-size: {px(11)}px;")
         state_row.addWidget(self._state_label, stretch=1)
         self._run_link = QPushButton()
         self._run_link.clicked.connect(self.generate_requested.emit)
@@ -317,7 +317,7 @@ class YouTubePanel(QWidget):
         self._chapter_status = QLabel()
         self._chapter_status.setWordWrap(True)
         self._chapter_status.setProperty("role", "success-text")
-        self._chapter_status.setStyleSheet("font-size: 11px;")
+        self._chapter_status.setStyleSheet(f"font-size: {px(11)}px;")
         self._chapter_status.setVisible(False)
         layout.addWidget(self._chapter_status)
 
@@ -366,7 +366,7 @@ class YouTubePanel(QWidget):
         self._title_hint = QLabel(tr("yt_title_hint", limit=TITLE_MAX_CHARS, visible=_TITLE_VISIBLE_CHARS))
         self._title_hint.setWordWrap(True)
         self._title_hint.setProperty("role", "muted")
-        self._title_hint.setStyleSheet("font-size: 11px;")
+        self._title_hint.setStyleSheet(f"font-size: {px(11)}px;")
         self._title_hint.setVisible(False)
 
         self._title_scroll = QScrollArea()
@@ -389,7 +389,7 @@ class YouTubePanel(QWidget):
         self._tags_size = QLabel()
         self._tags_size.setWordWrap(True)
         self._tags_size.setProperty("role", "muted")
-        self._tags_size.setStyleSheet("font-size: 11px;")
+        self._tags_size.setStyleSheet(f"font-size: {px(11)}px;")
         self._tags_size.setVisible(False)
         edit.textChanged.connect(self._render_tags_meta)
         section = QWidget()
@@ -453,7 +453,7 @@ class YouTubePanel(QWidget):
             self._title_labels.append((title, label))
             line.addWidget(label, stretch=1)
             count = QLabel(self._title_count_text(title), row)
-            count.setStyleSheet("font-size: 11px;")
+            count.setStyleSheet(f"font-size: {px(11)}px;")
             length = len(title)
             set_role(count, "danger-text" if length > TITLE_MAX_CHARS
                      else "warning-text" if length > _TITLE_VISIBLE_CHARS else "muted")
@@ -506,7 +506,7 @@ class YouTubePanel(QWidget):
         chips.setSpacing(4)
         self._desc_blocks_label = QLabel(tr("yt_desc_blocks"))
         self._desc_blocks_label.setProperty("role", "muted")
-        self._desc_blocks_label.setStyleSheet("font-size: 11px;")
+        self._desc_blocks_label.setStyleSheet(f"font-size: {px(11)}px;")
         chips.addWidget(self._desc_blocks_label)
         self._desc_block_btns: dict[str, QPushButton] = {}
         for block, key in _DESC_BLOCK_LABELS:
@@ -526,13 +526,13 @@ class YouTubePanel(QWidget):
         self._desc_fold = QLabel()
         self._desc_fold.setWordWrap(True)
         self._desc_fold.setProperty("role", "muted")
-        self._desc_fold.setStyleSheet("font-size: 11px;")
+        self._desc_fold.setStyleSheet(f"font-size: {px(11)}px;")
         self._desc_fold.setVisible(False)
         meta.addWidget(self._desc_fold, stretch=1)
         self._desc_size = QLabel()
         self._desc_size.setWordWrap(True)
         self._desc_size.setProperty("role", "muted")
-        self._desc_size.setStyleSheet("font-size: 11px;")
+        self._desc_size.setStyleSheet(f"font-size: {px(11)}px;")
         meta.addWidget(self._desc_size)
 
         section = QWidget()
@@ -566,7 +566,7 @@ class YouTubePanel(QWidget):
         self._chapters_note = QLabel()
         self._chapters_note.setWordWrap(True)
         self._chapters_note.setProperty("role", "muted")
-        self._chapters_note.setStyleSheet("font-size: 11px;")
+        self._chapters_note.setStyleSheet(f"font-size: {px(11)}px;")
         self._chapters_reset_btn = QPushButton(tr("yt_chapters_reset"))
         self._chapters_reset_btn.clicked.connect(self._take_model_chapters)
         self._chapters_keep_btn = QPushButton(tr("yt_chapters_keep_mine"))
@@ -595,7 +595,7 @@ class YouTubePanel(QWidget):
         # the recording lacks): applied to the timecodes, not to editing.
         self._offset_label = QLabel(tr("yt_offset_label"))
         self._offset_label.setProperty("role", "muted")
-        self._offset_label.setStyleSheet("font-size: 11px;")
+        self._offset_label.setStyleSheet(f"font-size: {px(11)}px;")
         self._offset_spin = QSpinBox()
         self._offset_spin.setRange(-_MAX_OFFSET_SECONDS, _MAX_OFFSET_SECONDS)
         self._offset_spin.setSuffix(tr("yt_offset_suffix"))
@@ -606,7 +606,7 @@ class YouTubePanel(QWidget):
         self._offset_hint = QLabel(tr("yt_offset_hint"))
         self._offset_hint.setWordWrap(True)
         self._offset_hint.setProperty("role", "muted")
-        self._offset_hint.setStyleSheet("font-size: 11px;")
+        self._offset_hint.setStyleSheet(f"font-size: {px(11)}px;")
         offset_row = QHBoxLayout()
         offset_row.setContentsMargins(4, 0, 4, 0)
         offset_row.setSpacing(6)

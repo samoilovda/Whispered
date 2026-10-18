@@ -317,6 +317,17 @@ class LibraryView(QWidget):
         self._setup_ui()
         self._i18n.call(self._retranslate_library)
         self._i18n.bind()
+        self._name_icon_buttons()  # accessible names from the start (UX-12)
+
+    def _name_icon_buttons(self) -> None:
+        """The icon-only filter and ⋯ buttons' tooltips and accessible
+        names. Also called at construction — Retranslator.call() only
+        registers, so without this they were unnamed until a language
+        switch."""
+        self._filter_btn.setToolTip(tr("library_filter_tooltip"))
+        self._filter_btn.setAccessibleName(tr("library_filter_button"))
+        self._more_btn.setAccessibleName(tr("library_more_actions"))
+        self._more_btn.setToolTip(tr("library_more_actions"))
 
     def _retranslate_library(self) -> None:
         self._search_edit.setPlaceholderText(tr("history_search_placeholder"))
@@ -328,13 +339,10 @@ class LibraryView(QWidget):
         for key, action in self._source_filter_actions.items():
             action.setText(tr(f"library_filter_{key}"))
         self._recipe_filter_all_action.setText(tr("library_filter_all"))
-        self._filter_btn.setToolTip(tr("library_filter_tooltip"))
-        self._filter_btn.setAccessibleName(tr("library_filter_button"))
+        self._name_icon_buttons()
         self._reset_filters_btn.setText(tr("library_filters_reset"))
         self._cover_action.setText(tr("library_open_covers"))
         self._refresh_action.setText(tr("library_refresh_tooltip"))
-        self._more_btn.setAccessibleName(tr("library_more_actions"))
-        self._more_btn.setToolTip(tr("library_more_actions"))
         self._clear_all_action.setText(tr("history_clear_all"))
         self._empty_state.set_texts(tr("library_empty_title"), tr("library_empty_hint"))
         self._no_results_state.set_texts(

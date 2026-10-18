@@ -37,7 +37,8 @@ _VALID_PROVIDERS = frozenset({"lmstudio", "openai", "anthropic"})
 _VALID_PUBLISH_MODES = frozenset({"off", "handoff", "api"})
 _VALID_YT_LANGUAGES = frozenset({"", "Russian", "English"})
 _VALID_THEMES = frozenset({"dark", "light"})
-_VALID_PERFORMANCE_MODES = frozenset({"fast", "balanced", "accurate"})
+_VALID_TEXT_SCALES = frozenset({100, 125, 150, 200})
+_VALID_PERFORMANCE_MODES = frozenset({"efficiency", "balanced", "performance"})  # utils.PERFORMANCE_MODES
 _VALID_FPS = frozenset({24, 25, 30, 60})
 _VALID_UI_LANGUAGES = frozenset({"auto", "en", "ru"})
 
@@ -73,6 +74,8 @@ class Config:
     performance_mode: str = "balanced"
 
     # UI preferences
+    # Text size in percent of the design size: 100 / 125 / 150 / 200.
+    text_scale: int = 100
     theme: str = "dark"
     show_timestamps: bool = True
     show_speaker_labels: bool = True
@@ -220,6 +223,10 @@ class Config:
             warnings.append(
                 f"yt_publish_mode={self.yt_publish_mode!r} is not one of"
                 f" {sorted(_VALID_PUBLISH_MODES)}"
+            )
+        if self.text_scale not in _VALID_TEXT_SCALES:
+            warnings.append(
+                f"text_scale={self.text_scale!r} is not one of {sorted(_VALID_TEXT_SCALES)}"
             )
         if self.theme not in _VALID_THEMES:
             warnings.append(

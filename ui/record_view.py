@@ -112,9 +112,14 @@ class RecordView(QWidget):
         self._setup_ui()
         self._i18n.call(self._retranslate_record)
         self._i18n.bind()
+        # call() only registers; the names/tooltips it sets (the title's
+        # tooltip, the ⋯ button's accessible name) must exist from the
+        # start, not only after a language switch (UX-12).
+        self._retranslate_record()
 
     def _retranslate_record(self) -> None:
         self.title_edit.setToolTip(tr("record_title_tooltip"))
+        self.title_edit.setAccessibleName(tr("record_title_tooltip"))
         self.cover_action.setText(tr("record_cover_action"))
         self.versions_action.setText(tr("record_versions_action"))
         self.rename_action.setText(tr("library_rename"))

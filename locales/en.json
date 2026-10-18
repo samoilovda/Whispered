@@ -123,6 +123,7 @@
   "tab_settings_diarization": "Diarization",
   "tab_settings_ai": "AI / LM Studio",
   "settings_theme": "Theme:",
+  "settings_text_scale": "Text size",
   "settings_theme_dark": "Dark",
   "settings_theme_light": "Light",
   "settings_show_timestamps": "Show timestamps in transcript",

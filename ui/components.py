@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QColor, QFontMetrics
 
-from ui.theme import SPACE_2, SPACE_3, SPACE_4, mark_elides, set_role
+from ui.theme import px, SPACE_2, SPACE_3, SPACE_4, mark_elides, set_role
 from utils import format_duration
 from ui.qt_util import must
 
@@ -460,11 +460,11 @@ class ChapterRow(QWidget):
             ts_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         ts_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         ts_btn.setProperty("role", "timestamp-link")
-        ts_btn.setStyleSheet("font-size: 11px;")
+        ts_btn.setStyleSheet(f"font-size: {px(11)}px;")
         ts_btn.clicked.connect(lambda: self.seek_requested.emit(start))
         layout.addWidget(ts_btn)
 
         title_lbl = QLabel(title)
         title_lbl.setWordWrap(True)
-        title_lbl.setStyleSheet("font-size: 12px;")
+        title_lbl.setStyleSheet(f"font-size: {px(12)}px;")
         layout.addWidget(title_lbl, stretch=1)

@@ -20,7 +20,7 @@ from core.logger import get_logger
 from core.i18n import tr
 from ui.i18n_helpers import Retranslator
 from core.worker_registry import WorkerRegistry
-from ui.theme import set_role
+from ui.theme import px, set_role
 
 logger = get_logger(__name__)
 
@@ -60,6 +60,8 @@ class _Bubble(QLabel):
         self.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
             | Qt.TextInteractionFlag.LinksAccessibleByMouse
+            # A citation is a link: Tab reaches it, Enter opens it (UX-12).
+            | Qt.TextInteractionFlag.LinksAccessibleByKeyboard
         )
         self.setText(text)
         self.setFont(QFont("Sans", 10))
@@ -71,6 +73,10 @@ class _Bubble(QLabel):
         shown = (link_citations(self._raw, self._verify)
                  if self._role != "user" else self._raw)
         super().setText(shown)
+        # Only a bubble that holds a citation link is a Tab stop.
+        self.setFocusPolicy(
+            Qt.FocusPolicy.TabFocus if "](seek:" in shown else Qt.FocusPolicy.NoFocus
+        )
 
     def text(self) -> str:  # noqa: D102 - the message as written, not as linked
         return self._raw
@@ -174,7 +180,7 @@ class ChatPanel(QWidget):
         self._placeholder = QLabel(tr("chat_placeholder"))
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._placeholder.setProperty("role", "dim")
-        self._placeholder.setStyleSheet("font-size: 13px;")
+        self._placeholder.setStyleSheet(f"font-size: {px(13)}px;")
         self._placeholder.setWordWrap(True)
         self._msg_layout.insertWidget(0, self._placeholder)
 

@@ -19,6 +19,7 @@ from utils import get_models_dir
 from core.base_worker import BaseWorker
 from core.i18n import tr
 from core.worker_registry import WorkerRegistry
+from ui.theme import px
 
 
 class DownloadWorker(BaseWorker):
@@ -150,13 +151,13 @@ class ModelDownloaderDialog(QDialog):
 
         # Title
         self.title_label = QLabel(tr("download_model_name", model=self.model_name))
-        self.title_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        self.title_label.setStyleSheet(f"font-size: {px(14)}px; font-weight: bold;")
         layout.addWidget(self.title_label)
 
         # Info
         self.info_label = QLabel(tr("download_model_info"))
         self.info_label.setProperty("role", "muted")
-        self.info_label.setStyleSheet("font-size: 12px;")
+        self.info_label.setStyleSheet(f"font-size: {px(12)}px;")
         self.info_label.setWordWrap(True)
         layout.addWidget(self.info_label)
 
@@ -169,7 +170,7 @@ class ModelDownloaderDialog(QDialog):
         # Stats
         self.stats_label = QLabel(tr("download_starting"))
         self.stats_label.setProperty("role", "muted")
-        self.stats_label.setStyleSheet("font-size: 11px;")
+        self.stats_label.setStyleSheet(f"font-size: {px(11)}px;")
         layout.addWidget(self.stats_label)
 
         layout.addStretch()

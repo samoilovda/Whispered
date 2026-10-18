@@ -123,6 +123,7 @@
   "tab_settings_diarization": "Диаризация",
   "tab_settings_ai": "ИИ / LM Studio",
   "settings_theme": "Тема:",
+  "settings_text_scale": "Размер текста",
   "settings_theme_dark": "Тёмная",
   "settings_theme_light": "Светлая",
   "settings_show_timestamps": "Показывать метки времени",

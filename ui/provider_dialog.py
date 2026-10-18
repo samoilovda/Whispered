@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 from config import get_config, save_config
 from core.i18n import tr
 from core.logger import get_logger
+from ui.theme import px
 
 logger = get_logger(__name__)
 
@@ -60,7 +61,7 @@ class ProviderDialog(QDialog):
         notice = QLabel(tr("youtube_privacy_notice"))
         notice.setWordWrap(True)
         notice.setProperty("role", "muted")
-        notice.setStyleSheet("font-size: 11px;")
+        notice.setStyleSheet(f"font-size: {px(11)}px;")
         layout.addWidget(notice)
 
         buttons = QDialogButtonBox(

@@ -17,6 +17,7 @@ from domain.cut_plan import CutAnchor, CutPlan, plan_for, resolve
 from ui.i18n_helpers import Retranslator
 from utils import format_duration, format_timestamp_vtt
 from ui.video_panel import VideoPanel
+from ui.theme import px
 
 
 class CutView(QWidget):
@@ -73,14 +74,14 @@ class CutView(QWidget):
         header_layout.setSpacing(6)
 
         title = self._i18n.text(QLabel(), "cut_view_title")
-        title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        title.setStyleSheet(f"font-weight: bold; font-size: {px(14)}px;")
         header_layout.addWidget(title)
 
         header_layout.addStretch()
 
         self._count_label = QLabel("")
         self._count_label.setProperty("role", "muted")
-        self._count_label.setStyleSheet("font-size: 11px;")
+        self._count_label.setStyleSheet(f"font-size: {px(11)}px;")
         header_layout.addWidget(self._count_label)
 
         select_all_btn = self._i18n.text(QPushButton(), "cut_select_all")
@@ -135,7 +136,7 @@ class CutView(QWidget):
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._placeholder.setWordWrap(True)
         self._placeholder.setProperty("role", "dim")
-        self._placeholder.setStyleSheet("font-size: 13px;")
+        self._placeholder.setStyleSheet(f"font-size: {px(13)}px;")
         layout.addWidget(self._placeholder)
 
         splitter.addWidget(list_container)

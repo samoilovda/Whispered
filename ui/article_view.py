@@ -22,7 +22,7 @@ from core.i18n import tr
 from ui.empty_state import EmptyStateWidget
 from ui.i18n_helpers import Retranslator
 from ui.icons import get_icon
-from ui.theme import IconColors
+from ui.theme import px, IconColors
 
 
 _FORMAT_LABEL_KEYS = {
@@ -83,13 +83,13 @@ class ArticleTab(QWidget):
         header = QHBoxLayout()
 
         self.title_label = QLabel(tr("article_empty"))
-        self.title_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        self.title_label.setStyleSheet(f"font-size: {px(14)}px; font-weight: bold;")
         self.title_label.setWordWrap(True)
         header.addWidget(self.title_label, stretch=1)
 
         self.stats_label = QLabel("")
         self.stats_label.setProperty("role", "muted")
-        self.stats_label.setStyleSheet("font-size: 11px;")
+        self.stats_label.setStyleSheet(f"font-size: {px(11)}px;")
         header.addWidget(self.stats_label)
 
         layout.addLayout(header)
@@ -140,7 +140,7 @@ class ArticleTab(QWidget):
         # Quality score
         self.score_label = QLabel("")
         self.score_label.setProperty("role", "muted")
-        self.score_label.setStyleSheet("font-size: 11px;")
+        self.score_label.setStyleSheet(f"font-size: {px(11)}px;")
         actions.addWidget(self.score_label)
 
         layout.addLayout(actions)
@@ -480,14 +480,14 @@ class CleanedTextView(QWidget):
 
         self.stats_label = QLabel(tr("cleaned_empty"))
         self.stats_label.setProperty("role", "muted")
-        self.stats_label.setStyleSheet("font-size: 12px;")
+        self.stats_label.setStyleSheet(f"font-size: {px(12)}px;")
         stats.addWidget(self.stats_label)
 
         stats.addStretch()
 
         self.improvement_label = QLabel("")
         self.improvement_label.setProperty("role", "success-text")
-        self.improvement_label.setStyleSheet("font-size: 11px;")
+        self.improvement_label.setStyleSheet(f"font-size: {px(11)}px;")
         stats.addWidget(self.improvement_label)
 
         layout.addLayout(stats)
