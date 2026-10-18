@@ -775,6 +775,9 @@ class MainWindow(QMainWindow):
         self.book_panel = BookPanel()
         self.book_panel.run_single_requested.connect(self._start_book_job)
         self.book_panel.cancel_requested.connect(self._cancel_operation)
+        self.book_panel.book_action_done.connect(
+            lambda message: show_toast(self, message, kind="success")
+        )
         self._shutdownables.append(self.book_panel)
 
         self.library_view = LibraryView()
@@ -1108,7 +1111,7 @@ class MainWindow(QMainWindow):
         if widget is self.insights_panel:
             return self.insights_panel.has_content()
         if widget is self.book_panel:
-            return "book" in self._record_artifacts
+            return self.book_panel.has_book() or "book" in self._record_artifacts
         return True
 
     def _refresh_tab_visibility(self) -> None:
@@ -2154,6 +2157,7 @@ class MainWindow(QMainWindow):
         self._cancel_youtube_job()
         self.youtube_panel.clear()
         self._cancel_book_job()
+        self.book_panel.clear_book()
         self.cut_view.clear()
         self._cleaned_text = None
 
@@ -2513,13 +2517,10 @@ class MainWindow(QMainWindow):
                 self.youtube_panel.set_result(result)
         elif viewer == "book":
             from book_pipeline import BookResult
+            # The book has its own tab (UX-08): it used to overwrite the
+            # cleaned text, which the article step then read as its input.
             if isinstance(result, BookResult) and result.final_text:
-                self.cleaned_view.set_text(
-                    result.final_text,
-                    original_length=len(self._current_result.full_text) if self._current_result else 0,
-                    removed_fillers=0,
-                    paragraphs=result.final_text.count("\n\n") + 1,
-                )
+                self._show_book(result.final_text)
 
     def _save_to_history(self, result: TranscriptionResult, source_path: str,
                          model: str, speaker_names: dict,
@@ -2632,6 +2633,11 @@ class MainWindow(QMainWindow):
             self._cleaned_text = None
             self.cleaned_view.clear()
             self.article_view.clear()
+            self._cancel_book_job()
+            self.book_panel.clear_book()
+            # Before the restore below, which asks whether this record
+            # should have a book (not the previously open record).
+            self._record_artifacts = set(record.get("artifacts") or [])
             self.cut_view.set_record(record_id)
             self._document_session.apply_result(result)
             self._restore_cut_plan(record_id)
@@ -2720,6 +2726,19 @@ class MainWindow(QMainWindow):
         if isinstance(articles, GenerationResult) and articles.articles:
             self.article_view.set_articles(articles.articles)
 
+        # The book — read from book.md, no LLM call. A record that lists a
+        # book whose file is gone says so instead of showing nothing.
+        try:
+            book = load_step_result(context, "book")
+        except Exception as exc:
+            logger.warning("Could not restore the book of record %d: %s", record_id, exc)
+            book = None
+        book_text: str = str(getattr(book, "final_text", "") or "") if book is not None else ""
+        if book_text:
+            self._show_book(book_text, context)
+        elif "book" in self._record_artifacts:
+            self.book_panel.set_book_missing()
+
         # Insights first: the YouTube package's chapters, when present,
         # then take over the shared chapter list (_refresh_record_chapters).
         for name, panel in (("insights", self.insights_panel), ("youtube_package", self.youtube_panel)):
@@ -2730,6 +2749,26 @@ class MainWindow(QMainWindow):
                 continue
             if isinstance(saved, dict):
                 panel.set_result(saved)
+
+    def _show_book(self, text: str, context=None) -> None:
+        """Put the record's book in the Book tab with its freshness."""
+        state = self.book_panel.BOOK_UNKNOWN
+        try:
+            if context is None and self._current_result is not None:
+                record_id = self._last_record_id if self._last_record_id is not None else "unsaved"
+                context = build_step_context(
+                    self._source_filepath or "", self._current_result, record_id,
+                    artifact_source=self._artifact_source(),
+                )
+            if context is not None:
+                from application.steps import step_artifact_is_stale
+
+                state = (self.book_panel.BOOK_STALE if step_artifact_is_stale(context, "book")
+                         else self.book_panel.BOOK_CURRENT)
+        except Exception as exc:  # noqa: BLE001 - freshness is a hint, not a gate
+            logger.debug("Book freshness unknown: %s", exc)
+        self.book_panel.set_book(text, state)
+        self._refresh_tab_visibility()
 
     def _on_error(self, error_message: str):
         """Handle transcription error."""
@@ -3497,15 +3536,9 @@ class MainWindow(QMainWindow):
                 if saved_paths:
                     files = ", ".join(os.path.basename(p) for p in saved_paths)
                     self.status_label.setText(tr("status_book_saved", files=files))
-                    # Show result in Cleaned tab
                     if result.final_text:
-                        self.cleaned_view.set_text(
-                            result.final_text,
-                            original_length=len(self._current_result.full_text) if self._current_result else 0,
-                            removed_fillers=0,
-                            paragraphs=result.final_text.count('\n\n') + 1,
-                        )
-                        self._show_tab(self.cleaned_view)
+                        self._show_book(result.final_text)
+                        self._show_tab(self.book_panel)
                 else:
                     # A stage failed internally (caught by BookPipeline
                     # itself, not an exception) — status text only, same

@@ -63,7 +63,9 @@ def test_run_button_runs_through_job_runner_and_writes_provenance(
     process_events()
 
     assert window._book_job is None
-    assert "Final book text." in window.cleaned_view._cleaned_text
+    # UX-08: the book has its own tab; the cleaned text is left alone.
+    assert "Final book text." in window.book_panel.book_text()
+    assert not window.cleaned_view._cleaned_text
 
     from core.paths import artifact_dir
     manifest = artifact_dir("unsaved", "recording") / "book.md.manifest.json"
@@ -95,7 +97,9 @@ def test_second_run_click_on_the_same_input_skips_and_reuses_the_artifact(
     window.book_panel.run_single_requested.emit(True, False, "")
     assert window._book_job.wait(2000)
     process_events()
-    assert "Final book text." in window.cleaned_view._cleaned_text
+    # UX-08: the book has its own tab; the cleaned text is left alone.
+    assert "Final book text." in window.book_panel.book_text()
+    assert not window.cleaned_view._cleaned_text
 
     class _ExplodingBookPipeline(_FakeBookPipeline):
         def process(self, transcript_text, source_path, **kwargs):
@@ -112,7 +116,9 @@ def test_second_run_click_on_the_same_input_skips_and_reuses_the_artifact(
 
     assert window._book_job is None
     assert runner.run_state.outcomes["book"].status is StepStatus.SKIPPED
-    assert "Final book text." in window.cleaned_view._cleaned_text
+    # UX-08: the book has its own tab; the cleaned text is left alone.
+    assert "Final book text." in window.book_panel.book_text()
+    assert not window.cleaned_view._cleaned_text
 
     window.close()
 

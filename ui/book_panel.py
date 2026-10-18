@@ -11,6 +11,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QCheckBox, QProgressBar, QFrame, QFileDialog, QLineEdit, QMessageBox,
+    QTextBrowser, QApplication,
 )
 from PyQt6.QtCore import pyqtSignal, QTimer
 
@@ -43,6 +44,13 @@ class BookPanel(QWidget):
     run_single_requested = pyqtSignal(bool, bool, str)
     cancel_requested = pyqtSignal()
     connection_changed = pyqtSignal(bool, str)
+    # Copy / export of the shown book succeeded: a message for a toast.
+    book_action_done = pyqtSignal(str)
+
+    # Freshness of the shown book (UI/UX audit 2026-10-18, UX-08).
+    BOOK_CURRENT = "current"
+    BOOK_STALE = "stale"
+    BOOK_UNKNOWN = "unknown"
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -52,6 +60,11 @@ class BookPanel(QWidget):
         self._registry = WorkerRegistry(parent=self)
         self._conn_timer: QTimer | None = None
         self._has_transcript = False
+        # The record's book (book.md) — shown here, in its own tab, never
+        # in the cleaned-text tab it used to overwrite (UX-08).
+        self._book_text = ""
+        self._book_state = ""
+        self._book_missing = False
         self._connected = False
         self._conn_checked = False
         self._i18n = Retranslator()
@@ -72,6 +85,37 @@ class BookPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 8, 0, 0)
         layout.setSpacing(10)
+
+        # ----- The book itself (book.md), when the record has one -----
+        self.result_box = QWidget()
+        result_layout = QVBoxLayout(self.result_box)
+        result_layout.setContentsMargins(0, 0, 0, 0)
+        result_layout.setSpacing(6)
+        result_header = QHBoxLayout()
+        self.book_state_label = QLabel()
+        self.book_state_label.setProperty("role", "muted")
+        self.book_state_label.setWordWrap(True)
+        result_header.addWidget(self.book_state_label, stretch=1)
+        self.copy_book_btn = self._i18n.text(QPushButton(), "book_copy")
+        self.copy_book_btn.clicked.connect(self._copy_book)
+        result_header.addWidget(self.copy_book_btn)
+        self.export_book_btn = self._i18n.text(QPushButton(), "book_export")
+        self.export_book_btn.clicked.connect(self._export_book)
+        result_header.addWidget(self.export_book_btn)
+        result_layout.addLayout(result_header)
+        self.book_view = QTextBrowser()
+        self.book_view.setOpenExternalLinks(False)
+        result_layout.addWidget(self.book_view, stretch=1)
+        self.result_box.setVisible(False)
+        layout.addWidget(self.result_box, stretch=1)
+
+        # A record that should have a book but whose file is gone: say so,
+        # offer to make it again — never show an empty "book".
+        self.book_missing_label = self._i18n.text(QLabel(), "book_missing")
+        self.book_missing_label.setProperty("role", "warning-text")
+        self.book_missing_label.setWordWrap(True)
+        self.book_missing_label.setVisible(False)
+        layout.addWidget(self.book_missing_label)
 
         # ----- Header -----
         divider = QFrame()
@@ -246,6 +290,72 @@ class BookPanel(QWidget):
     # Public API
     # ------------------------------------------------------------------
 
+    def set_book(self, text: str, state: str = "unknown") -> None:
+        """Show the record's book. *state*: BOOK_CURRENT / BOOK_STALE /
+        BOOK_UNKNOWN — whether it was made from the transcript as it is now."""
+        self._book_text = text or ""
+        self._book_missing = False
+        self._book_state = state
+        self.book_view.setMarkdown(self._book_text)
+        self._render_book_state()
+
+    def set_book_missing(self) -> None:
+        """The record lists a book but book.md is missing or unreadable."""
+        self._book_text = ""
+        self._book_missing = True
+        self._book_state = ""
+        self.book_view.clear()
+        self._render_book_state()
+
+    def clear_book(self) -> None:
+        self._book_text = ""
+        self._book_missing = False
+        self._book_state = ""
+        self.book_view.clear()
+        self._render_book_state()
+
+    def has_book(self) -> bool:
+        return bool(self._book_text)
+
+    def book_text(self) -> str:
+        return self._book_text
+
+    def _render_book_state(self) -> None:
+        has_book = bool(self._book_text)
+        self.result_box.setVisible(has_book)
+        self.book_missing_label.setVisible(self._book_missing)
+        if has_book:
+            key = {
+                self.BOOK_CURRENT: "book_state_current",
+                self.BOOK_STALE: "book_state_stale",
+            }.get(self._book_state, "book_state_unknown")
+            self.book_state_label.setText(tr(key))
+        # With a book on screen the run button reads "Make again".
+        self.run_btn.setText(tr("book_rerun") if has_book else tr("book_run"))
+
+    def _copy_book(self) -> None:
+        if not self._book_text:
+            return
+        clipboard = QApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(self._book_text)
+        self.book_action_done.emit(tr("toast_copied"))
+
+    def _export_book(self) -> None:
+        if not self._book_text:
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, tr("book_export"), "book.md", tr("book_export_filter"),
+        )
+        if not path:
+            return
+        try:
+            Path(path).write_text(self._book_text, encoding="utf-8")
+        except OSError as exc:
+            QMessageBox.critical(self, tr("error_export"), str(exc))
+            return
+        self.book_action_done.emit(tr("book_exported", name=Path(path).name))
+
     def set_has_transcript(self, has_transcript: bool) -> None:
         """Enable / disable the single-file Run button."""
         self._has_transcript = has_transcript
@@ -289,6 +399,7 @@ class BookPanel(QWidget):
         self._checker.start()
 
     def _retranslate_book(self) -> None:
+        self._render_book_state()
         if self._conn_checked:
             self.status_label.setText(
                 tr("book_lm_connected") if self._connected else tr("book_lm_unavailable")
