@@ -15,15 +15,15 @@ from ui.theme import get_theme, rgba
 ToastKind = Literal["success", "info", "error", "warning"]
 
 
-def _colors() -> dict[ToastKind, tuple[str, str]]:
-    """Border/background color per toast kind, resolved from the active
-    theme so a toast raised after a theme switch looks right."""
+def _colors() -> dict[ToastKind, tuple[str, str, str]]:
+    """Border/background/text color per toast kind, resolved from the
+    active theme so a toast raised after a theme switch looks right."""
     t = get_theme()
     return {
-        "success": (t.success, rgba(t.success, 0.12)),
-        "info": (t.accent, rgba(t.accent, 0.12)),
-        "warning": (t.warning, rgba(t.warning, 0.12)),
-        "error": (t.error, rgba(t.error, 0.12)),
+        "success": (t.success, rgba(t.success, 0.12), t.success_text),
+        "info": (t.accent, rgba(t.accent, 0.12), t.accent_text),
+        "warning": (t.warning, rgba(t.warning, 0.12), t.warning_text),
+        "error": (t.error, rgba(t.error, 0.12), t.error_text),
     }
 
 
@@ -42,7 +42,7 @@ class Toast(QLabel):
                  parent: QWidget | None = None, duration_ms: int = 3000):
         super().__init__(parent)
         colors = _colors()
-        border_color, bg_color = colors.get(kind, colors["info"])
+        border_color, bg_color, text_color = colors.get(kind, colors["info"])
         icon = _ICONS.get(kind, "ℹ")
 
         self.setText(f"  {icon}  {message}  ")
@@ -51,7 +51,7 @@ class Toast(QLabel):
                 background-color: {bg_color};
                 border: 1px solid {border_color};
                 border-radius: 8px;
-                color: {border_color};
+                color: {text_color};
                 font-size: 13px;
                 font-weight: bold;
                 padding: 8px 16px;

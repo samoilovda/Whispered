@@ -44,7 +44,7 @@ class IconColors:
     unaffected; LIGHT's are the WCAG-contrast-checked shades already
     used for label text elsewhere.
     """
-    PRIMARY = '#6366f1'   # Indigo (== Theme.accent)
+    PRIMARY = '#6366f1'   # Indigo (icons; Theme.accent is the button fill)
     SUCCESS = '#22c55e'   # Green (== Theme.success, dark theme)
     WARNING = '#f59e0b'   # Amber (== Theme.warning, dark theme)
     ERROR = '#f87171'     # Red — deliberately lighter than Theme.error for icon visibility
@@ -76,7 +76,7 @@ _TIMELINE_STATUS_COLORS = {
 _DARK_TIMELINE_COLORS = {
     **_TIMELINE_STATUS_COLORS,
     "bg": "#2a2a2a",
-    "fg": "#888888",
+    "fg": "#a3a3a3",
     "fg_active": "#e0e0e0",
     "separator": "#1a1a1a",
 }
@@ -123,6 +123,16 @@ class Theme:
     warning: str
     error: str
     info: str
+    # Semantic *text* colors. The fills above double as badge/toast
+    # backgrounds, borders and icons, where 3:1 is enough; text on the page
+    # needs 4.5:1 (UI/UX audit 2026-10-18, UX-12), which a saturated fill
+    # often misses (light warning #f9ab00 on white is 1.9:1). Every
+    # ``color:`` that renders words uses these instead.
+    accent_text: str
+    success_text: str
+    warning_text: str
+    error_text: str
+    info_text: str
     # Radii
     radius_sm: str
     radius_md: str
@@ -145,12 +155,17 @@ DARK = Theme(
     border="#2e2e2e",
     border_input="#3a3a3a",
     border_hover="#4a4a4a",
-    accent="#6366f1",
+    # #6366f1 gave white button text 4.47:1; this barely-darker shade
+    # clears 4.5:1 without changing the look.
+    accent="#5f62f0",
     accent_hover="#818cf8",
     accent_pressed="#4f46e5",
     text_primary="#e0e0e0",
-    text_secondary="#888888",
-    text_muted="#666666",
+    # #888888 / #666666 measured 4.05:1 / 3.03:1 on panels — too faint for
+    # hints and statuses that carry meaning (UX-12). Both now clear 4.5:1
+    # on every dark background, bg_elevated #2d2d2d included.
+    text_secondary="#a3a3a3",
+    text_muted="#949494",
     # #606060 on bg_disabled #252525 measured at ~2.4:1 — the disabled
     # Apply button read as nearly blank, not just "muted". #707070 clears
     # ~3:1, legible while still visibly non-interactive.
@@ -159,6 +174,11 @@ DARK = Theme(
     warning="#f59e0b",
     error="#ef4444",
     info="#38bdf8",
+    accent_text="#818cf8",
+    success_text="#22c55e",
+    warning_text="#f59e0b",
+    error_text="#fc9292",
+    info_text="#38bdf8",
     radius_sm="6px",
     radius_md="10px",
     radius_lg="16px",
@@ -190,6 +210,11 @@ LIGHT = Theme(
     warning="#f9ab00",
     error="#d93025",
     info="#1a73e8",
+    accent_text="#6c4cf1",
+    success_text="#137333",
+    warning_text="#8a5300",
+    error_text="#b31d17",
+    info_text="#1558b0",
     radius_sm="6px",
     radius_md="12px",
     radius_lg="16px",
@@ -329,7 +354,7 @@ def build_stylesheet(t: Theme) -> str:
     }}
     QPushButton[variant="danger"]:hover {{
         background-color: rgba(248, 113, 113, 0.1);
-        color: {t.error};
+        color: {t.error_text};
         border-color: {t.error};
     }}
 
@@ -351,7 +376,7 @@ def build_stylesheet(t: Theme) -> str:
     }}
     QPushButton:checkable:checked {{
         border-color: {t.accent};
-        color: {t.accent};
+        color: {t.accent_text};
     }}
     QPushButton:checkable:hover {{
         background-color: rgba(99, 102, 241, 0.1);
@@ -359,7 +384,7 @@ def build_stylesheet(t: Theme) -> str:
 
     QPushButton[role="checkable-success"]:checkable:checked {{
         border-color: {t.success};
-        color: {t.success};
+        color: {t.success_text};
     }}
     QPushButton[role="checkable-success"]:checkable:hover {{
         background-color: {rgba(t.success, 0.1)};
@@ -378,7 +403,7 @@ def build_stylesheet(t: Theme) -> str:
     }}
     QToolButton[role="nav-button"]:checked {{
         background-color: {rgba(t.accent, 0.15)};
-        color: {t.accent};
+        color: {t.accent_text};
     }}
 
     /* ── ComboBox ── */
@@ -695,23 +720,23 @@ def build_stylesheet(t: Theme) -> str:
         font-size: {t.font_xs};
     }}
     QLabel[role="danger-text"] {{
-        color: {t.error};
+        color: {t.error_text};
         background: transparent;
         border: none;
     }}
     QPushButton[role="danger-text"] {{
-        color: {t.error};
+        color: {t.error_text};
     }}
     QPushButton[role="warning-text"] {{
-        color: {t.warning};
+        color: {t.warning_text};
     }}
     QLabel[role="success-text"] {{
-        color: {t.success};
+        color: {t.success_text};
         background: transparent;
         border: none;
     }}
     QLabel[role="warning-text"] {{
-        color: {t.warning};
+        color: {t.warning_text};
         background: transparent;
         border: none;
     }}
@@ -730,7 +755,7 @@ def build_stylesheet(t: Theme) -> str:
         border: none;
     }}
     QPushButton[role="timestamp-link"] {{
-        color: {t.accent};
+        color: {t.accent_text};
         background: transparent;
         border: none;
         font-family: monospace;
@@ -787,19 +812,19 @@ def build_stylesheet(t: Theme) -> str:
     }}
     QLabel[role="status-info"] {{
         background-color: {rgba(t.info, 0.14)};
-        color: {t.info};
+        color: {t.info_text};
     }}
     QLabel[role="status-success"] {{
         background-color: {rgba(t.success, 0.14)};
-        color: {t.success};
+        color: {t.success_text};
     }}
     QLabel[role="status-warning"] {{
         background-color: {rgba(t.warning, 0.14)};
-        color: {t.warning};
+        color: {t.warning_text};
     }}
     QLabel[role="status-error"] {{
         background-color: {rgba(t.error, 0.14)};
-        color: {t.error};
+        color: {t.error_text};
     }}
     QToolButton[role="toolbar-icon"] {{
         background-color: transparent;
@@ -816,7 +841,7 @@ def build_stylesheet(t: Theme) -> str:
     }}
     QToolButton[role="toolbar-icon"][active="true"] {{
         background-color: {rgba(t.accent, 0.15)};
-        color: {t.accent};
+        color: {t.accent_text};
     }}
     QToolButton[role="toolbar-icon"]::menu-indicator {{
         image: none;
@@ -896,7 +921,7 @@ def build_stylesheet(t: Theme) -> str:
         background: transparent;
         border: none;
         padding: 4px 6px;
-        color: {t.warning};
+        color: {t.warning_text};
         font-size: {t.font_sm};
     }}
     QPushButton[role="uncertain-link"]:hover {{
@@ -918,7 +943,7 @@ def build_stylesheet(t: Theme) -> str:
         background: transparent;
         border: none;
         padding: 0 2px;
-        color: {t.accent};
+        color: {t.accent_text};
         font-size: {t.font_sm};
         text-decoration: underline;
     }}
@@ -927,7 +952,7 @@ def build_stylesheet(t: Theme) -> str:
     }}
     QPushButton[role="floating-pill"] {{
         background-color: {t.bg_elevated};
-        color: {t.accent};
+        color: {t.accent_text};
         border: 1px solid {t.accent};
         border-radius: 12px;
         padding: 4px 14px;
@@ -945,7 +970,7 @@ def build_stylesheet(t: Theme) -> str:
     }}
     QPushButton[role="filter-chip"] {{
         background-color: {rgba(t.accent, 0.15)};
-        color: {t.accent};
+        color: {t.accent_text};
         border: none;
         border-radius: 10px;
         padding: 3px 10px;
@@ -989,7 +1014,7 @@ def build_stylesheet(t: Theme) -> str:
         text-align: left;
     }}
     QToolButton[role="collapsible-header"]:hover {{
-        color: {t.accent};
+        color: {t.accent_text};
     }}
     QToolButton:focus, QPushButton:focus, QComboBox:focus,
     QLineEdit:focus, QListWidget:focus {{
@@ -1024,7 +1049,7 @@ def build_stylesheet(t: Theme) -> str:
         border-bottom-left-radius: 2px;
         border-bottom-right-radius: {t.radius_lg};
         padding: 8px 12px;
-        color: {t.error};
+        color: {t.error_text};
     }}
     QPushButton[role="icon-button"] {{
         background-color: transparent;
@@ -1062,7 +1087,7 @@ def build_stylesheet(t: Theme) -> str:
        state, and the fill is a non-colour signal on its own. */
     QPushButton[role="quick-chip"]:checked {{
         background-color: {rgba(t.accent, 0.15)};
-        color: {t.accent};
+        color: {t.accent_text};
     }}
     QPushButton[role="quick-chip"]:checked:hover {{
         background-color: {rgba(t.accent, 0.24)};
@@ -1104,7 +1129,7 @@ def build_stylesheet(t: Theme) -> str:
         border: none;
         border-radius: 12px;
         padding: 4px 12px;
-        color: {t.accent};
+        color: {t.accent_text};
         font-size: {t.font_sm};
     }}
     QPushButton[role="accent-badge"]:hover {{
@@ -1115,7 +1140,7 @@ def build_stylesheet(t: Theme) -> str:
         border: none;
         border-radius: 12px;
         padding: 4px 12px;
-        color: {t.success};
+        color: {t.success_text};
         font-size: {t.font_sm};
     }}
     QPushButton[role="success-badge"]:hover {{
@@ -1136,7 +1161,7 @@ def build_stylesheet(t: Theme) -> str:
         background-color: {rgba(t.accent, 0.18)};
         border: 2px dashed {t.accent};
         border-radius: {t.radius_lg};
-        color: {t.accent};
+        color: {t.accent_text};
         font-size: 20px;
         font-weight: bold;
     }}
@@ -1158,7 +1183,7 @@ def build_stylesheet(t: Theme) -> str:
     }}
     QLabel[role="badge-pill-transcript"] {{
         background-color: {rgba(t.accent, 0.15)};
-        color: {t.accent};
+        color: {t.accent_text};
         border-radius: 9px;
         padding: 2px 8px;
         font-size: {t.font_xs};
@@ -1166,7 +1191,7 @@ def build_stylesheet(t: Theme) -> str:
     }}
     QLabel[role="badge-pill-youtube"] {{
         background-color: {rgba(t.warning, 0.15)};
-        color: {t.warning};
+        color: {t.warning_text};
         border-radius: 9px;
         padding: 2px 8px;
         font-size: {t.font_xs};
@@ -1174,7 +1199,7 @@ def build_stylesheet(t: Theme) -> str:
     }}
     QLabel[role="badge-pill-article"] {{
         background-color: {rgba(t.success, 0.15)};
-        color: {t.success};
+        color: {t.success_text};
         border-radius: 9px;
         padding: 2px 8px;
         font-size: {t.font_xs};
@@ -1183,7 +1208,7 @@ def build_stylesheet(t: Theme) -> str:
     QLabel[role="badge-pill-insights"], QLabel[role="badge-pill-book"],
     QLabel[role="badge-pill-youtube_upload"] {{
         background-color: {rgba(t.info, 0.15)};
-        color: {t.info};
+        color: {t.info_text};
         border-radius: 9px;
         padding: 1px 7px;
         font-size: {t.font_xs};
@@ -1191,7 +1216,7 @@ def build_stylesheet(t: Theme) -> str:
     }}
     QLabel[role="badge-pill-error"] {{
         background-color: {rgba(t.error, 0.15)};
-        color: {t.error};
+        color: {t.error_text};
         border-radius: 9px;
         padding: 2px 8px;
         font-size: {t.font_xs};

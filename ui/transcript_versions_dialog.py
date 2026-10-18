@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
 
 from core.i18n import tr
 from core.logger import get_logger
+from ui.theme import get_theme
 
 logger = get_logger(__name__)
 
@@ -58,6 +59,14 @@ def _segment_lines(payload: dict) -> list[str]:
     return lines
 
 
+def _tint(color: str, base: str, alpha: float = 0.22) -> str:
+    """*color* blended over *base* as an opaque ``#rrggbb`` — Qt's rich
+    text ignores rgba() backgrounds."""
+    c = [int(color[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(base[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(b[i] + (c[i] - b[i]) * alpha):02x}" for i in range(3))
+
+
 def _diff_html(old_lines: list[str], new_lines: list[str]) -> str:
     """Unified diff rendered as highlighted HTML — additions/removals get
     a background tint (B8 item 4: "с подсветкой"), a plain <div> per line
@@ -65,17 +74,23 @@ def _diff_html(old_lines: list[str], new_lines: list[str]) -> str:
     diff = list(difflib.unified_diff(old_lines, new_lines, lineterm=""))
     if not diff:
         return f"<div>{html.escape(tr('versions_diff_no_changes'))}</div>"
+    # Theme tokens, not dark-only literals: the old #9fdf9f-on-tint rows
+    # were unreadable in the light theme (UX-12). Added/removed lines keep
+    # body-text color on a tint — the leading +/- carries the meaning too.
+    t = get_theme()
+    added = f"background:{_tint(t.success, t.bg_deep)};color:{t.text_primary};"
+    removed = f"background:{_tint(t.error, t.bg_deep)};color:{t.text_primary};"
     rows = []
     for line in diff:
         escaped = html.escape(line) or "&nbsp;"
         if line.startswith("+++") or line.startswith("---"):
-            rows.append(f'<div style="color:#888;">{escaped}</div>')
+            rows.append(f'<div style="color:{t.text_muted};">{escaped}</div>')
         elif line.startswith("+"):
-            rows.append(f'<div style="background:#1e3d1e;color:#9fdf9f;">{escaped}</div>')
+            rows.append(f'<div style="{added}">{escaped}</div>')
         elif line.startswith("-"):
-            rows.append(f'<div style="background:#3d1e1e;color:#df9f9f;">{escaped}</div>')
+            rows.append(f'<div style="{removed}">{escaped}</div>')
         elif line.startswith("@@"):
-            rows.append(f'<div style="color:#8ab4f8;">{escaped}</div>')
+            rows.append(f'<div style="color:{t.info_text};">{escaped}</div>')
         else:
             rows.append(f"<div>{escaped}</div>")
     return "".join(rows)
