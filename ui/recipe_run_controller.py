@@ -145,7 +145,12 @@ class RecipeRunController:
             run.outcomes["transcribe"] = StepOutcome(
                 "transcribe", transcribe_status, result=result
             )
-        if "diarize" in step_names and any(seg.speaker for seg in result.segments):
+        if already_streamed and "diarize" in step_names and any(
+            seg.speaker for seg in result.segments
+        ):
+            # Not pre-seeded for a file run: the step itself saves the
+            # speaker transcript, even when the transcription pass already
+            # labelled the segments.
             run.outcomes["diarize"] = StepOutcome(
                 "diarize", transcribe_status, result=result
             )

@@ -117,7 +117,7 @@ def _builtin(key: str, steps: "tuple[str, ...]") -> Recipe:
 # Config.last_recipe stores.
 TRANSCRIPT_ONLY = _builtin("transcript_only", ("transcribe",))
 YOUTUBE_VIDEO = _builtin(
-    "youtube_video", ("transcribe", "clean", "youtube_package", "cover")
+    "youtube_video", ("transcribe", "diarize", "clean", "youtube_package", "cover")
 )
 PODCAST_ARTICLE = _builtin("podcast_article", ("transcribe", "clean", "article"))
 MEETING_NOTES = _builtin("meeting_notes", ("transcribe", "diarize", "insights"))

@@ -371,8 +371,32 @@ def has_speakers(result: TranscriptionResult) -> bool:
     return any(seg.speaker for seg in result.segments)
 
 
+SPEAKERS_JSON = "transcript.speakers.json"
+SPEAKERS_MD = "transcript.speakers.md"
+
+
+def _write_speaker_transcript(context: StepContext, result: TranscriptionResult) -> None:
+    """Best-effort: save the speaker-labelled transcript next to the record's
+    other generated files (``transcript.speakers.json``/``.md``), so an
+    external consumer — e.g. a knowledge base fed from the artifact folder —
+    can pick it up without the app. A failed write never fails the step."""
+    if not has_speakers(result):
+        return
+    try:
+        from exporters import export_json, export_md
+
+        context.artifact_dir.mkdir(parents=True, exist_ok=True)
+        export_json(result, str(context.artifact_dir / SPEAKERS_JSON))
+        export_md(result, str(context.artifact_dir / SPEAKERS_MD))
+    except Exception as exc:  # noqa: BLE001 - see docstring
+        from core.logger import get_logger
+
+        get_logger(__name__).warning("Failed to save the speaker transcript: %s", exc)
+
+
 def _diarize_runner(context: StepContext) -> StepRunner:
-    """Label an existing transcript's segments with speakers.
+    """Label an existing transcript's segments with speakers and save the
+    labelled transcript to the record's artifact folder.
 
     A transcript that already has speakers (the transcription pass ran the
     diarizer itself, see ``transcriber.py``) is returned unchanged. Otherwise
@@ -382,6 +406,7 @@ def _diarize_runner(context: StepContext) -> StepRunner:
     """
     def run() -> TranscriptionResult:
         if has_speakers(context.result):
+            _write_speaker_transcript(context, context.result)
             return context.result
         source = context.source_path
         if not source or not Path(source).is_file():
@@ -406,6 +431,7 @@ def _diarize_runner(context: StepContext) -> StepRunner:
             raise RuntimeError("Speaker detection was cancelled") from None
         result = copy.deepcopy(context.result)
         assign_speakers(result.segments, diarization)
+        _write_speaker_transcript(context, result)
         return result
 
     return run

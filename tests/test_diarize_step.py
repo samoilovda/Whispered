@@ -8,6 +8,7 @@ A fake ``Diarizer`` stands in for sherpa-onnx, so no models are needed.
 from __future__ import annotations
 
 import dataclasses
+import json
 
 import pytest
 
@@ -194,3 +195,19 @@ def test_save_record_version_writes_a_new_version_with_speaker_names(
 
 def test_save_record_version_without_a_record_does_nothing():
     assert save_record_version(None, _result()) is False
+
+
+def test_saves_the_speaker_transcript_for_a_labelled_result(tmp_path, media, fake_diarizer):
+    context = _context(tmp_path, media, _result(None, None))
+    _run(context)
+    out = context.artifact_dir
+    data = json.loads((out / "transcript.speakers.json").read_text(encoding="utf-8"))
+    assert {seg["speaker_id"] for seg in data["segments"]} - {None}
+    assert (out / "transcript.speakers.md").is_file()
+
+
+def test_saves_the_speaker_transcript_even_when_already_labelled(tmp_path, media, fake_diarizer):
+    context = _context(tmp_path, media, _result("Speaker 1", "Speaker 2"))
+    _run(context)
+    assert (context.artifact_dir / "transcript.speakers.json").is_file()
+    assert fake_diarizer.calls == []

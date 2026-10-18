@@ -33,7 +33,7 @@ def test_known_step_names_matches_the_registry():
     ("recipe", "expected_steps"),
     [
         (TRANSCRIPT_ONLY, ("transcribe",)),
-        (YOUTUBE_VIDEO, ("transcribe", "clean", "youtube_package", "cover")),
+        (YOUTUBE_VIDEO, ("transcribe", "diarize", "clean", "youtube_package", "cover")),
         (PODCAST_ARTICLE, ("transcribe", "clean", "article")),
         (MEETING_NOTES, ("transcribe", "diarize", "insights")),
         (BOOK, ("transcribe", "clean", "book")),
