@@ -1,0 +1,107 @@
+{
+  "audit_date": "2026-10-18",
+  "timezone": "Asia/Tashkent",
+  "whispered_commit": "5224eb929fdae541a178757452c77b38252858a7",
+  "method": "Official repository README snapshots, not installed competitor releases. Screenshots are official repository assets.",
+  "verified_readmes": [
+    {
+      "id": "buzz",
+      "repository": "chidiwilliams/buzz",
+      "commit": "6186d09a9f7c2b51c9d5de89592ace2e9cc0092c",
+      "url": "https://github.com/chidiwilliams/buzz/blob/6186d09a9f7c2b51c9d5de89592ace2e9cc0092c/README.md",
+      "retrieval_url": "https://raw.githubusercontent.com/chidiwilliams/buzz/6186d09a9f7c2b51c9d5de89592ace2e9cc0092c/README.md",
+      "status": 200,
+      "sha256": "78a7b2086566f9a775a25a50a13bc0d8626b3750c2dbc40f431dfd5825b9a58d"
+    },
+    {
+      "id": "vibe",
+      "repository": "thewh1teagle/vibe",
+      "commit": "2ea5ecef989933282fca517d82d4e3128ae5fb0b",
+      "url": "https://github.com/thewh1teagle/vibe/blob/2ea5ecef989933282fca517d82d4e3128ae5fb0b/README.md",
+      "retrieval_url": "https://raw.githubusercontent.com/thewh1teagle/vibe/2ea5ecef989933282fca517d82d4e3128ae5fb0b/README.md",
+      "status": 200,
+      "sha256": "62ffc914115c5b20e763639ba2274b5ed55839cbe4e618b7c0036380996d4c98"
+    },
+    {
+      "id": "noscribe",
+      "repository": "kaixxx/noScribe",
+      "commit": "03d4d181b00bb1a6e1a1c3a1cf9e6ee082c32836",
+      "url": "https://github.com/kaixxx/noScribe/blob/03d4d181b00bb1a6e1a1c3a1cf9e6ee082c32836/README.md",
+      "retrieval_url": "https://raw.githubusercontent.com/kaixxx/noScribe/03d4d181b00bb1a6e1a1c3a1cf9e6ee082c32836/README.md",
+      "status": 200,
+      "sha256": "93c0c00d4bd2b96058ee6e071ecceca4aa705bfd745505b4321d03ccd71a838a"
+    },
+    {
+      "id": "subtitleedit",
+      "repository": "SubtitleEdit/subtitleedit",
+      "commit": "eabef65b1ddb5a1c1815d8ea57d3d054526e13ac",
+      "url": "https://github.com/SubtitleEdit/subtitleedit/blob/eabef65b1ddb5a1c1815d8ea57d3d054526e13ac/README.md",
+      "retrieval_url": "https://raw.githubusercontent.com/SubtitleEdit/subtitleedit/eabef65b1ddb5a1c1815d8ea57d3d054526e13ac/README.md",
+      "status": 200,
+      "sha256": "f1349f49553e7947e323d9e7c1eb160b7a43163841669f6c0cebc69e46e5efd8"
+    },
+    {
+      "id": "whisperlive",
+      "repository": "collabora/WhisperLive",
+      "commit": "f26bdd5294ace7d31020ca00e04e7b14c2b7d954",
+      "url": "https://github.com/collabora/WhisperLive/blob/f26bdd5294ace7d31020ca00e04e7b14c2b7d954/README.md",
+      "retrieval_url": "https://raw.githubusercontent.com/collabora/WhisperLive/f26bdd5294ace7d31020ca00e04e7b14c2b7d954/README.md",
+      "status": 200,
+      "sha256": "52769ac767df100b03477ae37898174ef0405742cd63b35bd2d1192176167fde"
+    }
+  ],
+  "official_screenshot_sources": [
+    {
+      "id": "buzz-import",
+      "url": "https://raw.githubusercontent.com/chidiwilliams/buzz/6186d09a9f7c2b51c9d5de89592ace2e9cc0092c/share/screenshots/buzz-1-import.png",
+      "bytes": 24134
+    },
+    {
+      "id": "buzz-editor",
+      "url": "https://raw.githubusercontent.com/chidiwilliams/buzz/6186d09a9f7c2b51c9d5de89592ace2e9cc0092c/share/screenshots/buzz-4-transcript.png",
+      "bytes": 52792
+    },
+    {
+      "id": "vibe-ui",
+      "url": "https://raw.githubusercontent.com/thewh1teagle/vibe/2ea5ecef989933282fca517d82d4e3128ae5fb0b/design/app-preview-light.png",
+      "bytes": 219525
+    },
+    {
+      "id": "noscribe-ui",
+      "url": "https://raw.githubusercontent.com/kaixxx/noScribe/03d4d181b00bb1a6e1a1c3a1cf9e6ee082c32836/img/noScribe_main_window.png",
+      "bytes": 353321
+    }
+  ],
+  "unavailable_commercial_sources": [
+    {
+      "id": "macwhisper",
+      "url": "https://goodsnooze.gumroad.com/l/macwhisper",
+      "error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+    },
+    {
+      "id": "whispertranscription",
+      "url": "https://whispertranscription.com/",
+      "error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+    },
+    {
+      "id": "descript",
+      "url": "https://www.descript.com/transcription",
+      "error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+    },
+    {
+      "id": "otter",
+      "url": "https://otter.ai/",
+      "error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+    },
+    {
+      "id": "notta",
+      "url": "https://www.notta.ai/en/features",
+      "error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+    },
+    {
+      "id": "turbo",
+      "url": "https://turboscribe.ai/",
+      "error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+    }
+  ]
+}
