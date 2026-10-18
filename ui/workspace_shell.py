@@ -12,6 +12,8 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
+    QBoxLayout,
+    QToolButton,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -57,6 +59,8 @@ class WorkspaceShell(QWidget):
     def _retranslate_shell(self) -> None:
         self.library_title.setText(tr("workspace_records"))
         self.new_button.setAccessibleName(tr("workspace_new"))
+        self.library_button.setToolTip(tr("workspace_open_library"))
+        self.library_button.setAccessibleName(tr("workspace_open_library"))
         self._apply_responsiveness()
 
     def _setup_ui(self) -> None:
@@ -72,9 +76,21 @@ class WorkspaceShell(QWidget):
         library_layout.setContentsMargins(12, 12, 12, 12)
         library_layout.setSpacing(8)
         header = QHBoxLayout()
+        self._header = header
         self.library_title = QLabel(tr("workspace_records"))
         self.library_title.setProperty("role", "section-title")
         header.addWidget(self.library_title, stretch=1)
+        # Compact mode: the Library and "New record" are two buttons with
+        # their own names (UX-10) — one button used to do either, while
+        # its accessible name always said "New record".
+        self.library_button = QToolButton()
+        self.library_button.setProperty("role", "toolbar-icon")
+        self.library_button.setIcon(get_icon("list", IconColors.default(), 16))
+        self.library_button.setToolTip(tr("workspace_open_library"))
+        self.library_button.setAccessibleName(tr("workspace_open_library"))
+        self.library_button.clicked.connect(self.show_library)
+        self.library_button.setVisible(False)
+        header.addWidget(self.library_button)
         self.new_button = QPushButton(tr("workspace_new"))
         self.new_button.setProperty("variant", "primary")
         self.new_button.setAccessibleName(tr("workspace_new"))
@@ -115,10 +131,14 @@ class WorkspaceShell(QWidget):
         self.library_title.setVisible(not compact_library)
         self.new_button.setText("" if compact_library else tr("workspace_new"))
         self.new_button.setIcon(
-            get_icon("file", IconColors.default(), 16) if compact_library else QIcon()
+            get_icon("plus", IconColors.default(), 16) if compact_library else QIcon()
         )
-        self.new_button.setToolTip(
-            tr("workspace_open_library") if compact_library else tr("workspace_new")
+        self.new_button.setToolTip(tr("workspace_new"))
+        self.library_button.setVisible(compact_library)
+        # The compact column is one icon wide: stack its two buttons.
+        self._header.setDirection(
+            QBoxLayout.Direction.TopToBottom if compact_library
+            else QBoxLayout.Direction.LeftToRight
         )
         self.library_pane.setMinimumWidth(
             LIBRARY_COMPACT_WIDTH if compact_library else 220
@@ -145,15 +165,19 @@ class WorkspaceShell(QWidget):
         return self._library_width
 
     def _on_header_action(self) -> None:
-        if getattr(self, "_compact_library", False) and not self.library.isVisible():
+        self.new_requested.emit()
+
+    def show_library(self) -> None:
+        """Open the Library in a compact window (until the next resize),
+        without changing the saved collapsed setting."""
+        if not self.library.isVisible():
             self.library.setVisible(True)
             self.library_title.setVisible(True)
+            self.library_button.setVisible(False)
             self.library_pane.setMinimumWidth(220)
             self.library_pane.setMaximumWidth(420)
             width = self._library_width
             self.splitter.setSizes([width, max(360, self.width() - width)])
-            return
-        self.new_requested.emit()
 
     def set_library_collapsed(self, collapsed: bool) -> None:
         cfg = get_config()

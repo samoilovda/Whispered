@@ -67,7 +67,8 @@ def test_narrow_workspace_library_opens_without_persisting_force(process_events)
     cfg = get_config()
     cfg.library_collapsed = False
 
-    window.workspace_shell.new_button.click()
+    # UX-10: the Library has its own button in compact mode.
+    window.workspace_shell.library_button.click()
     process_events()
     assert window.library_view.isVisible() is True
     assert cfg.library_collapsed is False

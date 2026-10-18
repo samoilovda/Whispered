@@ -495,6 +495,7 @@ class MainWindow(QMainWindow):
                 self.main_tabs.setTabText(idx, tr(key))
         if hasattr(self, "_add_tab_menu"):
             self._refresh_tab_markers()
+            self._refresh_tab_visibility()
         if hasattr(self, "_folder_hint_label"):
             self._folder_hint_label.setText(tr("draft_folder_hint"))
         if hasattr(self, "_draft_queue_button"):
@@ -576,7 +577,7 @@ class MainWindow(QMainWindow):
             ("menu_view", "menu_toggle_library", "", self._toggle_library_sidebar, False),
             ("menu_view", "menu_show_queue", "", lambda: self.status_bar.show_queue(True), True),
 
-            ("menu_go", "menu_go_library", "Ctrl+1", self._menu_focus_library, False),
+            ("menu_go", "menu_go_library", "Ctrl+1", self._menu_focus_library, True),
             ("menu_go", "menu_go_article", "Ctrl+2", self._menu_show_articles, False),
             ("menu_go", "menu_go_live", "", lambda: self._on_section_changed("live"), True),
             ("menu_go", "menu_go_recipe_editor", "Ctrl+3", self._open_recipe_editor, False),
@@ -656,6 +657,9 @@ class MainWindow(QMainWindow):
     def _menu_focus_library(self) -> None:
         if getattr(get_config(), "library_collapsed", False):
             self.workspace_shell.set_library_collapsed(False)
+        # A window too narrow for the Library keeps it hidden by force;
+        # the command still has to show it, or focus lands nowhere.
+        self.workspace_shell.show_library()
         self.library_view.focus_search()
 
     def _menu_show_articles(self) -> None:
@@ -1094,7 +1098,11 @@ class MainWindow(QMainWindow):
         self._add_tab_btn.setToolTip(tr("record_add_tab_tooltip"))
         self._add_tab_btn.setAccessibleName(tr("record_add_tab_tooltip"))
         self._add_tab_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        # Named where there is room (UX-10): a bare "+" in the tab bar's
+        # corner was easy to miss as the way to create a material.
+        self._add_tab_btn.setText(tr("record_add_material"))
         self._add_tab_menu = QMenu(self._add_tab_btn)
+        self._add_tab_menu.setToolTipsVisible(True)
         self._add_tab_btn.setMenu(self._add_tab_menu)
         self.main_tabs.setCornerWidget(self._add_tab_btn, Qt.Corner.TopRightCorner)
         self._refresh_tab_visibility()
@@ -1130,8 +1138,32 @@ class MainWindow(QMainWindow):
         for widget in hidden:
             label = self.main_tabs.tabText(self.main_tabs.indexOf(widget))
             action = must(self._add_tab_menu.addAction(label))
+            # Opening a material's tab never starts its generation; the tab's
+            # own empty state offers that.
+            action.setToolTip(tr("record_add_material_item_tip"))
             action.triggered.connect(lambda _c=False, w=widget: self._show_tab(w))
         self._add_tab_btn.setVisible(bool(hidden))
+        self._apply_add_tab_label()
+
+    def _apply_add_tab_label(self) -> None:
+        """Text beside the "+" when the record pane is wide enough, icon
+        only (with tooltip and accessible name) when it is not."""
+        button = self._add_tab_btn
+        button.setText(tr("record_add_material"))
+        style = button.toolButtonStyle()
+        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        labelled = button.sizeHint().width()
+        button.setToolButtonStyle(style)
+        tabs = must(self.main_tabs.tabBar()).sizeHint().width()
+        # Labelled only when the tabs and the label both fit with room to
+        # spare — the tab names must never be squeezed for it.
+        wide = tabs + labelled + 48 <= self.main_tabs.width()
+        button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon if wide
+            else Qt.ToolButtonStyle.ToolButtonIconOnly
+        )
+        self._add_tab_btn.setToolTip(tr("record_add_material_tip"))
+        self._add_tab_btn.setAccessibleName(tr("record_add_material"))
 
     _TAB_STEPS = {
         "cleaned_view": "clean",
@@ -1812,6 +1844,8 @@ class MainWindow(QMainWindow):
             self.file_selector.set_compact(event.size().height() < 650)
         if hasattr(self, "_drop_overlay") and self._drop_overlay.isVisible():
             self._drop_overlay.setGeometry(must(self.centralWidget()).geometry())
+        if hasattr(self, "_add_tab_btn"):
+            self._apply_add_tab_label()
 
     # ------------------------------------------------------------------ helpers
 
