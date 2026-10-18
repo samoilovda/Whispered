@@ -56,14 +56,28 @@ def cited_seconds(stamp: str) -> int:
     return total
 
 
-def link_citations(markdown: str) -> str:
+def link_citations(markdown: str, verify=None) -> str:
     """Turn "[12:34]" citations into markdown links "[12:34](seek:754)"
-    the chat bubble can make clickable. Existing links are left alone."""
-    return _CITE_RE.sub(
-        lambda m: f"[{m.group(1)}](seek:{cited_seconds(m.group(1))})"
-        if not markdown[m.end():m.end() + 1] == "(" else m.group(0),
-        markdown,
-    )
+    the chat bubble can make clickable. Existing links are left alone.
+
+    With *verify* (seconds → bool), only a citation it confirms becomes a
+    link; any other keeps its text with a "(?)" so it never looks like a
+    checked source (UX-13)."""
+    def replace(m: "re.Match[str]") -> str:
+        if markdown[m.end():m.end() + 1] == "(":
+            return m.group(0)
+        seconds = cited_seconds(m.group(1))
+        if verify is not None and not verify(seconds):
+            return f"{m.group(0)} (?)"
+        return f"[{m.group(1)}](seek:{seconds})"
+
+    return _CITE_RE.sub(replace, markdown)
+
+
+def block_start_seconds(line: str) -> "int | None":
+    """Start of a ``timestamped_blocks`` line ("[12:34] …"), in seconds."""
+    match = _CITE_RE.match(line)
+    return cited_seconds(match.group(1)) if match else None
 
 
 def sample_lines_evenly(
@@ -74,19 +88,40 @@ def sample_lines_evenly(
     gap_marker: str = _GAP_MARKER,
 ) -> str:
     """Join *lines* within ``max_chars`` while retaining both document ends."""
+    return _sample_lines(lines, max_chars, keep_edges, separator, gap_marker)[0]
+
+
+def sampled_line_indices(
+    lines: list[str],
+    max_chars: int,
+    keep_edges: int = 20,
+    separator: str = "\n",
+    gap_marker: str = _GAP_MARKER,
+) -> list[int]:
+    """Which of *lines* ``sample_lines_evenly`` keeps (all of them when the
+    text fits) — what the chat shows as the model's view of the record
+    (UI/UX audit 2026-10-18, UX-13)."""
+    return _sample_lines(lines, max_chars, keep_edges, separator, gap_marker)[1]
+
+
+def _sample_lines(
+    lines: list[str], max_chars: int, keep_edges: int, separator: str, gap_marker: str,
+) -> tuple[str, list[int]]:
     joined = separator.join(lines)
     if len(joined) <= max_chars:
-        return joined
+        return joined, list(range(len(lines)))
 
     count = len(lines)
     edge = min(keep_edges, count // 2)
     head = lines[:edge]
     tail = lines[count - edge:] if edge else []
     middle = lines[edge:count - edge]
+    middle_indices = list(range(edge, count - edge))
 
     fixed_parts = head + ([gap_marker] if middle else []) + tail
     budget = max_chars - len(separator.join(fixed_parts)) - len(separator) - len(gap_marker)
     selected_middle: list[str] = []
+    selected_indices: list[int] = []
     if middle and budget > 0:
         low, high = 0, len(middle)
         while low <= high:
@@ -94,21 +129,36 @@ def sample_lines_evenly(
             if selected_count:
                 step = max(1, len(middle) // selected_count)
                 candidate = middle[::step][:selected_count]
+                candidate_indices = middle_indices[::step][:selected_count]
             else:
-                candidate = []
+                candidate, candidate_indices = [], []
             if len(separator.join(candidate)) <= budget:
-                selected_middle = candidate
+                selected_middle, selected_indices = candidate, candidate_indices
                 low = selected_count + 1
             else:
                 high = selected_count - 1
 
+    head_idx: list[int | None] = list(range(edge))
+    tail_idx: list[int | None] = list(range(count - edge, count)) if edge else []
     if selected_middle:
         parts = head + [gap_marker] + selected_middle + [gap_marker] + tail
+        part_idx = head_idx + [None] + list(selected_indices) + [None] + tail_idx
     elif middle:
         parts = head + [gap_marker] + tail
+        part_idx = head_idx + [None] + tail_idx
     else:
         parts = head + tail
-    return separator.join(parts)[:max_chars]
+        part_idx = head_idx + tail_idx
+    # Only lines that survive the final cut whole count as shown: when the
+    # two edges alone exceed max_chars the tail is truncated.
+    kept: list[int] = []
+    position = 0
+    for part, index in zip(parts, part_idx):
+        end = position + len(part)
+        if index is not None and end <= max_chars:
+            kept.append(index)
+        position = end + len(separator)
+    return separator.join(parts)[:max_chars], kept
 
 
 def split_into_chunks(

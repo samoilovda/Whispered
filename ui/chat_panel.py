@@ -48,10 +48,12 @@ class _Bubble(QLabel):
     """Single chat message bubble. An assistant's "[12:34]" citations are
     links (seek:<seconds>) — see ChatPanel.seek_requested."""
 
-    def __init__(self, text: str, role: str, parent=None):
+    def __init__(self, text: str, role: str, parent=None, verify=None):
         super().__init__(parent)
         self._role = role
         self._raw = ""
+        # seconds → whether that moment was in the model's context (UX-13).
+        self._verify = verify
         self.setWordWrap(True)
         self.setTextFormat(Qt.TextFormat.MarkdownText)
         self.setOpenExternalLinks(False)
@@ -66,7 +68,8 @@ class _Bubble(QLabel):
 
     def setText(self, text: str | None) -> None:  # noqa: N802
         self._raw = text or ""
-        shown = link_citations(self._raw) if self._role != "user" else self._raw
+        shown = (link_citations(self._raw, self._verify)
+                 if self._role != "user" else self._raw)
         super().setText(shown)
 
     def text(self) -> str:  # noqa: D102 - the message as written, not as linked
@@ -76,13 +79,13 @@ class _Bubble(QLabel):
 class _ChatRow(QWidget):
     """Horizontal wrapper row that aligns a bubble to the left or right."""
 
-    def __init__(self, text: str, role: str, parent=None):
+    def __init__(self, text: str, role: str, parent=None, verify=None):
         super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 2, 4, 2)
         layout.setSpacing(0)
 
-        self.bubble = _Bubble(text, role, self)
+        self.bubble = _Bubble(text, role, self, verify=verify)
         self.bubble.setMaximumWidth(600)
 
         if role == "user":
@@ -114,6 +117,8 @@ class ChatPanel(QWidget):
         # two records with the same words are two conversations.
         self._record_id: int | None = None
         self._revision = ""
+        self._context = None          # core.chat_worker.ChatContext
+        self._duration = 0.0
         self._persist = False
         # Bumped on every context switch; a worker's late token or answer
         # carries the generation it was started in and is dropped if stale.
@@ -135,6 +140,7 @@ class ChatPanel(QWidget):
         self._stop_btn.setText(tr("chat_stop"))
         self._clear_btn.setText(tr("btn_clear"))
         self._export_btn.setText(tr("chat_export"))
+        self._render_scope()
         self._not_saved_label.setText(tr("chat_not_saved"))
         self._placeholder.setText(
             tr("chat_ready") if self._transcript else tr("chat_placeholder")
@@ -187,6 +193,14 @@ class ChatPanel(QWidget):
             chips_row.addWidget(btn)
             self._quick_chip_buttons.append(btn)
         layout.addLayout(chips_row)
+
+        # What of the record the model will see (UX-13): the whole
+        # transcript, or an even sample of it — said before asking.
+        self._scope_label = QLabel()
+        self._scope_label.setProperty("role", "muted")
+        self._scope_label.setWordWrap(True)
+        self._scope_label.setVisible(False)
+        layout.addWidget(self._scope_label)
 
         # ── Input row ─────────────────────────────────────────────────
         input_row = QHBoxLayout()
@@ -243,8 +257,10 @@ class ChatPanel(QWidget):
             from core.llm_text import timestamped_blocks
 
             self._context_lines = timestamped_blocks(segments)
+            self._duration = max((float(seg.end) for seg in segments), default=0.0)
         same_record = record_id is not None and record_id == self._record_id
         self._transcript = text
+        self._refresh_context()
         if same_record:
             if revision != self._revision and self._history:
                 self._add_divider()
@@ -261,7 +277,66 @@ class ChatPanel(QWidget):
         self._switch_conversation(None, "", persist=False)
         self._transcript = ""
         self._context_lines = None
+        self._refresh_context()
         self._placeholder.setText(tr("chat_placeholder"))
+
+    def _context_chars(self) -> int:
+        from config import get_config
+        from core.chat_worker import _CONTEXT_CHARS
+
+        return int(getattr(get_config(), "chat_context_chars", _CONTEXT_CHARS) or _CONTEXT_CHARS)
+
+    def _refresh_context(self) -> None:
+        """Rebuild the context the next question will carry, and say what
+        it covers."""
+        from core.chat_worker import chat_context
+
+        self._context = (
+            chat_context(self._transcript, max_chars=self._context_chars(),
+                         lines=self._context_lines)
+            if self._transcript else None
+        )
+        self._render_scope()
+
+    def _render_scope(self) -> None:
+        context = getattr(self, "_context", None)
+        if context is None:
+            self._scope_label.setVisible(False)
+            return
+        if context.total_blocks and context.sampled:
+            text = tr("chat_scope_sampled", used=len(context.kept_blocks),
+                      total=context.total_blocks)
+        elif context.total_blocks:
+            text = tr("chat_scope_full", total=context.total_blocks)
+        elif context.sampled:
+            text = tr("chat_scope_head")
+        else:
+            text = tr("chat_scope_full_plain")
+        self._scope_label.setText(text)
+        self._scope_label.setVisible(True)
+
+    def verify_citation(self, seconds: float) -> bool:
+        """Whether *seconds* falls inside a block the model was shown —
+        and inside the recording at all (UX-13)."""
+        context = getattr(self, "_context", None)
+        lines = self._context_lines or []
+        if context is None or not lines:
+            return False
+        duration = getattr(self, "_duration", 0.0)
+        if seconds < 0 or (duration and seconds > duration + 1):
+            return False
+        from core.llm_text import block_start_seconds
+
+        starts = [block_start_seconds(line) for line in lines]
+        for index in context.kept_blocks:
+            start = starts[index] if index < len(starts) else None
+            if start is None:
+                continue
+            following = next((s for s in starts[index + 1:] if s is not None), None)
+            end = following if following is not None else (duration or start) + 1
+            if start <= seconds < max(end, start + 1):
+                return True
+        return False
 
     def _switch_conversation(self, record_id: int | None, revision: str, *, persist: bool) -> None:
         self._generation += 1
@@ -429,11 +504,9 @@ class ChatPanel(QWidget):
         from config import get_config
         cfg = get_config()
 
-        from core.chat_worker import _build_system_prompt, _CONTEXT_CHARS
-        context_chars = getattr(cfg, "chat_context_chars", _CONTEXT_CHARS)
-        sys_prompt = _build_system_prompt(
-            self._transcript, max_chars=context_chars, lines=self._context_lines,
-        )
+        if self._context is None:
+            self._refresh_context()
+        sys_prompt = self._context.prompt if self._context is not None else ""
 
         # Build message list: system + complete turns + new user turn
         messages: list[dict] = [{"role": "system", "content": sys_prompt}]
@@ -528,7 +601,7 @@ class ChatPanel(QWidget):
         self._input.setFocus()
 
     def _add_bubble(self, text: str, role: str) -> _Bubble:
-        row = _ChatRow(text, role, self._msg_container)
+        row = _ChatRow(text, role, self._msg_container, verify=self.verify_citation)
         row.bubble.linkActivated.connect(self._on_link)
         # Insert before the trailing stretch (last item)
         count = self._msg_layout.count()

@@ -6,6 +6,7 @@ as system context and streams tokens back to the UI.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 
 from PyQt6.QtCore import pyqtSignal
 
@@ -17,20 +18,47 @@ logger = get_logger(__name__)
 
 _CONTEXT_CHARS = 48_000   # default: ~ 12 k tokens
 
-def _build_system_prompt(
+@dataclass(frozen=True)
+class ChatContext:
+    """The system prompt plus what of the record it actually contains
+    (UI/UX audit 2026-10-18, UX-13): the chat shows this before a question
+    is sent, and checks an answer's citations against it."""
+
+    prompt: str
+    sampled: bool
+    total_blocks: int
+    kept_blocks: tuple[int, ...]   # indices into the timestamped blocks
+    max_chars: int
+
+
+def chat_context(
     transcript: str, max_chars: int = _CONTEXT_CHARS, lines: list[str] | None = None,
-) -> str:
-    """The chat's system prompt. With *lines* (core.llm_text.
+) -> ChatContext:
+    """Build the chat's context. With *lines* (core.llm_text.
     timestamped_blocks) the model sees "[MM:SS]" blocks sampled evenly
     across the whole recording and is asked to cite times; with plain
     *transcript* only, the head that fits (the old behaviour)."""
     if lines:
-        from core.llm_text import sample_lines_evenly
+        from core.llm_text import sample_lines_evenly, sampled_line_indices
 
         body = sample_lines_evenly(lines, max_chars)
+        kept = tuple(sampled_line_indices(lines, max_chars))
         sampled = len("\n".join(lines)) > max_chars
         suffix = "\n\n" + tr("chat_transcript_truncated") if sampled else ""
-        return tr("chat_system_prompt_timed", transcript=body) + suffix
+        return ChatContext(
+            tr("chat_system_prompt_timed", transcript=body) + suffix,
+            sampled, len(lines), kept, max_chars,
+        )
+    sampled = len(transcript) > max_chars
+    return ChatContext(_build_system_prompt(transcript, max_chars), sampled, 0, (), max_chars)
+
+
+def _build_system_prompt(
+    transcript: str, max_chars: int = _CONTEXT_CHARS, lines: list[str] | None = None,
+) -> str:
+    """The chat's system prompt (see chat_context() for what it holds)."""
+    if lines:
+        return chat_context(transcript, max_chars, lines).prompt
     if len(transcript) > max_chars:
         transcript = transcript[:max_chars]
         suffix = "\n\n" + tr("chat_transcript_truncated")

@@ -137,3 +137,23 @@ def test_build_prompt_text_covers_both_ends_of_long_recording(monkeypatch):
     assert "segment 0 content" in transcript_part
     # Last segment starts at 7190s; its text must survive too.
     assert "segment 719 content" in transcript_part
+
+
+def test_sampled_indices_match_the_sampled_text():
+    from core.llm_text import sample_lines_evenly, sampled_line_indices
+
+    lines = [f"[{i:02d}:00] line {i} " + "x" * 50 for i in range(60)]
+    text = sample_lines_evenly(lines, 1500)
+    kept = sampled_line_indices(lines, 1500)
+    # The edges alone exceed the limit here: the cut-off tail is not "seen".
+    assert kept[:5] == [0, 1, 2, 3, 4]
+    assert all(lines[i] in text for i in kept)
+    assert 59 not in kept
+    assert sampled_line_indices(lines[:3], 10_000) == [0, 1, 2]
+
+
+def test_link_citations_verifies_when_asked():
+    from core.llm_text import link_citations
+
+    out = link_citations("[00:10] and [00:50]", verify=lambda s: s < 30)
+    assert "[00:10](seek:10)" in out and "[00:50] (?)" in out
