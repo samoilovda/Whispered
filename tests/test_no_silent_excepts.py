@@ -8,7 +8,7 @@ import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-_SKIP = (".venv", "build", "dist", "tests", "tests_qt", "docs", "tools")
+_SKIP = (".venv", ".claude", "build", "dist", "tests", "tests_qt", "docs", "tools")
 # Ways a handler body tells someone what happened.
 _REPORTS = (
     "logger", "logging", "raise", "emit", "print(", "warn", "_on_error",
