@@ -1473,7 +1473,7 @@ class MainWindow(QMainWindow):
         their own call sites.
         """
         self._document_session.register_consumer(
-            lambda result: self.chat_panel.set_transcript(result.full_text, result.segments)
+            self._update_chat_context
         )
         self._document_session.register_consumer(
             lambda result: self.insights_panel.set_segments(
@@ -3270,6 +3270,19 @@ class MainWindow(QMainWindow):
 
     # ===== Video Pipeline Methods =====
 
+    def _update_chat_context(self, result: TranscriptionResult) -> None:
+        """The chat follows the open *record* (UX-07), not its text: same
+        record + new revision keeps the conversation, another record
+        switches to that record's own."""
+        from domain.artifact_provenance import transcript_revision
+
+        revision = transcript_revision(
+            result.segments, result.language, getattr(result, "speaker_names", None),
+        )
+        self.chat_panel.set_record_context(
+            self._last_record_id, revision, result.full_text, result.segments,
+            persist=bool(getattr(get_config(), "history_enabled", True)),
+        )
 
     def _restore_cut_plan(self, record_id: int) -> None:
         """Show *record_id*'s saved cut (UX-06) — none means all kept."""

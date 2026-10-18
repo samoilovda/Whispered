@@ -201,6 +201,30 @@ def _v11_add_cut_plans(conn: sqlite3.Connection) -> None:
             updated_at  TEXT    NOT NULL
         );
     """)
+
+
+def _v12_add_chat_messages(conn: sqlite3.Connection) -> None:
+    """A record's chat (UI/UX audit 2026-10-18, UX-07): one conversation
+    per record, messages in a stable order (id). ``revision`` is the
+    transcript revision a message was asked/answered against, so answers
+    about an earlier text stay labelled as such after an edit; ``status``
+    is complete / cancelled / failed; ``model`` is the provider/model
+    snapshot. Deleted with the record."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS chat_messages (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            record_id   INTEGER NOT NULL,
+            revision    TEXT    NOT NULL DEFAULT '',
+            role        TEXT    NOT NULL,
+            content     TEXT    NOT NULL,
+            status      TEXT    NOT NULL DEFAULT 'complete',
+            model       TEXT    NOT NULL DEFAULT '',
+            created_at  TEXT    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_chat_messages_record ON chat_messages(record_id, id);
+    """)
+
+
 # Applied in order, tracked via SQLite's built-in `PRAGMA user_version`
 # (see HistoryStore._migrate). Append new migrations here — never edit or
 # reorder an existing one, since a database's user_version records exactly
@@ -217,6 +241,7 @@ _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _v9_add_bookmarks,
     _v10_add_transcript_drafts,
     _v11_add_cut_plans,
+    _v12_add_chat_messages,
 )
 
 # A transcript_drafts row this code understands; a newer one is left alone.
@@ -799,6 +824,7 @@ class HistoryStore:
             conn.execute("DELETE FROM bookmarks WHERE record_id = ?", (record_id,))
             conn.execute("DELETE FROM transcript_drafts WHERE record_id = ?", (record_id,))
             conn.execute("DELETE FROM cut_plans WHERE record_id = ?", (record_id,))
+            conn.execute("DELETE FROM chat_messages WHERE record_id = ?", (record_id,))
             cur = conn.execute("DELETE FROM transcripts WHERE id = ?", (record_id,))
             return cur.rowcount > 0
 
@@ -829,6 +855,7 @@ class HistoryStore:
             conn.execute("DELETE FROM bookmarks")
             conn.execute("DELETE FROM transcript_drafts")
             conn.execute("DELETE FROM cut_plans")
+            conn.execute("DELETE FROM chat_messages")
             return cur.rowcount
 
     def search(self, text: str, limit: int = 100) -> List[HistoryRecord]:
@@ -1149,6 +1176,41 @@ class HistoryStore:
             logger.warning("Ignoring malformed cut plan for record %s", record_id)
             return None
         return data if isinstance(data, dict) else None
+
+    # ------------------------------------------------------------------ chat (UX-07)
+
+    def add_chat_message(
+        self, record_id: int, role: str, content: str, *,
+        revision: str = "", status: str = "complete", model: str = "",
+    ) -> int:
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with self._connect() as conn:
+            cur = conn.execute(
+                """INSERT INTO chat_messages
+                       (record_id, revision, role, content, status, model, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (record_id, revision, role, content, status, model, now),
+            )
+            assert cur.lastrowid is not None
+            return cur.lastrowid
+
+    def set_chat_message_status(self, message_id: int, status: str) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE chat_messages SET status = ? WHERE id = ?", (status, message_id))
+
+    def list_chat_messages(self, record_id: int) -> List[dict]:
+        """Every message of *record_id*'s conversation, oldest first."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, revision, role, content, status, model, created_at "
+                "FROM chat_messages WHERE record_id = ? ORDER BY id",
+                (record_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def clear_chat(self, record_id: int) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM chat_messages WHERE record_id = ?", (record_id,))
 
     # ------------------------------------------------------------------ bookmarks (R3)
 

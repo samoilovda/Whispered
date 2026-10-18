@@ -22,7 +22,7 @@ def _spy(monkeypatch, obj, method_name):
 
 def _consumer_spies(monkeypatch, window):
     return {
-        "chat": _spy(monkeypatch, window.chat_panel, "set_transcript"),
+        "chat": _spy(monkeypatch, window.chat_panel, "set_record_context"),
         "insights": _spy(monkeypatch, window.insights_panel, "set_segments"),
         "youtube": _spy(monkeypatch, window.youtube_panel, "set_segments"),
         "cover": _spy(monkeypatch, window.cover_view, "set_segments"),
