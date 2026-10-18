@@ -202,6 +202,18 @@ class FlowLayout(QLayout):
         )
         x, y = effective.x(), effective.y()
         line_height = 0
+        # Items of the current row, placed once the row is complete so each
+        # can be centred on the row's height — a toolbar mixing 34px
+        # buttons with a text link otherwise reads as ragged.
+        row: list = []
+
+        def place_row() -> None:
+            if test_only:
+                return
+            for item, origin, hint in row:
+                offset = (line_height - hint.height()) // 2
+                item.setGeometry(QRect(QPoint(origin, y + offset), hint))
+
         for item in self._items:
             # A QBoxLayout skips a hidden widget's QWidgetItem
             # (isEmpty() is True for one) instead of reserving its space —
@@ -212,14 +224,16 @@ class FlowLayout(QLayout):
             hint = item.sizeHint()
             next_x = x + hint.width() + self._spacing
             if next_x - self._spacing > effective.right() and line_height > 0:
+                place_row()
+                row = []
                 x = effective.x()
                 y += line_height + self._spacing
                 next_x = x + hint.width() + self._spacing
                 line_height = 0
-            if not test_only:
-                item.setGeometry(QRect(QPoint(x, y), hint))
+            row.append((item, x, hint))
             x = next_x
             line_height = max(line_height, hint.height())
+        place_row()
         return y + line_height - rect.y() + margins.bottom()
 
 

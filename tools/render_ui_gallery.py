@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QToolButton,
+    QWidget,
 )
 
 import config
@@ -90,6 +91,74 @@ def clipped_text_widgets(window) -> list[tuple[str, int, int]]:
     return bad
 
 
+def _needed_height(widget) -> int:
+    """Height *widget* needs at its current width: a word-wrapped label
+    reflows, so its ``heightForWidth`` (not the one-line sizeHint) is what
+    must fit (UI/UX audit 2026-10-18, UX-01 — the old width-only check let
+    a 23px-tall "Choose file" button through where 34px was needed)."""
+    if isinstance(widget, QLabel) and widget.wordWrap() and widget.hasHeightForWidth():
+        margins = widget.contentsMargins()
+        inner = widget.width() - margins.left() - margins.right()
+        return widget.heightForWidth(max(1, inner)) if inner > 0 else 0
+    hint = widget.sizeHint().height()
+    floor = widget.minimumSizeHint().height()
+    # A fixed-height widget chose its own height on purpose; trust the
+    # smaller of its hint and minimum hint then.
+    return min(hint, floor) if floor > 0 else hint
+
+
+def vertically_clipped_widgets(window) -> list[tuple[str, int, int]]:
+    """Visible text widgets shorter than the height their text needs."""
+    bad: list[tuple[str, int, int]] = []
+    for cls in _TEXT_WIDGET_CLASSES:
+        for widget in window.findChildren(cls):
+            if not widget.isVisible() or bool(widget.property("_elides")):
+                continue
+            text = _widget_text(widget)
+            if len(text.strip()) < 3:
+                continue
+            needed = _needed_height(widget)
+            if widget.height() < needed - 2:
+                bad.append((text[:40], widget.height(), needed))
+    return bad
+
+
+def overlapping_layout_siblings(window) -> list[tuple[str, str]]:
+    """Visible widgets managed by the same layout whose rectangles
+    intersect. A QBoxLayout squeezed below its minimum does not clip — it
+    lets children overlap (the start screen's icon drawn over its title).
+    Deliberate overlays are not layout-managed siblings, so they never
+    show up here."""
+    from PyQt6.QtWidgets import QStackedLayout
+
+    bad: list[tuple[str, str]] = []
+    seen: set[int] = set()
+    for widget in [window, *window.findChildren(QWidget)]:
+        layout = widget.layout()
+        if layout is None or id(layout) in seen or isinstance(layout, QStackedLayout):
+            continue
+        seen.add(id(layout))
+        if not widget.isVisible():
+            continue
+        children = []
+        for index in range(layout.count()):
+            item = layout.itemAt(index)
+            child = item.widget() if item is not None else None
+            if child is not None and child.isVisible():
+                children.append(child)
+        for i, first in enumerate(children):
+            for second in children[i + 1:]:
+                overlap = first.geometry().intersected(second.geometry())
+                if overlap.width() > 1 and overlap.height() > 1:
+                    bad.append((_describe(first), _describe(second)))
+    return bad
+
+
+def _describe(widget) -> str:
+    text = _widget_text(widget) if isinstance(widget, _TEXT_WIDGET_CLASSES) else ""
+    return f"{type(widget).__name__}({widget.objectName() or text[:24]!r})"
+
+
 def _check_clipping(window, state_key: str) -> None:
     """Zero tolerance (docs/UI_REDESIGN_PLAN_2026-09.ru.md, B9 — the
     per-state ui_clip_baseline.json this used to compare against is
@@ -99,6 +168,18 @@ def _check_clipping(window, state_key: str) -> None:
         sample = "; ".join(f"{t!r} ({w}<{need})" for t, w, need in bad[:8])
         raise AssertionError(
             f"Clipped text at {state_key}: {len(bad)} widgets. Examples: {sample}"
+        )
+    short = vertically_clipped_widgets(window)
+    if short:
+        sample = "; ".join(f"{t!r} (h {h}<{need})" for t, h, need in short[:8])
+        raise AssertionError(
+            f"Vertically clipped text at {state_key}: {len(short)} widgets. Examples: {sample}"
+        )
+    overlaps = overlapping_layout_siblings(window)
+    if overlaps:
+        sample = "; ".join(f"{a} × {b}" for a, b in overlaps[:8])
+        raise AssertionError(
+            f"Overlapping layout siblings at {state_key}: {len(overlaps)}. Examples: {sample}"
         )
 
 
@@ -124,6 +205,45 @@ def _bind_demo_run(window) -> None:
     window.run_view.set_finished(True)
 
 
+_LONG_TITLES = {
+    "ru": "Интервью с главным редактором о локальной расшифровке, приватности и подготовке материалов к публикации — полная версия",
+    "en": "Interview with the editor-in-chief on local transcription, privacy and preparing publication material — full version",
+}
+
+
+def _add_demo_record(language: str) -> int:
+    """A populated record (UX-01: the audit's 1100×700 state): long
+    title, two speakers, several low-confidence segments. Stored in the
+    gallery's own temporary history, never the user's."""
+    from domain.transcription import Segment, TranscriptionResult
+
+    lines = {
+        "ru": ("Добрый день. Сегодня говорим о том, как готовить интервью без облака.",
+               "Спасибо за приглашение. Начну с того, что запись остаётся на компьютере."),
+        "en": ("Good afternoon. Today we talk about preparing interviews without the cloud.",
+               "Thanks for having me. First of all, the recording stays on the computer."),
+    }[language]
+    segments = []
+    for i in range(24):
+        speaker = "SPEAKER_00" if i % 2 == 0 else "SPEAKER_01"
+        confidence = 0.42 if i in (3, 4, 11, 17) else 0.93
+        segments.append(Segment(
+            start=i * 12.0, end=i * 12.0 + 11.0, text=lines[i % 2],
+            speaker=speaker, confidence=confidence,
+        ))
+    result = TranscriptionResult(
+        segments=segments, language=language, duration=24 * 12.0,
+        speaker_names={"SPEAKER_00": "Анна" if language == "ru" else "Anna",
+                       "SPEAKER_01": "Борис" if language == "ru" else "Boris"},
+    )
+    store = history.get_history_store()
+    record_id = store.add(result, source_path="", model="large-v3-turbo",
+                          speaker_names=result.speaker_names,
+                          source_name="interview.mp4")
+    store.set_title(record_id, _LONG_TITLES[language])
+    return record_id
+
+
 def render(output: Path, check: bool = False) -> list[Path]:
     output.mkdir(parents=True, exist_ok=True)
     config.CONFIG_DIR = output
@@ -147,6 +267,8 @@ def render(output: Path, check: bool = False) -> list[Path]:
             window = MainWindow()
             window.show()
             app.processEvents()
+            demo_record = _add_demo_record(language)
+            window.library_view.refresh()
             for width, height in SIZES:
                 window.resize(width, height)
                 for key in SECTIONS:
@@ -171,6 +293,7 @@ def render(output: Path, check: bool = False) -> list[Path]:
                                 f"File browse action is clipped at {width}x{height}"
                             )
                         _check_clipping(window, state_key)
+                window._load_from_history(demo_record)
                 window._stack.setCurrentIndex(window._record_index)
                 window.status_bar.show_queue(False)
                 app.processEvents()
@@ -215,6 +338,7 @@ def render(output: Path, check: bool = False) -> list[Path]:
             settings.close()
             window.close()
             app.processEvents()
+            history.get_history_store().delete(demo_record)
     return rendered
 
 

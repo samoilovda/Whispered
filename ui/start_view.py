@@ -14,7 +14,7 @@ header, since StartView's title above already covers it.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QFrame,
@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -91,7 +92,26 @@ class StartView(QWidget):
         self._diarize_installed: bool | None = None
         self._i18n = Retranslator()
 
-        root = QVBoxLayout(self)
+        # The whole screen scrolls rather than squeezing (UI/UX audit
+        # 2026-10-18, UX-01): a QVBoxLayout given less than its children's
+        # size hints shrinks them below what their text needs — the
+        # "Choose file" button came out 23px tall for a 34px hint and the
+        # drop-zone icon was drawn over its title at 1100×700.
+        # _apply_page_policies() keeps the content from shrinking below its
+        # hint except on the Live page, which has its own scroll area and
+        # is meant to fill whatever height there is.
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._content = QWidget()
+        self._content.setProperty("role", "transparent")
+        self._scroll.setWidget(self._content)
+        outer.addWidget(self._scroll)
+
+        root = QVBoxLayout(self._content)
         root.setContentsMargins(20, 16, 20, 20)
         root.setSpacing(16)
 
@@ -245,6 +265,7 @@ class StartView(QWidget):
         self._source_buttons[key].setChecked(True)
         self.stack.setCurrentIndex(index)
         live = key == "live"
+        self._apply_page_policies(index, live)
         self._root.setStretchFactor(self.stack, 1 if live else 0)
         self._root.setStretch(self._root.count() - 1, 0 if live else 1)
         self.process_button.setVisible(key in self._launchable_sources)
@@ -262,6 +283,25 @@ class StartView(QWidget):
         self._summary_row_widget.setVisible(recipe_ui_applies)
         self._render_launch_hint()
         self.source_changed.emit(key)
+
+    def _apply_page_policies(self, index: int, live: bool) -> None:
+        """Size the stack by the visible page only, and let the screen
+        scroll instead of squeezing — except Live, which fills the height
+        and scrolls inside its own page."""
+        for i in range(self.stack.count()):
+            page = self.stack.widget(i)
+            if page is None:
+                continue
+            # A hidden page with an Ignored policy no longer contributes its
+            # size hint to the stack (QStackedLayout skips Ignored ones), so
+            # the tall Live page cannot pad the file page with blank space.
+            policy = QSizePolicy.Policy.Preferred if i == index else QSizePolicy.Policy.Ignored
+            page.setSizePolicy(QSizePolicy.Policy.Preferred, policy)
+        # Minimum: the content never gets less than its size hint, so a
+        # short window scrolls; Preferred lets Live shrink into the viewport.
+        vertical = QSizePolicy.Policy.Preferred if live else QSizePolicy.Policy.Minimum
+        self._content.setSizePolicy(QSizePolicy.Policy.Preferred, vertical)
+        self.stack.updateGeometry()
 
     def set_live_session_active(self, active: bool) -> None:
         """While a live session runs the recipe is already decided: its

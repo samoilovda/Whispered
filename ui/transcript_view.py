@@ -34,6 +34,7 @@ from domain.paragraphs import group_paragraphs
 from domain.transcription import LOW_CONFIDENCE
 from transcriber import TranscriptionResult
 from utils import format_duration, format_timestamp_vtt
+from ui.components import FlowLayout
 from ui.icons import get_icon, IconColors
 from ui.theme import SPEAKER_PALETTE, get_theme
 from core.i18n import tr, tr_count
@@ -255,10 +256,13 @@ class TranscriptView(QWidget):
         layout.setSpacing(6)
 
         # ── Header row ──────────────────────────────────────────
+        # A FlowLayout, not a QHBoxLayout: with stats, the uncertain-segment
+        # link and up to five buttons, a populated record at 1100×700 had
+        # its buttons squeezed to "ереименовать." — the row wraps instead
+        # (UI/UX audit 2026-10-18, UX-01).
         header = QWidget()
-        header_layout = QHBoxLayout(header)
+        header_layout = FlowLayout(header, spacing=6)
         header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(6)
 
         # Stats on the left of the toolbar: what used to be a separate
         # line under the text, which cost a row of reading space.
@@ -266,7 +270,6 @@ class TranscriptView(QWidget):
         self.stats_label.setProperty("role", "muted")
         self.stats_label.setProperty("size", "small")
         header_layout.addWidget(self.stats_label)
-        header_layout.addStretch()
 
         # Timestamps toggle
         self.timestamps_btn = QPushButton(tr("btn_timestamps"))
@@ -339,6 +342,10 @@ class TranscriptView(QWidget):
             self.copy_btn: "btn_copy",
         }
         self._button_labels = {btn: btn.text() for btn in self._icon_only_capable}
+        # FlowLayout top-aligns a row; the stats text sits level with the
+        # buttons' labels by taking their height and centring itself.
+        self.stats_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.stats_label.setMinimumHeight(self.edit_btn.sizeHint().height())
 
         layout.addWidget(header)
 

@@ -97,7 +97,12 @@ class FileSelector(QWidget):
 
         drop_layout = QVBoxLayout(self.drop_zone)
         self._drop_layout = drop_layout
-        drop_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # No layout-wide AlignCenter: it hands every child its one-line
+        # size hint as width, so a Russian title wrapped inside 226px while
+        # the layout's heightForWidth() assumed the full width — the zone
+        # came out ~15px short and the icon overlapped the title (UI/UX
+        # audit 2026-10-18, UX-01). The labels centre their own text; the
+        # icon and button keep per-widget alignment.
         drop_layout.setSpacing(16)
 
         # Vector icon label
