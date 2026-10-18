@@ -54,6 +54,7 @@ class LiveView(QWidget):
     pause_requested = pyqtSignal(bool)
     stop_requested = pyqtSignal()
     open_record_requested = pyqtSignal()
+    present_requested = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -72,6 +73,7 @@ class LiveView(QWidget):
         self.notes_edit.setPlaceholderText(tr("live_notes_placeholder"))
         self.stop_btn.setText(tr("live_stop"))
         self.open_btn.setText(tr("live_open_record"))
+        self.present_btn.setText(tr("live_present"))
         self.privacy_badge.set_status(tr("live_audio_not_saved"), "success")
         self._set_start_enabled(self.start_btn.isEnabled())
         self.pause_btn.setText(
@@ -200,6 +202,11 @@ class LiveView(QWidget):
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self.stop_requested.emit)
         session.addWidget(self.stop_btn)
+        self.present_btn = QPushButton(tr("live_present"))
+        self.present_btn.setToolTip(tr("livepres_close_tip"))
+        self.present_btn.setVisible(False)
+        self.present_btn.clicked.connect(self.present_requested.emit)
+        session.addWidget(self.present_btn)
         self.open_btn = QPushButton(tr("live_open_record"))
         self.open_btn.setProperty("variant", "primary")
         self.open_btn.setVisible(False)

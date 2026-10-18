@@ -420,6 +420,9 @@ class SettingsDialog(QDialog):
         self._live_chk = QCheckBox()
         self._tt(self._live_chk, "settings_live_enabled")
         layout.addRow(self._live_chk)
+        self._live_present_chk = QCheckBox()
+        self._tt(self._live_present_chk, "settings_live_presentation")
+        layout.addRow(self._live_present_chk)
 
         hint = QLabel()
         self._tt(hint, "settings_live_hint")
@@ -635,6 +638,7 @@ class SettingsDialog(QDialog):
         self._history_chk.setChecked(cfg.history_enabled)
         self._tray_chk.setChecked(getattr(cfg, "tray_icon_enabled", False))
         self._live_chk.setChecked(getattr(cfg, "live_transcription_enabled", False))
+        self._live_present_chk.setChecked(getattr(cfg, "live_presentation_enabled", False))
         idx = self._lang_ui_combo.findData(getattr(cfg, "ui_language", "auto"))
         self._lang_ui_combo.setCurrentIndex(idx if idx >= 0 else 0)
         self._watch_enabled_chk.setChecked(getattr(cfg, "watch_folder_enabled", False))
@@ -695,6 +699,7 @@ class SettingsDialog(QDialog):
         cfg.history_enabled = self._history_chk.isChecked()
         cfg.tray_icon_enabled = self._tray_chk.isChecked()
         cfg.live_transcription_enabled = self._live_chk.isChecked()
+        cfg.live_presentation_enabled = self._live_present_chk.isChecked()
         cfg.ui_language = self._lang_ui_combo.currentData() or "auto"
         cfg.watch_folder_enabled = self._watch_enabled_chk.isChecked()
         cfg.watch_folder = self._watch_folder_edit.text().strip()

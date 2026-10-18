@@ -115,6 +115,9 @@ class Config:
     # Live transcription remains opt-in until the standalone release gate.
     # The batch pipeline never reads this flag.
     live_transcription_enabled: bool = False
+    # Presentation window for Live (N08): off until the hardware and
+    # Zoom/Meet/Teams validation of the Live plan is done.
+    live_presentation_enabled: bool = False
 
     # Course Capture panel: last-used course name, prefixed onto each saved
     # lesson's history title (see ui/course_capture_panel.py). Gated by

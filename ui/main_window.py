@@ -1822,6 +1822,7 @@ class MainWindow(QMainWindow):
             cfg.live_transcription_enabled
         )
         self.status_bar.set_course_available(cfg.live_transcription_enabled)
+        self.live_session.apply_presentation_flag()
         self._apply_watch_folder_config()
         self.youtube_panel.refresh_description()
         self.transcribe_options.refresh_model_state()

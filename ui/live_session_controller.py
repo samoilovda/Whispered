@@ -20,6 +20,7 @@ from ui.live_checkpoint_tracker import LiveCheckpointTracker
 from ui.live_preflight_panel import LivePreflightWorker
 
 if TYPE_CHECKING:
+    from ui.live_presentation_window import LivePresentationWindow
     from ui.main_window import MainWindow
 
 logger = get_logger(__name__)
@@ -35,6 +36,7 @@ class LiveSessionController:
         # Finalized live text, saved to history while the meeting runs.
         self.checkpoint = LiveCheckpointTracker()
         self._preflight_worker: Optional[LivePreflightWorker] = None
+        self.presentation: Optional["LivePresentationWindow"] = None
 
     def wire(self) -> None:
         """Connect the host's Live view and runtime to this controller."""
@@ -46,6 +48,42 @@ class LiveSessionController:
         view._timer.timeout.connect(self.update_metrics)
         runtime.segment_update.connect(self.on_segment_update)
         runtime.error_occurred.connect(self.on_error)
+        view.present_requested.connect(self.open_presentation)
+        runtime.session_state_changed.connect(self.on_session_state)
+        runtime.source_state_changed.connect(self.on_source_state)
+        self.apply_presentation_flag()
+
+    # ---- presentation window (N08; subscribes, never records) ----
+
+    def apply_presentation_flag(self) -> None:
+        """Show the button only while the experimental flag is on."""
+        enabled = bool(getattr(get_config(), "live_presentation_enabled", False))
+        self._host.live_view.present_btn.setVisible(enabled)
+        if not enabled and self.presentation is not None:
+            self.presentation.close()
+
+    def open_presentation(self) -> None:
+        if not getattr(get_config(), "live_presentation_enabled", False):
+            return
+        if self.presentation is None:
+            from ui.live_presentation_window import LivePresentationWindow
+
+            window = LivePresentationWindow()
+            window.pause_requested.connect(self.pause)
+            window.stop_requested.connect(self.stop)
+            window.set_session_state(self._host.live_runtime.session_state.value)
+            self.presentation = window
+        self.presentation.show()
+        self.presentation.raise_()
+        self.presentation.activateWindow()
+
+    def on_session_state(self, state: Any) -> None:
+        if self.presentation is not None:
+            self.presentation.set_session_state(state)
+
+    def on_source_state(self, source: str, state: str) -> None:
+        if self.presentation is not None:
+            self.presentation.set_source_state(source, state)
 
     def _options(self) -> tuple[bool, bool, Any]:
         use_mic, use_system = self._host.live_view.selected_sources()
@@ -82,6 +120,8 @@ class LiveSessionController:
         if not host._ensure_whisper_model(model):
             return
         view.reset_session()
+        if self.presentation is not None:
+            self.presentation.reset()
         self.checkpoint.start(
             source_name=time.strftime("Live %Y-%m-%d %H:%M"),
             model_name=model,
@@ -119,6 +159,8 @@ class LiveSessionController:
     def on_segment_update(self, update) -> None:
         """Render an update and checkpoint only immutable live text."""
         self._host.live_view.accept_update(update)
+        if self.presentation is not None:
+            self.presentation.accept_update(update)
         if update.state is not SegmentState.FINAL:
             return
         self.checkpoint.accept_final(update.segment_id, update.segment)
@@ -143,7 +185,10 @@ class LiveSessionController:
 
     def shutdown(self) -> None:
         """Shutdownable (ui/shutdownable.py): stop a running preflight; one
-        that outlives the bounded wait is retired, not dropped."""
+        that outlives the bounded wait is retired, not dropped. The
+        presentation window closes with the app."""
+        if self.presentation is not None:
+            self.presentation.close()
         worker = self._preflight_worker
         if worker is None or not worker.isRunning():
             return
