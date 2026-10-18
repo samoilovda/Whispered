@@ -10,9 +10,7 @@ boxes, and toasts, since those are legitimately UI concerns.
 from __future__ import annotations
 
 import os
-import shutil
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING, Sequence
 
 from core.logger import get_logger
@@ -108,67 +106,45 @@ def export_preset(
     record_id: "int | str",
     source_path: str = "",
     default_name: str = "transcript",
+    *,
+    artifact_source: str = "",
+    overwrite: bool = True,
 ) -> PresetExportOutcome:
     """Collect everything *preset* bundles into *directory*: every format
-    in ``preset.formats`` (reusing export_many_to_directory), plus a copy
-    of every generated material in ``preset.artifacts`` that actually
-    exists on disk for this record.
+    in ``preset.formats``, plus a copy of every generated material in
+    ``preset.artifacts`` that actually exists on disk for this record.
 
     A material the record never generated (no YouTube package run, no
     cover rendered, ...) is skipped with a line in ``index.txt`` — not an
     error — so the same preset works on a record that only has a bare
-    transcript. Materials are located the same deterministic way
-    application/steps.py's own cache-skip does: STEP_REGISTRY[artifact_type]
-    .make_artifact() with a StepContext built from *result*/*source_path*/
-    *record_id*, not by re-running anything.
+    transcript. This is application/export_plan.py's build + execute in
+    one call (the menu shows the plan first; see ExportPlanDialog).
+    *artifact_source* names the record's output folder when it differs
+    from *source_path* (media relinked after transcription, UX-09).
     """
-    from application.steps import STEP_REGISTRY, StepContext
-    from core.paths import artifact_dir as _artifact_dir_for
-    from infrastructure.persistence import artifact_store
+    from application.export_plan import MISSING, build_export_plan, execute_export_plan
 
-    outcome = PresetExportOutcome()
-    outcome.formats = export_many_to_directory(result, directory, preset.formats, default_name)
-
-    index_lines = []
-    for format_key in outcome.formats.succeeded:
-        ext = format_extension(format_key)
-        suffix = '_ts' if format_key == 'txt_ts' else ''
-        index_lines.append(f"{format_key}: {default_name}{suffix}.{ext}")
-    for format_key in outcome.formats.failed:
-        index_lines.append(f"{format_key}: export failed")
-
-    context = StepContext(
-        source_path=source_path,
-        result=result,
-        record_id=record_id,
-        artifact_dir=_artifact_dir_for(record_id, source_path),
+    plan = build_export_plan(
+        result, preset, directory, record_id, media_source=source_path,
+        artifact_source=artifact_source or source_path, default_name=default_name,
     )
-    for artifact_type in preset.artifacts:
-        step = STEP_REGISTRY.get(artifact_type)
-        artifact = step.make_artifact(context) if step is not None else None
-        source_file = Path(artifact.path) if artifact is not None else None
-        if source_file is None or not source_file.is_file():
-            outcome.materials_missing.append(artifact_type)
-            index_lines.append(f"{artifact_type}: not generated for this record")
-            continue
-        dest = Path(directory) / source_file.name
-        try:
-            shutil.copyfile(source_file, dest)
-        except OSError as exc:
-            logger.warning("Failed to copy %s material for preset export: %s", artifact_type, exc)
-            outcome.materials_missing.append(artifact_type)
-            index_lines.append(f"{artifact_type}: copy failed ({exc})")
-            continue
-        outcome.materials_copied.append(artifact_type)
-        manifest = artifact_store.load(source_file)
-        when = manifest.created_at if manifest is not None else "?"
-        index_lines.append(f"{artifact_type}: {dest.name} (generated {when})")
+    report = execute_export_plan(plan, result, overwrite=overwrite)
+    return outcome_from_report(plan, report, MISSING)
 
-    index_path = Path(directory) / "index.txt"
-    try:
-        index_path.write_text("\n".join(index_lines) + "\n", encoding="utf-8")
-        outcome.index_path = str(index_path)
-    except OSError as exc:
-        logger.warning("Failed to write preset export index.txt: %s", exc)
 
+def outcome_from_report(plan, report, missing: str = "missing") -> PresetExportOutcome:
+    """A PresetExportOutcome view of an executed export plan."""
+    outcome = PresetExportOutcome(index_path=report.index_path)
+    written = set(report.written)
+    failed = {target for target, _error in report.failed}
+    for item in plan.items:
+        if item.kind == "format":
+            if item.target in written:
+                outcome.formats.succeeded.append(item.key)
+            elif item.target in failed:
+                outcome.formats.failed.append(item.key)
+        elif item.target in written:
+            outcome.materials_copied.append(item.key)
+        elif item.freshness == missing or item.target in failed:
+            outcome.materials_missing.append(item.key)
     return outcome

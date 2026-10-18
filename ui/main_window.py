@@ -2947,10 +2947,24 @@ class MainWindow(QMainWindow):
         default_name = os.path.splitext(os.path.basename(source_file))[0]
         record_id = self._last_record_id if self._last_record_id is not None else "unsaved"
 
-        outcome = export_controller.export_preset(
+        # UX-15: the bundle is planned, shown, and only then written —
+        # exactly the reviewed snapshot (a changed transcript is refused).
+        from application import export_plan
+
+        plan = export_plan.build_export_plan(
             result, preset, directory, record_id,
-            source_path=self._source_filepath or "", default_name=default_name,
+            media_source=self._source_filepath or "",
+            artifact_source=self._artifact_source(), default_name=default_name,
         )
+        accepted, overwrite = self._review_export_plan(plan)
+        if not accepted:
+            return
+        try:
+            report = export_plan.execute_export_plan(plan, result, overwrite=overwrite)
+        except export_plan.PlanOutdated:
+            QMessageBox.information(self, tr("export_plan_title"), tr("export_plan_outdated"))
+            return
+        outcome = export_controller.outcome_from_report(plan, report)
         if outcome.any_missing:
             show_toast(
                 self,
@@ -2966,6 +2980,14 @@ class MainWindow(QMainWindow):
                 tr("toast_export_preset_done", count=outcome.total_files, dir=directory),
                 kind="success",
             )
+
+    def _review_export_plan(self, plan) -> "tuple[bool, bool]":
+        """Show the plan; (accepted, overwrite existing files)."""
+        from ui.export_plan_dialog import ExportPlanDialog
+
+        dialog = ExportPlanDialog(plan, self)
+        accepted = dialog.exec() == QDialog.DialogCode.Accepted
+        return accepted, dialog.overwrite.isChecked()
 
     # ===== AI Processing Methods =====
 

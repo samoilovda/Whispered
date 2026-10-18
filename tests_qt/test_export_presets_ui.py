@@ -96,7 +96,7 @@ def window(monkeypatch, tmp_path, process_events):
 def test_export_preset_with_no_result_loaded_is_a_noop(window, process_events, monkeypatch):
     called = []
     monkeypatch.setattr(
-        "application.export_controller.export_preset",
+        "application.export_plan.execute_export_plan",
         lambda *a, **k: called.append(1),
     )
 
@@ -110,7 +110,7 @@ def test_export_preset_with_an_unknown_key_is_a_noop(window, process_events, mon
     window.transcript_view.set_result(_result())
     called = []
     monkeypatch.setattr(
-        "application.export_controller.export_preset",
+        "application.export_plan.execute_export_plan",
         lambda *a, **k: called.append(1),
     )
 
@@ -129,7 +129,7 @@ def test_export_preset_with_no_directory_chosen_does_not_call_the_controller(
     monkeypatch.setattr(QFileDialog, "getExistingDirectory", staticmethod(lambda *a, **k: ""))
     called = []
     monkeypatch.setattr(
-        "application.export_controller.export_preset",
+        "application.export_plan.execute_export_plan",
         lambda *a, **k: called.append(1),
     )
 
@@ -155,8 +155,11 @@ def test_export_preset_shows_a_success_toast_when_nothing_is_missing(
     outcome = export_controller.PresetExportOutcome()
     outcome.materials_copied = ["article"]
     outcome.formats.succeeded = ["md", "docx"]
+    # UX-15: plan → review → execute; the review is accepted here.
+    monkeypatch.setattr(window, "_review_export_plan", lambda plan: (True, False))
+    monkeypatch.setattr("application.export_plan.execute_export_plan", lambda *a, **k: None)
     monkeypatch.setattr(
-        "application.export_controller.export_preset", lambda *a, **k: outcome,
+        "application.export_controller.outcome_from_report", lambda *a, **k: outcome,
     )
 
     seen_toasts = []
@@ -184,8 +187,11 @@ def test_export_preset_shows_a_warning_toast_when_something_is_missing(
     outcome = export_controller.PresetExportOutcome()
     outcome.materials_missing = ["youtube_package", "cover"]
     outcome.formats.succeeded = ["srt", "vtt"]
+    # UX-15: plan → review → execute; the review is accepted here.
+    monkeypatch.setattr(window, "_review_export_plan", lambda plan: (True, False))
+    monkeypatch.setattr("application.export_plan.execute_export_plan", lambda *a, **k: None)
     monkeypatch.setattr(
-        "application.export_controller.export_preset", lambda *a, **k: outcome,
+        "application.export_controller.outcome_from_report", lambda *a, **k: outcome,
     )
 
     seen_toasts = []
@@ -195,3 +201,45 @@ def test_export_preset_shows_a_warning_toast_when_something_is_missing(
     process_events()
 
     assert seen_toasts == [{"kind": "warning"}]
+
+
+def test_declined_review_writes_nothing(window, process_events, monkeypatch, tmp_path):
+    """UX-15: the bundle is shown first; Cancel means nothing is written."""
+    from PyQt6.QtWidgets import QFileDialog
+
+    window.transcript_view.set_result(_result())
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    monkeypatch.setattr(
+        QFileDialog, "getExistingDirectory", staticmethod(lambda *a, **k: str(out_dir)),
+    )
+    reviewed = []
+    monkeypatch.setattr(window, "_review_export_plan",
+                        lambda plan: reviewed.append(plan) or (False, False))
+    window._export_preset("article_draft")
+    process_events()
+    assert reviewed and [i.key for i in reviewed[0].items][:2] == ["md", "docx"]
+    assert list(out_dir.iterdir()) == []
+
+
+def test_plan_dialog_lists_freshness_and_offers_overwrite(process_events):
+    from application.export_plan import CURRENT, MISSING, STALE, ExportItem, ExportPlan
+    from core.i18n import load_locale
+    from ui.export_plan_dialog import ExportPlanDialog
+
+    load_locale("en")
+    plan = ExportPlan(1, "r", "/tmp/out", "src", (
+        ExportItem("format", "srt", "src.srt", exists=True),
+        ExportItem("material", "book", "book.md", "/a/book.md", STALE),
+        ExportItem("material", "cover", "cover.png", freshness=MISSING),
+        ExportItem("material", "article", "articles.json", "/a/articles.json", CURRENT,
+                   user_edits=("title",), overlay="/a/articles.user.json"),
+    ))
+    dialog = ExportPlanDialog(plan)
+    texts = [dialog.items.item(i).text() for i in range(dialog.items.count())]
+    assert texts[0].startswith("✓ src.srt") and tr("export_plan_exists") in texts[0]
+    assert texts[1].startswith("◐ book.md")
+    assert texts[2].startswith("—")
+    assert tr("export_plan_edits", keys="title") in texts[3]
+    assert not dialog.overwrite.isHidden() and not dialog.overwrite.isChecked()
+    dialog.close()

@@ -273,7 +273,8 @@ def test_export_preset_a_copy_failure_is_reported_not_raised(tmp_path, monkeypat
     def _boom(*args, **kwargs):
         raise OSError("disk full")
 
-    monkeypatch.setattr("application.export_controller.shutil.copyfile", _boom)
+    # The copy lives in application/export_plan.py since UX-15 (T15).
+    monkeypatch.setattr("application.export_plan.shutil.copyfile", _boom)
 
     outcome = export_preset(
         result, preset, str(out_dir), record_id,
