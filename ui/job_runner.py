@@ -30,7 +30,9 @@ from typing import Callable, Dict, Optional
 from PyQt6.QtCore import pyqtSignal
 
 from application.job_engine import CacheCheck, JobEngine, JobRun, StepRunner
+from config import get_config
 from core.base_worker import BaseWorker
+from core.lm_state import get_guard
 from domain.job import JobSpec, StepOutcome
 
 
@@ -131,10 +133,18 @@ class JobRunner(BaseWorker):
     def _execute(self) -> None:
         if self._runners is None:
             raise RuntimeError("JobRunner.set_runners() must be called before start()")
-        run = self._engine.run(
-            self._spec, self._runners,
-            cache_checks=self._cache_checks, run_state=self._run_state,
-        )
+        cfg = get_config()
+        guard = get_guard() if cfg.lm_restore_state else None
+        if guard:
+            guard.acquire(cfg.lm_studio_url)
+        try:
+            run = self._engine.run(
+                self._spec, self._runners,
+                cache_checks=self._cache_checks, run_state=self._run_state,
+            )
+        finally:
+            if guard:
+                guard.release()
         self._emit_terminal(self.job_finished, run)
 
     def _on_error(self, msg: str) -> None:

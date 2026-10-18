@@ -55,6 +55,8 @@ class Config:
 
     # LM Studio settings
     lm_studio_url: str = "http://localhost:1234/v1"
+    # Unload LM Studio models that a job loaded, once it is done
+    lm_restore_state: bool = True
 
     # Book pipeline settings
     book_lm_url: str = "http://localhost:1234/v1"
