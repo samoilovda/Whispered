@@ -943,6 +943,7 @@ class MainWindow(QMainWindow):
             lambda: self._stack.setCurrentIndex(self._record_index)
         )
         self.run_view.back_requested.connect(self._leave_run)
+        self.run_view.fix_requested.connect(self._on_readiness_fix)
         self.run_view.publish_requested.connect(self.youtube_publish.open_dialog)
         self.youtube_panel.publish_requested.connect(self.youtube_publish.open_dialog)
         self._run_index = self._stack.addWidget(self.run_view)

@@ -99,7 +99,9 @@ def test_bind_run_reflects_mixed_outcomes(process_events):
 
     rows = view.rows()
     assert tr("run_status_waiting") in rows["diarize"]._status_badge.text()
-    assert tr("status_error", error="LM Studio timed out") in rows["article"]._status_badge.text()
+    # UX-11: the reason in the UI language; the raw error in the tooltip.
+    assert tr("run_failure_provider_unavailable") in rows["article"]._status_badge.text()
+    assert "LM Studio timed out" in rows["article"]._status_badge.toolTip()
     assert rows["article"]._retry_button.isVisible()
     assert not rows["clean"]._retry_button.isVisible()
     assert rows["insights"]._retry_button.isVisible()

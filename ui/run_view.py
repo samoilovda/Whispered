@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -43,12 +44,24 @@ from PyQt6.QtWidgets import (
 )
 
 from application.job_engine import JobRun
+from application.run_report import RunReport, build_run_report
 from core.i18n import on_language_changed, tr
+from domain.run_report import NEEDS_SETUP, PROVIDER_UNAVAILABLE, classify_failure, redact_secrets
 from domain.job import StepOutcome, StepStatus
 from ui.components import StatusBadge
 from ui.theme import SPACE_2, SPACE_4
 from ui.qt_util import must
 
+
+# History artifact type → its label (the Library's chip names).
+_MATERIAL_LABELS = {
+    "transcript": "library_chip_transcript",
+    "youtube": "library_chip_youtube",
+    "article": "library_chip_article",
+    "insights": "library_chip_insights",
+    "book": "library_chip_book",
+    "notes": "library_chip_notes",
+}
 
 _STATUS_STATE = {
     StepStatus.SUCCEEDED: "success",
@@ -218,7 +231,10 @@ class RunStepRow(QWidget):
         elif outcome.status is StepStatus.SKIPPED:
             text = tr("run_status_skipped")
         elif outcome.status is StepStatus.FAILED:
-            text = tr("status_error", error=outcome.error)
+            # The reason in the user's terms (UX-11); the raw message, with
+            # secrets redacted, stays in the tooltip and behind "Details".
+            text = tr(f"run_failure_{classify_failure(outcome.error)}")
+            self._status_badge.setToolTip(redact_secrets(outcome.error))
         else:  # CANCELLED
             text = tr("run_status_cancelled")
         self._status_badge.set_status(text, state)
@@ -260,6 +276,8 @@ class RunView(QWidget):
     publish_requested = pyqtSignal()
     regenerate_requested = pyqtSignal(str)
     overall_progress_changed = pyqtSignal(int)
+    # A failure's fix was clicked: an application.readiness FIX_* key.
+    fix_requested = pyqtSignal(str)
 
     def __init__(
         self,
@@ -328,6 +346,15 @@ class RunView(QWidget):
         overall.addWidget(self._overall_label)
         root.addLayout(overall)
 
+        # The run's outcome once it ends (UX-11): what succeeded, was
+        # reused, failed and why, what never ran — and what to do next.
+        self._report_box = QWidget()
+        self._report_layout = QVBoxLayout(self._report_box)
+        self._report_layout.setContentsMargins(SPACE_4, 0, SPACE_4, SPACE_2)
+        self._report_layout.setSpacing(SPACE_2)
+        self._report_box.setVisible(False)
+        root.addWidget(self._report_box)
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -365,6 +392,7 @@ class RunView(QWidget):
             self._heading.setText(tr("run_heading", name=self._recipe_name))
         for row in self._rows.values():
             row.retranslate()
+        self._render_report()
 
     def set_step_labels(self, labels: dict) -> None:
         """Replace the step display names (live UI-language switch)."""
@@ -393,6 +421,79 @@ class RunView(QWidget):
         self._finished = finished
         self._open_button.setVisible(finished)
         self._publish_button.setVisible(finished and self._publish_available)
+        self._render_report()
+
+    def report(self) -> "RunReport | None":
+        return build_run_report(self._run) if self._run is not None else None
+
+    def _render_report(self) -> None:
+        """The summary under the header — only for a finished run."""
+        while self._report_layout.count():
+            item = self._report_layout.takeAt(0)
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                widget.hide()
+                widget.deleteLater()
+        report = self.report() if self._finished else None
+        self._report_box.setVisible(report is not None)
+        if report is None:
+            return
+        headline = QLabel(tr(f"run_report_{report.state}"))
+        headline.setProperty("role", {
+            "success": "success-text", "failed": "danger-text",
+        }.get(report.state, "warning-text"))
+        headline.setProperty("run_report", "headline")
+        self._report_layout.addWidget(headline)
+        parts = [
+            tr(key, count=len(items)) for key, items in (
+                ("run_report_succeeded", report.succeeded),
+                ("run_report_reused", report.reused),
+                ("run_report_failed", report.failed),
+                ("run_report_cancelled", report.cancelled),
+                ("run_report_blocked", report.blocked),
+                ("run_report_waiting", report.waiting),
+            ) if items
+        ]
+        counts = QLabel(" · ".join(parts))
+        counts.setProperty("role", "muted")
+        counts.setWordWrap(True)
+        counts.setProperty("run_report", "counts")
+        self._report_layout.addWidget(counts)
+        for failure in report.failed:
+            self._report_layout.addWidget(self._failure_row(failure))
+        if report.materials:
+            names = ", ".join(tr(_MATERIAL_LABELS.get(m, m)) for m in report.materials)
+            materials = QLabel(tr("run_report_materials", names=names))
+            materials.setProperty("role", "muted")
+            materials.setWordWrap(True)
+            materials.setProperty("run_report", "materials")
+            self._report_layout.addWidget(materials)
+
+    def _failure_row(self, failure) -> QWidget:
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(SPACE_2)
+        label = QLabel(tr("run_report_failure", step=self._labels.get(failure.step, failure.step),
+                          reason=tr(f"run_failure_{failure.kind}")))
+        label.setWordWrap(True)
+        label.setProperty("run_report", f"failure:{failure.step}")
+        layout.addWidget(label, stretch=1)
+        if failure.kind in (NEEDS_SETUP, PROVIDER_UNAVAILABLE):
+            fix = QPushButton(tr("ready_fix_settings_ai"))
+            fix.setProperty("variant", "ghost")
+            fix.clicked.connect(lambda: self.fix_requested.emit("settings_ai"))
+            layout.addWidget(fix)
+        retry = QPushButton(tr("run_retry"))
+        retry.setProperty("variant", "ghost")
+        retry.clicked.connect(lambda _c=False, name=failure.step: self._on_retry(name))
+        layout.addWidget(retry)
+        details = QPushButton(tr("run_report_details"))
+        details.setProperty("variant", "ghost")
+        details.clicked.connect(lambda _c=False, f=failure: QMessageBox.information(
+            self, tr("run_report_details"), f.details or tr("error_unknown")))
+        layout.addWidget(details)
+        return row
 
     def set_publish_available(self, available: bool) -> None:
         """Offer "Publish to YouTube" once the run is finished — only
@@ -486,6 +587,7 @@ class RunView(QWidget):
 
     def on_job_finished(self, run: JobRun) -> None:
         self.bind_run(run)
+        self._render_report()
 
     def _recompute_overall(self) -> None:
         """B3: N-of-M progress and an elapsed clock in the header, plus an
