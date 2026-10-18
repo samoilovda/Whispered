@@ -35,6 +35,7 @@ from ui.article_view import ArticleView, CleanedTextView
 from ui.batch_panel import BatchPanel
 from ui.course_capture_panel import CourseCapturePanel
 from ui.book_panel import BookPanel
+from ui.clips_view import ClipsView
 from ui.subtitle_view import SubtitleView
 from ui.cut_view import CutView
 from ui.player_widget import PlayerWidget
@@ -922,6 +923,15 @@ class MainWindow(QMainWindow):
         self.subtitle_view.listen_requested.connect(self._listen_range)
         self.subtitle_view.message.connect(lambda text, kind: show_toast(self, text, kind=kind))
         self.main_tabs.addTab(self.subtitle_view, tr("tab_subtitles"))
+        self.clips_view = ClipsView()
+        self._shutdownables.append(self.clips_view)
+        self.clips_view.listen_requested.connect(self._listen_range)
+        self.clips_view.message.connect(lambda text, kind: show_toast(self, text, kind=kind))
+        self.clips_view.playhead = self.player.current_position
+        self.clips_view.source = lambda: self._source_filepath or self.file_selector.get_file() or ""
+        self.clips_view.kept = lambda: self.cut_view.get_kept_segments()
+        self.clips_view.cues = lambda: list(self.subtitle_view._track.cues)
+        self.main_tabs.addTab(self.clips_view, tr("tab_clips"))
         self.main_tabs.addTab(self.cut_view, tr("tab_cut"))
         self.main_tabs.addTab(self.chat_panel, tr("tab_chat"))
         # (widget, key) pairs so _retranslate() can re-label the tabs by
@@ -934,6 +944,7 @@ class MainWindow(QMainWindow):
             (self.book_panel, "tab_book"),
             (self.insights_panel, "tab_insights"),
             (self.subtitle_view, "tab_subtitles"),
+            (self.clips_view, "tab_clips"),
             (self.cut_view, "tab_cut"),
             (self.chat_panel, "tab_chat"),
         ]
@@ -1126,7 +1137,7 @@ class MainWindow(QMainWindow):
     def _init_material_tabs(self) -> None:
         self._material_tabs = (
             self.cleaned_view, self.article_view, self.youtube_panel,
-            self.book_panel, self.insights_panel, self.subtitle_view,
+            self.book_panel, self.insights_panel, self.subtitle_view, self.clips_view,
         )
         self._revealed_tabs: set[int] = set()
         self._record_artifacts: set[str] = set()
@@ -1135,7 +1146,7 @@ class MainWindow(QMainWindow):
         self._tab_refresh_timer.setInterval(0)
         self._tab_refresh_timer.timeout.connect(self._refresh_tab_visibility)
         for panel in (self.cleaned_view, self.article_view, self.youtube_panel,
-                      self.insights_panel, self.subtitle_view):
+                      self.insights_panel, self.subtitle_view, self.clips_view):
             panel.content_changed.connect(self._schedule_tab_refresh)
 
         self._add_tab_btn = QToolButton()
@@ -1167,6 +1178,8 @@ class MainWindow(QMainWindow):
             return self.insights_panel.has_content()
         if widget is self.subtitle_view:
             return self.subtitle_view.has_content()
+        if widget is self.clips_view:
+            return self.clips_view.has_content()
         if widget is self.book_panel:
             return self.book_panel.has_book() or "book" in self._record_artifacts
         return True
@@ -1616,6 +1629,7 @@ class MainWindow(QMainWindow):
             self._update_chat_context
         )
         self._document_session.register_consumer(self.subtitle_view.set_result)
+        self._document_session.register_consumer(self.clips_view.set_result)
         self._document_session.register_consumer(
             lambda result: self.insights_panel.set_segments(
                 result.segments, transcript_language=result.language
@@ -2372,6 +2386,7 @@ class MainWindow(QMainWindow):
         self._cancel_insights_job()
         self.insights_panel.clear()
         self.subtitle_view.clear()
+        self.clips_view.clear()
         self._cancel_youtube_job()
         self.youtube_panel.clear()
         self._cancel_book_job()
@@ -2601,6 +2616,7 @@ class MainWindow(QMainWindow):
         self.youtube_panel.set_provenance(self._last_record_id, self._source_filepath)
         self.insights_panel.set_provenance(self._last_record_id, self._source_filepath)
         self.subtitle_view.set_provenance(self._last_record_id, self._source_filepath)
+        self.clips_view.set_provenance(self._last_record_id, self._source_filepath)
         if self._source_filepath:
             self.youtube_panel.set_source_name(Path(self._source_filepath).stem)
             self.insights_panel.set_source_name(Path(self._source_filepath).stem)
@@ -2869,6 +2885,7 @@ class MainWindow(QMainWindow):
             self._cancel_insights_job()
             self.insights_panel.clear()
             self.subtitle_view.clear()
+            self.clips_view.clear()
             # The same goes for cleaned text and articles — and the cleaned
             # text also feeds the next article generation
             # (_get_text_for_ai), so a stale one would write the previous
@@ -2897,6 +2914,7 @@ class MainWindow(QMainWindow):
             self.youtube_panel.set_provenance(record_id, source_path or None)
             self.insights_panel.set_provenance(record_id, source_path or None)
             self.subtitle_view.set_provenance(record_id, source_path or None)
+            self.clips_view.set_provenance(record_id, source_path or None)
             stem = Path(source_path or source_name).stem if (source_path or source_name) else ""
             self.youtube_panel.set_source_name(stem)
             self.insights_panel.set_source_name(stem)
