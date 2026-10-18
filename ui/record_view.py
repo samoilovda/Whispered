@@ -91,6 +91,8 @@ class RecordView(QWidget):
     """
 
     back_requested = pyqtSignal()
+    # The missing-source banner's "Find file…" (UX-09).
+    relink_requested = pyqtSignal()
     export_requested = pyqtSignal()
     export_preset_requested = pyqtSignal(str)  # ExportPreset.key
     cover_requested = pyqtSignal()
@@ -122,6 +124,8 @@ class RecordView(QWidget):
         self.more_btn.setAccessibleName(tr("record_more_actions"))
         self.export_btn.setText(tr("record_export_menu"))
         self.back_btn.setText(tr("record_back"))
+        self.relink_btn.setText(tr("record_relink"))
+        self.set_missing_source(self._missing_source)
         self.back_btn.setToolTip(tr("record_back_tooltip"))
         self.set_has_result(self._has_result)
         self._build_export_menu()
@@ -206,6 +210,22 @@ class RecordView(QWidget):
 
         self._layout.addLayout(header)
 
+        # The record's media is gone from where it was (UX-09): the
+        # transcript still works; this says so and offers to find the file.
+        self.missing_source_row = QWidget()
+        missing_layout = QHBoxLayout(self.missing_source_row)
+        missing_layout.setContentsMargins(0, 0, 0, 0)
+        self.missing_source_label = QLabel()
+        self.missing_source_label.setProperty("role", "warning-text")
+        self.missing_source_label.setWordWrap(True)
+        missing_layout.addWidget(self.missing_source_label, stretch=1)
+        self.relink_btn = QPushButton(tr("record_relink"))
+        self.relink_btn.clicked.connect(self.relink_requested.emit)
+        missing_layout.addWidget(self.relink_btn)
+        self.missing_source_row.setVisible(False)
+        self._missing_source = ""
+        self._layout.addWidget(self.missing_source_row)
+
         # RecordView owns document content only — every generator's panel
         # is one more tab on main_tabs (see MainWindow._build_record_section).
         self._left_widget = QWidget()
@@ -274,6 +294,14 @@ class RecordView(QWidget):
 
     def set_title(self, name: str) -> None:
         self.title_edit.set_shown_text(name)
+
+    def set_missing_source(self, path: str) -> None:
+        """Show (path) or hide ("") the missing-source banner."""
+        self._missing_source = path
+        self.missing_source_row.setVisible(bool(path))
+        if path:
+            self.missing_source_label.setText(tr("record_source_missing", path=path))
+            self.missing_source_label.setToolTip(path)
 
     def set_subtitle(self, text: str) -> None:
         self.subtitle_label.setText(text)

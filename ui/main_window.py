@@ -279,6 +279,9 @@ class MainWindow(QMainWindow):
         # output folder is named after (core.paths.artifact_dir), even when
         # that media file has since moved and _source_filepath is None.
         self._record_source_path: str | None = None
+        # The open record's media identity (UX-09): stored fingerprint,
+        # duration, and when its source was replaced, if ever.
+        self._record_media: dict = {}
         self._bookmarks: list = []
         self._tray = None
         self._clean_job: JobRunner | None = None
@@ -948,6 +951,7 @@ class MainWindow(QMainWindow):
         )
         self.run_view.back_requested.connect(self._leave_run)
         self.run_view.fix_requested.connect(self._on_readiness_fix)
+        self.record_view.relink_requested.connect(self._relink_media)
         self.run_view.publish_requested.connect(self.youtube_publish.open_dialog)
         self.youtube_panel.publish_requested.connect(self.youtube_publish.open_dialog)
         self._run_index = self._stack.addWidget(self.run_view)
@@ -1193,8 +1197,13 @@ class MainWindow(QMainWindow):
             index = self.main_tabs.indexOf(widget)
             label = tr(keys.get(id(widget), ""))
             glyph, tip = "", ""
+            changed_at = getattr(self, "_record_media", {}).get("changed_at", "")
             if step in failed:
                 glyph, tip = " ✕", tr("record_tab_failed")
+            elif stale_context is not None and changed_at and self._made_before(
+                stale_context, step, changed_at,
+            ):
+                glyph, tip = " ◐", tr("record_tab_stale_source")
             elif stale_context is not None:
                 try:
                     from application.steps import step_artifact_is_stale
@@ -1205,6 +1214,16 @@ class MainWindow(QMainWindow):
                     logger.debug("Stale check for %s failed: %s", step, exc)
             self.main_tabs.setTabText(index, label + glyph)
             self.main_tabs.setTabToolTip(index, tip)
+
+    @staticmethod
+    def _made_before(context, step: str, changed_at: str) -> bool:
+        try:
+            from application.media_relink import made_before
+
+            return made_before(context, step, changed_at)
+        except Exception as exc:  # noqa: BLE001 - a marker is never worth an error
+            logger.debug("Source-change check for %s failed: %s", step, exc)
+            return False
 
     def _show_tab(self, widget) -> None:
         """Switch to *widget*'s tab, revealing it first if it was hidden."""
@@ -2381,6 +2400,8 @@ class MainWindow(QMainWindow):
         # YouTube, Cover, Cut, AI/Book enable flags — see DocumentSession).
         self.cut_view.set_record(self._last_record_id)
         self._cut_plan_readonly = False
+        self._record_media = {"fingerprint": "", "duration": result.duration, "changed_at": ""}
+        self.record_view.set_missing_source("")
         self._document_session.apply_result(result)
         # _last_record_id is finalized by now regardless of path (set
         # directly above via _save_to_history, or by the live-checkpoint
@@ -2642,13 +2663,27 @@ class MainWindow(QMainWindow):
             # A history row may be transcript-only (Live) or point at media
             # that has since been moved/deleted.  Never leave the old media
             # selected in that case.
-            has_media = bool(source_path and Path(source_path).is_file())
+            # The media may have been relinked to a new place (UX-09);
+            # source_path stays the original — it names the output folder.
+            media_path = record.get("media_path") or source_path
+            has_media = bool(media_path and Path(media_path).is_file())
             if has_media:
-                self.file_selector._set_file(source_path)
+                self.file_selector._set_file(media_path)
                 # _set_file emits file_selected and updates the player.
             else:
                 self.file_selector._clear_selection()
                 self.player.load("")
+            self._record_media = {
+                "fingerprint": record.get("media_fingerprint") or "",
+                "duration": record.get("duration"),
+                "changed_at": record.get("media_changed_at") or "",
+            }
+            expects_media = bool(source_path) and record.get("source_kind") != "live"
+            self.record_view.set_missing_source(
+                media_path if expects_media and not has_media else ""
+            )
+            if has_media and not self._record_media["fingerprint"]:
+                self._check_media(media_path, record_id, backfill=True)
 
             # The YouTube and Insights tabs otherwise keep the previous
             # record's results — and the YouTube tab's edits are saved per
@@ -2678,7 +2713,7 @@ class MainWindow(QMainWindow):
             self._restore_cut_plan(record_id)
             self.cover_view.set_provenance(record_id, source_path or None)
             self.cover_view.set_video_source(
-                self._cover_video_for(source_path) if has_media else None
+                self._cover_video_for(media_path) if has_media else None
             )
             self.article_view.set_provenance(
                 record_id, source_path or None, result.segments, result.language,
@@ -3357,6 +3392,86 @@ class MainWindow(QMainWindow):
             self._last_record_id, revision, result.full_text, result.segments,
             persist=bool(getattr(get_config(), "history_enabled", True)),
         )
+
+    # ── Relinking a record's moved media (UX-09) ─────────────────────
+
+    def _relink_media(self) -> None:
+        """The missing-source banner's "Find file…": pick the file, check
+        it in the background, then relink, replace or leave it."""
+        record_id = self._last_record_id
+        if record_id is None:
+            return
+        from utils import SUPPORTED_FORMATS
+
+        formats = " ".join(f"*{ext}" for ext in SUPPORTED_FORMATS)
+        path, _ = QFileDialog.getOpenFileName(
+            self, tr("record_relink"), "", tr("file_dialog_filter", formats=formats),
+        )
+        if path:
+            self._check_media(path, record_id, backfill=False)
+
+    def _check_media(self, path: str, record_id: int, *, backfill: bool) -> None:
+        from core.media_check_worker import MediaCheckWorker
+
+        worker = MediaCheckWorker(path, self)
+        worker.checked.connect(
+            lambda info, r=record_id, b=backfill: self._on_media_checked(info, r, b))
+        worker.failed.connect(
+            lambda msg, b=backfill: None if b else QMessageBox.warning(
+                self, tr("record_relink"), tr("record_relink_unreadable", error=msg)))
+        self._registry.register(worker, name=f"media_check_{id(worker)}")
+        worker.start()
+
+    def _on_media_checked(self, info: dict, record_id: int, backfill: bool) -> None:
+        """Decide what the checked file is to the record it was picked for —
+        which may no longer be the open one (then nothing happens)."""
+        if record_id != self._last_record_id:
+            return
+        from core.history import get_history_store
+        from core.media_identity import DIFFERENT, LIKELY, SAME, compare_media
+
+        store = get_history_store()
+        if backfill:
+            store.set_media_fingerprint(record_id, info["fingerprint"])
+            self._record_media["fingerprint"] = self._record_media["fingerprint"] or info["fingerprint"]
+            return
+        media = getattr(self, "_record_media", {})
+        verdict = compare_media(media.get("fingerprint", ""), media.get("duration"),
+                                info["fingerprint"], info["duration"])
+        replaced = False
+        if verdict == SAME:
+            pass
+        elif verdict == DIFFERENT:
+            if not self._confirm_media(tr("record_relink_different")):
+                return
+            replaced = True
+        else:
+            key = "record_relink_likely" if verdict == LIKELY else "record_relink_unknown"
+            if not self._confirm_media(tr(key)):
+                return
+        try:
+            store.relink_media(record_id, info["path"], info["fingerprint"], replaced=replaced)
+        except Exception as exc:
+            logger.warning("Relinking record %s failed: %s", record_id, exc)
+            QMessageBox.warning(self, tr("record_relink"), tr("record_relink_unreadable", error=str(exc)))
+            return
+        self._record_media["fingerprint"] = info["fingerprint"]
+        if replaced:
+            from datetime import datetime, timezone
+
+            self._record_media["changed_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        self.file_selector._set_file(info["path"])
+        self.cut_view.video_panel.set_has_transcript(True)
+        self.record_view.set_missing_source("")
+        self._refresh_tab_markers()
+        show_toast(self, tr("record_replaced" if replaced else "record_relinked"), kind="success")
+
+    def _confirm_media(self, text: str) -> bool:
+        reply = QMessageBox.question(
+            self, tr("record_relink"), text,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        return reply == QMessageBox.StandardButton.Yes
 
     def _restore_cut_plan(self, record_id: int) -> None:
         """Show *record_id*'s saved cut (UX-06) — none means all kept."""

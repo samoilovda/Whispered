@@ -225,6 +225,20 @@ def _v12_add_chat_messages(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _v13_add_media_relink(conn: sqlite3.Connection) -> None:
+    """Where a record's media lives now, apart from where it was
+    transcribed (UI/UX audit 2026-10-18, UX-09). ``source_path`` keeps the
+    original — the record's output folder is named after it, so a moved or
+    renamed file no longer "loses" the generated results. ``media_path``
+    is the relinked file (empty = the original); ``media_fingerprint``
+    identifies its content (core.media_identity); ``media_changed_at`` is
+    set when the source was *replaced* by different content — results
+    made before it are out of date."""
+    conn.execute("ALTER TABLE transcripts ADD COLUMN media_path TEXT NOT NULL DEFAULT ''")
+    conn.execute("ALTER TABLE transcripts ADD COLUMN media_fingerprint TEXT NOT NULL DEFAULT ''")
+    conn.execute("ALTER TABLE transcripts ADD COLUMN media_changed_at TEXT NOT NULL DEFAULT ''")
+
+
 # Applied in order, tracked via SQLite's built-in `PRAGMA user_version`
 # (see HistoryStore._migrate). Append new migrations here — never edit or
 # reorder an existing one, since a database's user_version records exactly
@@ -242,6 +256,7 @@ _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _v10_add_transcript_drafts,
     _v11_add_cut_plans,
     _v12_add_chat_messages,
+    _v13_add_media_relink,
 )
 
 # A transcript_drafts row this code understands; a newer one is left alone.
@@ -691,7 +706,8 @@ class HistoryStore:
         with self._connect() as conn:
             row = conn.execute(
                 """SELECT id, created_at, source_path, source_name, source_kind, duration,
-                          language, model, artifacts, title, json_payload
+                          language, model, artifacts, title, json_payload,
+                          media_path, media_fingerprint, media_changed_at
                    FROM transcripts WHERE id = ?""",
                 (record_id,),
             ).fetchone()
@@ -713,6 +729,9 @@ class HistoryStore:
             "model": row["model"],
             "artifacts": artifacts,
             "payload": _payload_to_dict(row["json_payload"]),
+            "media_path": row["media_path"] or "",
+            "media_fingerprint": row["media_fingerprint"] or "",
+            "media_changed_at": row["media_changed_at"] or "",
         }
 
     def get_source_name(self, record_id: int) -> Optional[str]:
@@ -1102,6 +1121,36 @@ class HistoryStore:
         with self._connect() as conn:
             rows = conn.execute(sql, (pattern, limit)).fetchall()
         return [ArtifactSearchResult(r) for r in rows]
+
+    # ------------------------------------------------------------------ media relink (UX-09)
+
+    def relink_media(
+        self, record_id: int, media_path: str, fingerprint: str, *, replaced: bool = False,
+    ) -> None:
+        """Point *record_id* at *media_path* (one transaction). With
+        *replaced* the file is different content: ``media_changed_at`` is
+        stamped so results made from the previous source read as stale.
+        ``source_path`` (the output folder's name) never changes."""
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with self._connect() as conn:
+            if replaced:
+                conn.execute(
+                    "UPDATE transcripts SET media_path = ?, media_fingerprint = ?, "
+                    "media_changed_at = ? WHERE id = ?",
+                    (media_path, fingerprint, now, record_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE transcripts SET media_path = ?, media_fingerprint = ? WHERE id = ?",
+                    (media_path, fingerprint, record_id),
+                )
+
+    def set_media_fingerprint(self, record_id: int, fingerprint: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE transcripts SET media_fingerprint = ? WHERE id = ? AND media_fingerprint = ''",
+                (fingerprint, record_id),
+            )
 
     # ------------------------------------------------------------------ editor drafts (UX-05)
 
