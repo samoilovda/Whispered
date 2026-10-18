@@ -48,7 +48,7 @@ def test_material_tabs_wait_for_content(window, process_events):
                    window.insights_panel, window.book_panel):
         assert hidden not in visible
     labels = [a.text() for a in window._add_tab_menu.actions()]
-    assert len(labels) == 5
+    assert len(labels) == 6   # five generated materials + Subtitles
 
     # Content makes a tab appear on its own.
     window.cleaned_view.set_text("clean words")
