@@ -170,6 +170,9 @@ class Config:
     # hand-off dialog (copy text, reveal video, open Studio), or also allow
     # uploading through the YouTube Data API.
     yt_publish_mode: str = "off"                         # "off" | "handoff" | "api"
+    # Where tools/hermes_push.py copies finished records over SSH, as
+    # "user@host:/path/to/inbox". Empty = off (application/hermes_push.py).
+    hermes_push_target: str = ""
     # The user's own Google Cloud OAuth client ("Desktop app"); the refresh
     # token itself lives in the OS keyring (core/youtube_oauth.py).
     yt_oauth_client_id: str = ""

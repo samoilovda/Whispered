@@ -34,7 +34,11 @@ call sites).
    and tags to videos already uploaded)
    (`core/youtube_oauth.py`, `core/youtube_upload.py`,
    `application/youtube_autoupload.py`; `Config.yt_publish_mode` is `off`
-   by default).
+   by default),
+   and for copying finished records (speaker transcript, YouTube package) to
+   the user's own server over SSH, only when `Config.hermes_push_target` is
+   set and `tools/hermes_push.py` runs (`application/hermes_push.py`;
+   empty by default).
 2. **Never block the UI.** Anything longer than ~100 ms goes to a `QThread`
    (pattern: `core/base_worker.py`) or a separate process (pattern:
    `transcriber.py`). UI communication only via Qt signals.
