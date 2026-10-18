@@ -167,6 +167,13 @@ other records. This is a hint list, not speaker recognition — the same
 - **watch folder** (Settings → General, off by default): new supported files
   appearing in a local folder join the queue automatically once they stop
   growing;
+- **portable project** (File → Export project… / Import project…): one record —
+  transcript, versions, bookmarks, cut, proofreading marks, chat, runs and its
+  generated files — as a `*.whispered.zip` with a checksummed manifest. The media
+  file is included only if you tick it; API keys, tokens and the upload queue
+  never are. Importing validates the archive (unsafe names, links, size, checksums),
+  shows what it holds first, and adds a **new** record without touching existing
+  ones;
 - microphone recording with device selection, level meter, pause, and resume.
 
 History stores transcripts, run state, the searchable text of generated

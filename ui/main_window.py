@@ -583,6 +583,8 @@ class MainWindow(QMainWindow):
             ("menu_file", "menu_new_record", "", self._show_new_draft, True),
             ("menu_file", "menu_open", "Ctrl+O", self._menu_open_file, False),
             ("menu_file", "menu_export", "Ctrl+E", self._export_result, True),
+            ("menu_file", "menu_export_project", "", lambda: self.project.export_open_record(), True),
+            ("menu_file", "menu_import_project", "", lambda: self.project.import_project(), True),
             ("menu_file", "yt_publish_btn", "", self.youtube_publish.open_dialog, True),
             ("menu_file", "menu_run_youtube_package", "", self._menu_run_youtube_package, True),
             ("menu_file", _SEPARATOR, "", None, False),
@@ -783,6 +785,10 @@ class MainWindow(QMainWindow):
         # and resumes.
         from ui.queue_controller import QueueController
 
+        from ui.project_controller import ProjectController
+
+        self.project = ProjectController(self)
+        self._shutdownables.append(self.project)
         self.queue_controller = QueueController(self)
         self.queue_controller.wire()
         self.queue_controller.library_changed.connect(lambda: self.library_view.refresh())
@@ -2421,6 +2427,10 @@ class MainWindow(QMainWindow):
     def _cancel_operation(self):
         """Cancel the current operation (transcription, a recipe run, or
         one of the five single-step re-run/retry jobs)."""
+        if self.project.is_busy():
+            self.project.cancel()
+            self.status_label.setText(tr("status_cancelled"))
+            return
         if self.batch_panel._is_processing() or self.queue_controller.is_busy():
             self.batch_panel.cancel_processing()
             self.queue_controller.cancel()

@@ -1406,6 +1406,36 @@ _ARTIFACT_TEXT_PATHS: "dict[str, Callable[[Path], Path]]" = {
 }
 
 
+def reindex_record(record_id: int, source_path: str, artifact_types: "Iterable[str]") -> int:
+    """(Re)index one record's generated materials into ``artifact_texts``;
+    returns how many were indexed. A type with no file on disk is skipped."""
+    from core.history import get_history_store
+    from core.paths import artifact_dir as _artifact_dir_for
+
+    store = get_history_store()
+    types = [t for t in artifact_types if t in _ARTIFACT_TEXT_TYPES]
+    if not types:
+        return 0
+    indexed = 0
+    adir = _artifact_dir_for(record_id, source_path)
+    for artifact_type in types:
+        text = _ARTIFACT_TEXT_READERS[artifact_type](adir)
+        if not text:
+            continue
+        path = _ARTIFACT_TEXT_PATHS[artifact_type](adir)
+        try:
+            store.set_artifact_text(record_id, artifact_type, str(path), text)
+            indexed += 1
+        except Exception as exc:  # noqa: BLE001 - best-effort, see reindex_artifacts
+            from core.logger import get_logger
+
+            get_logger(__name__).warning(
+                "Reindex: failed to store %s text for record %s: %s",
+                artifact_type, record_id, exc,
+            )
+    return indexed
+
+
 def reindex_artifacts() -> int:
     """Rebuild ``artifact_texts`` from whatever's already on disk (B7 plan
     item 6) — a manual action from Settings, not run automatically.
@@ -1415,31 +1445,12 @@ def reindex_artifacts() -> int:
     disk any more is silently skipped.
     """
     from core.history import get_history_store
-    from core.paths import artifact_dir as _artifact_dir_for
 
     store = get_history_store()
-    indexed = 0
-    for record in store.list(limit=1_000_000):
-        types = [t for t in (record.artifacts or []) if t in _ARTIFACT_TEXT_TYPES]
-        if not types:
-            continue
-        adir = _artifact_dir_for(record.id, record.source_path)
-        for artifact_type in types:
-            text = _ARTIFACT_TEXT_READERS[artifact_type](adir)
-            if not text:
-                continue
-            path = _ARTIFACT_TEXT_PATHS[artifact_type](adir)
-            try:
-                store.set_artifact_text(record.id, artifact_type, str(path), text)
-                indexed += 1
-            except Exception as exc:  # noqa: BLE001 - best-effort, see docstring
-                from core.logger import get_logger
-
-                get_logger(__name__).warning(
-                    "Reindex: failed to store %s text for record %s: %s",
-                    artifact_type, record.id, exc,
-                )
-    return indexed
+    return sum(
+        reindex_record(record.id, record.source_path, record.artifacts or [])
+        for record in store.list(limit=1_000_000)
+    )
 
 
 def step_outcome_result(

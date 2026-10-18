@@ -1198,6 +1198,92 @@ class HistoryStore:
             return None
         return data if isinstance(data, dict) else None
 
+    # ------------------------------------------------------------------ portable project (N06)
+
+    def export_record_rows(self, record_id: int) -> Optional[dict]:
+        """Everything the database holds about *record_id*, as plain JSON
+        values — the record's own row (without its machine path), its
+        versions, bookmarks, cut, review marks, chat and runs — for a
+        project archive. ``None`` for an unknown record."""
+        with self._connect() as conn:
+            row = conn.execute(
+                """SELECT created_at, source_name, source_kind, duration, language, model,
+                          artifacts, title, json_payload, media_fingerprint
+                   FROM transcripts WHERE id = ?""", (record_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            def rows(sql: str) -> list:
+                return [dict(r) for r in conn.execute(sql, (record_id,)).fetchall()]
+            plan = conn.execute("SELECT plan_json FROM cut_plans WHERE record_id = ?",
+                                (record_id,)).fetchone()
+            marks = conn.execute("SELECT marks_json FROM review_marks WHERE record_id = ?",
+                                 (record_id,)).fetchone()
+            return {
+                "record": dict(row),
+                "versions": rows("SELECT revision, json_payload, created_at "
+                                 "FROM transcript_revisions WHERE record_id = ? ORDER BY id"),
+                "bookmarks": rows("SELECT at_seconds, note, created_at FROM bookmarks "
+                                  "WHERE record_id = ? ORDER BY at_seconds, id"),
+                "cut_plan": json.loads(plan["plan_json"]) if plan else None,
+                "review_marks": json.loads(marks["marks_json"]) if marks else None,
+                "chat": rows("SELECT revision, role, content, status, model, created_at "
+                             "FROM chat_messages WHERE record_id = ? ORDER BY id"),
+                "runs": rows("SELECT recipe, started_at, finished_at, status, outcomes_json "
+                             "FROM job_runs WHERE record_id = CAST(? AS TEXT) ORDER BY id"),
+            }
+
+    def import_record_rows(self, data: dict, source_path: str) -> int:
+        """Add the record described by *data* (``export_record_rows``'s
+        shape) as a **new** record with a new local id — one transaction:
+        either all of it is stored or none. *source_path* is where its
+        media would live (it names the output folder). Existing records are
+        never touched."""
+        record = data["record"]
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with self._connect() as conn:
+            cur = conn.execute(
+                """INSERT INTO transcripts (created_at, source_path, source_name, source_kind,
+                       duration, language, model, json_payload, artifacts, title, media_fingerprint)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (record.get("created_at") or now, source_path, record.get("source_name") or "",
+                 record.get("source_kind") or "file", float(record.get("duration") or 0),
+                 record.get("language") or "", record.get("model") or "",
+                 record["json_payload"], record.get("artifacts"), record.get("title") or "",
+                 record.get("media_fingerprint") or ""),
+            )
+            new_id = cur.lastrowid
+            assert new_id is not None
+            for v in data.get("versions", []):
+                conn.execute(
+                    "INSERT INTO transcript_revisions (record_id, revision, json_payload, created_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    (new_id, v["revision"], v["json_payload"], v.get("created_at") or now))
+            for b in data.get("bookmarks", []):
+                conn.execute(
+                    "INSERT INTO bookmarks (record_id, at_seconds, note, created_at) VALUES (?, ?, ?, ?)",
+                    (new_id, float(b["at_seconds"]), b.get("note") or "", b.get("created_at") or now))
+            if data.get("cut_plan"):
+                conn.execute("INSERT INTO cut_plans (record_id, plan_json, updated_at) VALUES (?, ?, ?)",
+                             (new_id, json.dumps(data["cut_plan"], ensure_ascii=False), now))
+            if data.get("review_marks"):
+                conn.execute("INSERT INTO review_marks (record_id, marks_json, updated_at) VALUES (?, ?, ?)",
+                             (new_id, json.dumps(data["review_marks"], ensure_ascii=False), now))
+            for m in data.get("chat", []):
+                conn.execute(
+                    "INSERT INTO chat_messages (record_id, revision, role, content, status, model, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (new_id, m.get("revision") or "", m["role"], m["content"],
+                     m.get("status") or "complete", m.get("model") or "", m.get("created_at") or now))
+            for r in data.get("runs", []):
+                status = "interrupted" if r.get("status") == "running" else (r.get("status") or "done")
+                conn.execute(
+                    "INSERT INTO job_runs (record_id, recipe, started_at, finished_at, status, outcomes_json) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (str(new_id), r["recipe"], r.get("started_at") or now, r.get("finished_at"),
+                     status, r.get("outcomes_json") or "{}"))
+            return new_id
+
     # ------------------------------------------------------------------ queue (UX-14)
 
     _QUEUE_FIELDS = frozenset({"state", "stage", "record_id", "run_id", "error", "snapshot_json"})
