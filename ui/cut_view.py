@@ -10,8 +10,10 @@ from PyQt6.QtWidgets import (
     QListWidget, QListWidgetItem, QSplitter,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QKeySequence, QShortcut
 
 from core.i18n import tr
+from domain.cut_plan import CutAnchor, CutPlan, plan_for, resolve
 from ui.i18n_helpers import Retranslator
 from utils import format_duration, format_timestamp_vtt
 from ui.video_panel import VideoPanel
@@ -27,11 +29,23 @@ class CutView(QWidget):
     # Which segments are cut changed (checkbox, Select all/none, marked
     # pauses, or the transcript's context menu via set_cut()).
     cut_changed = pyqtSignal()
+    # The record's cut *decision* changed — a user edit, undo/redo, or the
+    # cut carried over onto an edited transcript — and should be saved
+    # (UX-06). Not emitted when a record is merely loaded.
+    plan_changed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._result = None
         self._segments: list = []
+        # Undo/redo of cut decisions: snapshots of the cut index set.
+        self._undo: list[frozenset[int]] = []
+        self._redo: list[frozenset[int]] = []
+        # Anchors a transcript edit could not place (needs review).
+        self._unresolved: tuple[CutAnchor, ...] = ()
+        # True until set_result() runs for a newly opened record: its cut
+        # comes from apply_plan(), never from the previous record's.
+        self._fresh_record = True
         self._i18n = Retranslator()
         self._setup_ui()
         self._i18n.call(self._update_count)
@@ -79,7 +93,36 @@ class CutView(QWidget):
         select_none_btn.clicked.connect(self._select_none)
         header_layout.addWidget(select_none_btn)
 
+        self._undo_btn = self._i18n.text(QPushButton(), "cut_undo", tooltip="cut_undo_tip")
+        self._undo_btn.clicked.connect(self.undo)
+        header_layout.addWidget(self._undo_btn)
+        self._redo_btn = self._i18n.text(QPushButton(), "cut_redo", tooltip="cut_redo_tip")
+        self._redo_btn.clicked.connect(self.redo)
+        header_layout.addWidget(self._redo_btn)
+        context = Qt.ShortcutContext.WidgetWithChildrenShortcut
+        undo_key = QShortcut(QKeySequence(QKeySequence.StandardKey.Undo), self)
+        undo_key.setContext(context)
+        undo_key.activated.connect(self.undo)
+        redo_key = QShortcut(QKeySequence(QKeySequence.StandardKey.Redo), self)
+        redo_key.setContext(context)
+        redo_key.activated.connect(self.redo)
+
         layout.addWidget(header)
+
+        # A transcript edit split/merged lines the cut referred to: the
+        # decision is kept, the user is asked to check it (UX-06).
+        self._review_row = QWidget()
+        review_layout = QHBoxLayout(self._review_row)
+        review_layout.setContentsMargins(0, 0, 0, 0)
+        self._review_label = QLabel()
+        self._review_label.setProperty("role", "warning-text")
+        self._review_label.setWordWrap(True)
+        review_layout.addWidget(self._review_label, stretch=1)
+        accept_btn = self._i18n.text(QPushButton(), "cut_review_accept")
+        accept_btn.clicked.connect(self.accept_review)
+        review_layout.addWidget(accept_btn)
+        self._review_row.setVisible(False)
+        layout.addWidget(self._review_row)
 
         # Segment list — uses the global QListWidget rule from theme.py
         self._list = QListWidget()
@@ -106,11 +149,74 @@ class CutView(QWidget):
 
     # ------------------------------------------------------------------ public API
 
+    def set_record(self, record_id) -> None:
+        """A different record is about to be shown: forget the current
+        cut and its undo history — its own comes from apply_plan()."""
+        self._fresh_record = True
+        self._undo.clear()
+        self._redo.clear()
+        self._unresolved = ()
+
     def set_result(self, result) -> None:
-        """Populate the list from a TranscriptionResult; all segments checked."""
+        """Populate the list from a TranscriptionResult.
+
+        For the record already shown (a transcript edit, a restored
+        version) the cut is carried over by anchors — a text correction
+        keeps it, a split/merge it can't place is flagged for review. For
+        a newly opened record every segment starts kept."""
+        carry = () if self._fresh_record else (
+            tuple(CutAnchor.of(self._segments[i]) for i in sorted(self.cut_indices())
+                  if i < len(self._segments)) + self._unresolved
+        )
+        self._fresh_record = False
         self._result = result
         self._segments = list(result.segments)
         self._rebuild()
+        if carry:
+            resolution = resolve(carry, self._segments)
+            self._unresolved = tuple(resolution.unresolved)
+            self._set_cut_silently(resolution.indices)
+            self.plan_changed.emit()
+        self._refresh_review()
+
+    def apply_plan(self, plan: "CutPlan | None") -> None:
+        """Show a stored plan for the current record (no undo entry)."""
+        if plan is None:
+            self._unresolved = ()
+            self._refresh_review()
+            return
+        resolution = resolve(plan.cuts + plan.unresolved, self._segments)
+        self._unresolved = tuple(resolution.unresolved)
+        self._set_cut_silently(resolution.indices)
+        self._refresh_review()
+
+    def current_plan(self, revision: str) -> CutPlan:
+        plan = plan_for(self._segments, self.cut_indices(), revision)
+        return CutPlan(plan.transcript_revision, plan.cuts, self._unresolved)
+
+    def needs_review(self) -> bool:
+        return bool(self._unresolved)
+
+    def accept_review(self) -> None:
+        """The user checked the cut after an edit: the unplaced anchors go."""
+        if self._unresolved:
+            self._unresolved = ()
+            self._refresh_review()
+            self.plan_changed.emit()
+
+    def undo(self) -> None:
+        if not self._undo:
+            return
+        self._redo.append(frozenset(self.cut_indices()))
+        self._set_cut_silently(self._undo.pop())
+        self._after_user_change()
+
+    def redo(self) -> None:
+        if not self._redo:
+            return
+        self._undo.append(frozenset(self.cut_indices()))
+        self._set_cut_silently(self._redo.pop())
+        self._after_user_change()
 
     def get_kept_segments(self) -> list:
         """Return segments whose checkbox is checked, in original order."""
@@ -127,7 +233,9 @@ class CutView(QWidget):
 
     def set_cut(self, indices, cut: bool) -> None:
         """Cut (uncheck) or keep (check) the segments at *indices* — the
-        transcript's "Cut"/"Keep" (R5) and marked pauses use this."""
+        transcript's "Cut"/"Keep" (R5) and marked pauses use this. One
+        call is one undo step."""
+        before = frozenset(self.cut_indices())
         state = Qt.CheckState.Unchecked if cut else Qt.CheckState.Checked
         self._list.blockSignals(True)
         for i in indices:
@@ -137,6 +245,37 @@ class CutView(QWidget):
         self._list.blockSignals(False)
         self._update_count()
         self.cut_changed.emit()
+        if frozenset(self.cut_indices()) != before:
+            self._undo.append(before)
+            self._redo.clear()
+            self._after_user_change()
+
+    def _set_cut_silently(self, indices) -> None:
+        """Make exactly *indices* cut: no undo entry, no plan_changed."""
+        wanted = set(indices)
+        self._list.blockSignals(True)
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            item.setCheckState(Qt.CheckState.Unchecked if i in wanted else Qt.CheckState.Checked)
+            self._style_item(item)
+        self._list.blockSignals(False)
+        self._update_count()
+        self.cut_changed.emit()
+
+    def _after_user_change(self) -> None:
+        self._refresh_undo_buttons()
+        self.plan_changed.emit()
+
+    def _refresh_undo_buttons(self) -> None:
+        self._undo_btn.setEnabled(bool(self._undo))
+        self._redo_btn.setEnabled(bool(self._redo))
+
+    def _refresh_review(self) -> None:
+        count = len(self._unresolved)
+        self._review_row.setVisible(bool(count))
+        if count:
+            self._review_label.setText(tr("cut_needs_review", count=count))
+        self._refresh_undo_buttons()
 
     def cut_indices(self) -> set[int]:
         """Indices of the segments that are cut (unchecked)."""
@@ -150,6 +289,8 @@ class CutView(QWidget):
     def clear(self) -> None:
         self._result = None
         self._segments = []
+        self.set_record(None)
+        self._refresh_review()
         self._list.clear()
         self._count_label.setText("")
         self._placeholder.show()
@@ -212,8 +353,16 @@ class CutView(QWidget):
         self._list.blockSignals(True)
         self._style_item(item)
         self._list.blockSignals(False)
+        # The checkbox already flipped: the state before is this set with
+        # the item's index toggled back.
+        index = self._list.row(item)
+        before = set(self.cut_indices())
+        before.symmetric_difference_update({index})
+        self._undo.append(frozenset(before))
+        self._redo.clear()
         self._update_count()
         self.cut_changed.emit()
+        self._after_user_change()
 
     def _on_double_click(self, item):
         idx = self._list.row(item)

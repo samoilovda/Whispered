@@ -859,6 +859,7 @@ class MainWindow(QMainWindow):
         self.transcript_view.chapter_requested.connect(self._add_chapter_from_transcript)
         self.transcript_view.bookmark_requested.connect(lambda seconds: self._add_bookmark(seconds))
         self.transcript_view.cut_requested.connect(self.cut_view.set_cut)
+        self.cut_view.plan_changed.connect(self._save_cut_plan)
         self.cut_view.cut_changed.connect(
             lambda: self.transcript_view.set_cut_indices(self.cut_view.cut_indices())
         )
@@ -2339,6 +2340,8 @@ class MainWindow(QMainWindow):
 
         # Feed the result to every registered consumer (chat, insights,
         # YouTube, Cover, Cut, AI/Book enable flags — see DocumentSession).
+        self.cut_view.set_record(self._last_record_id)
+        self._cut_plan_readonly = False
         self._document_session.apply_result(result)
         # _last_record_id is finalized by now regardless of path (set
         # directly above via _save_to_history, or by the live-checkpoint
@@ -2629,7 +2632,9 @@ class MainWindow(QMainWindow):
             self._cleaned_text = None
             self.cleaned_view.clear()
             self.article_view.clear()
+            self.cut_view.set_record(record_id)
             self._document_session.apply_result(result)
+            self._restore_cut_plan(record_id)
             self.cover_view.set_provenance(record_id, source_path or None)
             self.cover_view.set_video_source(
                 self._cover_video_for(source_path) if has_media else None
@@ -3265,8 +3270,63 @@ class MainWindow(QMainWindow):
 
     # ===== Video Pipeline Methods =====
 
+
+    def _restore_cut_plan(self, record_id: int) -> None:
+        """Show *record_id*'s saved cut (UX-06) — none means all kept."""
+        from domain.cut_plan import CutPlan
+
+        plan = None
+        # A plan from a newer schema is shown as unsupported and never
+        # overwritten by whatever this version would save over it.
+        self._cut_plan_readonly = False
+        try:
+            from core.history import get_history_store
+            data = get_history_store().get_cut_plan(record_id)
+            if data is not None:
+                plan = CutPlan.from_dict(data)
+                if plan is None:
+                    self._cut_plan_readonly = True
+                    show_toast(self, tr("cut_plan_unsupported"), kind="warning")
+        except Exception as exc:
+            logger.warning("Failed to load the cut for record %s: %s", record_id, exc)
+        self.cut_view.apply_plan(plan)
+
+    def _save_cut_plan(self) -> None:
+        """Persist the open record's cut decision with its revision."""
+        record_id = self._last_record_id
+        result = self._current_result
+        if record_id is None or result is None or getattr(self, "_cut_plan_readonly", False):
+            return
+        if not getattr(get_config(), "history_enabled", True):
+            return
+        try:
+            from core.history import get_history_store
+            from domain.artifact_provenance import transcript_revision
+
+            revision = transcript_revision(
+                result.segments, result.language, getattr(result, "speaker_names", None),
+            )
+            get_history_store().save_cut_plan(
+                record_id, self.cut_view.current_plan(revision).to_dict(),
+            )
+        except Exception as exc:
+            logger.warning("Failed to save the cut for record %s: %s", record_id, exc)
+
+    def _cut_ready_for_export(self) -> bool:
+        """A cut flagged for review after a transcript edit is exported only
+        on an explicit yes — never guessed and exported silently."""
+        if not self.cut_view.needs_review():
+            return True
+        reply = QMessageBox.question(
+            self, tr("cut_export_review_title"), tr("cut_export_review_text"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        return reply == QMessageBox.StandardButton.Yes
+
     def _export_edl(self):
         """Export kept segments from the Cut view as a CMX3600 EDL file."""
+        if not self._cut_ready_for_export():
+            return
         segs = self.cut_view.get_kept_segments()
         if not segs:
             self.status_label.setText(tr("status_no_segments"))
@@ -3307,6 +3367,8 @@ class MainWindow(QMainWindow):
             return
         src = getattr(self, "_source_filepath", None)
         if not src:
+            return
+        if not self._cut_ready_for_export():
             return
         segs = self.cut_view.get_kept_segments()
         if not segs:

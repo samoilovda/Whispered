@@ -187,6 +187,20 @@ def _v10_add_transcript_drafts(conn: sqlite3.Connection) -> None:
             updated_at     TEXT    NOT NULL
         );
     """)
+
+
+def _v11_add_cut_plans(conn: sqlite3.Connection) -> None:
+    """A record's cut (UI/UX audit 2026-10-18, UX-06): which segments are
+    left out of the edit, stored as anchors (time range, speaker, text
+    fingerprint) plus the transcript revision they were made on — see
+    domain/cut_plan.py. One row per record, deleted with it."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS cut_plans (
+            record_id   INTEGER PRIMARY KEY,
+            plan_json   TEXT    NOT NULL,
+            updated_at  TEXT    NOT NULL
+        );
+    """)
 # Applied in order, tracked via SQLite's built-in `PRAGMA user_version`
 # (see HistoryStore._migrate). Append new migrations here — never edit or
 # reorder an existing one, since a database's user_version records exactly
@@ -202,6 +216,7 @@ _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _v8_add_record_title,
     _v9_add_bookmarks,
     _v10_add_transcript_drafts,
+    _v11_add_cut_plans,
 )
 
 # A transcript_drafts row this code understands; a newer one is left alone.
@@ -783,6 +798,7 @@ class HistoryStore:
             conn.execute("DELETE FROM transcript_revisions WHERE record_id = ?", (record_id,))
             conn.execute("DELETE FROM bookmarks WHERE record_id = ?", (record_id,))
             conn.execute("DELETE FROM transcript_drafts WHERE record_id = ?", (record_id,))
+            conn.execute("DELETE FROM cut_plans WHERE record_id = ?", (record_id,))
             cur = conn.execute("DELETE FROM transcripts WHERE id = ?", (record_id,))
             return cur.rowcount > 0
 
@@ -812,6 +828,7 @@ class HistoryStore:
             conn.execute("DELETE FROM transcript_revisions")
             conn.execute("DELETE FROM bookmarks")
             conn.execute("DELETE FROM transcript_drafts")
+            conn.execute("DELETE FROM cut_plans")
             return cur.rowcount
 
     def search(self, text: str, limit: int = 100) -> List[HistoryRecord]:
@@ -1100,6 +1117,38 @@ class HistoryStore:
     def delete_draft(self, record_id: int) -> None:
         with self._connect() as conn:
             conn.execute("DELETE FROM transcript_drafts WHERE record_id = ?", (record_id,))
+
+    # ------------------------------------------------------------------ cut plans (UX-06)
+
+    def save_cut_plan(self, record_id: int, plan: dict) -> None:
+        """Store *record_id*'s cut (``domain.cut_plan.CutPlan.to_dict()``);
+        an empty cut removes the row."""
+        if not plan.get("cuts") and not plan.get("unresolved"):
+            with self._connect() as conn:
+                conn.execute("DELETE FROM cut_plans WHERE record_id = ?", (record_id,))
+            return
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT INTO cut_plans (record_id, plan_json, updated_at) VALUES (?, ?, ?)
+                   ON CONFLICT(record_id) DO UPDATE SET
+                       plan_json = excluded.plan_json, updated_at = excluded.updated_at""",
+                (record_id, json.dumps(plan, ensure_ascii=False), now),
+            )
+
+    def get_cut_plan(self, record_id: int) -> Optional[dict]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT plan_json FROM cut_plans WHERE record_id = ?", (record_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            data = json.loads(row["plan_json"])
+        except (TypeError, json.JSONDecodeError):
+            logger.warning("Ignoring malformed cut plan for record %s", record_id)
+            return None
+        return data if isinstance(data, dict) else None
 
     # ------------------------------------------------------------------ bookmarks (R3)
 
