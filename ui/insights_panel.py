@@ -5,7 +5,6 @@ Smart summaries: chapters, action items, key moments.
 
 from __future__ import annotations
 
-from typing import Optional
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel,
@@ -13,12 +12,13 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 
-from core.insights_export import format_insight_text, item_start
+from core.insights_export import format_insight_text
 from core.logger import get_logger
 from core.i18n import tr
 from ui.components import ChapterRow, FlowLayout
 from ui.i18n_helpers import Retranslator
 from core.paths import output_dir
+from ui.tasks_view import TasksView
 from ui.toast import show_toast
 from utils import format_duration
 from ui.qt_util import must
@@ -32,42 +32,6 @@ class _SectionHeader(QLabel):
         super().__init__(text, parent)
         self.setProperty("role", "heading")
         self.setStyleSheet("padding: 6px 0 2px 0;")
-
-
-class _ActionRow(QWidget):
-    """A task: its time (a link that seeks, I2 — only when the model gave
-    one; nothing is made up), the task, then owner and deadline."""
-
-    seek_requested = pyqtSignal(int)
-
-    def __init__(
-        self, task: str, owner: Optional[str], deadline: Optional[str],
-        start: Optional[int] = None, parent=None,
-    ):
-        super().__init__(parent)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 2, 0, 2)
-        layout.setSpacing(8)
-        if start is not None:
-            ts_btn = QPushButton(format_duration(start))
-            ts_btn.setFixedWidth(48)
-            ts_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            ts_btn.setProperty("role", "timestamp-link")
-            ts_btn.setStyleSheet(f"font-size: {px(11)}px;")
-            ts_btn.clicked.connect(lambda: self.seek_requested.emit(start))
-            layout.addWidget(ts_btn, alignment=Qt.AlignmentFlag.AlignTop)
-        else:
-            layout.addSpacing(56)
-        parts = [f"• {task}"]
-        if owner:
-            parts.append(f"  {tr('insights_owner')} {owner}")
-        if deadline:
-            parts.append(f"  {tr('insights_deadline')} {deadline}")
-        label = QLabel("\n".join(parts))
-        label.setWordWrap(True)
-        label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        label.setStyleSheet(f"font-size: {px(12)}px;")
-        layout.addWidget(label, stretch=1)
 
 
 _SECTIONS = ("chapters", "action_items", "key_moments")
@@ -274,6 +238,14 @@ class InsightsPanel(QWidget):
         self._ai_layout = QVBoxLayout(self._ai_container)
         self._ai_layout.setContentsMargins(0, 0, 0, 0)
         self._ai_layout.setSpacing(2)
+        # Task cards (N04): edit / accept / finish / export, over what the
+        # model proposed. Kept for the panel's life; set_cards() refills it.
+        self._tasks_view = TasksView(self._ai_container)
+        self._tasks_view.changed.connect(self._on_tasks_changed)
+        self._tasks_view.seek_requested.connect(self.seek_requested)
+        self._tasks_view.message.connect(lambda text, kind: show_toast(self, text, kind=kind))
+        self._ai_layout.addWidget(self._tasks_view)
+        self._stored_cards: "list | None" = []
         self._content.addWidget(self._ai_container)
 
         self._sep2 = sep2 = QFrame()
@@ -403,6 +375,7 @@ class InsightsPanel(QWidget):
         self._record_id = record_id
         self._source_path = source_path
         self.reload_notes()
+        self._load_stored_tasks()
 
     # ── My notes (L1/I3) ────────────────────────────────────────────
 
@@ -478,8 +451,9 @@ class InsightsPanel(QWidget):
         self._gen_btn.setText(tr("insights_generate"))
         self._save_btn.setEnabled(False)
         self._results.clear()
-        for layout in (self._ai_layout, self._km_layout):
-            self._clear_section(layout)
+        self._clear_section(self._km_layout)
+        self._tasks_view.clear()
+        self._stored_cards = []
         self._render_chapter_section()
         self.chapters_changed.emit()
         self._placeholder.setText(tr("insights_placeholder"))
@@ -524,7 +498,6 @@ class InsightsPanel(QWidget):
         self._gen_btn.setText(tr("insights_generate"))
         self._save_btn.setEnabled(bool(self._results))
         self._render_chapter_section()
-        self._clear_section(self._ai_layout)
         self._render_action_items(list(payload.get("action_items") or []))
         self._clear_section(self._km_layout)
         self._render_key_moments(list(payload.get("key_moments") or []))
@@ -639,20 +612,44 @@ class InsightsPanel(QWidget):
                 logger.debug("Skipping a malformed insights item %r: %s", item, exc)
 
     def _render_action_items(self, data: list):
-        for item in data:
+        """The model's proposals with the user's task decisions over them
+        (domain/tasks.py)."""
+        from domain import tasks as tasks_domain
+
+        stored = self._stored_cards or []
+        cards = tasks_domain.merge(data, stored, self._segments or [])
+        self._tasks_view.set_cards(cards)
+
+    def _tasks_dir(self):
+        from core.paths import artifact_dir
+
+        return artifact_dir(self._record_id, self._source_path or "recording")
+
+    def _load_stored_tasks(self) -> None:
+        """Read the record's saved task cards (needs a saved record)."""
+        from application import task_store
+
+        self._stored_cards = []
+        if isinstance(self._record_id, int):
             try:
-                task = str(item.get("task", ""))
-                if not task:
-                    continue
-                row = _ActionRow(
-                    task, item.get("owner"), item.get("deadline"), item_start(item),
-                    self._ai_container,
-                )
-                row.seek_requested.connect(self.seek_requested)
-                self._ai_layout.addWidget(row)
-            except (AttributeError, TypeError, ValueError) as exc:
-                # One malformed item from the model doesn't hide the rest.
-                logger.debug("Skipping a malformed insights item %r: %s", item, exc)
+                self._stored_cards = task_store.load_cards(self._tasks_dir())
+            except Exception as exc:  # noqa: BLE001 - tasks must never break the tab
+                logger.warning("Could not read task cards: %s", exc)
+        if self._stored_cards is None:
+            show_toast(self, tr("task_unsupported"), kind="warning")
+        self._render_action_items(list(self._results.get("action_items") or []))
+
+    def _on_tasks_changed(self, cards: list) -> None:
+        from application import task_store
+
+        if self._stored_cards is None or not isinstance(self._record_id, int):
+            return
+        self._stored_cards = cards
+        try:
+            task_store.save_cards(self._tasks_dir(), cards)
+        except OSError as exc:
+            logger.warning("Could not save task cards: %s", exc)
+            show_toast(self, tr("task_save_error"), kind="error")
 
     def _render_key_moments(self, data: list):
         for item in data:
