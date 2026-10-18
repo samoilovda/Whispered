@@ -74,3 +74,55 @@ def test_disabled_launch_says_why(process_events):
 
     window.close()
     process_events()
+
+
+def test_missing_ffmpeg_disables_launch_and_says_why(process_events):
+    """UX-02: a run that can only fail is not offered as a normal launch."""
+    load_locale("en")
+    from ui.main_window import MainWindow
+
+    window = MainWindow()
+    window.show()
+    process_events()
+    view = window.start_view
+    view.set_source("file")
+    view.set_process_enabled(True)
+    view._ffmpeg_found = False
+    view.refresh_readiness()
+    process_events()
+    assert not view.process_button.isEnabled()
+    assert view._launch_hint.text() == tr("start_hint_blocked")
+
+    view._ffmpeg_found = True
+    view.refresh_readiness()
+    process_events()
+    assert view.process_button.isEnabled()
+
+    window.close()
+    process_events()
+
+
+def test_partial_run_names_skipped_steps_and_offers_transcript_only(process_events):
+    load_locale("en")
+    from ui.main_window import MainWindow
+
+    window = MainWindow()
+    window.show()
+    process_events()
+    view = window.start_view
+    view.set_recipe("meeting_notes")
+    view.set_llm_status(False)
+    process_events()
+    partial = _ready_labels(view)["partial"]
+    assert tr("step_insights") in partial.text()
+    link = next(
+        b for b in view._ready_widget.findChildren(QPushButton)
+        if b.text() == tr("ready_fix_transcript_only")
+    )
+    link.click()
+    process_events()
+    assert view.current_recipe_key() == "transcript_only"
+    assert "partial" not in _ready_labels(view)
+
+    window.close()
+    process_events()

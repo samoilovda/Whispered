@@ -1617,6 +1617,12 @@ class MainWindow(QMainWindow):
             self._open_settings("settings_category_diarization")
         elif fix == readiness.FIX_SETTINGS_TRANSCRIPTION:
             self._open_recipe_editor()
+        elif fix == readiness.FIX_TRANSCRIPT_ONLY:
+            # An explicit choice from the "will be skipped" line — the
+            # recipe is never switched behind the user's back (UX-02).
+            from domain.recipe import TRANSCRIPT_ONLY
+
+            self.start_view.select_recipe(TRANSCRIPT_ONLY.builtin_key)
         elif fix == readiness.FIX_FFMPEG:
             from core.external_tools import ffmpeg_install_hint
 

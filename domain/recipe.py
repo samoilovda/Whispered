@@ -30,6 +30,22 @@ KNOWN_STEP_NAMES = frozenset({
     "insights", "youtube_package", "book", "cover",
 })
 
+# Steps the optional user-keyed cloud provider (Config.yt_provider) may run.
+# Every other LLM step runs on the local LM Studio whatever that setting
+# says — readiness and the run itself both ask effective_provider() so the
+# start screen can't promise a provider the run won't use (UI/UX audit
+# 2026-10-18, UX-02: Insights read "AI: OpenAI" while running locally).
+CLOUD_CAPABLE_STEPS = frozenset({"youtube_package", "cover"})
+
+
+def effective_provider(step: str, configured: Optional[str]) -> str:
+    """The provider kind that actually runs *step*: *configured*
+    (``"lmstudio"``/``"openai"``/``"anthropic"``) for a cloud-capable step,
+    ``"lmstudio"`` for every other one."""
+    if step in CLOUD_CAPABLE_STEPS and configured:
+        return configured
+    return "lmstudio"
+
 
 @dataclass(frozen=True)
 class Recipe:

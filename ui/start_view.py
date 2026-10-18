@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
 )
 
 from application.readiness import (
-    CHECKING, MISSING, OK, WARN, ReadinessFacts, recipe_checks,
+    CHECKING, MISSING, OK, WARN, ReadinessFacts, launch_blocked, recipe_checks,
 )
 from config import get_config, save_config
 from core.i18n import tr
@@ -88,6 +88,10 @@ class StartView(QWidget):
         # (set_llm_status); ffmpeg and the speaker model are looked up
         # once per session.
         self._llm_reachable: bool | None = None
+        # What the caller asked for (a source is picked) vs. what readiness
+        # allows: a missing ffmpeg disables Launch whatever was picked.
+        self._process_requested = False
+        self._launch_blocked = False
         self._ffmpeg_found: bool | None = None
         self._diarize_installed: bool | None = None
         self._i18n = Retranslator()
@@ -252,7 +256,7 @@ class StartView(QWidget):
         self._i18n.bind()
 
     def _retranslate_start(self) -> None:
-        self.set_process_enabled(self.process_button.isEnabled())
+        self._apply_process_enabled()
         self._build_recipe_chips()
         self.refresh_summary()
 
@@ -312,6 +316,11 @@ class StartView(QWidget):
         self._summary_row_widget.setVisible(recipe_ui_applies)
 
     def set_process_enabled(self, enabled: bool) -> None:
+        self._process_requested = enabled
+        self._apply_process_enabled()
+
+    def _apply_process_enabled(self) -> None:
+        enabled = self._process_requested and not self._launch_blocked
         self.process_button.setEnabled(enabled)
         self.process_button.setToolTip(
             tr("tooltip_process") if enabled else tr("tooltip_process_disabled")
@@ -322,9 +331,13 @@ class StartView(QWidget):
         key = self.current_source() if hasattr(self, "stack") else "file"
         enabled = self.process_button.isEnabled()
         self._launch_hint.setVisible(key in self._launchable_sources and not enabled)
-        self._launch_hint.setText(
-            tr("start_hint_record_first") if key == "recorder" else tr("start_hint_pick_file")
-        )
+        if self._launch_blocked:
+            text = tr("start_hint_blocked")
+        elif key == "recorder":
+            text = tr("start_hint_record_first")
+        else:
+            text = tr("start_hint_pick_file")
+        self._launch_hint.setText(text)
 
     def current_source(self) -> str:
         return self._source_keys[self.stack.currentIndex()]
@@ -454,6 +467,8 @@ class StartView(QWidget):
         provider = getattr(cfg, "yt_provider", "lmstudio") or "lmstudio"
         key_field = {"openai": "yt_openai_api_key", "anthropic": "yt_anthropic_api_key"}.get(provider)
         model_label, downloaded = self._selected_model()
+        book_url = (getattr(cfg, "book_lm_url", "") or "").rstrip("/")
+        main_url = (getattr(cfg, "lm_studio_url", "") or "").rstrip("/")
         return ReadinessFacts(
             model_label=model_label,
             model_downloaded=downloaded,
@@ -462,6 +477,7 @@ class StartView(QWidget):
             llm_reachable=self._llm_reachable,
             cloud_key_set=bool(key_field and getattr(cfg, key_field, "")),
             diarize_ready=bool(self._diarize_installed),
+            book_endpoint_separate=bool(book_url and main_url and book_url != main_url),
         )
 
     def refresh_readiness(self) -> None:
@@ -483,9 +499,17 @@ class StartView(QWidget):
             item = self._ready_layout.takeAt(0)
             widget = item.widget() if item is not None else None
             if widget is not None:
+                # Hidden at once: deleteLater() only runs on a later event
+                # loop pass, and until then the stale check is still a
+                # visible child of the readiness row.
+                widget.hide()
                 widget.deleteLater()
         for check in checks:
-            label = QLabel(f"{_CHECK_GLYPHS[check.state]} {tr(check.text_key, **check.params)}")
+            params = dict(check.params)
+            params["steps"] = ", ".join(
+                tr(STEP_REGISTRY[name].label_key) for name in check.steps if name in STEP_REGISTRY
+            )
+            label = QLabel(f"{_CHECK_GLYPHS[check.state]} {tr(check.text_key, **params)}")
             label.setProperty("role", _CHECK_ROLES[check.state])
             label.setProperty("readiness", check.key)
             self._ready_layout.addWidget(label)
@@ -495,3 +519,7 @@ class StartView(QWidget):
                 link.setProperty("role", "inline-link")
                 link.clicked.connect(lambda _c=False, fix=check.fix: self.fix_requested.emit(fix))
                 self._ready_layout.addWidget(link)
+        blocked = launch_blocked(checks)
+        if blocked != self._launch_blocked:
+            self._launch_blocked = blocked
+            self._apply_process_enabled()

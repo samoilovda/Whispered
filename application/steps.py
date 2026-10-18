@@ -50,6 +50,7 @@ from application.job_engine import JobRun
 from domain.artifact import Artifact
 from domain.cancellation import check_cancelled
 from domain.job import JobSpec, StepSpec, StepStatus
+from domain.recipe import CLOUD_CAPABLE_STEPS, effective_provider
 from domain.transcription import TranscriptionResult
 
 if TYPE_CHECKING:
@@ -144,17 +145,15 @@ def _composite_prompt_version(*names: str) -> str:
 
 
 def _provider_label(context: StepContext, step: str = "youtube_package") -> str:
-    if step not in ("youtube_package", "cover"):
-        return "lmstudio"
     provider = context.params.get("provider")
-    return getattr(provider, "kind", None) or "lmstudio"
+    return effective_provider(step, getattr(provider, "kind", None))
 
 
 def _model_label(context: StepContext, step: str = "youtube_package") -> str:
     provider = context.params.get("provider")
     provider_model = (
         getattr(provider, "model", "")
-        if provider is not None and step in ("youtube_package", "cover") else ""
+        if provider is not None and step in CLOUD_CAPABLE_STEPS else ""
     )
     if provider_model:
         return str(provider_model)
