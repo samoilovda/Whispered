@@ -478,3 +478,58 @@ def test_library_cover_button_is_icon_only(process_events):
     window.close()
     process_events()
 
+
+
+def test_drop_on_the_file_zone_imports_like_the_window(process_events, tmp_path):
+    """UX-03: two files dropped onto the start screen's drop zone used to
+    give one selected file (urls[0]) while the same drop elsewhere queued
+    both. The drop zone now forwards every URL to the shared import."""
+    from ui.main_window import MainWindow
+
+    clips = [tmp_path / "one.mp3", tmp_path / "two.mp3"]
+    for clip in clips:
+        clip.write_bytes(b"\0" * 32)
+
+    window = MainWindow()
+    window.show()
+    process_events()
+
+    event = _drop_event(clips)
+    window.file_selector.dropEvent(event)
+    process_events()
+
+    assert event.isAccepted()
+    assert window.batch_panel.processor.count == 2
+    assert window.file_selector.get_file() is None
+
+    window.close()
+    process_events()
+
+
+def test_drop_zone_single_file_with_a_duplicate_selects_it_once(
+    process_events, tmp_path, monkeypatch,
+):
+    from core.i18n import tr
+    from ui.main_window import MainWindow
+
+    clip = tmp_path / "solo.mp3"
+    clip.write_bytes(b"\0" * 32)
+    toasts = []
+    monkeypatch.setattr(
+        "ui.main_window.show_toast",
+        lambda parent, message, **kwargs: toasts.append(message),
+    )
+
+    window = MainWindow()
+    window.show()
+    process_events()
+
+    window.file_selector.dropEvent(_drop_event([clip, clip]))
+    process_events()
+
+    assert window.batch_panel.processor.count == 0
+    assert window.file_selector.get_file() == str(clip)
+    assert toasts == [tr("toast_drop_skipped_duplicates", count=1)]
+
+    window.close()
+    process_events()

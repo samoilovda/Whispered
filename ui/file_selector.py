@@ -65,6 +65,11 @@ class FileSelector(QWidget):
     file_selected = pyqtSignal(str)  # filepath
     # Signal emitted when the selected file is explicitly cleared.
     file_cleared = pyqtSignal()
+    # Every local path of a drop plus the count of non-local URLs. The
+    # window owns the import decision (one file / queue) so a drop here
+    # behaves exactly like a drop anywhere else (UI/UX audit 2026-10-18,
+    # UX-03); with nothing connected the selector takes the first file.
+    sources_dropped = pyqtSignal(list, int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -187,18 +192,20 @@ class FileSelector(QWidget):
         layout.addWidget(self.file_info)
 
     def dragEnterEvent(self, event: QDragEnterEvent | None):
-        """Handle drag enter event."""
+        """Accept a drag carrying any supported file or folder — the same
+        rule as the window's own drop target."""
         if event is None:
             return
+        from application.import_sources import is_droppable
+
         mime = event.mimeData()
-        if mime is not None and mime.hasUrls():
-            urls = mime.urls()
-            if urls and urls[0].isLocalFile():
-                filepath = urls[0].toLocalFile()
-                if is_supported_format(filepath):
-                    event.acceptProposedAction()
-                    set_role(self.drop_zone, "drop-zone-active")
-                    return
+        if mime is not None and mime.hasUrls() and any(
+            url.isLocalFile() and is_droppable(url.toLocalFile(), is_supported_format)
+            for url in mime.urls()
+        ):
+            event.acceptProposedAction()
+            set_role(self.drop_zone, "drop-zone-active")
+            return
         event.ignore()
 
     def dragLeaveEvent(self, event):
@@ -206,21 +213,26 @@ class FileSelector(QWidget):
         self._reset_drop_zone_style()
 
     def dropEvent(self, event: QDropEvent | None):
-        """Handle drop event."""
+        """Hand every dropped URL to the shared import path."""
         self._reset_drop_zone_style()
         if event is None:
             return
-
         mime = event.mimeData()
-        if mime is not None and mime.hasUrls():
-            url = mime.urls()[0]
-            if url.isLocalFile():
-                filepath = url.toLocalFile()
-                if is_supported_format(filepath):
-                    self._set_file(filepath)
-                    event.acceptProposedAction()
-                    return
-        event.ignore()
+        if mime is None or not mime.hasUrls():
+            event.ignore()
+            return
+        urls = mime.urls()
+        local = [url.toLocalFile() for url in urls if url.isLocalFile()]
+        if self.receivers(self.sources_dropped) > 0:
+            event.acceptProposedAction()
+            self.sources_dropped.emit(local, len(urls) - len(local))
+            return
+        first = next((path for path in local if is_supported_format(path)), None)
+        if first is None:
+            event.ignore()
+            return
+        self._set_file(first)
+        event.acceptProposedAction()
 
     def _reset_drop_zone_style(self):
         """Reset drop zone to default style."""
