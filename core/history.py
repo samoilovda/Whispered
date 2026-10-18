@@ -239,6 +239,31 @@ def _v13_add_media_relink(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE transcripts ADD COLUMN media_changed_at TEXT NOT NULL DEFAULT ''")
 
 
+def _v14_add_queue_items(conn: sqlite3.Connection) -> None:
+    """The persistent recipe queue (UI/UX audit 2026-10-18, UX-14): one row
+    per queued source with an immutable snapshot of the recipe and
+    transcription settings it was queued with (domain/queue.py), its
+    state, and the record / job run it produced. Survives restarts; a row
+    left ``running`` by a crash becomes ``interrupted`` on the next launch."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS queue_items (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            batch_id      TEXT    NOT NULL DEFAULT '',
+            position      INTEGER NOT NULL DEFAULT 0,
+            source_path   TEXT    NOT NULL,
+            snapshot_json TEXT    NOT NULL,
+            state         TEXT    NOT NULL DEFAULT 'pending',
+            stage         TEXT    NOT NULL DEFAULT '',
+            record_id     INTEGER,
+            run_id        INTEGER,
+            error         TEXT    NOT NULL DEFAULT '',
+            created_at    TEXT    NOT NULL,
+            updated_at    TEXT    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_queue_items_state ON queue_items(state, position);
+    """)
+
+
 # Applied in order, tracked via SQLite's built-in `PRAGMA user_version`
 # (see HistoryStore._migrate). Append new migrations here — never edit or
 # reorder an existing one, since a database's user_version records exactly
@@ -257,6 +282,7 @@ _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _v11_add_cut_plans,
     _v12_add_chat_messages,
     _v13_add_media_relink,
+    _v14_add_queue_items,
 )
 
 # A transcript_drafts row this code understands; a newer one is left alone.
@@ -844,6 +870,8 @@ class HistoryStore:
             conn.execute("DELETE FROM transcript_drafts WHERE record_id = ?", (record_id,))
             conn.execute("DELETE FROM cut_plans WHERE record_id = ?", (record_id,))
             conn.execute("DELETE FROM chat_messages WHERE record_id = ?", (record_id,))
+            # A queue item that produced this record keeps its own history.
+            conn.execute("UPDATE queue_items SET record_id = NULL WHERE record_id = ?", (record_id,))
             cur = conn.execute("DELETE FROM transcripts WHERE id = ?", (record_id,))
             return cur.rowcount > 0
 
@@ -875,6 +903,7 @@ class HistoryStore:
             conn.execute("DELETE FROM transcript_drafts")
             conn.execute("DELETE FROM cut_plans")
             conn.execute("DELETE FROM chat_messages")
+            conn.execute("UPDATE queue_items SET record_id = NULL")
             return cur.rowcount
 
     def search(self, text: str, limit: int = 100) -> List[HistoryRecord]:
@@ -1121,6 +1150,85 @@ class HistoryStore:
         with self._connect() as conn:
             rows = conn.execute(sql, (pattern, limit)).fetchall()
         return [ArtifactSearchResult(r) for r in rows]
+
+    # ------------------------------------------------------------------ queue (UX-14)
+
+    _QUEUE_FIELDS = frozenset({"state", "stage", "record_id", "run_id", "error", "snapshot_json"})
+
+    def queue_enqueue(self, batch_id: str, source_path: str, snapshot_json: str) -> Optional[int]:
+        """Add a source to the queue; ``None`` when the same file is already
+        waiting (a watch-folder event seen twice, a re-dropped file)."""
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with self._connect() as conn:
+            dup = conn.execute(
+                "SELECT id FROM queue_items WHERE source_path = ? "
+                "AND state IN ('pending', 'running', 'interrupted')", (source_path,),
+            ).fetchone()
+            if dup is not None:
+                return None
+            position = conn.execute(
+                "SELECT COALESCE(MAX(position), 0) + 1 FROM queue_items").fetchone()[0]
+            cur = conn.execute(
+                """INSERT INTO queue_items (batch_id, position, source_path, snapshot_json,
+                       created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)""",
+                (batch_id, position, source_path, snapshot_json, now, now),
+            )
+            assert cur.lastrowid is not None
+            return cur.lastrowid
+
+    def queue_list(self, *, unfinished_only: bool = False) -> List[dict]:
+        sql = "SELECT * FROM queue_items"
+        if unfinished_only:
+            sql += " WHERE state IN ('pending', 'running', 'interrupted')"
+        with self._connect() as conn:
+            rows = conn.execute(sql + " ORDER BY position, id").fetchall()
+        return [dict(row) for row in rows]
+
+    def queue_get(self, item_id: int) -> Optional[dict]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM queue_items WHERE id = ?", (item_id,)).fetchone()
+        return dict(row) if row is not None else None
+
+    def queue_update(self, item_id: int, **fields: Any) -> None:
+        unknown = set(fields) - self._QUEUE_FIELDS
+        if unknown:
+            raise ValueError(f"unknown queue fields: {sorted(unknown)}")
+        if not fields:
+            return
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        assignments = ", ".join(f"{name} = ?" for name in fields)
+        with self._connect() as conn:
+            conn.execute(
+                f"UPDATE queue_items SET {assignments}, updated_at = ? WHERE id = ?",
+                (*fields.values(), now, item_id),
+            )
+
+    def queue_mark_interrupted(self) -> int:
+        """Items a crash left ``running`` become ``interrupted`` (offered
+        for resuming, never resumed on their own)."""
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with self._connect() as conn:
+            return conn.execute(
+                "UPDATE queue_items SET state = 'interrupted', updated_at = ? "
+                "WHERE state = 'running'", (now,),
+            ).rowcount
+
+    def queue_reorder(self, item_ids: List[int]) -> None:
+        """Give *item_ids* the positions 1..n in that order."""
+        with self._connect() as conn:
+            for position, item_id in enumerate(item_ids, start=1):
+                conn.execute("UPDATE queue_items SET position = ? WHERE id = ?",
+                             (position, item_id))
+
+    def queue_remove(self, item_id: int) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM queue_items WHERE id = ?", (item_id,))
+
+    def queue_clear_finished(self) -> int:
+        with self._connect() as conn:
+            return conn.execute(
+                "DELETE FROM queue_items WHERE state IN ('done', 'failed', 'cancelled')"
+            ).rowcount
 
     # ------------------------------------------------------------------ media relink (UX-09)
 

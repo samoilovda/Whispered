@@ -119,8 +119,9 @@ already succeeded are not repeated.
 Transcription and the history save always run. Video editing operations
 (Cut) stay manual.
 
-The **Folder** source queues files for transcription only; the selected
-recipe's other steps are not applied to queued files.
+The **Folder** source (and a multi-file drop or the watch folder) queues files
+with the recipe and transcription settings chosen at that moment; each file is
+transcribed, saved as a record, and then runs the recipe's remaining steps.
 
 ### Transcription
 
@@ -158,7 +159,11 @@ other records. This is a hint list, not speaker recognition — the same
 - reopening saved segments, metadata, and speaker names;
 - batch queue: drop several files (or a folder — expanded one level deep) on
   the window, or add files in the queue panel; they are transcribed
-  sequentially and saved to history;
+  sequentially and saved to history, then run the recipe they were queued
+  with. The queue is stored: after a restart (or a crash) unfinished files come
+  back marked as interrupted — nothing starts until you press Start — and a
+  failed or cancelled file can be retried on its own without transcribing it
+  again;
 - **watch folder** (Settings → General, off by default): new supported files
   appearing in a local folder join the queue automatically once they stop
   growing;
@@ -434,8 +439,9 @@ if the approved package should no longer be uploaded.
 - AI requests use a configured context cap; for long recordings, chapters and
   insights are sampled evenly across the recording.
 - Cloud providers apply only to the YouTube package.
-- Files queued from a folder, a multi-file drop, or the watch folder are
-  transcribed and saved to history only; recipe steps are not run per file.
+- The queue runs one file's recipe steps at a time (LM Studio stays at one
+  request); a file queued with a cloud YouTube package uses that provider only
+  when you press Start, never on opening the app.
 - ONNX restoration and ComfyUI for covers are not connected to the UI.
   Zoom multitrack (per-participant audio) transcript merging exists only as engine modules with no UI entry point.
 - Live and Course Capture system-audio capture is macOS-only and remains

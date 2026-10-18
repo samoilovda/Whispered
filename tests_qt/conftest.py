@@ -145,3 +145,18 @@ def _youtube_publish_defaults():
     yield
     (cfg.yt_publish_mode, cfg.yt_oauth_client_id,
      cfg.yt_oauth_client_secret, cfg.yt_channel_title) = saved
+
+
+@pytest.fixture(autouse=True)
+def _empty_persistent_queue():
+    """The queue is stored in the (session-shared) history database, and a
+    window restores whatever a previous test left unfinished — start every
+    test with an empty one."""
+    try:
+        from core.history import get_history_store
+
+        store = get_history_store()
+        for row in store.queue_list():
+            store.queue_remove(row["id"])
+    except Exception:  # noqa: BLE001 - tests that replace the store are unaffected
+        pass

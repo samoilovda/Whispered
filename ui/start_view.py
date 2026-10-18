@@ -398,13 +398,9 @@ class StartView(QWidget):
         self._launch_hint.setVisible(
             key in self._launchable_sources and not self.process_button.isEnabled()
         )
-        # The folder queue only transcribes each item (see
-        # MainWindow._on_batch_item_finished) — it does not run a recipe
-        # against them yet (docs/IMPROVEMENT_PLAN_2026-08.ru.md, A6). The
-        # recipe picker promised otherwise by being visible here, so it's
-        # hidden for this source rather than offering a choice queued
-        # files don't actually honour.
-        recipe_ui_applies = key != "folder" and not getattr(self, "_live_active", False)
+        # The queue runs the chosen recipe for each file (UX-14), so the
+        # recipe picker applies to the folder source as well.
+        recipe_ui_applies = not getattr(self, "_live_active", False)
         self._recipe_card.setVisible(recipe_ui_applies)
         self._summary_row_widget.setVisible(recipe_ui_applies)
         self._render_launch_hint()
@@ -433,7 +429,7 @@ class StartView(QWidget):
         """While a live session runs the recipe is already decided: its
         card gives the screen to the transcript and notes until it ends."""
         self._live_active = active
-        recipe_ui_applies = self.current_source() != "folder" and not active
+        recipe_ui_applies = not active
         self._recipe_card.setVisible(recipe_ui_applies)
         self._summary_row_widget.setVisible(recipe_ui_applies)
 

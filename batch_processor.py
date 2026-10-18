@@ -40,6 +40,20 @@ class BatchItem:
     message: str = ""
     result: Optional[TranscriptionResult] = None
     error: Optional[str] = None
+    # The persistent queue (UX-14): the stored row this item mirrors, and
+    # the settings it was queued with. With a snapshot the worker uses
+    # *its* transcription settings, not whatever the controls say when the
+    # batch starts.
+    queue_id: Optional[int] = None
+    transcription: Optional[dict] = None
+    # What the recipe's later steps are doing for this file (the queue
+    # runs them after transcription): shown beside the name. ``follow_up_error``
+    # is set when one failed — the item stays COMPLETE (its transcript is
+    # saved) but is offered a Retry; ``awaiting_follow_up`` marks a
+    # restored item whose transcript exists and whose steps still wait.
+    stage: str = ""
+    follow_up_error: str = ""
+    awaiting_follow_up: bool = False
 
     @property
     def filename(self) -> str:
@@ -200,16 +214,18 @@ class BatchWorker(BaseWorker):
             error_holder[0] = error
             finished_event.set()
 
-        # Start transcription
+        # Start transcription — with the item's own queued settings when it
+        # has them, else the batch-wide ones.
+        own = item.transcription or {}
         worker = self._transcriber.transcribe(
             filepath=item.filepath,
-            model_name=self.model_name,
-            language=self.language,
-            translate=self.translate,
-            n_threads=self.n_threads,
-            enable_diarization=self.enable_diarization,
+            model_name=own.get("model_name", self.model_name),
+            language=own.get("language", self.language),
+            translate=own.get("translate", self.translate),
+            n_threads=own.get("n_threads", self.n_threads),
+            enable_diarization=own.get("enable_diarization", self.enable_diarization),
             num_speakers=self.num_speakers,
-            use_gpu=self.use_gpu,
+            use_gpu=own.get("use_gpu", self.use_gpu),
             on_progress=on_progress,
             on_finished=on_finished,
             on_error=on_error,
@@ -306,7 +322,10 @@ class BatchProcessor(QObject):
         """Check if batch is currently processing."""
         return self._worker is not None and self._worker.isRunning()
 
-    def add_file(self, filepath: str) -> bool:
+    def add_file(
+        self, filepath: str, *, queue_id: Optional[int] = None,
+        transcription: Optional[dict] = None,
+    ) -> bool:
         """Add a file to the batch queue."""
         if not os.path.isfile(filepath):
             return False
@@ -316,8 +335,17 @@ class BatchProcessor(QObject):
             if item.filepath == filepath:
                 return False
 
-        self._items.append(BatchItem(filepath=filepath))
+        self._items.append(BatchItem(
+            filepath=filepath, queue_id=queue_id, transcription=transcription,
+        ))
         return True
+
+    def append_item(self, item: BatchItem) -> None:
+        """Add a ready-made item (a stored queue item restored at startup)."""
+        self._items.append(item)
+
+    def find_by_queue_id(self, queue_id: int) -> Optional[BatchItem]:
+        return next((i for i in self._items if i.queue_id == queue_id), None)
 
     def add_files(self, filepaths: List[str]) -> int:
         """Add multiple files. Returns count of successfully added files."""

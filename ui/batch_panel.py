@@ -8,9 +8,12 @@ from PyQt6.QtWidgets import (
     QLabel, QListWidget, QListWidgetItem, QProgressBar,
     QFileDialog, QAbstractItemView, QComboBox
 )
+from typing import Callable, Optional
+
 from PyQt6.QtCore import pyqtSignal
 
 from batch_processor import BatchProcessor, BatchItem, BatchStatus
+from domain.queue import QueueSnapshot
 from ui.theme import set_role
 from ui.empty_state import EmptyStateWidget
 from core.i18n import tr
@@ -36,6 +39,7 @@ class BatchItemWidget(QWidget):
     """Widget representing a single batch item."""
 
     remove_requested = pyqtSignal(int)
+    retry_requested = pyqtSignal(int)
 
     def __init__(self, index: int, item: BatchItem, parent=None):
         super().__init__(parent)
@@ -67,6 +71,17 @@ class BatchItemWidget(QWidget):
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
 
+        # What the recipe's later steps are doing / why they stopped.
+        self.stage_label = QLabel()
+        self.stage_label.setProperty("role", "dim")
+        layout.addWidget(self.stage_label)
+
+        self.retry_btn = QPushButton(tr("run_retry"))
+        self.retry_btn.setProperty("variant", "ghost")
+        self.retry_btn.setVisible(False)
+        self.retry_btn.clicked.connect(lambda: self.retry_requested.emit(self.index))
+        layout.addWidget(self.retry_btn)
+
         # Remove button
         self.remove_btn = QPushButton("×")
         self.remove_btn.setFixedSize(20, 20)
@@ -94,6 +109,22 @@ class BatchItemWidget(QWidget):
         set_role(self.name_label, role)
         set_role(self.status_label, role)
 
+        # The recipe's later steps (UX-14): text, never colour alone.
+        if self.item.follow_up_error:
+            self.stage_label.setText(tr("queue_follow_up_failed", error=self.item.follow_up_error))
+            set_role(self.stage_label, "danger-text")
+        elif self.item.awaiting_follow_up:
+            self.stage_label.setText(tr("queue_follow_up_waiting"))
+            set_role(self.stage_label, "dim")
+        else:
+            self.stage_label.setText(self.item.stage)
+            set_role(self.stage_label, "dim")
+        self.stage_label.setToolTip(self.item.follow_up_error)
+        self.retry_btn.setVisible(
+            self.item.status in (BatchStatus.ERROR, BatchStatus.CANCELLED)
+            or bool(self.item.follow_up_error)
+        )
+
         # Progress bar
         if self.item.status == BatchStatus.PROCESSING:
             self.progress_bar.setVisible(True)
@@ -114,10 +145,19 @@ class BatchPanel(QWidget):
     # Signals
     start_requested = pyqtSignal()
     queue_changed = pyqtSignal(int)
+    # The persistent queue (UX-14): the controller mirrors these to storage.
+    order_changed = pyqtSignal(list)         # queue ids, in the new order
+    item_removed = pyqtSignal(object)        # queue id (or None)
+    queue_cleared = pyqtSignal(list)         # queue ids
+    retry_item_requested = pyqtSignal(int)   # row index
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.processor = BatchProcessor()
+        # Called when files are added: returns the QueueSnapshot to freeze
+        # for them (None = no persistence, e.g. in tests/book jobs). Set by
+        # MainWindow's QueueController.
+        self.snapshot_provider: Optional[Callable[[], QueueSnapshot]] = None
         self._book_worker: BookBatchWorker | None = None
         self._registry = WorkerRegistry(parent=self)
         self._i18n = Retranslator()
@@ -223,10 +263,68 @@ class BatchPanel(QWidget):
             tr("queue_book_file_filter") if is_book else tr("batch_file_filter")
         )
 
-        for path in filepaths:
-            self.processor.add_file(path)
-
+        self._add_paths(filepaths)
         self._refresh_list()
+
+    def _add_paths(self, paths: "list[str]") -> int:
+        """Add *paths*, persisting each with a snapshot of the recipe and
+        transcription settings chosen *now* (UX-14). A file already waiting
+        in the stored queue is not added twice."""
+        import os
+
+        snapshot = (
+            self.snapshot_provider()
+            if self.snapshot_provider is not None
+            and self.job_kind_combo.currentData() != "book" else None
+        )
+        queue_ids: dict = {}
+        if snapshot is not None:
+            from application import queue_store
+
+            known = {item.filepath for item in self.processor.items}
+            fresh = [p for p in paths if os.path.isfile(p) and p not in known]
+            try:
+                queue_ids = queue_store.enqueue(fresh, snapshot)
+            except Exception as exc:  # noqa: BLE001 - queueing must still work in memory
+                from core.logger import get_logger
+                get_logger(__name__).warning("Could not persist the queue: %s", exc)
+                snapshot = None
+        added = 0
+        for path in paths:
+            if snapshot is not None and path not in queue_ids:
+                continue  # already queued
+            if self.processor.add_file(
+                path, queue_id=queue_ids.get(path),
+                transcription=snapshot.transcription if snapshot is not None else None,
+            ):
+                added += 1
+        return added
+
+    def restore_items(self, items: "list") -> int:
+        """Show unfinished stored items again after a restart. Nothing is
+        started — Start stays the user's decision."""
+        import os
+
+        restored = 0
+        for stored in items:
+            if stored.snapshot is None:
+                continue
+            exists = os.path.isfile(stored.source_path)
+            has_record = stored.record_id is not None
+            if not exists and not has_record:
+                continue  # the controller marks it failed
+            batch_item = BatchItem(
+                filepath=stored.source_path, queue_id=stored.id,
+                transcription=stored.snapshot.transcription,
+            )
+            if has_record:
+                batch_item.status = BatchStatus.COMPLETE
+                batch_item.progress = 100
+                batch_item.awaiting_follow_up = True
+            self.processor.append_item(batch_item)
+            restored += 1
+        self._refresh_list()
+        return restored
 
     def add_files(self, filepaths: "list[str]") -> int:
         """Add already-resolved paths to the queue — what a multi-file
@@ -234,7 +332,7 @@ class BatchPanel(QWidget):
         file dialog _add_files() does; both need the same refresh
         afterward. Returns the count actually added (skips duplicates
         already in the queue, same as _add_files())."""
-        count = self.processor.add_files(filepaths)
+        count = self._add_paths(filepaths)
         self._refresh_list()
         return count
 
@@ -245,6 +343,7 @@ class BatchPanel(QWidget):
         for i, item in enumerate(self.processor.items):
             widget = BatchItemWidget(i, item)
             widget.remove_requested.connect(self._remove_item)
+            widget.retry_requested.connect(self.retry_item_requested.emit)
 
             list_item = QListWidgetItem(self.file_list)
             list_item.setSizeHint(widget.sizeHint())
@@ -290,17 +389,24 @@ class BatchPanel(QWidget):
             if isinstance(widget, BatchItemWidget):
                 paths.append(widget.item.filepath)
         if self.processor.reorder_by_paths(paths):
+            self.order_changed.emit([i.queue_id for i in self.processor.items
+                                     if i.queue_id is not None])
             self._refresh_list()
         self.cancel_btn.setVisible(self.processor.is_processing)
 
     def _remove_item(self, index: int):
         """Remove an item from the queue."""
-        self.processor.remove_item(index)
+        items = self.processor.items
+        queue_id = items[index].queue_id if 0 <= index < len(items) else None
+        if self.processor.remove_item(index):
+            self.item_removed.emit(queue_id)
         self._refresh_list()
 
     def _clear_queue(self):
         """Clear all items from the queue."""
+        ids = [i.queue_id for i in self.processor.items if i.queue_id is not None]
         self.processor.clear()
+        self.queue_cleared.emit(ids)
         self._refresh_list()
 
     def _start_batch(self):
@@ -425,6 +531,10 @@ class BatchPanel(QWidget):
         self.cancel_btn.setVisible(False)
         self._book_worker = None
         self._refresh_list()
+
+    def refresh_item(self, index: int) -> None:
+        """Re-render one row (the controller changed its stage or error)."""
+        self._update_item_widget(index)
 
     def _update_item_widget(self, index: int):
         """Update a specific item widget."""

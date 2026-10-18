@@ -379,6 +379,11 @@ class MainWindow(QMainWindow):
         self.recorder_widget.set_device(getattr(cfg, "mic_device_index", None))
         self._apply_tray_config()
         self._maybe_show_first_run()
+        # Show what a previous session left in the queue (nothing starts).
+        restored = self.queue_controller.restore()
+        if restored:
+            self.status_bar.show_queue(True)
+            show_toast(self, tr("queue_restored", count=restored), kind="info")
         # A job_runs row can only stay 'running' while the process that
         # wrote it is alive (see run_store.save_run's docstring) — one
         # still 'running' at startup means that process died mid-run
@@ -771,6 +776,15 @@ class MainWindow(QMainWindow):
         self.batch_panel = BatchPanel()
         self.batch_panel.start_requested.connect(self._start_batch_processing)
         self._shutdownables.append(self.batch_panel)
+        # The persistent, recipe-aware queue (UX-14): stores what is queued,
+        # runs each file's recipe steps after its transcription, retries
+        # and resumes.
+        from ui.queue_controller import QueueController
+
+        self.queue_controller = QueueController(self)
+        self.queue_controller.wire()
+        self.queue_controller.library_changed.connect(lambda: self.library_view.refresh())
+        self._shutdownables.append(self.queue_controller)
 
         # Watch folder (B5b): new supported files dropped into a
         # configured local directory join the same queue a multi-file
@@ -1638,8 +1652,8 @@ class MainWindow(QMainWindow):
         self.youtube_panel.chapters_changed.connect(self._refresh_record_chapters)
         self.insights_panel.chapters_changed.connect(self._refresh_record_chapters)
 
-        # Auto-save each completed batch item to history
-        self.batch_panel.processor.item_finished.connect(self._on_batch_item_finished)
+        # Each completed batch item is saved to history (and its recipe's
+        # later steps run) by the QueueController.
         # The status bar follows the batch from "starting" to its outcome.
         self.batch_panel.processor.item_progress.connect(self._on_batch_item_progress)
         self.batch_panel.processor.batch_finished.connect(self._on_batch_processing_finished)
@@ -2344,8 +2358,9 @@ class MainWindow(QMainWindow):
     def _cancel_operation(self):
         """Cancel the current operation (transcription, a recipe run, or
         one of the five single-step re-run/retry jobs)."""
-        if self.batch_panel._is_processing():
+        if self.batch_panel._is_processing() or self.queue_controller.is_busy():
             self.batch_panel.cancel_processing()
+            self.queue_controller.cancel()
             self.status_label.setText(tr("status_cancelled"))
             return
 
@@ -2411,10 +2426,25 @@ class MainWindow(QMainWindow):
             self.status_label.setText(tr("status_cancelled"))
             return
 
+        # Items queued with another model than the controls show (UX-14:
+        # each keeps the settings it was queued with) need theirs ready too.
+        for other in sorted({
+            i.transcription["model_name"] for i in self.batch_panel.processor.items
+            if i.transcription and i.status.value == "pending"
+            and i.transcription.get("model_name") not in (None, model)
+        }):
+            if not self._ensure_whisper_model(other):
+                self.batch_panel._on_batch_finished()
+                self.status_label.setText(tr("status_cancelled"))
+                return
+
         self.status_label.setText(tr("status_batch_starting"))
         self.status_bar.set_operation(
             tr("status_batch_starting"), cancel_text=tr("btn_cancel")
         )
+        # Restored items whose transcript is saved but whose steps didn't
+        # finish resume their steps now.
+        self.queue_controller.start_backlog()
 
         self.batch_panel.start_processing(
             model_name=model,
@@ -2689,19 +2719,6 @@ class MainWindow(QMainWindow):
             done=done, total=len(items),
         ))
         self._reset_ui()
-
-    def _on_batch_item_finished(self, index: int, result):
-        """Persist each completed batch item to history."""
-        if result is None:
-            return
-        items = self.batch_panel.processor.items
-        source_path = items[index].filepath if 0 <= index < len(items) else ""
-        self._save_to_history(
-            result,
-            source_path=source_path,
-            model=self.model_combo.currentData() or "",
-            speaker_names=getattr(result, "speaker_names", {}) or {},
-        )
 
     def _load_from_history(self, record_id: int) -> bool:
         """Restore a history record and its media context atomically.
