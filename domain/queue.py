@@ -33,16 +33,21 @@ class QueueSnapshot:
 
     recipe: dict[str, Any]          # domain.recipe.Recipe.to_dict()
     transcription: dict[str, Any]   # model, language, translate, n_threads, diarization, use_gpu
+    # The local AI profile in force when it was queued (domain/ai_profile
+    # LmProfile.to_dict()); empty = the plain settings. A later change of
+    # profile never changes an item already waiting (N05).
+    llm: dict[str, Any] = field(default_factory=dict)
 
     def to_json(self) -> str:
-        return json.dumps({"recipe": self.recipe, "transcription": self.transcription},
-                          ensure_ascii=False, sort_keys=True)
+        return json.dumps({"recipe": self.recipe, "transcription": self.transcription,
+                           "llm": self.llm}, ensure_ascii=False, sort_keys=True)
 
     @classmethod
     def from_json(cls, raw: str) -> Optional["QueueSnapshot"]:
         try:
             data = json.loads(raw)
-            return cls(dict(data["recipe"]), dict(data["transcription"]))
+            return cls(dict(data["recipe"]), dict(data["transcription"]),
+                       dict(data.get("llm") or {}))
         except (TypeError, ValueError, KeyError):
             return None
 

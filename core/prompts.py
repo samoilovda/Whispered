@@ -13,6 +13,18 @@ logger = get_logger(__name__)
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 
+def _active_template(name: str):
+    """The user's template standing in for built-in *name* (N05), if one is
+    chosen — never raises: a broken template means the built-in is used."""
+    try:
+        from core.prompt_templates import active_for
+
+        return active_for(name)
+    except Exception as exc:  # noqa: BLE001 - provenance and prompts must not fail on this
+        logger.warning("Prompt template lookup failed for %s: %s", name, exc)
+        return None
+
+
 def load_prompt(name: str, fallback: str = "") -> str:
     """
     Load a prompt from prompts/<name>.md.
@@ -24,6 +36,9 @@ def load_prompt(name: str, fallback: str = "") -> str:
     Returns:
         The prompt text (stripped), or fallback string if file missing.
     """
+    override = _active_template(name)
+    if override is not None:
+        return override.rendered().strip()
     prompt_path = PROMPTS_DIR / f"{name}.md"
     try:
         text = prompt_path.read_text(encoding="utf-8").strip()
@@ -53,6 +68,10 @@ def prompt_version(name: str) -> str:
     for a missing/unreadable file rather than raising — provenance must
     never block a generation that would otherwise succeed.
     """
+    override = _active_template(name)
+    if override is not None:
+        stamp = f"template:{override.name}:v{override.version}:{override.rendered()}"
+        return hashlib.sha256(stamp.encode("utf-8")).hexdigest()[:16]
     prompt_path = PROMPTS_DIR / f"{name}.md"
     try:
         data = prompt_path.read_bytes()

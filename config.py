@@ -59,6 +59,15 @@ class Config:
     # Unload LM Studio models that a job loaded, once it is done
     lm_restore_state: bool = True
 
+    # Named LM Studio profiles (domain/ai_profile.py as dicts) and the one in
+    # use; empty = the plain settings above ("Default"). The profile's
+    # endpoint/model/context/temperature replace them for LLM steps.
+    lm_profiles: list = field(default_factory=list)
+    lm_profile_active: str = ""
+    # Which of the user's prompt templates stands in for a built-in prompt:
+    # {"cleaning": "my-cleaning"} (core/prompt_templates.py). Empty = built-ins.
+    prompt_template_active: dict = field(default_factory=dict)
+
     # Book pipeline settings
     book_lm_url: str = "http://localhost:1234/v1"
     book_model_name: str = ""             # empty = auto-detect

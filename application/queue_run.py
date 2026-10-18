@@ -62,7 +62,8 @@ def prepare_follow_up(
     context = build_step_context(
         item.source_path, result, record_id,
         artifact_source=item.source_path,
-        params=llm_params(cfg, result, provider=provider, insights_cache=insights_cache),
+        params=llm_params(cfg, result, provider=provider, insights_cache=insights_cache,
+                          profile=_queued_profile(item)),
         get_result=get_result, is_cancelled=run.is_cancelled,
     )
     stored = run_store.load_run(item.run_id) if item.run_id is not None else None
@@ -73,6 +74,20 @@ def prepare_follow_up(
         run.outcomes["transcribe"] = StepOutcome("transcribe", StepStatus.SUCCEEDED, result=result)
     return FollowUp(spec, run, context, step_names, recipe.builtin_key or recipe.name,
                     stored.id if stored is not None else None)
+
+
+def _queued_profile(item: QueueItem):
+    """The profile the item was queued with; ``None`` = the plain settings
+    (never today's active one)."""
+    from domain.ai_profile import ProfileError, profile_from_dict
+
+    data = item.snapshot.llm if item.snapshot is not None else {}
+    if not data:
+        return None
+    try:
+        return profile_from_dict(data)
+    except ProfileError:
+        return None
 
 
 def finish_run(run: JobRun) -> tuple[str, str, tuple]:

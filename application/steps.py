@@ -1291,6 +1291,7 @@ def llm_params(
     *,
     provider: Any = None,
     insights_cache: Any = None,
+    profile: Any = "active",
     **extra: Any,
 ) -> dict:
     """Shared ``StepContext.params`` for LLM-backed steps: LM Studio URL,
@@ -1303,6 +1304,12 @@ def llm_params(
         "book_temperature": getattr(cfg, "book_temperature", 0.3),
         "insights_context_chars": getattr(cfg, "insights_context_chars", 48000),
     }
+    # The local AI profile (N05): "active" = the one chosen in settings; a
+    # queued file passes the profile it was queued with (or None for the
+    # plain settings).
+    from application.ai_profiles import active_profile, params_for
+
+    params.update(params_for(active_profile(cfg) if profile == "active" else profile))
     if result is not None:
         from utils import language_name_for_code
 

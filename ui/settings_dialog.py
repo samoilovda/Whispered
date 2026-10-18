@@ -512,6 +512,12 @@ class SettingsDialog(QDialog):
         check_container.setLayout(check_row)
         layout.addRow(check_container)
 
+        # Named model profiles and prompt templates (N05).
+        self._profiles_btn = QPushButton()
+        self._tt(self._profiles_btn, "settings_ai_profiles")
+        self._profiles_btn.clicked.connect(self._open_ai_profiles)
+        layout.addRow(self._profiles_btn)
+
         # Book pipeline URL
         self._book_lm_url_edit = QLineEdit()
         self._book_lm_url_edit.setPlaceholderText("http://localhost:1234/v1")
@@ -914,6 +920,11 @@ class SettingsDialog(QDialog):
             if app:
                 apply_theme(app, self._cfg.theme, getattr(self._cfg, "text_scale", 100))
         super().reject()
+
+    def _open_ai_profiles(self) -> None:
+        from ui.ai_profiles_dialog import AiProfilesDialog
+
+        AiProfilesDialog(self).exec()
 
     def _open_models_dir(self):
         path = get_models_dir()

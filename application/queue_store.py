@@ -30,7 +30,13 @@ def make_snapshot(recipe: Any, transcription: dict) -> q.QueueSnapshot:
     """Freeze *recipe* (a ``domain.recipe.Recipe``) and the transcription
     settings (model, language, translate, n_threads, enable_diarization,
     use_gpu) as they are now."""
-    return q.QueueSnapshot(recipe.to_dict(), dict(transcription))
+    from application.ai_profiles import active_profile
+    from config import get_config
+    from domain.ai_profile import DEFAULT_PROFILE
+
+    profile = active_profile(get_config())
+    llm = profile.to_dict() if profile.name != DEFAULT_PROFILE else {}
+    return q.QueueSnapshot(recipe.to_dict(), dict(transcription), llm)
 
 
 def enqueue(paths: Iterable[str], snapshot: q.QueueSnapshot,
