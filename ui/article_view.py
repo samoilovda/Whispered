@@ -451,6 +451,7 @@ class CleanedTextView(QWidget):
 
     def _retranslate_cleaned(self) -> None:
         self.copy_btn.setText(tr("cleaned_copy"))
+        self.save_btn.setText(tr("cleaned_save"))
         if not self._cleaned_text:
             self.stats_label.setText(tr("cleaned_empty"))
         self._render_empty_state()
@@ -504,6 +505,12 @@ class CleanedTextView(QWidget):
         self.copy_btn.setEnabled(False)
         actions.addWidget(self.copy_btn)
 
+        self.save_btn = QPushButton(tr("cleaned_save"))
+        self.save_btn.setIcon(get_icon('save', IconColors.default(), 14))
+        self.save_btn.clicked.connect(self._on_save)
+        self.save_btn.setEnabled(False)
+        actions.addWidget(self.save_btn)
+
         actions.addStretch()
 
         layout.addLayout(actions)
@@ -529,6 +536,7 @@ class CleanedTextView(QWidget):
             ))
 
         self.copy_btn.setEnabled(True)
+        self.save_btn.setEnabled(True)
         self._render_empty_state()
         self.content_changed.emit()
 
@@ -539,6 +547,7 @@ class CleanedTextView(QWidget):
         self.stats_label.setText(tr("cleaned_empty"))
         self.improvement_label.setText("")
         self.copy_btn.setEnabled(False)
+        self.save_btn.setEnabled(False)
         self._render_empty_state()
         self.content_changed.emit()
 
@@ -567,6 +576,21 @@ class CleanedTextView(QWidget):
     def get_text(self) -> str:
         """Get the cleaned text."""
         return self._cleaned_text
+
+    def _on_save(self) -> None:
+        """Write the cleaned text to a file the user picks."""
+        if not self._cleaned_text:
+            return
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, tr("cleaned_save"), "cleaned.txt", tr("cleaned_save_filter")
+        )
+        if not filepath:
+            return
+        try:
+            with open(filepath, "w", encoding="utf-8") as fh:
+                fh.write(self._cleaned_text)
+        except OSError as exc:
+            QMessageBox.critical(self, tr("error_export"), str(exc))
 
     def _on_copy(self):
         """Copy cleaned text to clipboard."""

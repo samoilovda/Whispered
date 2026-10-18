@@ -225,7 +225,7 @@ class TranscriptView(QWidget):
         self.speakers_btn.setText(tr("btn_speakers"))
         self.speakers_btn.setToolTip(tr("btn_speakers"))
         self.rename_btn.setText(tr("btn_rename_speakers"))
-        self.edit_btn.setText(tr("btn_edit"))
+        self._refresh_edit_buttons()
         self.copy_btn.setText(tr("btn_copy"))
         self.copy_btn.setToolTip(tr("tooltip_copy"))
         self._button_labels = {
@@ -311,6 +311,13 @@ class TranscriptView(QWidget):
         self.edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.edit_btn.clicked.connect(self._toggle_edit)
         header_layout.addWidget(self.edit_btn)
+        # Saving used to be hidden in un-pressing "Edit"; while editing the
+        # button reads "Save changes" and this one throws the edits away.
+        self.cancel_edit_btn = QPushButton(tr("btn_cancel"))
+        self.cancel_edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.cancel_edit_btn.clicked.connect(lambda: self._exit_edit_mode(save=False))
+        self.cancel_edit_btn.setVisible(False)
+        header_layout.addWidget(self.cancel_edit_btn)
 
         # Copy
         self.copy_btn = QPushButton(tr("btn_copy"))
@@ -430,6 +437,9 @@ class TranscriptView(QWidget):
         # Keyboard shortcuts
         find_sc = QShortcut(QKeySequence("Ctrl+F"), self)
         find_sc.activated.connect(self._open_find)
+        save_sc = QShortcut(QKeySequence("Ctrl+S"), self)
+        save_sc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        save_sc.activated.connect(self._save_edit_shortcut)
 
         # Re-centring the reading column on resize re-lays out the whole
         # document; once per resize burst is enough.
@@ -724,9 +734,21 @@ class TranscriptView(QWidget):
         else:
             self._exit_edit_mode(save=True)
 
+    def _save_edit_shortcut(self) -> None:
+        if self._edit_mode:
+            self._exit_edit_mode(save=True)
+
+    def _refresh_edit_buttons(self) -> None:
+        editing = self._edit_mode
+        self.edit_btn.setText(tr("btn_edit_save") if editing else tr("btn_edit"))
+        self.edit_btn.setToolTip(tr("btn_edit_save_tip") if editing else "")
+        self.cancel_edit_btn.setText(tr("btn_cancel"))
+        self.cancel_edit_btn.setVisible(editing)
+
     def _enter_edit_mode(self):
         self._edit_mode = True
         self.edit_btn.setChecked(True)
+        self._refresh_edit_buttons()
         self.stats_bar.setVisible(True)
         self._render_uncertain()
         self._follow_btn.setVisible(False)
@@ -757,6 +779,7 @@ class TranscriptView(QWidget):
     def _exit_edit_mode(self, save: bool = True):
         self._edit_mode = False
         self.edit_btn.setChecked(False)
+        self._refresh_edit_buttons()
         self.stats_bar.setVisible(False)
         self.text_edit.setReadOnly(True)
 

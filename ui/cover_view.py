@@ -94,6 +94,9 @@ class CoverView(QWidget):
         # (application/cover_setup.py), so an unchanged render does not
         # rewrite it.
         self._saved_setup: CoverSetup | None = None
+        # The setup the record's cover.png was last written from; differs
+        # from ``_saved_setup`` while there are edits not yet in the PNG.
+        self._saved_cover: CoverSetup | None = None
         self._transcript_language = ""
         # Set via set_video_source()/set_playhead() by MainWindow so a
         # photo slot can be filled from a still of the loaded video rather
@@ -114,6 +117,11 @@ class CoverView(QWidget):
         title.setProperty("role", "section-title")
         header.addWidget(title)
         header.addStretch(1)
+        # Edits are kept as a setup automatically; the record's cover.png
+        # only changes on "Save to record" — this says which is which.
+        self.save_state = QLabel()
+        self.save_state.setProperty("role", "muted")
+        header.addWidget(self.save_state)
         preview_column.addLayout(header)
         # Drag a speaker photo to move it in its slot, scroll to zoom.
         self.preview = CoverPreview()
@@ -176,6 +184,7 @@ class CoverView(QWidget):
         self.inspector.save_requested.connect(self.save_requested.emit)
         self.inspector.suggest_requested.connect(self._suggest_title)
         self.inspector.shuffle_requested.connect(self._on_shuffle)
+        self._i18n.call(self._refresh_save_state)
         self._i18n.bind()
         self.render_preview()
 
@@ -364,6 +373,12 @@ class CoverView(QWidget):
             setup = cover_setup.load_setup(art_dir) if art_dir is not None else None
             if setup is not None:
                 self._apply_setup(setup)
+            self._saved_cover = (
+                self._saved_setup
+                if art_dir is not None and (art_dir / "cover.png").exists()
+                else None
+            )
+        self._refresh_save_state()
         # An untitled cover's "auto" style is seeded by the source name.
         self._timer.start()
 
@@ -416,6 +431,25 @@ class CoverView(QWidget):
         if setup != self._saved_setup:
             cover_setup.save_setup(art_dir, setup)
             self._saved_setup = setup
+        self._refresh_save_state()
+
+    def mark_cover_saved(self) -> None:
+        """The record's cover.png was just written from what is on screen."""
+        self._save_setup()
+        self._saved_cover = self._saved_setup
+        self._refresh_save_state()
+
+    def _refresh_save_state(self) -> None:
+        if self._record_id is None:
+            text = tr("cover_state_no_record")
+        elif self._saved_cover is None:
+            text = tr("cover_state_never")
+        elif self._saved_cover != self._saved_setup:
+            text = tr("cover_state_dirty")
+        else:
+            text = tr("cover_state_saved")
+        self.save_state.setText(text)
+        self.save_state.setToolTip(tr("cover_state_tip"))
 
     def _apply_setup(self, setup: CoverSetup) -> None:
         """Show a stored setup. Without a stored ``photo_a`` the host photo

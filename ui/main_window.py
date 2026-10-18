@@ -922,6 +922,7 @@ class MainWindow(QMainWindow):
         self.run_view.open_record_requested.connect(
             lambda: self._stack.setCurrentIndex(self._record_index)
         )
+        self.run_view.back_requested.connect(self._leave_run)
         self.run_view.publish_requested.connect(self.youtube_publish.open_dialog)
         self.youtube_panel.publish_requested.connect(self.youtube_publish.open_dialog)
         self._run_index = self._stack.addWidget(self.run_view)
@@ -1015,10 +1016,23 @@ class MainWindow(QMainWindow):
             self.cover_view.inspector.save_button.setEnabled(self._last_record_id is not None)
             show_toast(self, message, kind=kind)
 
-        worker.result.connect(lambda _payload: finish(tr("cover_saved"), "success"))
+        def saved(_payload) -> None:
+            self.cover_view.mark_cover_saved()
+            finish(tr("cover_saved"), "success")
+
+        worker.result.connect(saved)
         worker.error.connect(lambda msg: finish(tr("cover_save_failed", detail=msg), "error"))
         self._registry.register(worker, name=f"save_cover_{id(worker)}")
         worker.start()
+
+    def _leave_run(self) -> None:
+        """The run screen's Back: to the open record if there is one, else
+        the start page. The run itself continues (the record's run chip
+        leads back here)."""
+        if self._current_result is not None:
+            self._stack.setCurrentIndex(self._record_index)
+        else:
+            self._stack.setCurrentIndex(self._start_index)
 
     def _show_new_draft(self) -> None:
         self._stack.setCurrentIndex(self._start_index)
@@ -1865,6 +1879,7 @@ class MainWindow(QMainWindow):
                     getattr(result, "speaker_names", {}),
                 )
                 self.library_view.refresh()
+                self.record_view.mark_saved()
                 # Debounced version save (B8) — restarted on every edit so
                 # a burst of keystrokes/renames produces one version 5s
                 # after the last one, not one per edit.

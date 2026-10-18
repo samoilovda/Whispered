@@ -256,6 +256,7 @@ class RunView(QWidget):
     retry_requested = pyqtSignal(str)
     cancel_requested = pyqtSignal()
     open_record_requested = pyqtSignal()
+    back_requested = pyqtSignal()
     publish_requested = pyqtSignal()
     regenerate_requested = pyqtSignal(str)
     overall_progress_changed = pyqtSignal(int)
@@ -288,6 +289,12 @@ class RunView(QWidget):
         header = QHBoxLayout()
         header.setContentsMargins(SPACE_4, SPACE_4, SPACE_4, 0)
         header.setSpacing(SPACE_2)
+        # The run keeps going in the background; Back only leaves the screen.
+        self._back_button = QPushButton(tr("run_back"))
+        self._back_button.setProperty("variant", "ghost")
+        self._back_button.setToolTip(tr("run_back_tooltip"))
+        self._back_button.clicked.connect(self.back_requested.emit)
+        header.addWidget(self._back_button)
         self._heading = QLabel("")
         self._heading.setProperty("role", "page-title")
         self._heading.setVisible(False)
@@ -350,6 +357,8 @@ class RunView(QWidget):
         """Re-pull fixed captions after a live UI-language switch. Step
         *labels* come from the owner (MainWindow) via ``set_step_labels``;
         transient per-step status text refreshes on the next run event."""
+        self._back_button.setText(tr("run_back"))
+        self._back_button.setToolTip(tr("run_back_tooltip"))
         self._open_button.setText(tr("run_open_record"))
         self._publish_button.setText(tr("run_publish"))
         if self._recipe_name:

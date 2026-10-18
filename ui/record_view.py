@@ -104,6 +104,7 @@ class RecordView(QWidget):
         self._initial_split_done = False
         self._has_result = False
         self._has_record = False
+        self._saved_at: str | None = None
         self._i18n = Retranslator()
         self._setup_ui()
         self._i18n.call(self._retranslate_record)
@@ -119,8 +120,11 @@ class RecordView(QWidget):
         self.more_btn.setToolTip(tr("record_more_actions"))
         self.more_btn.setAccessibleName(tr("record_more_actions"))
         self.export_btn.setText(tr("record_export_menu"))
+        self.back_btn.setText(tr("record_back"))
+        self.back_btn.setToolTip(tr("record_back_tooltip"))
         self.set_has_result(self._has_result)
         self._build_export_menu()
+        self._refresh_save_label()
 
     def _setup_ui(self) -> None:
         self._layout = QVBoxLayout(self)
@@ -129,6 +133,14 @@ class RecordView(QWidget):
 
         header = QHBoxLayout()
         header.setSpacing(8)
+
+        # The only way out of an open record used to be the Library list
+        # beside it; an explicit Back names where it leads.
+        self.back_btn = QPushButton(tr("record_back"))
+        self.back_btn.setProperty("variant", "ghost")
+        self.back_btn.setToolTip(tr("record_back_tooltip"))
+        self.back_btn.clicked.connect(self.back_requested.emit)
+        header.addWidget(self.back_btn)
 
         title_box = QVBoxLayout()
         title_box.setSpacing(0)
@@ -149,6 +161,13 @@ class RecordView(QWidget):
         self.run_chip.clicked.connect(self.run_summary_clicked.emit)
         self.run_chip.setVisible(False)
         header.addWidget(self.run_chip)
+
+        # Whether the record lives in the library (edits save by
+        # themselves) or exists only until the window closes.
+        self.save_label = QLabel()
+        self.save_label.setProperty("role", "muted")
+        self.save_label.setVisible(False)
+        header.addWidget(self.save_label)
 
         self.export_btn = AnimatedButton(tr("record_export_menu"))
         self.export_btn.setIcon(get_icon('save', IconColors.default(), 14))
@@ -285,6 +304,32 @@ class RecordView(QWidget):
         self.rename_action.setEnabled(has_record)
         self.reveal_action.setEnabled(has_record)
         self.delete_action.setEnabled(has_record)
+        self._saved_at = None
+        self._refresh_save_label()
+
+    def mark_saved(self) -> None:
+        """An edit was just written to the library: show when."""
+        from datetime import datetime
+
+        self._saved_at = datetime.now().strftime("%H:%M:%S")
+        self._refresh_save_label()
+
+    def _refresh_save_label(self) -> None:
+        if not self._has_result:
+            self.save_label.setVisible(False)
+            return
+        if self._has_record:
+            text = (
+                tr("record_saved_at", time=self._saved_at)
+                if self._saved_at else tr("record_saved")
+            )
+            tip = tr("record_saved_tooltip")
+        else:
+            text = tr("record_unsaved")
+            tip = tr("record_unsaved_tooltip")
+        self.save_label.setText(text)
+        self.save_label.setToolTip(tip)
+        self.save_label.setVisible(True)
 
     def set_has_result(self, has_result: bool) -> None:
         self._has_result = has_result
@@ -293,6 +338,7 @@ class RecordView(QWidget):
         self.export_btn.setEnabled(has_result)
         disabled_tip = "" if has_result else tr("tooltip_record_actions_disabled")
         self.export_btn.setToolTip(disabled_tip)
+        self._refresh_save_label()
 
     def get_export_formats(self) -> list[str]:
         """Currently-checked formats, falling back to ['txt'] if none."""
