@@ -937,10 +937,16 @@ class LibraryView(QWidget):
         self.refresh()
 
     def _clear_all(self):
+        # Say how much goes before it goes (UX-16).
+        try:
+            count = self._get_store().count()
+        except Exception as e:
+            logger.warning("Library count failed: %s", e)
+            count = 0
         reply = QMessageBox.question(
             self,
             tr("history_clear_title"),
-            tr("history_clear_msg"),
+            tr("history_clear_msg_count", count=count) if count else tr("history_clear_msg"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:

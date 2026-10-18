@@ -127,6 +127,8 @@ class SettingsDialog(QDialog):
             for i in range(self._categories.count()):
                 self._categories.item(i).setText(tr(self._category_keys[i]))
             self._refresh_yt_status()
+            self._rebuild_search_index()
+            self._filter_categories(self._search_edit.text())
         finally:
             self._retranslating = False
 
@@ -177,20 +179,7 @@ class SettingsDialog(QDialog):
         for label_key, page in pages:
             self._categories.addItem(tr(label_key))
             self._pages.addWidget(page)
-            # Indexes every child with a plain .text() — QLabel/QCheckBox/
-            # QPushButton, which also covers QFormLayout's own auto-built
-            # row-label QLabels — so a search for a control's own label
-            # (e.g. "Диаризация" typed while on another tab, or "HF
-            # token") finds the category that has it, not just a search
-            # matching the category name itself.
-            words = [tr(label_key)]
-            for widget in page.findChildren(QWidget):
-                text_fn = getattr(widget, "text", None)
-                if callable(text_fn):
-                    value = text_fn()
-                    if value:
-                        words.append(value)
-            self._category_search_text.append(" ".join(words).casefold())
+        self._rebuild_search_index()
         self._categories.currentRowChanged.connect(self._pages.setCurrentIndex)
         self._categories.setCurrentRow(0)
         content.addLayout(sidebar)
@@ -223,6 +212,26 @@ class SettingsDialog(QDialog):
         hint = self.sizeHint()
         self.setMinimumSize(max(620, hint.width() - 120), max(360, hint.height() - 40))
         self.resize(hint)
+
+    def _rebuild_search_index(self) -> None:
+        """Index every child with a plain .text() — QLabel/QCheckBox/
+        QPushButton, which also covers QFormLayout's own auto-built
+        row-label QLabels — so a search for a control's own label (e.g.
+        "Диаризация" typed while on another tab, or "HF token") finds the
+        category that has it, not just a search matching the category name
+        itself. Rebuilt after a language switch (UX-16): the index used to
+        keep the old language's words."""
+        self._category_search_text = []
+        for row, label_key in enumerate(self._category_keys):
+            page = self._pages.widget(row)
+            words = [tr(label_key)]
+            for widget in page.findChildren(QWidget) if page is not None else []:
+                text_fn = getattr(widget, "text", None)
+                if callable(text_fn):
+                    value = text_fn()
+                    if value:
+                        words.append(value)
+            self._category_search_text.append(" ".join(words).casefold())
 
     def _filter_categories(self, query: str) -> None:
         needle = query.strip().casefold()
