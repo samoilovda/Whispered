@@ -60,6 +60,7 @@ _fmt_duration = format_duration
 # Item data role carrying the artifact type of a materials search hit
 # ("" for a plain record row) next to the record id in UserRole.
 _ARTIFACT_ROLE = Qt.ItemDataRole.UserRole + 1
+_TIME_ROLE = Qt.ItemDataRole.UserRole + 2   # seconds a search hit was said at
 
 
 def _fmt_date(iso: str, now: datetime | None = None) -> str:
@@ -293,6 +294,8 @@ class LibraryView(QWidget):
     # docs/IMPROVEMENT_PLAN_2026-08.ru.md; MainWindow._open_record_view
     # uses the type to pick which tab a materials search hit opens on).
     open_record = pyqtSignal(int, str)
+    # A search hit that knows where in the recording it was said (N03).
+    open_record_at = pyqtSignal(int, float)
     open_cover = pyqtSignal()
     resume_run = pyqtSignal(int)  # record id (B2)
     record_renamed = pyqtSignal(int, str)  # record id, new title
@@ -311,6 +314,7 @@ class LibraryView(QWidget):
         self._has_more = False
         self._active_filter = "all"
         self._active_recipe_filter = "all"
+        self._active_collection = 0          # 0 = every record (N03)
         self._search_scope = "all"
         self._open_record_id: int | None = None
         self._i18n = Retranslator()
@@ -392,6 +396,11 @@ class LibraryView(QWidget):
         self._cover_action.triggered.connect(self.open_cover.emit)
         self._refresh_action = more_menu.addAction(tr("library_refresh_tooltip"))
         self._refresh_action.triggered.connect(self.refresh)
+        more_menu.addSeparator()
+        self._save_search_action = more_menu.addAction(tr("library_saved_search"))
+        self._save_search_action.triggered.connect(self.save_current_search)
+        self._saved_menu = more_menu.addMenu(tr("library_saved_searches"))
+        self._saved_menu.aboutToShow.connect(self._fill_saved_menu)
         more_menu.addSeparator()
         self._clear_all_action = more_menu.addAction(tr("history_clear_all"))
         self._clear_all_action.triggered.connect(self._clear_all)
@@ -498,6 +507,97 @@ class LibraryView(QWidget):
         self._recipe_filter_actions: dict[str, QAction] = {}
         self._build_recipe_filter_actions()
 
+        # Collections (N03): a submenu filled when it opens, so a collection
+        # made or renamed a moment ago is there.
+        self._collection_menu = QMenu(tr("collections_filter"), menu)
+        menu.addMenu(self._collection_menu)
+        self._collection_menu.aboutToShow.connect(self._fill_collection_menu)
+
+    def _fill_collection_menu(self) -> None:
+        menu = self._collection_menu
+        menu.clear()
+        group = QActionGroup(menu)
+        every = must(menu.addAction(tr("library_filter_all")))
+        every.setCheckable(True)
+        every.setChecked(self._active_collection == 0)
+        group.addAction(every)
+        every.triggered.connect(lambda: self._set_collection(0))
+        try:
+            collections = self._get_store().list_collections()
+        except Exception as exc:  # noqa: BLE001 - the menu must still open
+            logger.warning("Collections unavailable: %s", exc)
+            collections = []
+        for item in collections:
+            action = must(menu.addAction(f"{item['name']} ({item['records']})"))
+            action.setCheckable(True)
+            action.setChecked(self._active_collection == item["id"])
+            group.addAction(action)
+            action.triggered.connect(lambda _c=False, cid=item["id"]: self._set_collection(cid))
+        menu.addSeparator()
+        manage = must(menu.addAction(tr("collections_manage")))
+        manage.triggered.connect(self.manage_collections)
+
+    # -- saved searches (N03)
+
+    def current_query(self) -> dict:
+        return {"text": self._search_edit.text().strip(), "scope": self._search_scope,
+                "source": self._active_filter, "recipe": self._active_recipe_filter,
+                "collection": self._active_collection}
+
+    def save_current_search(self) -> None:
+        name, ok = QInputDialog.getText(self, tr("library_saved_search"), tr("library_saved_name"))
+        if ok and name.strip():
+            self._get_store().save_search(name, self.current_query())
+
+    def apply_query(self, query: dict) -> None:
+        """Show the Library exactly as a saved search describes it."""
+        self._search_scope = query.get("scope") if query.get("scope") in self._SCOPES else "all"
+        self._active_filter = query.get("source") if query.get("source") in self._SOURCES else "all"
+        self._active_recipe_filter = str(query.get("recipe") or "all")
+        self._active_collection = int(query.get("collection") or 0)
+        for key, action in self._scope_actions.items():
+            action.setChecked(key == self._search_scope)
+        for key, action in self._source_filter_actions.items():
+            action.setChecked(key == self._active_filter)
+        self._search_edit.blockSignals(True)
+        self._search_edit.setText(str(query.get("text") or ""))
+        self._search_edit.blockSignals(False)
+        self._load(self._search_edit.text().strip())
+
+    def _fill_saved_menu(self) -> None:
+        menu = self._saved_menu
+        menu.clear()
+        try:
+            searches = self._get_store().list_saved_searches()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Saved searches unavailable: %s", exc)
+            searches = []
+        if not searches:
+            empty = menu.addAction(tr("library_saved_none"))
+            empty.setEnabled(False)
+            return
+        for item in searches:
+            action = menu.addAction(item["name"])
+            action.triggered.connect(lambda _c=False, q=item["query"]: self.apply_query(q))
+        menu.addSeparator()
+        for item in searches:
+            action = menu.addAction(tr("library_saved_delete", name=item["name"]))
+            action.triggered.connect(
+                lambda _c=False, sid=item["id"]: self._get_store().delete_saved_search(sid))
+
+    def _set_collection(self, collection_id: int) -> None:
+        self._active_collection = collection_id
+        self._load(self._search_edit.text().strip())
+
+    def manage_collections(self) -> None:
+        from ui.collections_dialog import CollectionsDialog
+
+        CollectionsDialog(self._get_store(), self).exec()
+        names = {c["id"] for c in self._get_store().list_collections()}
+        if self._active_collection and self._active_collection not in names:
+            self._active_collection = 0
+        self._load(self._search_edit.text().strip())
+
     @staticmethod
     def _add_choice(menu: QMenu, group: QActionGroup, text: str) -> QAction:
         action = QAction(text, menu)
@@ -540,6 +640,7 @@ class LibraryView(QWidget):
             text=text,
             source_kind="" if self._active_filter == "all" else self._active_filter,
             recipe="" if self._active_recipe_filter == "all" else self._active_recipe_filter,
+            collection_id=self._active_collection,
             limit=limit,
             offset=offset,
         )
@@ -596,6 +697,15 @@ class LibraryView(QWidget):
         if self._has_more:
             self._show_more_btn.setFocus(Qt.FocusReason.OtherFocusReason)
 
+    def _hit_time(self, record_id: int) -> "float | None":
+        """Where in the record the search text is said — from its text as it
+        is now, so an edited-away match never points anywhere."""
+        try:
+            return self._get_store().match_time(record_id, self._search_edit.text().strip())
+        except Exception as exc:  # noqa: BLE001 - a hit without a time is still a hit
+            logger.debug("No hit time for %s: %s", record_id, exc)
+            return None
+
     def _latest_runs_for(self, records) -> dict:
         """Latest job_runs row per record (B8, see application/run_store.py),
         keyed by ``str(record.id)`` and fetched in one query for the whole
@@ -636,6 +746,7 @@ class LibraryView(QWidget):
 
         now = datetime.now()
         last_group = None
+        shown_hits = 0
         for rec, run in visible_records:
             # Search results are ranked by relevance, not date — grouping
             # them by day would scatter the best match under a header.
@@ -655,6 +766,12 @@ class LibraryView(QWidget):
                 parts.append(rec.language.upper())
             meta = "  ·  ".join(parts)
             snippet = _clean_snippet(rec.preview) if is_search and rec.preview else ""
+            hit_time = None
+            if is_search and self._search_scope != "materials" and shown_hits < 60:
+                shown_hits += 1
+                hit_time = self._hit_time(rec.id)
+                if hit_time is not None:
+                    meta += "  ·  " + tr("library_hit_at", time=format_duration(hit_time))
             failed_steps = [
                 step_name for step_name, outcome in (run.outcomes if run else {}).items()
                 if outcome.get("status") == StepStatus.FAILED.value
@@ -670,6 +787,8 @@ class LibraryView(QWidget):
                 lambda record_id=rec.id: self.resume_run.emit(record_id)
             )
             item = self._add_row(rec.id, "", widget)
+            if hit_time is not None:
+                item.setData(_TIME_ROLE, hit_time)
             if rec.id == self._open_record_id:
                 self._list.setCurrentItem(item)
 
@@ -721,12 +840,23 @@ class LibraryView(QWidget):
             chips.append(("scope", tr(f"library_search_scope_{self._search_scope}")))
         if self._active_filter != "all":
             chips.append(("source", tr(f"library_filter_{self._active_filter}")))
+        if self._active_collection:
+            chips.append(("collection", self._collection_name(self._active_collection)))
         if self._active_recipe_filter != "all":
             action = self._recipe_filter_actions.get(self._active_recipe_filter)
             chips.append(
                 ("recipe", action.text() if action is not None else self._active_recipe_filter)
             )
         return chips
+
+    def _collection_name(self, collection_id: int) -> str:
+        try:
+            for item in self._get_store().list_collections():
+                if item["id"] == collection_id:
+                    return item["name"]
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Collection name lookup failed: %s", exc)
+        return str(collection_id)
 
     def _render_active_filters(self, is_search: bool) -> None:
         chips = self._active_filter_chips()
@@ -769,6 +899,8 @@ class LibraryView(QWidget):
         elif kind == "recipe":
             self._recipe_filter_all_action.setChecked(True)
             self._set_recipe_filter("all")
+        elif kind == "collection":
+            self._set_collection(0)
 
     def _schedule_search(self, _text: str):
         self._search_timer.start()
@@ -853,6 +985,7 @@ class LibraryView(QWidget):
         un-toggling each filter and clearing the text by hand."""
         self._active_filter = "all"
         self._active_recipe_filter = "all"
+        self._active_collection = 0
         self._search_scope = "all"
         self._filter_all_action.setChecked(True)
         self._recipe_filter_all_action.setChecked(True)
@@ -871,6 +1004,10 @@ class LibraryView(QWidget):
         record_id = item.data(Qt.ItemDataRole.UserRole)
         if record_id is None:  # a date header
             return
+        seconds = item.data(_TIME_ROLE)
+        if seconds is not None and not item.data(_ARTIFACT_ROLE):
+            self.open_record_at.emit(record_id, float(seconds))
+            return
         self.open_record.emit(record_id, item.data(_ARTIFACT_ROLE) or "")
 
     def _show_context_menu(self, pos: QPoint):
@@ -882,16 +1019,62 @@ class LibraryView(QWidget):
         menu = QMenu(self)
         open_act = menu.addAction(tr("btn_open"))
         rename_act = menu.addAction(tr("library_rename"))
+        collections_menu = must(menu.addMenu(tr("collections_menu")))
+        collection_actions = self._fill_record_collections(collections_menu, record_id)
         menu.addSeparator()
         delete_act = menu.addAction(tr("history_delete_title"))
 
         action = menu.exec(self._list.mapToGlobal(pos))
+        if action in collection_actions:
+            collection_actions[action]()
+            return
         if action == open_act:
             self._activate_item(item)
         elif action == rename_act:
             self.rename_record(record_id)
         elif action == delete_act:
             self._delete_record(record_id)
+
+    def _fill_record_collections(self, menu: QMenu, record_id: int) -> dict:
+        """Check/uncheck *record_id*'s membership; returns {action: callable}
+        (run after the menu closes, so a refresh doesn't pull the list out
+        from under it)."""
+        store = self._get_store()
+        actions: dict = {}
+        try:
+            member_of = set(store.collections_of(record_id))
+            collections = store.list_collections()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Collections unavailable: %s", exc)
+            return actions
+        for item in collections:
+            action = must(menu.addAction(item["name"]))
+            action.setCheckable(True)
+            action.setChecked(item["id"] in member_of)
+            actions[action] = (lambda cid=item["id"], on=item["id"] not in member_of:
+                               self.set_membership(record_id, cid, on))
+        if collections:
+            menu.addSeparator()
+        create = menu.addAction(tr("collections_new_and_add"))
+        actions[create] = lambda: self._new_collection_for(record_id)
+        return actions
+
+    def set_membership(self, record_id: int, collection_id: int, member: bool) -> None:
+        self._get_store().set_record_in_collection(record_id, collection_id, member)
+        if self._active_collection:
+            self.refresh()
+
+    def _new_collection_for(self, record_id: int) -> None:
+        text, ok = QInputDialog.getText(self, tr("collections_new"), tr("collections_name"))
+        name = text.strip()
+        if not ok or not name:
+            return
+        store = self._get_store()
+        collection_id = store.create_collection(name)
+        if collection_id is None:
+            QMessageBox.information(self, tr("collections_new"), tr("collections_name_taken"))
+            return
+        store.set_record_in_collection(record_id, collection_id, True)
 
     def rename_record(self, record_id: int) -> None:
         """Ask for a new display name and store it; the source file and

@@ -276,6 +276,32 @@ def _v15_add_review_marks(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _v16_add_collections(conn: sqlite3.Connection) -> None:
+    """Collections and saved searches (N03): named groups a record can be
+    in any number of — nothing is copied or moved, deleting a collection
+    never deletes a record — and named Library searches (text + filters)."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS collections (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT    NOT NULL,
+            created_at TEXT    NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_collections_name ON collections(name COLLATE NOCASE);
+        CREATE TABLE IF NOT EXISTS record_collections (
+            record_id     INTEGER NOT NULL,
+            collection_id INTEGER NOT NULL,
+            PRIMARY KEY (record_id, collection_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_record_collections_c ON record_collections(collection_id);
+        CREATE TABLE IF NOT EXISTS saved_searches (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT    NOT NULL,
+            query_json TEXT    NOT NULL,
+            created_at TEXT    NOT NULL
+        );
+    """)
+
+
 # Applied in order, tracked via SQLite's built-in `PRAGMA user_version`
 # (see HistoryStore._migrate). Append new migrations here — never edit or
 # reorder an existing one, since a database's user_version records exactly
@@ -296,6 +322,7 @@ _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _v13_add_media_relink,
     _v14_add_queue_items,
     _v15_add_review_marks,
+    _v16_add_collections,
 )
 
 # A transcript_drafts row this code understands; a newer one is left alone.
@@ -487,6 +514,7 @@ class RecordQuery:
     text: str = ""
     source_kind: str = ""    # "" = any; "file" | "recorder" | "live"
     recipe: str = ""         # "" = any; the record's latest run's recipe
+    collection_id: int = 0   # 0 = any; only records in this collection
     limit: int = 200
     offset: int = 0
 
@@ -884,6 +912,7 @@ class HistoryStore:
             conn.execute("DELETE FROM cut_plans WHERE record_id = ?", (record_id,))
             conn.execute("DELETE FROM chat_messages WHERE record_id = ?", (record_id,))
             conn.execute("DELETE FROM review_marks WHERE record_id = ?", (record_id,))
+            conn.execute("DELETE FROM record_collections WHERE record_id = ?", (record_id,))
             # A queue item that produced this record keeps its own history.
             conn.execute("UPDATE queue_items SET record_id = NULL WHERE record_id = ?", (record_id,))
             cur = conn.execute("DELETE FROM transcripts WHERE id = ?", (record_id,))
@@ -918,6 +947,7 @@ class HistoryStore:
             conn.execute("DELETE FROM cut_plans")
             conn.execute("DELETE FROM chat_messages")
             conn.execute("DELETE FROM review_marks")
+            conn.execute("DELETE FROM record_collections")
             conn.execute("UPDATE queue_items SET record_id = NULL")
             return cur.rowcount
 
@@ -1005,6 +1035,9 @@ class HistoryStore:
         if query.source_kind:
             where.append(f"{_KIND_SQL} = ?")
             params.append(query.source_kind)
+        if query.collection_id:
+            where.append("t.id IN (SELECT record_id FROM record_collections WHERE collection_id = ?)")
+            params.append(query.collection_id)
         if query.recipe:
             where.append(
                 "(SELECT r.recipe FROM job_runs r WHERE r.record_id = t.id "
@@ -1197,6 +1230,119 @@ class HistoryStore:
             logger.warning("Ignoring malformed review marks for record %s", record_id)
             return None
         return data if isinstance(data, dict) else None
+
+    # ------------------------------------------------------------------ collections (N03)
+
+    def create_collection(self, name: str) -> Optional[int]:
+        """A new collection, or ``None`` when the name is empty or taken
+        (names are unique ignoring case)."""
+        name = name.strip()
+        if not name:
+            return None
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        try:
+            with self._connect() as conn:
+                cur = conn.execute("INSERT INTO collections (name, created_at) VALUES (?, ?)",
+                                   (name, now))
+                return cur.lastrowid
+        except sqlite3.IntegrityError:
+            return None
+
+    def list_collections(self) -> List[dict]:
+        """Every collection with how many records it holds."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT c.id, c.name, COUNT(rc.record_id) AS records FROM collections c "
+                "LEFT JOIN record_collections rc ON rc.collection_id = c.id "
+                "GROUP BY c.id ORDER BY c.name COLLATE NOCASE").fetchall()
+        return [dict(row) for row in rows]
+
+    def rename_collection(self, collection_id: int, name: str) -> bool:
+        name = name.strip()
+        if not name:
+            return False
+        try:
+            with self._connect() as conn:
+                return conn.execute("UPDATE collections SET name = ? WHERE id = ?",
+                                    (name, collection_id)).rowcount > 0
+        except sqlite3.IntegrityError:
+            return False
+
+    def delete_collection(self, collection_id: int) -> None:
+        """Remove the collection; its records stay where they are."""
+        with self._connect() as conn:
+            conn.execute("DELETE FROM record_collections WHERE collection_id = ?", (collection_id,))
+            conn.execute("DELETE FROM collections WHERE id = ?", (collection_id,))
+
+    def set_record_in_collection(self, record_id: int, collection_id: int, member: bool) -> None:
+        with self._connect() as conn:
+            if member:
+                conn.execute("INSERT OR IGNORE INTO record_collections (record_id, collection_id) "
+                             "VALUES (?, ?)", (record_id, collection_id))
+            else:
+                conn.execute("DELETE FROM record_collections WHERE record_id = ? AND collection_id = ?",
+                             (record_id, collection_id))
+
+    def collections_of(self, record_id: int) -> List[int]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT collection_id FROM record_collections WHERE record_id = ?",
+                                (record_id,)).fetchall()
+        return [row["collection_id"] for row in rows]
+
+    # -- saved searches
+
+    def save_search(self, name: str, query: dict) -> Optional[int]:
+        name = name.strip()
+        if not name:
+            return None
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with self._connect() as conn:
+            conn.execute("DELETE FROM saved_searches WHERE name = ? COLLATE NOCASE", (name,))
+            cur = conn.execute("INSERT INTO saved_searches (name, query_json, created_at) VALUES (?, ?, ?)",
+                               (name, json.dumps(query, ensure_ascii=False), now))
+            return cur.lastrowid
+
+    def list_saved_searches(self) -> List[dict]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT id, name, query_json FROM saved_searches "
+                                "ORDER BY name COLLATE NOCASE").fetchall()
+        out = []
+        for row in rows:
+            try:
+                query = json.loads(row["query_json"])
+            except (TypeError, ValueError):
+                continue
+            if isinstance(query, dict):
+                out.append({"id": row["id"], "name": row["name"], "query": query})
+        return out
+
+    def delete_saved_search(self, search_id: int) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM saved_searches WHERE id = ?", (search_id,))
+
+    def match_time(self, record_id: int, text: str) -> Optional[float]:
+        """Where in the recording *text* (every word of it) is first said:
+        the start of the first segment containing all the words, else of the
+        first containing any; ``None`` when no segment does. Read from the
+        record's current text, so it never points at an edited-away match."""
+        words = [w.casefold() for w in text.split() if w.strip()]
+        if not words:
+            return None
+        with self._connect() as conn:
+            row = conn.execute("SELECT json_payload FROM transcripts WHERE id = ?",
+                               (record_id,)).fetchone()
+        if row is None:
+            return None
+        segments = _payload_to_dict(row["json_payload"]).get("segments") or []
+        any_hit: Optional[float] = None
+        for seg in segments:
+            body = str(seg.get("text", "")).casefold()
+            hits = [w for w in words if w in body]
+            if len(hits) == len(words):
+                return float(seg.get("start", 0.0))
+            if hits and any_hit is None:
+                any_hit = float(seg.get("start", 0.0))
+        return any_hit
 
     # ------------------------------------------------------------------ portable project (N06)
 

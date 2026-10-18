@@ -823,6 +823,7 @@ class MainWindow(QMainWindow):
 
         self.library_view = LibraryView()
         self.library_view.open_record.connect(self._open_record_view)
+        self.library_view.open_record_at.connect(self._open_bookmark)
         self.library_view.resume_run.connect(self.recipe_run.resume)
         self.library_view.open_cover.connect(lambda: self._on_section_changed("cover"))
         self.library_view.record_renamed.connect(self._on_record_renamed)
