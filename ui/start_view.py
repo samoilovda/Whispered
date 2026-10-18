@@ -17,6 +17,7 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QButtonGroup,
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -61,6 +62,8 @@ class StartView(QWidget):
     configure_recipe_requested = pyqtSignal()
     # A readiness check's fix was clicked: application.readiness FIX_* key.
     fix_requested = pyqtSignal(str)
+    # A first-run profile changed the saved model / performance mode.
+    profile_applied = pyqtSignal()
 
     def __init__(
         self,
@@ -126,6 +129,8 @@ class StartView(QWidget):
         subtitle.setProperty("role", "muted")
         subtitle.setWordWrap(True)
         root.addWidget(subtitle)
+
+        self._build_first_run_card(root)
 
         switcher = QHBoxLayout()
         self._source_group = QButtonGroup(self)
@@ -255,7 +260,124 @@ class StartView(QWidget):
         self._i18n.call(self._retranslate_start)
         self._i18n.bind()
 
+    # ── first run (UX-16) ────────────────────────────────────────────
+
+    def _build_first_run_card(self, root) -> None:
+        """A skippable card for the first launch: what Whispered does here,
+        the recognition profile with its model size and where files live,
+        and what is installed. Shown only while the library is empty and it
+        has not been dismissed; skipping blocks nothing."""
+        card = QWidget()
+        card.setProperty("role", "form-section")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(8)
+        self._first_run_title = QLabel()
+        self._first_run_title.setProperty("role", "section-title")
+        layout.addWidget(self._first_run_title)
+        self._first_run_body = QLabel()
+        self._first_run_body.setWordWrap(True)
+        self._first_run_body.setProperty("role", "muted")
+        layout.addWidget(self._first_run_body)
+        row = QHBoxLayout()
+        self._profile_label = QLabel()
+        row.addWidget(self._profile_label)
+        self._profile_combo = QComboBox()
+        self._profile_combo.currentIndexChanged.connect(self._on_profile_chosen)
+        row.addWidget(self._profile_combo, stretch=1)
+        layout.addLayout(row)
+        self._first_run_status = QLabel()
+        self._first_run_status.setWordWrap(True)
+        layout.addWidget(self._first_run_status)
+        self._first_run_done_btn = QPushButton()
+        self._first_run_done_btn.setProperty("variant", "ghost")
+        self._first_run_done_btn.clicked.connect(self.dismiss_first_run)
+        layout.addWidget(self._first_run_done_btn)
+        self._first_run_card = card
+        card.setVisible(False)
+        root.addWidget(card)
+        self._populating_profiles = False
+
+    def should_show_first_run(self, record_count: int) -> bool:
+        return not get_config().first_run_done and record_count == 0
+
+    def show_first_run(self) -> None:
+        self._first_run_card.setVisible(True)
+        self._render_first_run()
+
+    def dismiss_first_run(self) -> None:
+        cfg = get_config()
+        cfg.first_run_done = True
+        save_config()
+        self._first_run_card.setVisible(False)
+
+    def _render_first_run(self) -> None:
+        from domain.asr_profile import CUSTOM, PROFILES, profile_for
+
+        cfg = get_config()
+        self._first_run_title.setText(tr("first_run_title"))
+        self._first_run_body.setText(tr("first_run_body"))
+        self._profile_label.setText(tr("first_run_profile"))
+        self._first_run_done_btn.setText(tr("first_run_dismiss"))
+        current = profile_for(cfg.default_model, cfg.performance_mode)
+        self._populating_profiles = True
+        self._profile_combo.clear()
+        for profile in PROFILES:
+            self._profile_combo.addItem(tr(f"asr_profile_{profile.key}"), profile.key)
+        if current == CUSTOM:
+            self._profile_combo.addItem(tr("asr_profile_custom"), CUSTOM)
+        self._profile_combo.setCurrentIndex(self._profile_combo.findData(current))
+        self._populating_profiles = False
+        self._first_run_status.setText(self._first_run_status_text())
+
+    def _first_run_status_text(self) -> str:
+        import shutil
+
+        from core.model_manifest import whisper_entry
+        from core.paths import models_dir
+
+        cfg = get_config()
+        label, downloaded = self._selected_model()
+        entry = whisper_entry(cfg.default_model)
+        size_mb = int(entry.size_bytes / 1_000_000) if entry is not None else 0
+        folder = str(models_dir())
+        if downloaded:
+            text = tr("first_run_model_ready", model=label)
+        else:
+            text = tr("first_run_model_download", model=label, size=size_mb, path=folder)
+            try:
+                free = shutil.disk_usage(folder).free
+            except OSError:
+                free = None
+            if free is not None and entry is not None and free < entry.size_bytes * 2:
+                text += "\n" + tr("first_run_low_space", free=int(free / 1_000_000))
+        text += "\n" + tr(
+            "first_run_components",
+            ffmpeg="✓" if self._ffmpeg_found else "✕" if self._ffmpeg_found is False else "…",
+            speakers="✓" if self._diarize_installed else "✕" if self._diarize_installed is False else "…",
+        )
+        return text
+
+    def _on_profile_chosen(self, _index: int) -> None:
+        """Apply a profile: its model and performance mode, nothing else.
+        Shown exact settings stay editable in the recipe editor."""
+        if self._populating_profiles:
+            return
+        from domain.asr_profile import PROFILES_BY_KEY
+
+        profile = PROFILES_BY_KEY.get(self._profile_combo.currentData())
+        if profile is None:
+            return
+        cfg = get_config()
+        cfg.default_model = profile.model
+        cfg.performance_mode = profile.performance_mode
+        save_config()
+        self.profile_applied.emit()
+        self._first_run_status.setText(self._first_run_status_text())
+
     def _retranslate_start(self) -> None:
+        if getattr(self, "_first_run_card", None) is not None and self._first_run_card.isVisible():
+            self._render_first_run()
         self._apply_process_enabled()
         self._build_recipe_chips()
         self.refresh_summary()

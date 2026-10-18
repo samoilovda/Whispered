@@ -378,6 +378,7 @@ class MainWindow(QMainWindow):
         cfg = get_config()
         self.recorder_widget.set_device(getattr(cfg, "mic_device_index", None))
         self._apply_tray_config()
+        self._maybe_show_first_run()
         # A job_runs row can only stay 'running' while the process that
         # wrote it is alive (see run_store.save_run's docstring) — one
         # still 'running' at startup means that process died mid-run
@@ -935,6 +936,7 @@ class MainWindow(QMainWindow):
         self.start_view.process_requested.connect(self._start_transcription)
         self.start_view.configure_recipe_requested.connect(self._open_recipe_editor)
         self.start_view.fix_requested.connect(self._on_readiness_fix)
+        self.start_view.profile_applied.connect(self._on_asr_profile_applied)
         self._start_index = self._stack.addWidget(self.start_view)
         self._record_index = self._stack.addWidget(self.record_view)
         self.cover_view = CoverView(insights_cache=self._insights_cache)
@@ -1794,6 +1796,22 @@ class MainWindow(QMainWindow):
         multi-file drop does (B5a)."""
         self.batch_panel.add_files([path])
         self.status_bar.show_queue(True)
+
+    def _maybe_show_first_run(self) -> None:
+        """The skippable first-launch card: only for an empty library."""
+        try:
+            from core.history import get_history_store
+            count = get_history_store().count() if getattr(
+                get_config(), "history_enabled", True) else 0
+        except Exception as exc:
+            logger.warning("First-run check skipped: %s", exc)
+            return
+        if self.start_view.should_show_first_run(count):
+            self.start_view.show_first_run()
+
+    def _on_asr_profile_applied(self) -> None:
+        self._apply_config_defaults()
+        self.start_view.refresh_summary()
 
     def _apply_config_defaults(self):
         """Re-seed header controls from the saved config (after settings change)."""

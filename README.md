@@ -100,6 +100,11 @@ Five are built in:
 | Meeting notes | transcribe → diarize → insights |
 | Book | transcribe → clean → book |
 
+On the very first launch a skippable card offers three recognition profiles
+(Fast / Balanced / Accurate — each is just a model plus a performance mode; the
+exact choice stays editable) and shows the model size, where it will be stored,
+and which components are installed.
+
 **Configure…** opens the recipe editor, where you can save your own recipes
 (Save / Save as new / Delete). A custom recipe appears alongside the built-ins
 on the start screen and as a Library filter, and can carry its own model,
@@ -159,9 +164,10 @@ other records. This is a hint list, not speaker recognition — the same
   growing;
 - microphone recording with device selection, level meter, pause, and resume.
 
-History stores transcripts, run state, and the searchable text of generated
-materials, but it does not restore the content of previously generated AI
-artifacts into their panels by itself. A recipe's output is saved as separate
+History stores transcripts, run state, the searchable text of generated
+materials, per-record chat, the cut, and unsaved editor drafts. Opening a record
+restores its saved cleaned text, articles, Insights, YouTube package and book
+into their tabs without calling a model. A recipe's output is saved as separate
 files in the application data directory, each with a provenance manifest
 (`<file>.manifest.json`) recording the transcript revision, model, and prompt
 version that produced it.
