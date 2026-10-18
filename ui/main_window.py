@@ -289,6 +289,8 @@ class MainWindow(QMainWindow):
         # output folder is named after (core.paths.artifact_dir), even when
         # that media file has since moved and _source_filepath is None.
         self._record_source_path: str | None = None
+        # Proofreading's "Listen": (start, end, loop) while a passage plays.
+        self._listen: "tuple[float, float, bool] | None" = None
         # The open record's media identity (UX-09): stored fingerprint,
         # duration, and when its source was replaced, if ever.
         self._record_media: dict = {}
@@ -1628,6 +1630,8 @@ class MainWindow(QMainWindow):
         )
         self.transcript_view.copy_requested.connect(self._copy_to_clipboard)
         self.transcript_view.result_changed.connect(self._on_transcript_changed)
+        self.transcript_view.review_changed.connect(self._save_review_marks)
+        self.transcript_view.listen_requested.connect(self._listen_range)
         self.transcript_view.edit_buffer_changed.connect(self._on_edit_buffer_changed)
         self.transcript_view.edit_finished.connect(self._on_edit_finished)
 
@@ -1975,6 +1979,64 @@ class MainWindow(QMainWindow):
     def _on_player_position(self, seconds: float):
         """Forward player position to transcript highlight (throttled by player timer)."""
         self.transcript_view.highlight_at(seconds)
+        listening = getattr(self, "_listen", None)
+        if listening is not None and seconds >= listening[1]:
+            start, _end, loop = listening
+            if loop:
+                self.player.seek_to(start)
+            else:
+                self._listen = None
+                self.player.pause()
+
+    def _listen_range(self, start: float, end: float, loop: bool) -> None:
+        """Proofreading's "Listen": play one passage, then stop (or repeat
+        it). Without media there is nothing to play — say so."""
+        if not self._source_filepath and not self.file_selector.get_file():
+            show_toast(self, tr("review_no_media"), kind="info")
+            return
+        self._listen = (start, max(end, start + 0.5), loop)
+        self.player.seek_to(start)
+        self.player.play()
+
+    # ── Proofreading marks (N01) ─────────────────────────────────────
+
+    def _restore_review_marks(self, record_id: int) -> None:
+        """Show *record_id*'s stored marks; a newer schema is left alone."""
+        from domain import review
+
+        marks: "tuple[review.ReviewMark, ...]" = ()
+        self._review_readonly = False
+        try:
+            from core.history import get_history_store
+            data = get_history_store().get_review_marks(record_id)
+            if data is not None:
+                loaded = review.from_dict(data)
+                if loaded is None:
+                    self._review_readonly = True
+                    show_toast(self, tr("review_unsupported"), kind="warning")
+                else:
+                    marks = loaded
+        except Exception as exc:
+            logger.warning("Could not load review marks for record %s: %s", record_id, exc)
+        self.transcript_view.set_review_marks(marks)
+
+    def _save_review_marks(self) -> None:
+        record_id = self._last_record_id
+        result = self.transcript_view.get_result()
+        if (record_id is None or result is None or getattr(self, "_review_readonly", False)
+                or not getattr(get_config(), "history_enabled", True)):
+            return
+        try:
+            from core.history import get_history_store
+            from domain import review
+            from domain.artifact_provenance import transcript_revision
+
+            revision = transcript_revision(
+                result.segments, result.language, getattr(result, "speaker_names", None))
+            marks = review.holding(result.segments, self.transcript_view.review_marks())
+            get_history_store().save_review_marks(record_id, review.to_dict(marks, revision))
+        except Exception as exc:
+            logger.warning("Failed to save review marks for record %s: %s", record_id, exc)
 
     def _on_recording_ready(self, filepath: str):
         """Load a freshly-recorded WAV into the file selector."""
@@ -2252,6 +2314,7 @@ class MainWindow(QMainWindow):
             result = _result_from_payload(payload)
             self.transcript_view.set_result(result)
             self._document_session.apply_result(result)
+            self._restore_review_marks(self._last_record_id)
             speaker_names = getattr(result, "speaker_names", {})
             store.update_result(self._last_record_id, result, speaker_names)
             store.save_current_revision(
@@ -2500,6 +2563,8 @@ class MainWindow(QMainWindow):
         self.cut_view.set_record(self._last_record_id)
         self._cut_plan_readonly = False
         self._record_media = {"fingerprint": "", "duration": result.duration, "changed_at": ""}
+        self._review_readonly = False
+        self._listen = None
         self.record_view.set_missing_source("")
         self._document_session.apply_result(result)
         # _last_record_id is finalized by now regardless of path (set
@@ -2797,6 +2862,7 @@ class MainWindow(QMainWindow):
             self.cut_view.set_record(record_id)
             self._document_session.apply_result(result)
             self._restore_cut_plan(record_id)
+            self._restore_review_marks(record_id)
             self.cover_view.set_provenance(record_id, source_path or None)
             self.cover_view.set_video_source(
                 self._cover_video_for(media_path) if has_media else None

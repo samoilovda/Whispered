@@ -21,7 +21,7 @@ from typing import Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTextEdit, QLabel, QHBoxLayout,
     QPushButton, QLineEdit, QComboBox, QDialog, QFormLayout,
-    QDialogButtonBox, QMenu, QApplication, QMessageBox,
+    QDialogButtonBox, QMenu, QApplication, QMessageBox, QCheckBox,
 )
 from PyQt6.QtCore import QEvent, QObject, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
@@ -30,7 +30,7 @@ from PyQt6.QtGui import (
 )
 
 from domain.paragraphs import group_paragraphs
-from domain.transcription import LOW_CONFIDENCE
+from domain import review
 from transcriber import TranscriptionResult
 from utils import format_duration
 from domain.transcript_edit import (
@@ -167,6 +167,9 @@ class TranscriptView(QWidget):
     # is no longer needed.
     edit_buffer_changed = pyqtSignal()
     edit_finished = pyqtSignal()
+    # Proofreading (N01): marks changed (to be stored); play this passage.
+    review_changed = pyqtSignal()
+    listen_requested = pyqtSignal(float, float, bool)  # start, end, loop
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -182,6 +185,10 @@ class TranscriptView(QWidget):
             self._show_timestamps = True
             self._show_speakers = True
         self._edit_mode = False
+        # Proofreading marks (domain/review.py) and whether only the
+        # passages still to review are shown.
+        self._review_marks: tuple = ()
+        self._review_only = False
         # The buffer as it was when editing started — "dirty" means the
         # text differs from it.
         self._edit_base_text = ""
@@ -298,7 +305,7 @@ class TranscriptView(QWidget):
         self.uncertain_btn = QPushButton()
         self.uncertain_btn.setProperty("role", "uncertain-link")
         self.uncertain_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.uncertain_btn.clicked.connect(self.next_uncertain)
+        self.uncertain_btn.clicked.connect(self._open_review)
         self.uncertain_btn.setVisible(False)
         header_layout.addWidget(self.uncertain_btn)
 
@@ -442,6 +449,8 @@ class TranscriptView(QWidget):
         stats_layout.addWidget(self._edit_hint)
         layout.addWidget(self.stats_bar)
 
+        self._build_review_bar(layout)
+
         # Keyboard shortcuts
         find_sc = QShortcut(QKeySequence("Ctrl+F"), self)
         find_sc.activated.connect(self._open_find)
@@ -467,6 +476,7 @@ class TranscriptView(QWidget):
         if self._edit_mode:
             self._exit_edit_mode(save=False)
         self._result = result
+        self._review_marks = ()
         # Seed speaker names, honouring any names already on the result
         # (e.g. restored from history); default to identity mapping.
         existing = getattr(result, "speaker_names", None) or {}
@@ -550,17 +560,192 @@ class TranscriptView(QWidget):
     def _uncertain_indices(self) -> list[int]:
         if self._result is None:
             return []
-        return [
-            i for i, seg in enumerate(self._result.segments)
-            if seg.confidence is not None and seg.confidence < LOW_CONFIDENCE
-        ]
+        return review.review_indices(self._result.segments, self._review_marks)
 
     def _render_uncertain(self) -> None:
         count = len(self._uncertain_indices()) if not self._edit_mode else 0
-        self.uncertain_btn.setVisible(count > 0)
-        if count:
-            self.uncertain_btn.setText(f"◌ {tr_count('transcript_uncertain', count)}")
+        total = 0
+        if self._result is not None and not self._edit_mode:
+            total, _left = review.counts(self._result.segments, self._review_marks)
+        # Visible while anything is (or was) in the review set, so the
+        # proofreading bar stays reachable after the last one is checked.
+        self.uncertain_btn.setVisible(total > 0 and not self._edit_mode)
+        if total:
+            key = "transcript_uncertain" if count else "review_all_checked"
+            text = tr_count(key, count) if count else tr(key)
+            self.uncertain_btn.setText(f"◌ {text}" if count else f"✓ {text}")
             self.uncertain_btn.setToolTip(tr("transcript_uncertain_tooltip"))
+        self._refresh_review_bar()
+
+    # ------------------------------------------------------------------ proofreading (N01)
+
+    def _build_review_bar(self, layout) -> None:
+        """The proofreading bar: step through the passages still to check,
+        listen to one, mark it checked or flag it, fix it in the editor."""
+        bar = QWidget()
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        self._review_status = QLabel()
+        self._review_status.setProperty("role", "muted")
+        row.addWidget(self._review_status)
+        row.addStretch()
+
+        def button(key: str, tip: str, slot, shortcut: str = "") -> QPushButton:
+            btn = QPushButton()
+            self._i18n.text(btn, key, tooltip=tip)
+            self._i18n.text(btn, key, "setAccessibleName")
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(slot)
+            row.addWidget(btn)
+            if shortcut:
+                sc = QShortcut(QKeySequence(shortcut), self)
+                # Only with the reading view focused: never while typing in
+                # the editor or the find fields.
+                sc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+                sc.activated.connect(lambda s=slot: self._review_hotkey(s))
+            return btn
+
+        self._review_prev_btn = button("review_prev", "review_prev_tip",
+                                       lambda: self.review_step(-1), "Alt+Up")
+        self._review_listen_btn = button("review_listen", "review_listen_tip",
+                                         self.listen_current, "Alt+L")
+        self._review_loop = QCheckBox()
+        self._i18n.text(self._review_loop, "review_loop")
+        row.addWidget(self._review_loop)
+        self._review_done_btn = button("review_done", "review_done_tip",
+                                       self.mark_reviewed, "Alt+R")
+        self._review_flag_btn = button("review_flag", "review_flag_tip",
+                                       self.toggle_flag, "Alt+F")
+        self._review_fix_btn = button("review_fix", "review_fix_tip", self._fix_current)
+        self._review_next_btn = button("review_next", "review_next_tip",
+                                       lambda: self.review_step(1), "Alt+Down")
+        self._review_only_chk = QCheckBox()
+        self._i18n.text(self._review_only_chk, "review_only")
+        self._review_only_chk.toggled.connect(self._set_review_only)
+        row.addWidget(self._review_only_chk)
+        close = QPushButton("✕")
+        close.setAccessibleName(tr("review_close"))
+        close.setToolTip(tr("review_close"))
+        close.clicked.connect(self._close_review)
+        row.addWidget(close)
+        bar.setVisible(False)
+        self._review_bar = bar
+        layout.addWidget(bar)
+
+    def _review_hotkey(self, action) -> None:
+        """A proofreading shortcut: ignored while the transcript is being
+        edited, so typing is never taken for a command."""
+        if not self._edit_mode:
+            action()
+
+    def _open_review(self) -> None:
+        self._review_bar.setVisible(True)
+        self._refresh_review_bar()
+        self.review_step(1, include_current=True)
+
+    def _close_review(self) -> None:
+        self._review_bar.setVisible(False)
+        if self._review_only:
+            self._review_only_chk.setChecked(False)
+
+    def _set_review_only(self, on: bool) -> None:
+        self._review_only = on
+        if self._result and not self._edit_mode:
+            self._update_display()
+
+    def _refresh_review_bar(self) -> None:
+        if not hasattr(self, "_review_bar") or self._result is None:
+            return
+        total, left = review.counts(self._result.segments, self._review_marks)
+        self._review_status.setText(tr("review_status", left=left, total=total))
+        for btn in (self._review_prev_btn, self._review_next_btn, self._review_listen_btn,
+                    self._review_done_btn, self._review_flag_btn, self._review_fix_btn):
+            btn.setEnabled(total > 0 or btn in (self._review_flag_btn, self._review_listen_btn,
+                                                self._review_fix_btn))
+
+    def review_marks(self) -> tuple:
+        return self._review_marks
+
+    def set_review_marks(self, marks) -> None:
+        """Load stored marks (those that still hold are shown)."""
+        self._review_marks = tuple(marks)
+        if self._result is not None:
+            self._update_display()
+
+    def _current_segment_index(self) -> int:
+        """The passage under the cursor, else the first one to review."""
+        if self._result is None:
+            return -1
+        span = self._span_at(self.text_edit.textCursor().position())
+        if span is not None and span.index >= 0:
+            return span.index
+        todo = self._uncertain_indices()
+        return todo[0] if todo else -1
+
+    def _select_segment(self, index: int) -> None:
+        span = next((s for s in self._segment_spans if s.index == index), None)
+        if span is None:
+            return
+        cursor = QTextCursor(self.text_edit.document())
+        cursor.setPosition(span.pos_from)
+        cursor.setPosition(span.pos_to, QTextCursor.MoveMode.KeepAnchor)
+        self.text_edit.setTextCursor(cursor)
+        self.text_edit.ensureCursorVisible()
+
+    def review_step(self, delta: int, include_current: bool = False) -> None:
+        """Select the next (+1) or previous (-1) passage still to review,
+        wrapping, and seek the player to it."""
+        todo = self._uncertain_indices()
+        if not todo:
+            return
+        here = self._current_segment_index() if self._edit_mode is False else -1
+        if delta > 0:
+            later = [i for i in todo if i > here or (include_current and i == here)]
+            target = later[0] if later else todo[0]
+        else:
+            earlier = [i for i in todo if i < here]
+            target = earlier[-1] if earlier else todo[-1]
+        self._select_segment(target)
+        assert self._result is not None
+        self.seek_requested.emit(self._result.segments[target].start)
+
+    def _set_mark(self, index: int, state) -> None:
+        if self._result is None or not 0 <= index < len(self._result.segments):
+            return
+        self._review_marks = review.with_mark(
+            self._review_marks, self._result.segments[index], state)
+        self.review_changed.emit()
+        self._update_display()
+        self._select_segment(index)
+
+    def mark_reviewed(self) -> None:
+        """The passage under the cursor is checked; move on to the next one."""
+        index = self._current_segment_index()
+        if index < 0:
+            return
+        self._set_mark(index, review.REVIEWED)
+        self.review_step(1)
+
+    def toggle_flag(self) -> None:
+        index = self._current_segment_index()
+        if index < 0 or self._result is None:
+            return
+        flagged = review.mark_state(self._result.segments[index], self._review_marks) == review.FLAGGED
+        self._set_mark(index, None if flagged else review.FLAGGED)
+
+    def listen_current(self) -> None:
+        index = self._current_segment_index()
+        if index < 0 or self._result is None:
+            return
+        seg = self._result.segments[index]
+        self.listen_requested.emit(seg.start, seg.end, self._review_loop.isChecked())
+
+    def _fix_current(self) -> None:
+        """Correct the passage in the editor (the ordinary Edit mode)."""
+        if not self._edit_mode:
+            self.edit_btn.setChecked(True)
+            self._toggle_edit(True)
 
     def next_uncertain(self) -> None:
         """Select the next low-confidence segment after the cursor
@@ -679,7 +864,15 @@ class TranscriptView(QWidget):
             else:
                 cursor.insertBlock(fmt)
 
-        for para in group_paragraphs(segments, by_speaker=with_speakers):
+        # With the review filter on, only the passages still to check are
+        # laid out (indices stay the real segment indices).
+        shown = list(range(len(segments)))
+        if self._review_only:
+            wanted = set(self._uncertain_indices())
+            if wanted:
+                shown = [i for i in shown if i in wanted]
+        shown_segments = [segments[i] for i in shown]
+        for para in group_paragraphs(shown_segments, by_speaker=with_speakers):
             speaker = para.speaker if with_speakers else None
             if speaker or self._show_timestamps:
                 new_block(head_fmt)
@@ -698,7 +891,8 @@ class TranscriptView(QWidget):
                     cursor.insertText(format_duration(para.start), stamp_fmt)
                     spans.append(_Span(pos, cursor.position(), para.start, para.end, -1))
             new_block(para_fmt)
-            for n, index in enumerate(para.indices):
+            for n, local in enumerate(para.indices):
+                index = shown[local]
                 segment = segments[index]
                 text = segment.text.strip()
                 if n and text:

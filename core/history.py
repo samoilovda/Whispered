@@ -264,6 +264,18 @@ def _v14_add_queue_items(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _v15_add_review_marks(conn: sqlite3.Connection) -> None:
+    """Proofreading marks per record (N01): which passages were checked or
+    flagged, as anchors (domain/review.py). Deleted with the record."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS review_marks (
+            record_id   INTEGER PRIMARY KEY,
+            marks_json  TEXT    NOT NULL,
+            updated_at  TEXT    NOT NULL
+        );
+    """)
+
+
 # Applied in order, tracked via SQLite's built-in `PRAGMA user_version`
 # (see HistoryStore._migrate). Append new migrations here — never edit or
 # reorder an existing one, since a database's user_version records exactly
@@ -283,6 +295,7 @@ _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _v12_add_chat_messages,
     _v13_add_media_relink,
     _v14_add_queue_items,
+    _v15_add_review_marks,
 )
 
 # A transcript_drafts row this code understands; a newer one is left alone.
@@ -870,6 +883,7 @@ class HistoryStore:
             conn.execute("DELETE FROM transcript_drafts WHERE record_id = ?", (record_id,))
             conn.execute("DELETE FROM cut_plans WHERE record_id = ?", (record_id,))
             conn.execute("DELETE FROM chat_messages WHERE record_id = ?", (record_id,))
+            conn.execute("DELETE FROM review_marks WHERE record_id = ?", (record_id,))
             # A queue item that produced this record keeps its own history.
             conn.execute("UPDATE queue_items SET record_id = NULL WHERE record_id = ?", (record_id,))
             cur = conn.execute("DELETE FROM transcripts WHERE id = ?", (record_id,))
@@ -903,6 +917,7 @@ class HistoryStore:
             conn.execute("DELETE FROM transcript_drafts")
             conn.execute("DELETE FROM cut_plans")
             conn.execute("DELETE FROM chat_messages")
+            conn.execute("DELETE FROM review_marks")
             conn.execute("UPDATE queue_items SET record_id = NULL")
             return cur.rowcount
 
@@ -1150,6 +1165,38 @@ class HistoryStore:
         with self._connect() as conn:
             rows = conn.execute(sql, (pattern, limit)).fetchall()
         return [ArtifactSearchResult(r) for r in rows]
+
+    # ------------------------------------------------------------------ review marks (N01)
+
+    def save_review_marks(self, record_id: int, data: dict) -> None:
+        """Store *record_id*'s marks (``domain.review.to_dict``); none left
+        removes the row."""
+        if not data.get("marks"):
+            with self._connect() as conn:
+                conn.execute("DELETE FROM review_marks WHERE record_id = ?", (record_id,))
+            return
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT INTO review_marks (record_id, marks_json, updated_at) VALUES (?, ?, ?)
+                   ON CONFLICT(record_id) DO UPDATE SET
+                       marks_json = excluded.marks_json, updated_at = excluded.updated_at""",
+                (record_id, json.dumps(data, ensure_ascii=False), now),
+            )
+
+    def get_review_marks(self, record_id: int) -> Optional[dict]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT marks_json FROM review_marks WHERE record_id = ?", (record_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            data = json.loads(row["marks_json"])
+        except (TypeError, json.JSONDecodeError):
+            logger.warning("Ignoring malformed review marks for record %s", record_id)
+            return None
+        return data if isinstance(data, dict) else None
 
     # ------------------------------------------------------------------ queue (UX-14)
 
