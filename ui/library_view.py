@@ -305,6 +305,10 @@ class LibraryView(QWidget):
         self._store = None   # lazy: avoid import at startup if history_enabled=False
         self._records: list = []
         self._material_hits: list = []
+        # The loaded part of the matching records (UX-04): counts come from
+        # the query, not from how many rows happen to be on screen.
+        self._matched = 0
+        self._has_more = False
         self._active_filter = "all"
         self._active_recipe_filter = "all"
         self._search_scope = "all"
@@ -436,9 +440,18 @@ class LibraryView(QWidget):
         self._no_results_state.setVisible(False)
         layout.addWidget(self._no_results_state, stretch=1)
 
+        # The next page of matching records, on request (UX-04: everything
+        # past the first 200 used to be unreachable).
+        self._show_more_btn = self._i18n.text(QPushButton(), "library_show_more")
+        self._show_more_btn.setProperty("variant", "ghost")
+        self._show_more_btn.clicked.connect(self._load_more)
+        self._show_more_btn.setVisible(False)
+        layout.addWidget(self._show_more_btn)
+
         # ── Status line ──────────────────────────────────────────
         self._status = QLabel()
         self._status.setProperty("role", "muted")
+        self._status.setWordWrap(True)
         layout.addWidget(self._status)
 
     def _build_filter_menu(self) -> None:
@@ -491,7 +504,7 @@ class LibraryView(QWidget):
         """Reload list from DB (called after a new transcription is saved,
         or when navigating back from the Record view)."""
         query = self._search_edit.text().strip()
-        self._load(query)
+        self._load(query, keep_loaded=True)
 
     def clear_all(self):
         """Public entry point for the main menu bar; confirms then delegates."""
@@ -510,27 +523,70 @@ class LibraryView(QWidget):
             self._store = get_history_store()
         return self._store
 
-    def _load(self, query: str = ""):
+    PAGE_SIZE = 200
+
+    def _record_query(self, text: str, *, limit: int, offset: int = 0):
+        from core.history import RecordQuery
+
+        return RecordQuery(
+            text=text,
+            source_kind="" if self._active_filter == "all" else self._active_filter,
+            recipe="" if self._active_recipe_filter == "all" else self._active_recipe_filter,
+            limit=limit,
+            offset=offset,
+        )
+
+    def _load(self, query: str = "", *, keep_loaded: bool = False):
+        """(Re)load the first page — or, with *keep_loaded* (a refresh),
+        as many rows as were already on screen, so a refresh after saving
+        doesn't throw away pages the user had scrolled through."""
         store = self._get_store()
         self._material_hits = []
+        limit = max(self.PAGE_SIZE, len(self._records)) if keep_loaded else self.PAGE_SIZE
+        scroll = self._list.verticalScrollBar().value() if keep_loaded else 0
         try:
-            if query:
-                self._records = (
-                    store.search(query) if self._search_scope != "materials" else []
-                )
-                if self._search_scope in ("all", "materials"):
-                    self._material_hits = store.search_artifacts(query)
+            if self._search_scope != "materials":
+                page = store.query_records(self._record_query(query, limit=limit))
+                self._records = page.items
+                self._matched = page.matched
+                self._has_more = page.has_more
             else:
-                # No query: there is no "browse all materials" view — a
-                # materials-only scope with an empty search box just shows
-                # nothing until the user types something (see
-                # HistoryStore.search_artifacts's own empty-query contract).
-                self._records = store.list() if self._search_scope != "materials" else []
+                # No "browse all materials" view: a materials-only scope
+                # shows record rows never, material hits only for a query
+                # (HistoryStore.search_artifacts's empty-query contract).
+                self._records, self._matched, self._has_more = [], 0, False
+            if query and self._search_scope in ("all", "materials"):
+                self._material_hits = store.search_artifacts(query)
         except Exception as e:
             logger.warning("Library load failed: %s", e)
-            self._records = []
+            self._records, self._matched, self._has_more = [], 0, False
             self._material_hits = []
         self._populate()
+        if scroll:
+            self._list.verticalScrollBar().setValue(scroll)
+
+    def _load_more(self) -> None:
+        """Append the next page, keeping the scroll position and focus."""
+        store = self._get_store()
+        query = self._search_edit.text().strip()
+        scroll = self._list.verticalScrollBar().value()
+        try:
+            page = store.query_records(self._record_query(
+                query, limit=self.PAGE_SIZE, offset=len(self._records),
+            ))
+        except Exception as e:
+            logger.warning("Library next page failed: %s", e)
+            return
+        known = {record.id for record in self._records}
+        # A record inserted since the first page shifts the offsets by one;
+        # never show the same row twice.
+        self._records.extend(r for r in page.items if r.id not in known)
+        self._matched = page.matched
+        self._has_more = page.has_more
+        self._populate()
+        self._list.verticalScrollBar().setValue(scroll)
+        if self._has_more:
+            self._show_more_btn.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _latest_runs_for(self, records) -> dict:
         """Latest job_runs row per record (B8, see application/run_store.py),
@@ -565,20 +621,10 @@ class LibraryView(QWidget):
     def _populate(self):
         self._list.clear()
         is_search = bool(self._search_edit.text().strip())
-        source_filtered = [
-            record
-            for record in self._records
-            if self._active_filter == "all" or _record_kind(record) == self._active_filter
-        ]
-        runs = self._latest_runs_for(source_filtered)
-        visible_records = []
-        for record in source_filtered:
-            run = runs.get(str(record.id))
-            if self._active_recipe_filter != "all" and (
-                run is None or run.recipe != self._active_recipe_filter
-            ):
-                continue
-            visible_records.append((record, run))
+        # Source and recipe filters are applied by the query itself, before
+        # its limit (HistoryStore.query_records) — never to a loaded page.
+        runs = self._latest_runs_for(self._records)
+        visible_records = [(record, runs.get(str(record.id))) for record in self._records]
 
         now = datetime.now()
         last_group = None
@@ -632,7 +678,16 @@ class LibraryView(QWidget):
         self._list.relayout_rows()
 
         total = len(visible_records) + len(self._material_hits)
-        self._status.setText(tr_count("history_count", total))
+        # Records and material hits are counted apart: three materials of
+        # one record are not three records (UX-04).
+        if self._has_more:
+            status = tr("library_shown_of", shown=len(visible_records), total=self._matched)
+        else:
+            status = tr_count("history_count", self._matched)
+        if self._material_hits:
+            status += "  ·  " + tr_count("library_material_count", len(self._material_hits))
+        self._status.setText(status)
+        self._show_more_btn.setVisible(self._has_more)
 
         # The friendly empty state is for "no records exist at all", not
         # "this search has no matches".
@@ -728,7 +783,7 @@ class LibraryView(QWidget):
         action = self._source_filter_actions.get(filter_key)
         if action is not None:
             action.setChecked(True)
-        self._populate()
+        self._load(self._search_edit.text().strip())
 
     def _set_recipe_filter(self, recipe_key: str) -> None:
         self._active_recipe_filter = recipe_key
@@ -738,7 +793,7 @@ class LibraryView(QWidget):
         )
         if action is not None:
             action.setChecked(True)
-        self._populate()
+        self._load(self._search_edit.text().strip())
 
     def _set_search_scope(self, scope: str) -> None:
         self._search_scope = scope
@@ -782,7 +837,7 @@ class LibraryView(QWidget):
         if self._active_recipe_filter != "all" and self._active_recipe_filter not in known_keys:
             self._active_recipe_filter = "all"
         self._build_recipe_filter_actions()
-        self._populate()
+        self._load(self._search_edit.text().strip(), keep_loaded=True)
 
     def _reset_filters(self) -> None:
         """Return every filter to "All" and clear the search field in one

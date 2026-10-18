@@ -632,3 +632,60 @@ def test_search_snippets_lose_the_json_and_bold_the_match():
     assert _snippet_html(cleaned) == "… <b>Ресурсы</b> могут быть"
     assert _clean_snippet('end": 12.5, "text": "budget <ok>') == "budget <ok>"
     assert _snippet_html("budget <ok>") == "budget &lt;ok&gt;"
+
+
+def _record_ids_on_screen(view: LibraryView) -> "list[int]":
+    return [
+        view._list.item(row).data(Qt.ItemDataRole.UserRole)
+        for row in range(view._list.count())
+        if view._list.item(row).data(Qt.ItemDataRole.UserRole) is not None
+    ]
+
+
+def test_whole_library_reachable_past_the_first_page(monkeypatch, tmp_path, process_events):
+    """UX-04: 205 records used to show 200 with no way to the oldest five."""
+    from core.i18n import tr
+
+    load_locale("en")
+    store = _make_store(tmp_path)
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+    ids = [_add_record(store, f"r{i}.mp3") for i in range(205)]
+
+    view = LibraryView()
+    view.refresh()
+    process_events()
+    assert len(_record_ids_on_screen(view)) == 200
+    assert not view._show_more_btn.isHidden()
+    assert view._status.text() == tr("library_shown_of", shown=200, total=205)
+
+    view._show_more_btn.click()
+    process_events()
+    on_screen = _record_ids_on_screen(view)
+    assert sorted(on_screen) == sorted(ids)
+    assert view._show_more_btn.isHidden()
+
+    # A refresh (e.g. after saving) keeps every loaded page.
+    view.refresh()
+    process_events()
+    assert len(_record_ids_on_screen(view)) == 205
+    view.close()
+
+
+def test_source_filter_finds_a_record_beyond_the_first_page(monkeypatch, tmp_path, process_events):
+    load_locale("en")
+    store = _make_store(tmp_path)
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+    result = TranscriptionResult(segments=[Segment(0.0, 1.0, "live words")], language="en",
+                                 duration=1.0)
+    live_id = store.add(result, source_path="", source_kind="live", source_name="Live")
+    for i in range(210):
+        _add_record(store, f"f{i}.mp3")
+
+    view = LibraryView()
+    view.refresh()
+    process_events()
+    assert live_id not in _record_ids_on_screen(view)
+    view._set_filter("live")
+    process_events()
+    assert _record_ids_on_screen(view) == [live_id]
+    view.close()

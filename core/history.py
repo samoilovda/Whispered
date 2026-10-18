@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from dataclasses import dataclass
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -352,6 +353,38 @@ class HistoryRecord:
         except (TypeError, json.JSONDecodeError):
             logger.warning("Ignoring malformed history artifacts for record %s", self.id)
             self.artifacts = None
+
+
+# How the Library classifies a record's source — the SQL twin of
+# ui.library_view._record_kind: the explicit column wins; rows written
+# before it existed fall back to the file-name conventions.
+_KIND_SQL = """(CASE
+    WHEN t.source_kind IN ('file', 'recorder', 'live') THEN t.source_kind
+    WHEN lower(t.source_name) LIKE 'live-%' OR lower(t.source_name) LIKE 'zoom-%' THEN 'live'
+    WHEN substr(t.source_name, 1, 4) = 'REC_'
+         OR replace(t.source_path, '\\', '/') LIKE '%/recordings/%' THEN 'recorder'
+    ELSE 'file' END)"""
+
+
+@dataclass(frozen=True)
+class RecordQuery:
+    """What the Library asks for: search text, filters, one page."""
+
+    text: str = ""
+    source_kind: str = ""    # "" = any; "file" | "recorder" | "live"
+    recipe: str = ""         # "" = any; the record's latest run's recipe
+    limit: int = 200
+    offset: int = 0
+
+
+@dataclass
+class RecordPage:
+    """One page of records plus the counts the Library shows."""
+
+    items: List["HistoryRecord"]
+    matched: int        # records matching text + filters, all pages
+    total: int          # records in the library at all
+    has_more: bool
 
 
 class HistoryStore:
@@ -798,6 +831,106 @@ class HistoryStore:
         with self._connect() as conn:
             rows = conn.execute(sql, (pattern, pattern, pattern, limit)).fetchall()
         return [HistoryRecord(r) for r in rows]
+
+    def query_records(self, query: "RecordQuery") -> "RecordPage":
+        """One page of the Library: every filter applied in SQL *before*
+        the limit (UI/UX audit 2026-10-18, UX-04 — a 200-row page used to
+        be fetched first and filtered after, so the 205th record and any
+        match past the first page were unreachable).
+
+        Browsing sorts newest first; a search ranks title matches first
+        (newest first), then full-text hits by relevance. Ties always break
+        on ``id DESC`` so pages neither repeat nor skip rows.
+        """
+        if query.text.strip() and self._fts_available:
+            try:
+                return self._query_records(query, use_fts=True)
+            except sqlite3.OperationalError as exc:
+                logger.warning("FTS5 library query failed, falling back to LIKE: %s", exc)
+        return self._query_records(query, use_fts=False)
+
+    def _query_records(self, query: "RecordQuery", *, use_fts: bool) -> "RecordPage":
+        where: list[str] = []
+        params: list[Any] = []
+        if query.source_kind:
+            where.append(f"{_KIND_SQL} = ?")
+            params.append(query.source_kind)
+        if query.recipe:
+            where.append(
+                "(SELECT r.recipe FROM job_runs r WHERE r.record_id = t.id "
+                "ORDER BY r.id DESC LIMIT 1) = ?"
+            )
+            params.append(query.recipe)
+
+        text = query.text.strip()
+        columns = (
+            "t.id, t.created_at, t.source_path, t.source_name, t.source_kind, "
+            "t.duration, t.language, t.model, t.artifacts, t.title"
+        )
+        if not text:
+            sql_from = "FROM transcripts t"
+            preview = "substr(t.json_payload, 1, 300) AS preview"
+            order = "t.created_at DESC, t.id DESC"
+            base_params: list[Any] = []
+        elif use_fts:
+            # Ids and rank only: snippet() is the expensive part, so it runs
+            # once more below for the rows of this *page*, not for every
+            # match — 10 000 matching records took ~140 ms otherwise. A
+            # title match ranks first and keeps a plain preview.
+            fts_query = _fts_query(text)
+            sql_from = """FROM (
+                    SELECT id, MIN(ord) AS ord FROM (
+                        SELECT id, -1e12 AS ord
+                        FROM transcripts WHERE title != '' AND title LIKE ?
+                        UNION ALL
+                        SELECT rowid AS id, rank AS ord
+                        FROM transcripts_fts WHERE transcripts_fts MATCH ?
+                    ) GROUP BY id
+                ) hits JOIN transcripts t ON t.id = hits.id"""
+            preview = "substr(t.json_payload, 1, 300) AS preview, hits.ord AS ord"
+            order = "hits.ord, t.created_at DESC, t.id DESC"
+            base_params = [f"%{text}%", fts_query]
+        else:
+            sql_from = "FROM transcripts t"
+            preview = "substr(t.json_payload, 1, 300) AS preview"
+            order = "t.created_at DESC, t.id DESC"
+            pattern = f"%{text}%"
+            where.insert(0, "(t.json_payload LIKE ? OR t.source_name LIKE ? OR t.title LIKE ?)")
+            params[:0] = [pattern, pattern, pattern]
+            base_params = []
+
+        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+        limit = max(1, int(query.limit))
+        offset = max(0, int(query.offset))
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"SELECT {columns}, {preview} {sql_from} {where_sql} "
+                f"ORDER BY {order} LIMIT ? OFFSET ?",
+                (*base_params, *params, limit, offset),
+            ).fetchall()
+            matched = conn.execute(
+                f"SELECT COUNT(*) {sql_from} {where_sql}", (*base_params, *params),
+            ).fetchone()[0]
+            total = conn.execute("SELECT COUNT(*) FROM transcripts").fetchone()[0]
+            snippets: dict[int, str] = {}
+            fts_rows = [r["id"] for r in rows if use_fts and text and r["ord"] > -1e11]
+            if fts_rows:
+                marks = ",".join("?" * len(fts_rows))
+                snippets = dict(conn.execute(
+                    "SELECT rowid, snippet(transcripts_fts, 1, '**', '**', '…', 20) "
+                    f"FROM transcripts_fts WHERE transcripts_fts MATCH ? AND rowid IN ({marks})",
+                    (_fts_query(text), *fts_rows),
+                ).fetchall())
+        items = []
+        for row in rows:
+            record = HistoryRecord(row)
+            if record.id in snippets:
+                record.preview = snippets[record.id]
+            items.append(record)
+        return RecordPage(
+            items=items, matched=matched, total=total,
+            has_more=offset + len(items) < matched,
+        )
 
     def count(self) -> int:
         with self._connect() as conn:
