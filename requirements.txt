@@ -24,6 +24,8 @@ python-docx>=1.0
 
 # Model downloads and configured HTTP integrations
 requests>=2.31
+# Requests streaming and HTTPS-proxy fixes (audit A13).
+urllib3>=2.8,<3
 
 # Note: sounddevice, numpy, and python-docx are guarded by try/except ImportError
 # in the code so the app can start and show a useful error rather than crashing

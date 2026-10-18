@@ -32,8 +32,9 @@ jobs:
     container: fedora:41
     env:
       QT_QPA_PLATFORM: offscreen
+      RELEASE_VERSION: ${{ inputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install system dependencies
         run: |
@@ -41,16 +42,17 @@ jobs:
             python3.11 python3.11-devel python3-pip \
             gcc gcc-c++ cmake make git tar gzip \
             libxkbcommon-x11 mesa-libEGL mesa-libGL dbus-libs \
-            fontconfig freetype glib2
+            fontconfig freetype glib2 portaudio
 
       # Fedora's python3-pip belongs to the default python3, not python3.11;
       # a venv brings pip for 3.11 (Fedora's way for alternative Pythons).
       - name: Install build dependencies
         run: |
+          python3.11 tools/check_release_version.py "$RELEASE_VERSION" --allow-dev
           python3.11 -m venv /opt/whispered-venv
           echo "/opt/whispered-venv/bin" >> "$GITHUB_PATH"
           /opt/whispered-venv/bin/python -m pip install --upgrade pip
-          /opt/whispered-venv/bin/python -m pip install -r requirements-build-linux.txt
+          /opt/whispered-venv/bin/python -m pip install -r requirements-build-linux.lock
 
       - name: Build frozen package
         run: |
@@ -78,10 +80,10 @@ jobs:
 
       - name: Package
         run: |
-          tar -C dist -czf "Whispered-${{ inputs.version }}-linux-x86_64.tar.gz" Whispered
+          tar -C dist -czf "Whispered-${RELEASE_VERSION}-linux-x86_64.tar.gz" Whispered
 
       - name: Upload package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: linux
           path: "Whispered-${{ inputs.version }}-linux-x86_64.tar.gz"

@@ -6,7 +6,6 @@ FTS5 full-text search with unicode61 tokeniser (Cyrillic-aware).
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import sqlite3
@@ -705,6 +704,7 @@ class HistoryStore:
         the record itself is gone. Returns True if the transcript row was
         removed."""
         with self._connect() as conn:
+            conn.execute("DELETE FROM job_runs WHERE record_id = ?", (record_id,))
             conn.execute("DELETE FROM artifact_texts WHERE record_id = ?", (record_id,))
             conn.execute("DELETE FROM transcript_revisions WHERE record_id = ?", (record_id,))
             conn.execute("DELETE FROM bookmarks WHERE record_id = ?", (record_id,))
@@ -714,6 +714,7 @@ class HistoryStore:
     def clear(self) -> int:
         """Delete all records. Returns the number of rows removed."""
         with self._connect() as conn:
+            conn.execute("DELETE FROM job_runs")
             cur = conn.execute("DELETE FROM transcripts")
             if self._fts_available:
                 try:
@@ -1028,16 +1029,16 @@ class HistoryStore:
         duplicating ``_result_to_payload`` and
         ``domain.artifact_provenance.transcript_revision`` itself.
 
-        ``include_speakers`` also tells versions apart by their speaker
-        labels (the text-only revision ignores them): speaker detection on
-        an existing transcript is a new version even though no word changed.
+        Versions include timing, labels and display names even when no
+        text changed. ``include_speakers`` is retained for compatibility;
+        full document revisions now always include the speaker information.
         """
         from domain.artifact_provenance import transcript_revision as _revision
 
-        revision = _revision(result.segments, result.language)
-        if include_speakers:
-            labels = "\n".join(str(seg.speaker or "") for seg in result.segments)
-            revision += "+" + hashlib.sha256(labels.encode("utf-8")).hexdigest()[:8]
+        revision = _revision(
+            result.segments, result.language,
+            speaker_names if speaker_names is not None else getattr(result, "speaker_names", {}),
+        )
         payload = _result_to_payload(result, speaker_names=speaker_names)
         return self.add_transcript_revision(record_id, revision, payload, keep=keep)
 

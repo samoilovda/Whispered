@@ -40,8 +40,8 @@ class InsightsCache:
     @staticmethod
     def key(insight_type: str, prompt: str, provider_id: str) -> str:
         """Cache key derived from exactly what determines the LLM's
-        output: which insight type, the fully-built prompt, and which
-        provider would answer it."""
+        output: insight type, full prompt and an opaque client identity
+        (provider, endpoint, model and review prompt version)."""
         return hashlib.sha256(
             f"{insight_type}\x00{provider_id}\x00{prompt}".encode("utf-8")
         ).hexdigest()

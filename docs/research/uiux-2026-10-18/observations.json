@@ -1,0 +1,149 @@
+{
+  "audit_date": "2026-10-18",
+  "timezone": "Asia/Tashkent",
+  "commit": "5224eb929fdae541a178757452c77b38252858a7",
+  "method": "Linux PyQt6 offscreen; isolated synthetic records; direct Qt handler probes; no live ASR, LLM or upload.",
+  "gallery": {
+    "exit_code": 0,
+    "states": 88,
+    "languages": [
+      "ru",
+      "en"
+    ],
+    "themes": [
+      "dark",
+      "light"
+    ],
+    "limitations": "Width-focused checks pass despite reproduced vertical clipping; no screen-reader or real-device validation."
+  },
+  "results": {
+    "start_geometry": {
+      "drop_zone": {
+        "height": 157,
+        "hint_height": 212,
+        "geometry": [
+          0,
+          0,
+          779,
+          157
+        ]
+      },
+      "icon": {
+        "height": 48,
+        "hint_height": 48,
+        "geometry": [
+          365,
+          9,
+          48,
+          48
+        ]
+      },
+      "text": {
+        "height": 23,
+        "hint_height": 32,
+        "geometry": [
+          276,
+          48,
+          227,
+          23
+        ]
+      },
+      "browse": {
+        "height": 23,
+        "hint_height": 34,
+        "geometry": [
+          324,
+          87,
+          131,
+          23
+        ]
+      },
+      "formats": {
+        "height": 22,
+        "hint_height": 32,
+        "geometry": [
+          276,
+          126,
+          227,
+          22
+        ]
+      }
+    },
+    "readiness_cloud_for_local_insights": [
+      {
+        "key": "model",
+        "state": "ok",
+        "text_key": "ready_model_ok",
+        "params": {
+          "model": "fixture"
+        }
+      },
+      {
+        "key": "ffmpeg",
+        "state": "ok",
+        "text_key": "ready_ffmpeg_ok",
+        "params": {}
+      },
+      {
+        "key": "llm",
+        "state": "ok",
+        "text_key": "ready_cloud_ok",
+        "params": {
+          "provider": "OpenAI"
+        }
+      }
+    ],
+    "selector_drop_files": [
+      "/workspace/.whispered-ux/probes/a.wav"
+    ],
+    "window_collect_drop_files": [
+      "/workspace/.whispered-ux/probes/a.wav",
+      "/workspace/.whispered-ux/probes/b.wav"
+    ],
+    "library": {
+      "stored_records": 205,
+      "listed_records": 200,
+      "oldest_present": false
+    },
+    "cut_before_switch": [
+      1
+    ],
+    "cut_after_switch": [],
+    "chat_turns_after_switch": 0,
+    "contrast": [
+      {
+        "theme": "dark",
+        "foreground": "#666666",
+        "background": "#1a1a1a",
+        "role": "text_muted",
+        "ratio": 3.03
+      },
+      {
+        "theme": "dark",
+        "foreground": "#888888",
+        "background": "#2a2a2a",
+        "role": "text_secondary",
+        "ratio": 4.05
+      },
+      {
+        "theme": "light",
+        "foreground": "#f9ab00",
+        "background": "#ffffff",
+        "role": "warning",
+        "ratio": 1.93
+      },
+      {
+        "theme": "dark",
+        "foreground": "#6366f1",
+        "background": "#2a2a2a",
+        "role": "accent",
+        "ratio": 3.21
+      }
+    ],
+    "edit_and_chat_identity": {
+      "edit_buffer_after_navigation": "00:00\nПервоначальный текст.",
+      "saved_text": "Первоначальный текст.",
+      "same_text_chat_turns": 1
+    }
+  }
+}

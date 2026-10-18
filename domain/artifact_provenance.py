@@ -11,6 +11,7 @@ YouTube, insights, and book are meant to follow the same pattern).
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -37,24 +38,34 @@ def source_fingerprint(source_path: Optional[str]) -> str:
     return hashlib.sha256(fingerprint_input.encode("utf-8")).hexdigest()[:16]
 
 
-def transcript_revision(segments: Iterable[Any], language: str = "") -> str:
-    """A stable identifier for a transcript's actual content.
+def transcript_revision(
+    segments: Iterable[Any], language: str = "", speaker_names: Optional[dict] = None,
+) -> str:
+    """Versioned identity of text, timing, labels, words and display names.
 
-    Changes whenever the text a generator would read from changes (an
-    edit, a re-transcription) — exactly what "revision" needs to mean for
-    provenance/cache purposes without the codebase having a real
-    versioning system for transcripts. Takes segments directly (not a
-    full TranscriptionResult) so callers that only ever see segments —
-    like the panels that already receive them via
-    DocumentSession/set_segments — don't need to construct one just for
-    this; each segment may be a dict (from a reloaded history record) or
-    a Segment dataclass instance (from a fresh transcription), matching
-    the duck-typing already used in core.insights_worker._build_prompt_text.
+    Canonical JSON supports both persisted dictionaries and fresh DTOs.
+    Numeric times are normalized so reloading does not create a new version.
     """
+    def value(item: Any, name: str, default: Any = None) -> Any:
+        return item.get(name, default) if isinstance(item, dict) else getattr(item, name, default)
+
     parts = []
     for seg in segments:
-        text = seg.get("text") if isinstance(seg, dict) else getattr(seg, "text", "")
-        parts.append(text or "")
-    digest = hashlib.sha256("\n".join(parts).encode("utf-8"))
-    digest.update(language.encode("utf-8"))
-    return digest.hexdigest()[:16]
+        parts.append({
+            "text": value(seg, "text", "") or "",
+            "start": float(value(seg, "start", 0) or 0),
+            "end": float(value(seg, "end", 0) or 0),
+            "speaker": value(seg, "speaker") or "",
+            "words": [
+                {"start": float(value(word, "start", 0) or 0),
+                 "end": float(value(word, "end", 0) or 0),
+                 "text": value(word, "text", "") or ""}
+                for word in value(seg, "words", []) or []
+            ],
+        })
+    payload = json.dumps(
+        {"segments": parts, "language": language, "speaker_names": speaker_names or {}},
+        ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    )
+    # The prefix deliberately invalidates text-only keys from older builds.
+    return "v2:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]

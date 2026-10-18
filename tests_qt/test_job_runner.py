@@ -76,7 +76,7 @@ def test_cancel_mid_run_marks_unresolved_dependents_cancelled(process_events):
         assert started.wait(2)
         runner.cancel()
         # "a"'s runner is already in flight — cancellation is cooperative,
-        # so it still completes once released; "b" was never ready to
+        # so it exits once released, but its outcome is cancelled; "b" was never ready to
         # start (its dependency hadn't resolved) and must come back
         # CANCELLED rather than running at all.
         release.set()
@@ -85,7 +85,7 @@ def test_cancel_mid_run_marks_unresolved_dependents_cancelled(process_events):
 
         assert len(finished) == 1
         run = finished[0]
-        assert run.outcomes["a"].status == StepStatus.SUCCEEDED
+        assert run.outcomes["a"].status == StepStatus.CANCELLED
         assert run.outcomes["b"].status == StepStatus.CANCELLED
     finally:
         release.set()

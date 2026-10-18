@@ -83,6 +83,9 @@ class _CountingLMStudioClient:
         type(self).last_kwargs = kwargs
         return '[{"start": 0, "title": "Intro"}]'
 
+    def get_loaded_model(self, timeout=2):
+        return "test-model"
+
 
 @pytest.fixture(autouse=True)
 def _stub_lm_client(monkeypatch):
@@ -192,13 +195,13 @@ def test_cancelled_result_is_not_cached():
     worker.finished.connect(lambda t, data: results.append(data))
     worker._execute()
     assert results == [[]]
-    assert _CountingLMStudioClient.call_count == 1  # the cancelled run's own call
+    assert _CountingLMStudioClient.call_count == 0  # cancelled before any HTTP operation
 
     # A fresh worker for the same inputs must still hit the LLM for real —
     # proving the cancelled run's "[]" was not cached as if it were the
     # actual chapters result.
     InsightsWorker("chapters", _segments(), "http://localhost:1234/v1", cache=cache)._execute()
-    assert _CountingLMStudioClient.call_count == 2
+    assert _CountingLMStudioClient.call_count == 1
 
 
 def test_local_insights_turn_model_reasoning_off():

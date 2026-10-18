@@ -79,6 +79,9 @@ def test_second_run_click_on_the_same_input_skips_and_reuses_the_artifact(
     """B1 cache-skip: a second "Run" click with an unchanged transcript
     and params must not call BookPipeline.process() at all — it should
     read book.md straight off disk via application/steps.py::_book_load()."""
+
+    # A cache hit requires an identified model, not an unknown auto backend.
+    monkeypatch.setattr("core.lm_client.LMStudioClient.get_loaded_model", lambda self, timeout=2: "test-model")
     from domain.job import StepStatus
 
     monkeypatch.setattr("book_pipeline.BookPipeline", _FakeBookPipeline)

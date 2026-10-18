@@ -126,6 +126,65 @@ def test_metadata_has_snippet_status_and_language():
     assert "defaultLanguage" not in up.build_metadata(_pkg(Path("x.mp4"), language="Russian"))["snippet"]
 
 
+@pytest.mark.parametrize("changed", [
+    {"title": "New title"}, {"description": "New description"}, {"tags": ("new",)},
+    {"privacy": "unlisted"}, {"language": "en"}, {"category_id": "27"}, {"made_for_kids": True},
+])
+def test_changed_pending_package_requires_explicit_restart(video, tmp_path, changed):
+    pending, record = _paths(tmp_path)
+    up.save_pending(pending, video, SESSION_URI, "T", pkg=_pkg(video))
+    session = _Session(_Server(video.stat().st_size))
+    client, _ = _client(session)
+    with pytest.raises(up.UploadPackageChanged):
+        client.publish(_pkg(video, **changed), pending_path=pending, record_path=record)
+    assert session.calls == []
+    assert pending.exists()
+    assert not record.exists()
+
+
+def test_legacy_pending_session_cannot_claim_current_privacy(video, tmp_path):
+    pending, record = _paths(tmp_path)
+    up.save_pending(pending, video, SESSION_URI, "T")
+    client, _ = _client(_Session(_Server(video.stat().st_size)))
+    with pytest.raises(up.UploadPackageChanged):
+        client.publish(_pkg(video), pending_path=pending, record_path=record)
+    assert not record.exists()
+
+
+def test_changed_cover_and_subsecond_video_change_require_restart(video, tmp_path):
+    import os
+
+    pending, _ = _paths(tmp_path)
+    cover = tmp_path / "cover.png"
+    cover.write_bytes(b"original")
+    pkg = _pkg(video, thumbnail_path=cover)
+    up.save_pending(pending, video, SESSION_URI, "T", pkg=pkg)
+    cover.write_bytes(b"different")
+    with pytest.raises(up.UploadPackageChanged):
+        up.load_pending(pending, video, pkg=pkg)
+    up.save_pending(pending, video, SESSION_URI, "T", pkg=pkg)
+    stat = video.stat()
+    os.utime(video, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1))
+    with pytest.raises(up.UploadPackageChanged):
+        up.load_pending(pending, video, pkg=pkg)
+
+
+def test_server_visibility_mismatch_is_not_saved_as_success(video, tmp_path):
+    server = _Server(video.stat().st_size)
+
+    def handler(method, url, headers, data, params):
+        response = server(method, url, headers, data, params)
+        if response.status_code == 200 and url == SESSION_URI:
+            return _Response(200, {"id": "vid123", "status": {"privacyStatus": "unlisted"}})
+        return response
+
+    client, _ = _client(_Session(handler))
+    pending, record = _paths(tmp_path)
+    with pytest.raises(up.YouTubeUploadError, match="visibility"):
+        client.publish(_pkg(video), pending_path=pending, record_path=record)
+    assert not record.exists()
+
+
 def test_full_upload_over_several_chunks(video, tmp_path):
     server = _Server(video.stat().st_size)
     session = _Session(server)
@@ -238,7 +297,7 @@ def test_cancel_between_chunks_keeps_the_pending_session(video, tmp_path):
 def test_interrupted_upload_continues_from_the_pending_session(video, tmp_path):
     server = _Server(video.stat().st_size)
     pending, _rec = _paths(tmp_path)
-    up.save_pending(pending, video, SESSION_URI, "T")
+    up.save_pending(pending, video, SESSION_URI, "T", pkg=_pkg(video))
     server.received = 4096                            # what the first run got through
     session = _Session(server)
     client, _ = _client(session)
@@ -257,7 +316,7 @@ def test_expired_pending_session_starts_over(video, tmp_path):
         return server(method, url, headers, data, params)
 
     pending, _rec = _paths(tmp_path)
-    up.save_pending(pending, video, "https://upload.example/old", "T")
+    up.save_pending(pending, video, "https://upload.example/old", "T", pkg=_pkg(video))
     client, _ = _client(_Session(handler))
     assert client.upload_video(_pkg(video), pending_path=pending) == "vid123"
     assert state and up.load_pending(pending, video) == SESSION_URI
@@ -265,7 +324,7 @@ def test_expired_pending_session_starts_over(video, tmp_path):
 
 def test_pending_for_a_changed_file_is_ignored(video, tmp_path):
     pending, _rec = _paths(tmp_path)
-    up.save_pending(pending, video, SESSION_URI, "T")
+    up.save_pending(pending, video, SESSION_URI, "T", pkg=_pkg(video))
     video.write_bytes(b"different size")
     assert up.load_pending(pending, video) is None
 
@@ -274,7 +333,7 @@ def test_session_already_complete_returns_without_resending(video, tmp_path):
     server = _Server(video.stat().st_size)
     server.received = video.stat().st_size
     pending, _rec = _paths(tmp_path)
-    up.save_pending(pending, video, SESSION_URI, "T")
+    up.save_pending(pending, video, SESSION_URI, "T", pkg=_pkg(video))
     session = _Session(server)
     client, _ = _client(session)
     assert client.upload_video(_pkg(video), pending_path=pending) == "vid123"

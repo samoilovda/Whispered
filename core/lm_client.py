@@ -14,6 +14,7 @@ import threading
 from typing import Optional, Callable
 
 from core.logger import get_logger
+from core.http_stream import CancellableHTTPStream
 
 logger = get_logger(__name__)
 
@@ -325,15 +326,14 @@ class LMStudioClient:
         finish_reason: Optional[str] = None
         deadline = started + timeout
         lines: queue.Queue = queue.Queue()
-        # Holds the live response so cancellation can close it and unblock
-        # the reader, which is otherwise parked in a blocking recv.
-        response_box: list = []
+        # Interrupt sockets without waiting on a buffered response lock;
+        # the reader remains the sole owner of response.close().
+        transport = CancellableHTTPStream()
         stop = threading.Event()
 
         def _read_stream() -> None:
             try:
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
-                    response_box.append(resp)
+                with transport.open(req, timeout=timeout) as resp:
                     for raw_line in resp:
                         if stop.is_set():
                             break
@@ -405,9 +405,5 @@ class LMStudioClient:
             # Tear the request down so an abandoned generation stops
             # occupying the server before the completion slot is released.
             stop.set()
-            for resp in response_box:
-                try:
-                    resp.close()
-                except OSError as exc:
-                    logger.debug("Closing the LM Studio stream failed: %s", exc)
+            transport.abort()
             reader.join(timeout=_STREAM_POLL_S)

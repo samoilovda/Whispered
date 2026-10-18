@@ -174,6 +174,7 @@ class BookPipeline:
     def __init__(self) -> None:
         cfg = get_config()
         self._client = LMStudioClient(base_url=cfg.book_lm_url)
+        self._client._model = cfg.book_model_name
         self._temperature = cfg.book_temperature
 
     @property

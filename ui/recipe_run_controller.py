@@ -30,6 +30,7 @@ from application.steps import (
     llm_params,
     load_step_result,
     manifest_path_for_step,
+    prepare_resumed_run,
     summarize_run,
 )
 from config import get_config
@@ -205,6 +206,7 @@ class RecipeRunController:
         self._step_names = step_names
         self._context = self._build_context(result, record_id, run)
         self._run_id = stored.id
+        prepare_resumed_run(run, self._context)
         self.record_id = record_id
         host.run_view.bind_run(run)
         name = recipe_label(recipe)
@@ -344,12 +346,14 @@ class RecipeRunController:
         unchanged inputs is the one case only this manual action covers)."""
         if self._context is None or self.job_run is None or self.is_running():
             return
-        manifest = manifest_path_for_step(self._context, name)
-        if manifest is not None and manifest.exists():
-            try:
-                manifest.unlink()
-            except OSError as exc:
-                logger.warning("Failed to delete manifest for regenerate (%s): %s", name, exc)
+        names = {name} | self.job_run.dependents(name) if self.job_run is not None else {name}
+        for step_name in names:
+            manifest = manifest_path_for_step(self._context, step_name)
+            if manifest is not None and manifest.exists():
+                try:
+                    manifest.unlink()
+                except OSError as exc:
+                    logger.warning("Failed to delete manifest for regenerate (%s): %s", step_name, exc)
         if self.job_run.is_cancelled():
             self.job_run = self._run_after_cancel(self.job_run, self._context)
         self._save("running")

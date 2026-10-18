@@ -290,6 +290,7 @@ def generate_insight(
     lm_url: str,
     language: Optional[str] = None,
     provider: Optional["ProviderSettings"] = None,
+    model: str = "",
     cache: Optional[InsightsCache] = None,
     is_cancelled: Callable[[], bool] = lambda: False,
     max_transcript_chars: Optional[int] = None,
@@ -327,6 +328,8 @@ def generate_insight(
     """
     if insight_type not in _INSIGHT_TYPES:
         raise ValueError(f"Unknown insight type: {insight_type}")
+    if is_cancelled():
+        return []
 
     if max_transcript_chars is None:
         from config import get_config
@@ -339,8 +342,29 @@ def generate_insight(
         notes=notes, style_examples=style_examples,
     )
 
-    provider_id = provider.kind if provider else "lmstudio"
-    cache_key = cache.key(insight_type, prompt, provider_id) if cache else None
+    if provider:
+        from core.ai_provider import create_client
+        client = create_client(provider)
+    else:
+        from core.lm_client import LMStudioClient
+        client = LMStudioClient(lm_url)
+
+    selected_model = getattr(provider, "model", "") if provider else model
+    if not selected_model:
+        probe = getattr(client, "get_loaded_model", None)
+        selected_model = probe(timeout=2) if callable(probe) else ""
+    selected_model = selected_model if isinstance(selected_model, str) else ""
+    if selected_model:
+        client._model = selected_model
+    from core.prompts import prompt_version
+
+    identity = json.dumps({
+        "provider": provider.kind if provider else "lmstudio",
+        "endpoint": (getattr(provider, "base_url", "") if provider else lm_url).rstrip("/"),
+        "model": selected_model,
+        "review": prompt_version(f"{insight_type}_review") if insight_type in _REVIEWED_TYPES else "",
+    }, sort_keys=True)
+    cache_key = cache.key(insight_type, prompt, identity) if cache and selected_model else None
     if cache is not None and cache_key is not None:
         cached = cache.get(cache_key)
         if cached is not None:
@@ -349,13 +373,6 @@ def generate_insight(
             # both wanted "chapters") — reuse it instead of a second
             # LLM round-trip for output that would be identical anyway.
             return cached
-
-    if provider:
-        from core.ai_provider import create_client
-        client = create_client(provider)
-    else:
-        from core.lm_client import LMStudioClient
-        client = LMStudioClient(lm_url)
 
     messages = [{"role": "user", "content": prompt}]
     # Only LM Studio understands reasoning_effort="none"; the Anthropic
@@ -399,6 +416,8 @@ def generate_insight(
             timeout=_STREAM_TIMEOUT_S,
             **extra,
         )
+        if is_cancelled():
+            return []
         if raw2:
             result = _parse_json_response(raw2)
         if result is None:
@@ -416,6 +435,8 @@ def generate_insight(
     if insight_type == "yt_titles":
         result = _drop_unsaid_numbers(result, segments)
 
+    if is_cancelled():
+        return []
     if cache is not None and cache_key is not None:
         cache.put(cache_key, result)
     return result

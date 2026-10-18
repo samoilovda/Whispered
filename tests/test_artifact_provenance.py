@@ -74,3 +74,12 @@ def test_works_with_dict_segments():
 def test_empty_segments_does_not_raise():
     result = transcript_revision([], "en")
     assert isinstance(result, str) and result
+
+
+def test_reloaded_word_timings_have_the_same_revision():
+    from domain.transcription import Segment, Word
+
+    fresh = [Segment(0, 2, "word", words=[Word(0, 1, "word")])]
+    loaded = [{"start": 0.0, "end": 2.0, "text": "word",
+               "words": [{"start": 0.0, "end": 1.0, "text": "word"}]}]
+    assert transcript_revision(fresh, "en") == transcript_revision(loaded, "en")
