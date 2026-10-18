@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
 
 from config import get_config, save_config
 from core.i18n import tr
+from ui.theme import set_role
 from ui.i18n_helpers import Retranslator
 from domain.export_preset import BUILTIN_EXPORT_PRESETS
 from exporters import EXPORT_FORMATS
@@ -305,6 +306,7 @@ class RecordView(QWidget):
         self.reveal_action.setEnabled(has_record)
         self.delete_action.setEnabled(has_record)
         self._saved_at = None
+        self._save_state = "saved"
         self._refresh_save_label()
 
     def mark_saved(self) -> None:
@@ -312,13 +314,35 @@ class RecordView(QWidget):
         from datetime import datetime
 
         self._saved_at = datetime.now().strftime("%H:%M:%S")
+        self._save_state = "saved"
+        self._refresh_save_label()
+
+    def mark_save_failed(self) -> None:
+        """The last edit could not be written (UX-05) — say so instead of
+        keeping an old "Saved" label up."""
+        self._save_state = "failed"
+        self._refresh_save_label()
+
+    def mark_draft_saved(self) -> None:
+        """An uncommitted edit was autosaved as a draft — not a saved edit."""
+        from datetime import datetime
+
+        self._draft_at = datetime.now().strftime("%H:%M:%S")
+        self._save_state = "draft"
         self._refresh_save_label()
 
     def _refresh_save_label(self) -> None:
         if not self._has_result:
             self.save_label.setVisible(False)
             return
-        if self._has_record:
+        state = getattr(self, "_save_state", "saved")
+        if self._has_record and state == "failed":
+            text = tr("record_save_failed")
+            tip = tr("record_save_failed_tooltip")
+        elif self._has_record and state == "draft":
+            text = tr("record_draft_saved", time=getattr(self, "_draft_at", ""))
+            tip = tr("record_draft_saved_tooltip")
+        elif self._has_record:
             text = (
                 tr("record_saved_at", time=self._saved_at)
                 if self._saved_at else tr("record_saved")
@@ -329,6 +353,10 @@ class RecordView(QWidget):
             tip = tr("record_unsaved_tooltip")
         self.save_label.setText(text)
         self.save_label.setToolTip(tip)
+        # Text says it too ("✕ Not saved"); colour is never the only signal.
+        failed = self._has_record and state == "failed"
+        if self.save_label.property("role") != ("danger-text" if failed else "muted"):
+            set_role(self.save_label, "danger-text" if failed else "muted")
         self.save_label.setVisible(True)
 
     def set_has_result(self, has_result: bool) -> None:

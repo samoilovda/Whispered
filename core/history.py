@@ -171,6 +171,22 @@ def _v9_add_bookmarks(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _v10_add_transcript_drafts(conn: sqlite3.Connection) -> None:
+    """The transcript editor's unsaved buffer, per record (UI/UX audit
+    2026-10-18, UX-05): autosaved while editing, deleted once the edit is
+    committed or cancelled. Kept apart from the accepted transcript and
+    its versions — a recovered draft is offered as a draft, never shown as
+    if it had been saved. ``base_revision`` is the transcript revision the
+    buffer was made from."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS transcript_drafts (
+            record_id      INTEGER PRIMARY KEY,
+            base_revision  TEXT    NOT NULL DEFAULT '',
+            buffer         TEXT    NOT NULL,
+            schema_version INTEGER NOT NULL DEFAULT 1,
+            updated_at     TEXT    NOT NULL
+        );
+    """)
 # Applied in order, tracked via SQLite's built-in `PRAGMA user_version`
 # (see HistoryStore._migrate). Append new migrations here — never edit or
 # reorder an existing one, since a database's user_version records exactly
@@ -185,7 +201,11 @@ _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _v7_add_transcript_revisions,
     _v8_add_record_title,
     _v9_add_bookmarks,
+    _v10_add_transcript_drafts,
 )
+
+# A transcript_drafts row this code understands; a newer one is left alone.
+DRAFT_SCHEMA_VERSION = 1
 
 # FTS5 schema — created separately so failures (no FTS5 compile) are handled gracefully.
 _CREATE_FTS_SQL = """
@@ -440,6 +460,8 @@ class HistoryStore:
         """
         with self._connect() as conn:
             current_version = conn.execute("PRAGMA user_version").fetchone()[0]
+            if 0 < current_version < len(_MIGRATIONS):
+                self._backup_before_migration(conn, current_version)
             for version, migrate in enumerate(_MIGRATIONS, start=1):
                 if version <= current_version:
                     continue
@@ -455,6 +477,25 @@ class HistoryStore:
                 # PRAGMA does not accept bound parameters; `version` is our
                 # own loop counter, never external input.
                 conn.execute(f"PRAGMA user_version = {version}")
+
+    def _backup_before_migration(self, conn: sqlite3.Connection, version: int) -> None:
+        """Copy the database aside before an existing one's schema changes
+        (``history.sqlite3.v<N>.bak``, one per schema version upgraded
+        from). A failed backup is logged and the upgrade goes ahead — the
+        migrations only add tables/columns."""
+        target = self._db_path.with_name(f"{self._db_path.name}.v{version}.bak")
+        if target.exists():
+            return
+        try:
+            backup = sqlite3.connect(str(target))
+            try:
+                conn.backup(backup)
+            finally:
+                backup.close()
+            if os.name != "nt":
+                target.chmod(0o600)
+        except (sqlite3.Error, OSError) as exc:
+            logger.warning("Could not back up history before migration: %s", exc)
 
     def _init_fts(self) -> None:
         """Create both FTS5 indexes if needed; set _fts_available /
@@ -741,6 +782,7 @@ class HistoryStore:
             conn.execute("DELETE FROM artifact_texts WHERE record_id = ?", (record_id,))
             conn.execute("DELETE FROM transcript_revisions WHERE record_id = ?", (record_id,))
             conn.execute("DELETE FROM bookmarks WHERE record_id = ?", (record_id,))
+            conn.execute("DELETE FROM transcript_drafts WHERE record_id = ?", (record_id,))
             cur = conn.execute("DELETE FROM transcripts WHERE id = ?", (record_id,))
             return cur.rowcount > 0
 
@@ -769,6 +811,7 @@ class HistoryStore:
                     )
             conn.execute("DELETE FROM transcript_revisions")
             conn.execute("DELETE FROM bookmarks")
+            conn.execute("DELETE FROM transcript_drafts")
             return cur.rowcount
 
     def search(self, text: str, limit: int = 100) -> List[HistoryRecord]:
@@ -1015,6 +1058,48 @@ class HistoryStore:
         with self._connect() as conn:
             rows = conn.execute(sql, (pattern, limit)).fetchall()
         return [ArtifactSearchResult(r) for r in rows]
+
+    # ------------------------------------------------------------------ editor drafts (UX-05)
+
+    def save_draft(self, record_id: int, buffer: str, base_revision: str = "") -> None:
+        """Upsert the editor's unsaved *buffer* for *record_id*."""
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT INTO transcript_drafts
+                       (record_id, base_revision, buffer, schema_version, updated_at)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(record_id) DO UPDATE SET
+                       base_revision = excluded.base_revision,
+                       buffer = excluded.buffer,
+                       schema_version = excluded.schema_version,
+                       updated_at = excluded.updated_at""",
+                (record_id, base_revision, buffer, DRAFT_SCHEMA_VERSION, now),
+            )
+
+    def get_draft(self, record_id: int) -> Optional[dict[str, Any]]:
+        """The stored draft for *record_id* (``buffer``, ``base_revision``,
+        ``updated_at``, ``supported``), or ``None``. A draft written by a
+        newer schema is returned with ``supported=False`` — shown as such,
+        never overwritten with an empty one."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT buffer, base_revision, schema_version, updated_at "
+                "FROM transcript_drafts WHERE record_id = ?",
+                (record_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "buffer": row["buffer"],
+            "base_revision": row["base_revision"],
+            "updated_at": row["updated_at"],
+            "supported": int(row["schema_version"]) <= DRAFT_SCHEMA_VERSION,
+        }
+
+    def delete_draft(self, record_id: int) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM transcript_drafts WHERE record_id = ?", (record_id,))
 
     # ------------------------------------------------------------------ bookmarks (R3)
 

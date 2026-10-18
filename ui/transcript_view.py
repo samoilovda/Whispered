@@ -14,7 +14,6 @@ segment in a monospace font, parsed back into segments on save.
 """
 
 import bisect
-import re
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -22,7 +21,7 @@ from typing import Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTextEdit, QLabel, QHBoxLayout,
     QPushButton, QLineEdit, QComboBox, QDialog, QFormLayout,
-    QDialogButtonBox, QMenu, QApplication,
+    QDialogButtonBox, QMenu, QApplication, QMessageBox,
 )
 from PyQt6.QtCore import QEvent, QObject, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
@@ -33,7 +32,10 @@ from PyQt6.QtGui import (
 from domain.paragraphs import group_paragraphs
 from domain.transcription import LOW_CONFIDENCE
 from transcriber import TranscriptionResult
-from utils import format_duration, format_timestamp_vtt
+from utils import format_duration
+from domain.transcript_edit import (
+    EditParse, parse_edit_buffer, render_edit_buffer, same_segments,
+)
 from ui.components import FlowLayout
 from ui.icons import get_icon, IconColors
 from ui.theme import SPEAKER_PALETTE, get_theme
@@ -50,10 +52,6 @@ SPEAKER_COLORS = {
 }
 
 # Pattern used when rendering for edit mode: "[HH:MM:SS.mmm] [SpeakerId] text"
-_EDIT_LINE_RE = re.compile(
-    r"^\[(\d{2}:\d{2}:\d{2}\.\d{3})\](?:\s*\[([^\]]*)\])?\s*(.*)"
-)
-
 # Reading measure: lines longer than this are hard to track back to their
 # start; the text column centres in a wider viewport instead.
 _READING_WIDTH = 760
@@ -63,14 +61,9 @@ _FIND_HIGHLIGHT_CAP = 2000
 _BOOKMARK_COLOR = "#f59e0b"
 
 
-def _parse_vtt_to_seconds(ts: str) -> float:
-    """Parse HH:MM:SS.mmm → float seconds."""
-    try:
-        h, m, rest = ts.split(":")
-        s, ms = rest.split(".")
-        return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
-    except ValueError:  # also a wrong number of ":"/"." parts
-        return 0.0
+def edit_error_text(outcome: EditParse) -> str:
+    """The localized reason an edit buffer can't be saved."""
+    return tr(f"edit_error_{outcome.error}", line=outcome.line)
 
 
 @dataclass(frozen=True)
@@ -169,6 +162,11 @@ class TranscriptView(QWidget):
     chapter_requested = pyqtSignal(float, str)
     # R5: cut (True) or keep (False) these segment indices in the edit.
     cut_requested = pyqtSignal(list, bool)
+    # The edit buffer (UX-05): changed while editing — the window autosaves
+    # it as a draft — and finished (committed or cancelled), when the draft
+    # is no longer needed.
+    edit_buffer_changed = pyqtSignal()
+    edit_finished = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -184,6 +182,9 @@ class TranscriptView(QWidget):
             self._show_timestamps = True
             self._show_speakers = True
         self._edit_mode = False
+        # The buffer as it was when editing started — "dirty" means the
+        # text differs from it.
+        self._edit_base_text = ""
         # speaker_id → display name (e.g. {"Speaker 1": "Alice"})
         self._speaker_names: dict[str, str] = {}
         # Reading-document spans, sorted by position: every segment's text
@@ -460,6 +461,11 @@ class TranscriptView(QWidget):
     # ------------------------------------------------------------------ public API
 
     def set_result(self, result: TranscriptionResult):
+        # A pending edit belongs to the previous result: the window commits
+        # it first (MainWindow._prepare_leave); anything still open here is
+        # dropped rather than parsed into the new result.
+        if self._edit_mode:
+            self._exit_edit_mode(save=False)
         self._result = result
         # Seed speaker names, honouring any names already on the result
         # (e.g. restored from history); default to identity mapping.
@@ -739,11 +745,18 @@ class TranscriptView(QWidget):
         if checked:
             self._enter_edit_mode()
         else:
-            self._exit_edit_mode(save=True)
+            self._save_from_button()
 
     def _save_edit_shortcut(self) -> None:
         if self._edit_mode:
-            self._exit_edit_mode(save=True)
+            self._save_from_button()
+
+    def _save_from_button(self) -> None:
+        """"Save changes": commit, or stay in the editor and say why not."""
+        outcome = self.commit_pending_edit()
+        if outcome is not None and not outcome.ok:
+            self.edit_btn.setChecked(True)
+            QMessageBox.warning(self, tr("edit_error_title"), edit_error_text(outcome))
 
     def _refresh_edit_buttons(self) -> None:
         editing = self._edit_mode
@@ -751,6 +764,60 @@ class TranscriptView(QWidget):
         self.edit_btn.setToolTip(tr("btn_edit_save_tip") if editing else "")
         self.cancel_edit_btn.setText(tr("btn_cancel"))
         self.cancel_edit_btn.setVisible(editing)
+
+    # Public edit API (UX-05) — what MainWindow's transition guard uses.
+
+    def is_editing(self) -> bool:
+        return self._edit_mode
+
+    def has_pending_edit(self) -> bool:
+        """Editing, and the buffer differs from what editing started with."""
+        return self._edit_mode and self.text_edit.toPlainText() != self._edit_base_text
+
+    def edit_buffer(self) -> str:
+        return self.text_edit.toPlainText() if self._edit_mode else ""
+
+    def restore_draft(self, buffer: str) -> None:
+        """Re-open the editor on a recovered draft *buffer* — shown as an
+        uncommitted edit (Save / Cancel), never as the accepted text."""
+        if not self._result:
+            return
+        self._enter_edit_mode()
+        self.text_edit.setPlainText(buffer)
+
+    def commit_pending_edit(self) -> Optional[EditParse]:
+        """Validate the buffer and, if valid, apply it and leave the editor.
+
+        Returns ``None`` when not editing; otherwise the parse — on an
+        error the buffer and edit mode are kept untouched (nothing is
+        "fixed" silently, nothing is half-applied). A no-op edit changes
+        nothing and emits nothing, so it creates no version."""
+        if not self._edit_mode:
+            return None
+        if self._result is None:
+            self._exit_edit_mode(save=False)
+            return None
+        outcome = parse_edit_buffer(
+            self.text_edit.toPlainText(), self._result.segments,
+            getattr(self._result, "duration", 0.0),
+        )
+        if not outcome.ok:
+            return outcome
+        changed = not same_segments(self._result.segments, outcome.segments)
+        if changed:
+            # full_text is a property over segments, so export/AI/copy follow.
+            self._result.segments = outcome.segments
+            # Keep display names for speaker ids that still exist; new ids
+            # typed in the editor get identity names.
+            existing = dict(self._speaker_names)
+            new_ids = {seg.speaker for seg in self._result.segments if seg.speaker}
+            self._speaker_names = {sid: existing.get(sid, sid) for sid in sorted(new_ids)}
+            self._result.speaker_names = dict(self._speaker_names)
+        self._leave_edit_mode()
+        if changed:
+            self.result_changed.emit("structure")
+            self._render_stats()
+        return outcome
 
     def _enter_edit_mode(self):
         self._edit_mode = True
@@ -763,15 +830,6 @@ class TranscriptView(QWidget):
         if not self._result:
             return
 
-        # Render one line per segment in editable format
-        lines = []
-        for seg in self._result.segments:
-            ts = format_timestamp_vtt(seg.start)
-            if seg.speaker:
-                lines.append(f"[{ts}] [{seg.speaker}] {seg.text.strip()}")
-            else:
-                lines.append(f"[{ts}] {seg.text.strip()}")
-
         self._clear_spans()
         self.text_edit.setExtraSelections([])
         doc = QTextDocument(self.text_edit)
@@ -779,105 +837,31 @@ class TranscriptView(QWidget):
         mono.setStyleHint(QFont.StyleHint.Monospace)
         mono.setPointSize(11)
         doc.setDefaultFont(mono)
-        doc.setPlainText('\n'.join(lines))
+        self._edit_base_text = render_edit_buffer(self._result.segments)
+        doc.setPlainText(self._edit_base_text)
         self.text_edit.setDocument(doc)
         self.text_edit.setReadOnly(False)
+        doc.contentsChanged.connect(self.edit_buffer_changed.emit)
 
     def _exit_edit_mode(self, save: bool = True):
+        """Leave the editor: *save* commits (staying put on an invalid
+        buffer, see commit_pending_edit), otherwise the buffer is dropped."""
+        if save:
+            self._save_from_button()
+            return
+        self._leave_edit_mode()
+
+    def _leave_edit_mode(self) -> None:
+        was_editing = self._edit_mode
         self._edit_mode = False
+        self._edit_base_text = ""
         self.edit_btn.setChecked(False)
         self._refresh_edit_buttons()
         self.stats_bar.setVisible(False)
         self.text_edit.setReadOnly(True)
-
-        if save and self._result:
-            changed = self._parse_edited_text()
-            # Re-sync _speaker_names: keep existing display names where the
-            # speaker id still exists; add identity entries for any new ids
-            # the user may have typed in edit mode.
-            existing = dict(self._speaker_names)
-            new_ids = {seg.speaker for seg in self._result.segments if seg.speaker}
-            self._speaker_names = {sid: existing.get(sid, sid) for sid in sorted(new_ids)}
-            if self._result is not None:
-                self._result.speaker_names = dict(self._speaker_names)
-            if changed:
-                self.result_changed.emit("structure")
-                self._render_stats()
-
         self._update_display()
-
-    def _parse_edited_text(self) -> bool:
-        """Parse edited plaintext back into a fresh segment list.
-
-        Rebuilding (rather than mutating in place) keeps the result consistent
-        when the user adds, removes or splits lines: deleted lines drop their
-        segments and split lines create new ones, with no stale leftovers.
-        """
-        from transcriber import Segment
-
-        lines = self.text_edit.toPlainText().splitlines()
-        # Collect (start, speaker, [text parts]) per timestamped line.
-        parsed: list[list] = []
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            m = _EDIT_LINE_RE.match(line)
-            if m:
-                parsed.append([
-                    _parse_vtt_to_seconds(m.group(1)),
-                    m.group(2) or None,
-                    [m.group(3)],
-                ])
-            elif parsed:
-                # continuation of the previous segment
-                parsed[-1][2].append(line)
-            # else: stray text before any timestamp → ignored
-
-        if not parsed:
-            return False
-
-        if self._result is None:
-            return False
-
-        orig = self._result.segments
-        new_segments: list = []
-        for i, (start, speaker, text_parts) in enumerate(parsed):
-            text = ' '.join(text_parts).strip()
-            original = orig[i] if i < len(orig) else None
-            # A pure text edit must not discard timing data collected by the
-            # transcriber.  Structural edits take the deterministic branch
-            # below and use explicit timestamps from the editor.
-            if (original is not None and original.start == start
-                    and original.speaker == speaker):
-                new_segments.append(Segment(
-                    start=original.start,
-                    end=original.end,
-                    text=text,
-                    speaker=original.speaker,
-                    words=list(original.words),
-                    # A corrected segment is no longer "uncertain" (R6);
-                    # an untouched one keeps its confidence.
-                    confidence=original.confidence if text == original.text.strip() else None,
-                ))
-                continue
-            # End time: next segment's start, else preserve original / duration.
-            if i + 1 < len(parsed):
-                end = max(parsed[i + 1][0], start)
-            elif i < len(orig):
-                end = max(orig[i].end, start)
-            else:
-                end = max(getattr(self._result, "duration", start), start)
-            new_segments.append(Segment(
-                start=start,
-                end=end,
-                text=text,
-                speaker=speaker,
-            ))
-
-        # full_text is a property over segments, so export/AI/copy auto-update.
-        self._result.segments = new_segments
-        return True
+        if was_editing:
+            self.edit_finished.emit()
 
     # ------------------------------------------------------------------ speakers
 
@@ -972,9 +956,8 @@ class TranscriptView(QWidget):
         if self._edit_mode:
             cursor = self.text_edit.textCursor()
             if cursor.hasSelection() and cursor.selectedText() == query:
+                # The buffer only: it is committed with the rest of the edit.
                 cursor.insertText(replacement)
-                if self._parse_edited_text():
-                    self.result_changed.emit("text")
             self._run_find(keep_position=True)
             return
         if not self._result:
@@ -1003,9 +986,11 @@ class TranscriptView(QWidget):
             text = self.text_edit.toPlainText()
             count = text.count(query)
             if count:
-                self.text_edit.setPlainText(text.replace(query, replacement))
-                if self._parse_edited_text():
-                    self.result_changed.emit("text")
+                # Through a cursor, not setPlainText(): the document (and its
+                # draft autosave connection) stays the same.
+                cursor = QTextCursor(self.text_edit.document())
+                cursor.select(QTextCursor.SelectionType.Document)
+                cursor.insertText(text.replace(query, replacement))
             self._find_count.setText(tr("find_replaced", count=count))
             return
         count = sum(segment.text.count(query) for segment in self._result.segments)

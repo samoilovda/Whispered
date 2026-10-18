@@ -334,6 +334,19 @@ class MainWindow(QMainWindow):
         self._revision_save_timer.setSingleShot(True)
         self._revision_save_timer.setInterval(5000)
         self._revision_save_timer.timeout.connect(self._save_transcript_revision)
+        # The record the pending version belongs to, captured when the
+        # timer starts: a version must never be written for whichever record
+        # happens to be open when it fires (UX-05).
+        self._revision_record_id: int | None = None
+        # Editor draft autosave (UX-05): the buffer of an uncommitted edit,
+        # kept apart from the accepted transcript. Captures its record too.
+        self._draft_timer = QTimer(self)
+        self._draft_timer.setSingleShot(True)
+        self._draft_timer.setInterval(1500)
+        self._draft_timer.timeout.connect(self._save_edit_draft)
+        self._draft_record_id: int | None = None
+        # Whether the last transcript edit reached the library.
+        self._last_persist_ok = True
         self._setup_ui()
         on_language_changed(self._retranslate)
         self._document_session = DocumentSession()
@@ -394,6 +407,9 @@ class MainWindow(QMainWindow):
         panel's private state (``book_panel._batch_worker``). See
         ui/shutdownable.py.
         """
+        if not self._prepare_leave():
+            event.ignore()
+            return
         self._save_window_state()
         if self._tray is not None:
             self._tray.hide()
@@ -1035,6 +1051,8 @@ class MainWindow(QMainWindow):
             self._stack.setCurrentIndex(self._start_index)
 
     def _show_new_draft(self) -> None:
+        if not self._prepare_leave():
+            return
         self._stack.setCurrentIndex(self._start_index)
         self.start_view.set_source("file")
 
@@ -1487,6 +1505,8 @@ class MainWindow(QMainWindow):
         )
         self.transcript_view.copy_requested.connect(self._copy_to_clipboard)
         self.transcript_view.result_changed.connect(self._on_transcript_changed)
+        self.transcript_view.edit_buffer_changed.connect(self._on_edit_buffer_changed)
+        self.transcript_view.edit_finished.connect(self._on_edit_finished)
 
         # Article view signals
         self.article_view.copy_done.connect(lambda: show_toast(self, tr("toast_copied"), kind="success"))
@@ -1729,8 +1749,6 @@ class MainWindow(QMainWindow):
             event.acceptProposedAction()
         else:
             event.ignore()
-            return
-        event.acceptProposedAction()
 
     def import_sources(self, paths: "list[str]", *, non_local: int = 0) -> bool:
         """The one import path for every drop target (UI/UX audit
@@ -1862,12 +1880,20 @@ class MainWindow(QMainWindow):
         self.cleaned_view.clear()
         self.article_view.clear()
         self._document_session.apply_result(result)
-        if not getattr(get_config(), "history_enabled", True):
-            return
+        self._persist_transcript(_change_kind)
+
+    def _persist_transcript(self, change_kind: str = "structure") -> bool:
+        """Write the open result to its record. Returns whether it reached
+        the library; a failure is shown on the record ("✕ Not saved") and
+        _prepare_leave() retries it before letting the user leave."""
+        result = self.transcript_view.get_result()
+        if result is None or not getattr(get_config(), "history_enabled", True):
+            self._last_persist_ok = True
+            return True
         try:
             from core.history import get_history_store
             store = get_history_store()
-            if _change_kind == "speakers":
+            if change_kind == "speakers":
                 # A rename dialog's untouched fields fall back to the raw
                 # speaker id itself (ui/transcript_view.py's
                 # _SpeakerRenameDialog.get_names()) — only a name that
@@ -1887,9 +1913,135 @@ class MainWindow(QMainWindow):
                 # Debounced version save (B8) — restarted on every edit so
                 # a burst of keystrokes/renames produces one version 5s
                 # after the last one, not one per edit.
+                self._revision_record_id = self._last_record_id
                 self._revision_save_timer.start()
+            self._last_persist_ok = True
+            return True
         except Exception as exc:
             logger.warning("Failed to persist transcript edit: %s", exc)
+            self._last_persist_ok = False
+            self._last_persist_error = str(exc)
+            self.record_view.mark_save_failed()
+            return False
+
+    # ── Leaving a record: finish the edit first (UI/UX audit 2026-10-18,
+    # UX-05). Library click, Ctrl+K, a new record or source, restoring a
+    # version and closing the window all pass through _prepare_leave(): an
+    # open edit is validated and saved for the record it belongs to before
+    # anything else is loaded; if that fails the user stays on the record
+    # with the text intact.
+
+    def _prepare_leave(self, *, force: bool = False) -> bool:
+        """Commit a pending transcript edit and flush the pending version.
+
+        Returns ``False`` — the caller must not navigate — when the edit
+        buffer is invalid or could not be written. With *force* (a new
+        transcription result arriving: it can't be refused) an invalid
+        buffer is kept as a draft instead and ``True`` is returned."""
+        view = self.transcript_view
+        if view.is_editing():
+            record_id = self._last_record_id
+            outcome = view.commit_pending_edit()
+            if outcome is not None and not outcome.ok:
+                if force:
+                    self._save_edit_draft(record_id)
+                    return True
+                self._show_tab(view)
+                self._stack.setCurrentIndex(self._record_index)
+                from ui.transcript_view import edit_error_text
+
+                QMessageBox.warning(self, tr("edit_error_title"), edit_error_text(outcome))
+                return False
+        # A failed write (now or on an earlier edit) is retried before
+        # leaving: the record's text exists only on screen until it lands.
+        if not self._last_persist_ok and not self._persist_transcript() and not force:
+            self._show_tab(view)
+            self._stack.setCurrentIndex(self._record_index)
+            QMessageBox.warning(
+                self, tr("edit_error_title"),
+                tr("edit_save_failed", error=getattr(self, "_last_persist_error", "")),
+            )
+            return False
+        self._flush_revision_save()
+        return True
+
+    def _flush_revision_save(self) -> None:
+        """Write the debounced version now instead of 5s later."""
+        if self._revision_save_timer.isActive():
+            self._revision_save_timer.stop()
+            self._save_transcript_revision()
+
+    def _on_edit_buffer_changed(self) -> None:
+        self._draft_record_id = self._last_record_id
+        self._draft_timer.start()
+
+    def _save_edit_draft(self, record_id: int | None = None) -> None:
+        """Autosave the open edit buffer as a draft for the record it was
+        typed into (captured when typing started, not "whatever is open")."""
+        record_id = record_id if record_id is not None else self._draft_record_id
+        self._draft_timer.stop()
+        if record_id is None or record_id != self._last_record_id:
+            return
+        if not self.transcript_view.has_pending_edit():
+            return
+        if not getattr(get_config(), "history_enabled", True):
+            return
+        try:
+            from core.history import get_history_store
+            from domain.artifact_provenance import transcript_revision
+
+            result = self.transcript_view.get_result()
+            base = transcript_revision(
+                result.segments, result.language, getattr(result, "speaker_names", None),
+            ) if result is not None else ""
+            get_history_store().save_draft(record_id, self.transcript_view.edit_buffer(), base)
+            self.record_view.mark_draft_saved()
+        except Exception as exc:
+            logger.warning("Failed to keep the edit draft: %s", exc)
+
+    def _on_edit_finished(self) -> None:
+        """Committed or cancelled: the draft has served its purpose."""
+        self._draft_timer.stop()
+        record_id = self._last_record_id
+        if record_id is None:
+            return
+        try:
+            from core.history import get_history_store
+            get_history_store().delete_draft(record_id)
+        except Exception as exc:
+            logger.warning("Failed to drop the edit draft: %s", exc)
+
+    def _offer_draft_recovery(self, record_id: int) -> None:
+        """A draft left by a crash or a failed save: offer it as a draft —
+        it opens in the editor uncommitted, never as the saved text."""
+        try:
+            from core.history import get_history_store
+            store = get_history_store()
+            draft = store.get_draft(record_id)
+        except Exception as exc:
+            logger.warning("Failed to read the edit draft: %s", exc)
+            return
+        if draft is None:
+            return
+        if not draft["supported"]:
+            show_toast(self, tr("draft_unsupported"), kind="warning")
+            return
+        from core.date_format import parse_iso
+
+        when = parse_iso(draft["updated_at"])
+        stamp = when.astimezone().strftime("%H:%M") if when is not None else draft["updated_at"]
+        if self._ask_restore_draft(stamp):
+            self._show_tab(self.transcript_view)
+            self.transcript_view.restore_draft(draft["buffer"])
+        else:
+            store.delete_draft(record_id)
+
+    def _ask_restore_draft(self, stamp: str) -> bool:
+        reply = QMessageBox.question(
+            self, tr("draft_restore_title"), tr("draft_restore_text", time=stamp),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        return reply == QMessageBox.StandardButton.Yes
 
     def _save_transcript_revision(self) -> None:
         """Fired by _revision_save_timer, 5s after the last transcript
@@ -1897,7 +2049,13 @@ class MainWindow(QMainWindow):
         write (the edit ended up producing the same transcript_revision
         as the last saved version) is silently skipped inside
         HistoryStore.save_current_revision() itself."""
-        if self._last_record_id is None:
+        record_id = self._revision_record_id
+        self._revision_record_id = None
+        if record_id is None or record_id != self._last_record_id:
+            # The record changed without a flush (_prepare_leave flushes);
+            # the open result is not the one this version was for.
+            if record_id is not None:
+                logger.warning("Dropped a version save for record %s: no longer open", record_id)
             return
         result = self.transcript_view.get_result()
         if result is None:
@@ -1905,7 +2063,7 @@ class MainWindow(QMainWindow):
         try:
             from core.history import get_history_store
             get_history_store().save_current_revision(
-                self._last_record_id, result,
+                record_id, result,
                 getattr(result, "speaker_names", {}),
                 keep=get_config().transcript_revisions_kept,
             )
@@ -1940,6 +2098,9 @@ class MainWindow(QMainWindow):
         and (being a real revision change) correctly invalidates any
         generated material's cache the next time a recipe runs."""
         if self._last_record_id is None:
+            return
+        # An open edit is saved first — restoring must not swallow it.
+        if not self._prepare_leave():
             return
         try:
             from core.history import get_history_store
@@ -2157,6 +2318,8 @@ class MainWindow(QMainWindow):
         save_history: bool = True,
     ):
         """Handle transcription completion."""
+        # A result can't be refused: an invalid open edit is kept as a draft.
+        self._prepare_leave(force=True)
         self.transcript_view.set_result(result)
         self._reset_ui()
 
@@ -2418,6 +2581,8 @@ class MainWindow(QMainWindow):
         malformed row.  This prevents a Library click from exposing the
         previous record under a new title.
         """
+        if not self._prepare_leave():
+            return False
         try:
             from core.history import get_history_store
             store = get_history_store()
@@ -2494,6 +2659,7 @@ class MainWindow(QMainWindow):
             self._refresh_tab_visibility()
             self._refresh_run_chip()
             self._load_bookmarks()
+            self._offer_draft_recovery(record_id)
             return True
         except Exception as e:
             logger.warning("Failed to load history record %d: %s", record_id, e)
