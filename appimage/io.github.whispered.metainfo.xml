@@ -31,6 +31,11 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.14.0" date="2026-10-20">
+      <description>
+        <p>A redesigned interface with an inline transcript editor and a waveform player, plus proofreading, task cards, subtitles, collections and saved searches, project export and import, local AI profiles and a short-clips pilot.</p>
+      </description>
+    </release>
     <release version="0.13.0" date="2026-10-15">
       <description>
         <p>Speaker labels work offline with no account: the first run downloads 46 MB of models, and "Detect Speakers" labels a transcript you already have. Downloaded models are checked against their checksums. YouTube titles and descriptions get a reviewing pass and learn from the ones you approved; Russian speech is cleaned with a Russian prompt and a term glossary.</p>

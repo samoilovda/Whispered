@@ -1,5 +1,5 @@
 #define MyAppName "Whispered"
-#define MyAppVersion "0.13.0"
+#define MyAppVersion "0.14.0"
 #define MyAppPublisher "Whispered"
 #define MyAppExeName "Whispered.exe"
 
