@@ -222,6 +222,7 @@ class TranscriptView(QWidget):
         self._playing_until = 0.0
         self._press_pos = None
         self._header_compact = False
+        self._wysiwyg_index: int = -1
         self._i18n = Retranslator()
         self._setup_ui()
         self._i18n.call(self._retranslate_view)
@@ -251,6 +252,14 @@ class TranscriptView(QWidget):
         self._find_prev_btn.setToolTip(tr("find_previous_tooltip"))
         self._find_next_btn.setToolTip(tr("find_next_tooltip"))
         self._close_find_btn.setToolTip(tr("find_close_tooltip"))
+        self._wysiwyg_prev_btn.setToolTip(tr("wysiwyg_prev_tip"))
+        self._wysiwyg_next_btn.setToolTip(tr("wysiwyg_next_tip"))
+        self._wysiwyg_text_edit.setPlaceholderText(tr("wysiwyg_text_placeholder"))
+        self._wysiwyg_apply_btn.setText(tr("wysiwyg_apply"))
+        self._wysiwyg_close_btn.setToolTip(tr("wysiwyg_close_tip"))
+        line_edit = self._wysiwyg_speaker_combo.lineEdit()
+        if line_edit is not None:
+            line_edit.setPlaceholderText(tr("wysiwyg_speaker_placeholder"))
         self._follow_btn.setText(tr("transcript_follow_playback"))
         self._edit_hint.setText(tr("edit_hint"))
         self._render_stats()
@@ -415,6 +424,8 @@ class TranscriptView(QWidget):
         self._find_bar.setVisible(False)
         layout.addWidget(self._find_bar)
 
+        self._build_wysiwyg_bar(layout)
+
         # ── Text area ────────────────────────────────────────────
         self.text_edit = QTextEdit()
         self.text_edit.setReadOnly(True)
@@ -467,6 +478,150 @@ class TranscriptView(QWidget):
 
         self._set_buttons_enabled(False)
 
+    def _build_wysiwyg_bar(self, layout: QVBoxLayout) -> None:
+        """Inline WYSIWYG segment editor: edits a single segment's text and
+        speaker with a locked timestamp badge so raw [HH:MM:SS.mmm] syntax
+        can never be accidentally corrupted."""
+        self._wysiwyg_bar = QWidget()
+        self._wysiwyg_bar.setProperty("role", "wysiwyg-bar")
+        row = QHBoxLayout(self._wysiwyg_bar)
+        row.setContentsMargins(8, 6, 8, 6)
+        row.setSpacing(6)
+
+        self._wysiwyg_prev_btn = QPushButton("↑")
+        self._wysiwyg_prev_btn.setProperty("role", "icon-button")
+        self._wysiwyg_prev_btn.setToolTip(tr("wysiwyg_prev_tip"))
+        self._wysiwyg_prev_btn.clicked.connect(lambda: self.step_wysiwyg_segment(-1))
+        row.addWidget(self._wysiwyg_prev_btn)
+
+        self._wysiwyg_next_btn = QPushButton("↓")
+        self._wysiwyg_next_btn.setProperty("role", "icon-button")
+        self._wysiwyg_next_btn.setToolTip(tr("wysiwyg_next_tip"))
+        self._wysiwyg_next_btn.clicked.connect(lambda: self.step_wysiwyg_segment(1))
+        row.addWidget(self._wysiwyg_next_btn)
+
+        self._wysiwyg_time_label = QLabel("00:00")
+        self._wysiwyg_time_label.setProperty("role", "tabular-num")
+        row.addWidget(self._wysiwyg_time_label)
+
+        self._wysiwyg_speaker_combo = QComboBox()
+        self._wysiwyg_speaker_combo.setEditable(True)
+        self._wysiwyg_speaker_combo.setFixedWidth(130)
+        line_edit = self._wysiwyg_speaker_combo.lineEdit()
+        if line_edit is not None:
+            line_edit.setPlaceholderText(tr("wysiwyg_speaker_placeholder"))
+        row.addWidget(self._wysiwyg_speaker_combo)
+
+        self._wysiwyg_text_edit = QLineEdit()
+        self._wysiwyg_text_edit.setPlaceholderText(tr("wysiwyg_text_placeholder"))
+        self._wysiwyg_text_edit.returnPressed.connect(self.apply_wysiwyg_edit)
+        row.addWidget(self._wysiwyg_text_edit, stretch=1)
+
+        self._wysiwyg_apply_btn = QPushButton(tr("wysiwyg_apply"))
+        self._wysiwyg_apply_btn.setProperty("role", "primary")
+        self._wysiwyg_apply_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._wysiwyg_apply_btn.clicked.connect(self.apply_wysiwyg_edit)
+        row.addWidget(self._wysiwyg_apply_btn)
+
+        self._wysiwyg_close_btn = QPushButton("×")
+        self._wysiwyg_close_btn.setProperty("role", "icon-button")
+        self._wysiwyg_close_btn.setFixedSize(24, 24)
+        self._wysiwyg_close_btn.setToolTip(tr("wysiwyg_close_tip"))
+        self._wysiwyg_close_btn.clicked.connect(self.close_wysiwyg_editor)
+        row.addWidget(self._wysiwyg_close_btn)
+
+        self._wysiwyg_bar.setVisible(False)
+        layout.addWidget(self._wysiwyg_bar)
+
+    def open_wysiwyg_segment(self, index: int) -> None:
+        """Open the inline WYSIWYG segment editor on segment *index*."""
+        if self._result is None or not (0 <= index < len(self._result.segments)):
+            return
+        self._wysiwyg_index = index
+        seg = self._result.segments[index]
+        self._wysiwyg_time_label.setText(
+            f"{format_duration(seg.start)} – {format_duration(seg.end)}"
+        )
+        has_speakers = any(s.speaker for s in self._result.segments)
+        self._wysiwyg_speaker_combo.blockSignals(True)
+        self._wysiwyg_speaker_combo.clear()
+        for sid in sorted(self._speaker_names.keys()):
+            self._wysiwyg_speaker_combo.addItem(self._get_display_name(sid), sid)
+        self._wysiwyg_speaker_combo.setEditText(
+            self._get_display_name(seg.speaker) if seg.speaker else ""
+        )
+        self._wysiwyg_speaker_combo.blockSignals(False)
+        self._wysiwyg_speaker_combo.setVisible(has_speakers or bool(seg.speaker))
+        self._wysiwyg_text_edit.setText(seg.text.strip())
+        self._wysiwyg_prev_btn.setEnabled(index > 0)
+        self._wysiwyg_next_btn.setEnabled(index + 1 < len(self._result.segments))
+        self._wysiwyg_bar.setVisible(True)
+        if not self._edit_mode:
+            self._select_segment(index)
+        self._wysiwyg_text_edit.setFocus()
+        self._wysiwyg_text_edit.selectAll()
+
+    def step_wysiwyg_segment(self, delta: int) -> None:
+        if self._result is None or not self._result.segments:
+            return
+        base = self._wysiwyg_index if self._wysiwyg_index >= 0 else 0
+        target = max(0, min(len(self._result.segments) - 1, base + delta))
+        self.open_wysiwyg_segment(target)
+        self.seek_requested.emit(self._result.segments[target].start)
+
+    def apply_wysiwyg_edit(self) -> bool:
+        """Save the active segment's text and speaker from the WYSIWYG bar."""
+        if self._result is None or not (0 <= self._wysiwyg_index < len(self._result.segments)):
+            return False
+        new_text = self._wysiwyg_text_edit.text().strip()
+        if not new_text:
+            return False
+        seg = self._result.segments[self._wysiwyg_index]
+        text_changed = seg.text.strip() != new_text
+        seg.text = new_text
+
+        speaker_changed = False
+        if self._wysiwyg_speaker_combo.isVisible():
+            typed_speaker = self._wysiwyg_speaker_combo.currentText().strip()
+            if typed_speaker:
+                matched_sid = next(
+                    (sid for sid, disp in self._speaker_names.items() if disp == typed_speaker or sid == typed_speaker),
+                    None,
+                )
+                if matched_sid is not None:
+                    if seg.speaker != matched_sid:
+                        seg.speaker = matched_sid
+                        speaker_changed = True
+                elif seg.speaker:
+                    self._speaker_names[seg.speaker] = typed_speaker
+                    self._result.speaker_names = dict(self._speaker_names)
+                    speaker_changed = True
+                else:
+                    seg.speaker = typed_speaker
+                    self._speaker_names[typed_speaker] = typed_speaker
+                    self._result.speaker_names = dict(self._speaker_names)
+                    speaker_changed = True
+
+        if not (text_changed or speaker_changed):
+            return True
+
+        if self._edit_mode:
+            self.text_edit.setPlainText(render_edit_buffer(self._result.segments))
+        else:
+            idx = self._wysiwyg_index
+            self._update_display()
+            self._select_segment(idx)
+            self._render_stats()
+            if speaker_changed:
+                self.result_changed.emit("speakers")
+            if text_changed:
+                self.result_changed.emit("text")
+        return True
+
+    def close_wysiwyg_editor(self) -> None:
+        self._wysiwyg_bar.setVisible(False)
+        self._wysiwyg_index = -1
+
     # ------------------------------------------------------------------ public API
 
     def set_result(self, result: TranscriptionResult):
@@ -475,6 +630,7 @@ class TranscriptView(QWidget):
         # dropped rather than parsed into the new result.
         if self._edit_mode:
             self._exit_edit_mode(save=False)
+        self.close_wysiwyg_editor()
         self._result = result
         self._review_marks = ()
         # Seed speaker names, honouring any names already on the result
@@ -489,6 +645,7 @@ class TranscriptView(QWidget):
         self._render_stats()
 
     def clear(self):
+        self.close_wysiwyg_editor()
         self._result = None
         self._speaker_names = {}
         self.text_edit.clear()
@@ -1395,7 +1552,8 @@ class TranscriptView(QWidget):
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802
         """Click (press and release without dragging a selection) on a
-        segment or paragraph time seeks the player there."""
+        segment or paragraph time seeks the player there; double-click
+        opens the inline WYSIWYG segment editor."""
         if obj is self.text_edit.viewport() and not self._edit_mode:
             etype = event.type()
             if etype == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
@@ -1404,6 +1562,11 @@ class TranscriptView(QWidget):
                 pressed, self._press_pos = self._press_pos, None
                 if pressed is not None and (event.position().toPoint() - pressed).manhattanLength() < 4:
                     QTimer.singleShot(0, lambda pos=pressed: self._seek_at_point(pos))
+            elif etype == QEvent.Type.MouseButtonDblClick and event.button() == Qt.MouseButton.LeftButton:
+                span = self._target_span(event.position().toPoint())
+                if span is not None and span.index >= 0:
+                    self.open_wysiwyg_segment(span.index)
+                    return True
         return super().eventFilter(obj, event)
 
     def set_chapter_check(self, can_add_chapter) -> None:
@@ -1438,6 +1601,8 @@ class TranscriptView(QWidget):
         copy.triggered.connect(self.text_edit.copy)
         copy_ts = must(menu.addAction(tr("transcript_copy_with_time")))
         copy_ts.setEnabled(span is not None)
+        edit_seg = must(menu.addAction(tr("wysiwyg_edit_segment")))
+        edit_seg.setEnabled(span is not None and span.index >= 0)
         menu.addSeparator()
         play = must(menu.addAction(tr("transcript_play_from_here")))
         bookmark = must(menu.addAction(tr("transcript_bookmark_here")))
@@ -1464,6 +1629,8 @@ class TranscriptView(QWidget):
             return
         if chosen is copy_ts:
             self._copy_with_time(span)
+        elif chosen is edit_seg and span.index >= 0:
+            self.open_wysiwyg_segment(span.index)
         elif chosen is play:
             self._follow = True
             self.seek_requested.emit(span.seconds)

@@ -1422,5 +1422,12 @@
   "btn_edit_save": "Сохранить правки",
   "btn_edit_save_tip": "Сохранить отредактированную расшифровку в библиотеку (Ctrl+S)",
   "cleaned_save": "Сохранить в файл",
-  "cleaned_save_filter": "Текстовые файлы (*.txt);;Markdown (*.md)"
+  "cleaned_save_filter": "Текстовые файлы (*.txt);;Markdown (*.md)",
+  "wysiwyg_edit_segment": "Править фразу…",
+  "wysiwyg_apply": "Применить",
+  "wysiwyg_speaker_placeholder": "Спикер",
+  "wysiwyg_text_placeholder": "Текст фразы…",
+  "wysiwyg_prev_tip": "Предыдущая фраза",
+  "wysiwyg_next_tip": "Следующая фраза",
+  "wysiwyg_close_tip": "Закрыть панель правки фразы"
 }

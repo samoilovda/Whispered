@@ -1421,5 +1421,12 @@
   "btn_edit_save": "Save changes",
   "btn_edit_save_tip": "Save the edited transcript to the library (Ctrl+S)",
   "cleaned_save": "Save to file",
-  "cleaned_save_filter": "Text files (*.txt);;Markdown (*.md)"
+  "cleaned_save_filter": "Text files (*.txt);;Markdown (*.md)",
+  "wysiwyg_edit_segment": "Edit segment…",
+  "wysiwyg_apply": "Apply",
+  "wysiwyg_speaker_placeholder": "Speaker",
+  "wysiwyg_text_placeholder": "Segment text…",
+  "wysiwyg_prev_tip": "Previous segment",
+  "wysiwyg_next_tip": "Next segment",
+  "wysiwyg_close_tip": "Close segment editor"
 }

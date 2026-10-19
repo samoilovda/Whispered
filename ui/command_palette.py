@@ -15,8 +15,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from PyQt6.QtCore import QEvent, QObject, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QKeyEvent, QKeySequence
+from PyQt6.QtCore import QEvent, QObject, QRectF, QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QFont, QKeyEvent, QKeySequence, QPainter, QPen
 from PyQt6.QtWidgets import (
     QDialog,
     QLabel,
@@ -35,6 +35,7 @@ from core.i18n import tr
 from core.logger import get_logger
 from domain.recipe import BUILTIN_RECIPES, Recipe
 from ui.i18n_helpers import Retranslator
+from ui.icons import IconColors, get_icon
 from ui.library_view import display_name
 from ui.option_labels import recipe_label
 from ui.theme import get_theme
@@ -50,10 +51,19 @@ _HEADER_ROLE = Qt.ItemDataRole.UserRole + 2
 _RECENT_RECORDS = 6
 _MAX_RECORDS = 20
 
+_KIND_ICONS = {
+    "action": "play",
+    "record": "file",
+    "material": "rocket",
+    "recipe": "layers",
+    "retry_step": "refresh",
+    "bookmark": "bookmark",
+}
+
 
 class _PaletteDelegate(QStyledItemDelegate):
     """Paints group headers small and muted, and a row's hint (an
-    action's shortcut, a record's date) right-aligned in its row."""
+    action's shortcut as a keycap pill, or a record's date) right-aligned."""
 
     def paint(self, painter, option, index) -> None:  # noqa: N802
         theme = get_theme()
@@ -74,7 +84,7 @@ class _PaletteDelegate(QStyledItemDelegate):
             # Leave room for the hint so a long label elides before it.
             option = type(option)(option)
             self.initStyleOption(option, index)
-            hint_width = option.fontMetrics.horizontalAdvance(hint) + 28
+            hint_width = option.fontMetrics.horizontalAdvance(hint) + 32
             option.text = option.fontMetrics.elidedText(
                 option.text, Qt.TextElideMode.ElideRight,
                 max(0, option.rect.width() - hint_width - 16),
@@ -86,12 +96,33 @@ class _PaletteDelegate(QStyledItemDelegate):
             else:
                 super().paint(painter, option, index)
             painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             selected = bool(option.state & QStyle.StateFlag.State_Selected)
-            painter.setPen(QColor("#ffffff" if selected else theme.text_muted))
-            painter.drawText(
-                option.rect.adjusted(0, 0, -12, 0),
-                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, hint,
-            )
+            payload = index.data(Qt.ItemDataRole.UserRole)
+            is_shortcut = isinstance(payload, tuple) and len(payload) > 0 and payload[0] == "action"
+            if is_shortcut:
+                kbd_font = QFont(option.font)
+                kbd_font.setPixelSize(max(10, option.font.pixelSize() - 1 if option.font.pixelSize() > 0 else 11))
+                painter.setFont(kbd_font)
+                fm = painter.fontMetrics()
+                pill_w = fm.horizontalAdvance(hint) + 12
+                pill_h = min(20, max(16, option.rect.height() - 10))
+                pill_x = option.rect.right() - 10 - pill_w
+                pill_y = option.rect.top() + (option.rect.height() - pill_h) / 2.0
+                pill_rect = QRectF(pill_x, pill_y, pill_w, pill_h)
+                bg_col = QColor(255, 255, 255, 36) if selected else QColor(theme.bg_elevated)
+                border_col = QColor(255, 255, 255, 72) if selected else QColor(theme.border_input)
+                painter.setBrush(bg_col)
+                painter.setPen(QPen(border_col, 1.0))
+                painter.drawRoundedRect(pill_rect, 4.0, 4.0)
+                painter.setPen(QColor("#ffffff" if selected else theme.text_secondary))
+                painter.drawText(pill_rect, Qt.AlignmentFlag.AlignCenter, hint)
+            else:
+                painter.setPen(QColor("#ffffff" if selected else theme.text_muted))
+                painter.drawText(
+                    option.rect.adjusted(0, 0, -12, 0),
+                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, hint,
+                )
             painter.restore()
             return
         super().paint(painter, option, index)
@@ -158,6 +189,7 @@ class CommandPalette(QDialog):
         self._actions: list = []
         self._bookmarks_provider = None
         self._i18n = Retranslator()
+        self.setProperty("role", "command-palette")
         self.setWindowTitle(tr("command_palette_title"))
         self.setModal(True)
         self.resize(640, 460)
@@ -168,6 +200,10 @@ class CommandPalette(QDialog):
         layout.addWidget(title)
         self.search = QLineEdit()
         self.search.setProperty("role", "palette-search")
+        self.search.addAction(
+            get_icon("search", IconColors.muted(), 15),
+            QLineEdit.ActionPosition.LeadingPosition,
+        )
         self._i18n.text(self.search, "command_palette_placeholder", "setPlaceholderText")
         self._i18n.text(self, "command_palette_title", "setWindowTitle")
         self.search.textChanged.connect(self._refresh)
@@ -175,6 +211,7 @@ class CommandPalette(QDialog):
         self.search.installEventFilter(_SearchKeys(self))
         layout.addWidget(self.search)
         self.results = QListWidget()
+        self.results.setIconSize(QSize(15, 15))
         self.results.setItemDelegate(_PaletteDelegate(self.results))
         self.results.setUniformItemSizes(False)
         self.results.itemActivated.connect(self._activate)
@@ -247,6 +284,11 @@ class CommandPalette(QDialog):
         for _score, label, hint, payload, enabled in sorted(rows, key=lambda r: -r[0]):
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, payload)
+            if isinstance(payload, tuple) and payload:
+                icon_name = _KIND_ICONS.get(payload[0])
+                if icon_name:
+                    color = IconColors.default() if enabled else IconColors.muted()
+                    item.setIcon(get_icon(icon_name, color, 15))
             if hint:
                 item.setData(_HINT_ROLE, hint)
             # Shown, not hidden — a user should see the function exists

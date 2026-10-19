@@ -42,6 +42,8 @@ class WorkspaceShell(QWidget):
     """Own the Library | center geometry and resize rules."""
 
     new_requested = pyqtSignal()
+    palette_requested = pyqtSignal()
+    queue_requested = pyqtSignal()
 
     def __init__(self, library: QWidget, center: QWidget, parent=None) -> None:
         super().__init__(parent)
@@ -61,6 +63,10 @@ class WorkspaceShell(QWidget):
         self.new_button.setAccessibleName(tr("workspace_new"))
         self.library_button.setToolTip(tr("workspace_open_library"))
         self.library_button.setAccessibleName(tr("workspace_open_library"))
+        self.search_button.setToolTip(tr("shortcut_palette"))
+        self.search_button.setAccessibleName(tr("shortcut_palette"))
+        self.queue_button.setToolTip(tr("menu_show_queue"))
+        self.queue_button.setAccessibleName(tr("menu_show_queue"))
         self._apply_responsiveness()
 
     def _setup_ui(self) -> None:
@@ -72,6 +78,7 @@ class WorkspaceShell(QWidget):
         self.splitter.setHandleWidth(1)
 
         self.library_pane = QWidget()
+        self.library_pane.setProperty("role", "sidebar-pane")
         library_layout = QVBoxLayout(self.library_pane)
         library_layout.setContentsMargins(12, 12, 12, 12)
         library_layout.setSpacing(8)
@@ -96,6 +103,24 @@ class WorkspaceShell(QWidget):
         self.new_button.setAccessibleName(tr("workspace_new"))
         self.new_button.clicked.connect(self._on_header_action)
         header.addWidget(self.new_button)
+        # Mini-Rail quick actions in compact mode: Command Palette (⌘K) and Queue.
+        self.search_button = QToolButton()
+        self.search_button.setProperty("role", "toolbar-icon")
+        self.search_button.setIcon(get_icon("search", IconColors.default(), 16))
+        self.search_button.setToolTip(tr("shortcut_palette"))
+        self.search_button.setAccessibleName(tr("shortcut_palette"))
+        self.search_button.clicked.connect(self.palette_requested.emit)
+        self.search_button.setVisible(False)
+        header.addWidget(self.search_button)
+
+        self.queue_button = QToolButton()
+        self.queue_button.setProperty("role", "toolbar-icon")
+        self.queue_button.setIcon(get_icon("layers", IconColors.default(), 16))
+        self.queue_button.setToolTip(tr("menu_show_queue"))
+        self.queue_button.setAccessibleName(tr("menu_show_queue"))
+        self.queue_button.clicked.connect(self.queue_requested.emit)
+        self.queue_button.setVisible(False)
+        header.addWidget(self.queue_button)
         library_layout.addLayout(header)
         library_layout.addWidget(self.library, stretch=1)
         library_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -135,7 +160,9 @@ class WorkspaceShell(QWidget):
         )
         self.new_button.setToolTip(tr("workspace_new"))
         self.library_button.setVisible(compact_library)
-        # The compact column is one icon wide: stack its two buttons.
+        self.search_button.setVisible(compact_library)
+        self.queue_button.setVisible(compact_library)
+        # The compact column is one icon wide: stack its buttons vertically.
         self._header.setDirection(
             QBoxLayout.Direction.TopToBottom if compact_library
             else QBoxLayout.Direction.LeftToRight
@@ -174,6 +201,8 @@ class WorkspaceShell(QWidget):
             self.library.setVisible(True)
             self.library_title.setVisible(True)
             self.library_button.setVisible(False)
+            self.search_button.setVisible(False)
+            self.queue_button.setVisible(False)
             self.library_pane.setMinimumWidth(220)
             self.library_pane.setMaximumWidth(420)
             width = self._library_width

@@ -341,7 +341,7 @@ class RunView(QWidget):
         self._overall_progress.setVisible(False)
         overall.addWidget(self._overall_progress)
         self._overall_label = QLabel("")
-        self._overall_label.setProperty("role", "muted")
+        self._overall_label.setProperty("role", "tabular-num")
         self._overall_label.setVisible(False)
         overall.addWidget(self._overall_label)
         root.addLayout(overall)

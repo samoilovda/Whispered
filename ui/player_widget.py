@@ -6,18 +6,23 @@ Degrades gracefully when Qt Multimedia backend is unavailable.
 
 from __future__ import annotations
 
+import math
+import os
+import struct
+import wave
 from typing import Optional
 
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel, QSlider,
     QStyle, QStyleOptionSlider, QToolButton, QToolTip, QMenu,
 )
-from PyQt6.QtCore import QEvent, QObject, QPoint, Qt, pyqtSignal, QTimer, QUrl
-from PyQt6.QtGui import QAction, QActionGroup, QColor, QMouseEvent, QPainter, QPolygon
+from PyQt6.QtCore import QEvent, QObject, QPoint, QRectF, Qt, pyqtSignal, QTimer, QUrl
+from PyQt6.QtGui import QAction, QActionGroup, QColor, QMouseEvent, QPainter, QPen, QPolygon
 
 from core.i18n import tr
 from core.logger import get_logger
 from ui.i18n_helpers import Retranslator
+from ui.theme import get_theme
 from utils import format_duration
 from ui.qt_util import must
 
@@ -39,6 +44,137 @@ def multimedia_available() -> bool:
 # Bookmarks are amber in both themes — distinct from the accent-coloured
 # chapter ticks, and drawn as a different shape (not colour alone).
 _BOOKMARK_COLOR = "#f59e0b"
+
+
+def _extract_wav_peaks(filepath: str, bins: int = 120) -> list[float]:
+    """Sample *bins* evenly-spaced tiny chunks from a PCM .wav file (<2ms).
+    Returns [] if the file is not a readable 16-bit/8-bit PCM WAV."""
+    try:
+        if not filepath or not os.path.isfile(filepath):
+            return []
+        if not filepath.lower().endswith(".wav"):
+            return []
+        with wave.open(filepath, "rb") as wf:
+            n_frames = wf.getnframes()
+            sampwidth = wf.getsampwidth()
+            n_channels = max(1, wf.getnchannels())
+            if n_frames <= 0 or sampwidth not in (1, 2):
+                return []
+            chunk_frames = min(256, max(1, n_frames // bins))
+            raw_peaks: list[float] = []
+            for i in range(bins):
+                pos = int(i * (n_frames - chunk_frames) / max(1, bins - 1))
+                wf.setpos(pos)
+                data = wf.readframes(chunk_frames)
+                if not data:
+                    raw_peaks.append(0.05)
+                    continue
+                if sampwidth == 2:
+                    count = len(data) // 2
+                    if count <= 0:
+                        raw_peaks.append(0.05)
+                        continue
+                    samples = struct.unpack(f"<{count}h", data[: count * 2])
+                    rms = math.sqrt(sum(s * s for s in samples) / count) / 32768.0
+                else:
+                    samples_b = data
+                    rms = math.sqrt(sum((b - 128) ** 2 for b in samples_b) / len(samples_b)) / 128.0
+                raw_peaks.append(rms * math.sqrt(n_channels))
+            peak_max = max(raw_peaks) if raw_peaks else 0.0
+            if peak_max <= 1e-6:
+                return [0.1] * bins
+            return [min(1.0, max(0.08, p / peak_max)) for p in raw_peaks]
+    except (OSError, wave.Error, struct.error, ValueError):
+        return []
+
+
+class _WaveformSlider(QSlider):
+    """Horizontal QSlider that paints an audio/speech amplitude waveform
+    along its groove (played bars in accent, unplayed in border_hover,
+    cut intervals dimmed)."""
+
+    def __init__(self, orientation: Qt.Orientation = Qt.Orientation.Horizontal, parent=None) -> None:
+        super().__init__(orientation, parent)
+        self._peaks: list[float] = []
+        self._cut_ranges: list[tuple[float, float]] = []
+
+    def set_peaks(self, peaks: list[float]) -> None:
+        self._peaks = [min(1.0, max(0.05, float(p))) for p in peaks]
+        self.update()
+
+    def peaks(self) -> list[float]:
+        return list(self._peaks)
+
+    def set_cut_ranges(self, ranges: list[tuple[float, float]]) -> None:
+        self._cut_ranges = [
+            (max(0.0, min(1.0, float(s))), max(0.0, min(1.0, float(e))))
+            for s, e in ranges
+            if e > s
+        ]
+        self.update()
+
+    def cut_ranges(self) -> list[tuple[float, float]]:
+        return list(self._cut_ranges)
+
+    def _in_cut(self, frac: float) -> bool:
+        return any(start <= frac <= end for start, end in self._cut_ranges)
+
+    def paintEvent(self, event) -> None:  # noqa: N802 — Qt override
+        super().paintEvent(event)
+        if not self._peaks:
+            return
+        option = QStyleOptionSlider()
+        self.initStyleOption(option)
+        handle = must(self.style()).subControlRect(
+            QStyle.ComplexControl.CC_Slider, option, QStyle.SubControl.SC_SliderHandle, self,
+        )
+        inset = max(7, handle.width() // 2)
+        span = self.width() - 2 * inset
+        if span <= 16:
+            return
+        theme = get_theme()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(Qt.PenStyle.NoPen)
+
+        val_span = max(1, self.maximum() - self.minimum())
+        progress_frac = (self.value() - self.minimum()) / val_span
+
+        step_px = 3
+        n_bars = max(8, span // step_px)
+        n_peaks = len(self._peaks)
+        mid_y = self.height() / 2.0
+        max_bar_h = max(6.0, self.height() - 4.0)
+
+        played_col = QColor(theme.accent)
+        unplayed_col = QColor(theme.border_hover)
+        cut_col = QColor(theme.error)
+        cut_col.setAlpha(95)
+
+        for i in range(n_bars):
+            frac = (i + 0.5) / n_bars
+            peak_idx = min(n_peaks - 1, int(frac * n_peaks))
+            amp = self._peaks[peak_idx]
+            bar_h = max(3.0, amp * max_bar_h)
+            x = inset + i * step_px
+            y = mid_y - bar_h / 2.0
+            if self._in_cut(frac):
+                painter.setBrush(cut_col)
+                bar_h = max(2.0, bar_h * 0.45)
+                y = mid_y - bar_h / 2.0
+            elif frac <= progress_frac:
+                painter.setBrush(played_col)
+            else:
+                painter.setBrush(unplayed_col)
+            painter.drawRoundedRect(QRectF(x, y, 2.0, bar_h), 1.0, 1.0)
+
+        # Redraw playhead handle cleanly on top of the waveform bars
+        if handle.isValid():
+            painter.setBrush(QColor(theme.accent))
+            painter.setPen(QPen(QColor(theme.bg_surface), 1.5))
+            r = min(handle.width(), handle.height()) / 2.0
+            painter.drawRoundedRect(QRectF(handle), r, r)
+        painter.end()
 
 
 class _ChapterMarks(QWidget):
@@ -180,6 +316,7 @@ class PlayerWidget(QWidget):
         super().__init__(parent)
         self._available = _MULTIMEDIA_AVAILABLE
         self._duration = 0.0
+        self._raw_cut_ranges: list[tuple[float, float]] = []
         self._player: Optional["QMediaPlayer"] = None
         self._audio_output: Optional["QAudioOutput"] = None
         self._i18n = Retranslator()
@@ -227,8 +364,9 @@ class PlayerWidget(QWidget):
 
         # Position slider: a click on the groove jumps there (Qt's default
         # is a page step), hovering shows the time and chapter under the
-        # pointer — see eventFilter().
-        self._slider = QSlider(Qt.Orientation.Horizontal)
+        # pointer — see eventFilter(). Renders waveform amplitude bars when
+        # audio peaks or segment envelopes are loaded.
+        self._slider = _WaveformSlider(Qt.Orientation.Horizontal)
         self._slider.setRange(0, 1000)
         self._slider.setMouseTracking(True)
         self._slider.sliderPressed.connect(self._on_slider_pressed)
@@ -323,6 +461,12 @@ class PlayerWidget(QWidget):
 
     def load(self, filepath: str):
         """Load a media file. Pass an empty string to unload."""
+        if not filepath:
+            self._slider.set_peaks([])
+        else:
+            wav_peaks = _extract_wav_peaks(filepath)
+            if wav_peaks:
+                self._slider.set_peaks(wav_peaks)
         player = self._player
         if not self._available or player is None:
             return
@@ -332,6 +476,69 @@ class PlayerWidget(QWidget):
             return
         player.setSource(QUrl.fromLocalFile(filepath))
         self._play_btn.setText("▶")
+
+    def set_waveform(self, peaks: list[float]) -> None:
+        """Set normalized [0..1] amplitude bars on the scrubbing slider."""
+        self._slider.set_peaks(peaks)
+
+    def set_segments_envelope(
+        self,
+        segments: list,
+        fallback_duration: float | None = None,
+        bins: int = 120,
+    ) -> None:
+        """Synthesize a speech-density / cadence waveform envelope from
+        transcript segments when raw PCM peaks aren't already present."""
+        if fallback_duration is not None and fallback_duration > 0:
+            self._fallback_duration = float(fallback_duration)
+        if not segments:
+            return
+        duration = self._media_duration()
+        if duration <= 0:
+            try:
+                duration = max(float(getattr(s, "end", 0.0) or 0.0) for s in segments)
+            except (TypeError, ValueError, AttributeError):
+                duration = 0.0
+        if duration <= 0 or bins <= 0:
+            return
+        envelope = [0.06] * bins
+        for idx, seg in enumerate(segments):
+            start = float(getattr(seg, "start", 0.0) or 0.0)
+            end = float(getattr(seg, "end", start) or start)
+            text = str(getattr(seg, "text", "") or "").strip()
+            if end <= start or not text:
+                continue
+            seg_dur = max(0.25, end - start)
+            chars_per_sec = min(22.0, max(4.0, len(text) / seg_dur))
+            base_energy = 0.25 + 0.65 * (chars_per_sec / 22.0)
+            b0 = max(0, min(bins - 1, int(start / duration * bins)))
+            b1 = max(b0, min(bins - 1, int(end / duration * bins)))
+            for b in range(b0, b1 + 1):
+                # Subtle organic syllabic modulation across the segment
+                mod = 0.82 + 0.18 * abs(math.sin((b * 1.7) + idx * 0.9))
+                envelope[b] = max(envelope[b], min(1.0, base_energy * mod))
+        self._slider.set_peaks(envelope)
+        self._sync_cut_ranges()
+
+    def set_cut_ranges(
+        self,
+        ranges: list[tuple[float, float]],
+        fallback_duration: float | None = None,
+    ) -> None:
+        """Highlight cut/excluded intervals (in seconds) on the waveform."""
+        if fallback_duration is not None and fallback_duration > 0:
+            self._fallback_duration = float(fallback_duration)
+        self._raw_cut_ranges = [(float(s), float(e)) for s, e in ranges if float(e) > float(s)]
+        self._sync_cut_ranges()
+
+    def _sync_cut_ranges(self) -> None:
+        duration = self._media_duration()
+        if duration <= 0 or not self._raw_cut_ranges:
+            self._slider.set_cut_ranges([])
+            return
+        self._slider.set_cut_ranges([
+            (s / duration, e / duration) for s, e in self._raw_cut_ranges
+        ])
 
     def seek_to(self, seconds: float):
         """Seek the player to a specific position."""
@@ -398,6 +605,7 @@ class PlayerWidget(QWidget):
     def _update_marks(self) -> None:
         duration = self._duration if self._duration > 0 else self._fallback_duration
         self._marks.set_chapters(self._chapter_marks, duration)
+        self._sync_cut_ranges()
         self._sync_marks_geometry()
 
     def _sync_marks_geometry(self) -> None:

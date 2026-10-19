@@ -146,38 +146,35 @@ class Theme:
 
 DARK = Theme(
     name="dark",
-    bg_base="#1a1a1a",
-    bg_deep="#1e1e1e",
-    bg_surface="#2a2a2a",
-    bg_elevated="#2d2d2d",
-    bg_pressed="#4a4a4a",
-    bg_disabled="#252525",
-    border="#2e2e2e",
-    border_input="#3a3a3a",
-    border_hover="#4a4a4a",
+    bg_base="#12141a",
+    bg_deep="#161922",
+    bg_surface="#1e222d",
+    bg_elevated="#242936",
+    bg_pressed="#32394a",
+    bg_disabled="#1a1d26",
+    border="#272c3a",
+    border_input="#353d50",
+    border_hover="#47526b",
     # #6366f1 gave white button text 4.47:1; this barely-darker shade
     # clears 4.5:1 without changing the look.
     accent="#5f62f0",
     accent_hover="#818cf8",
     accent_pressed="#4f46e5",
-    text_primary="#e0e0e0",
-    # #888888 / #666666 measured 4.05:1 / 3.03:1 on panels — too faint for
-    # hints and statuses that carry meaning (UX-12). Both now clear 4.5:1
-    # on every dark background, bg_elevated #2d2d2d included.
-    text_secondary="#a3a3a3",
-    text_muted="#949494",
-    # #606060 on bg_disabled #252525 measured at ~2.4:1 — the disabled
-    # Apply button read as nearly blank, not just "muted". #707070 clears
-    # ~3:1, legible while still visibly non-interactive.
-    text_disabled="#707070",
+    text_primary="#e8ecf4",
+    # Both secondary and muted clear 4.5:1 on every dark background,
+    # bg_elevated #242936 included.
+    text_secondary="#a6b0c3",
+    text_muted="#959fb5",
+    # Clears ~3:1 on bg_disabled #1a1d26, legible while visibly inert.
+    text_disabled="#6e778c",
     success="#22c55e",
     warning="#f59e0b",
     error="#ef4444",
     info="#38bdf8",
-    accent_text="#818cf8",
-    success_text="#22c55e",
-    warning_text="#f59e0b",
-    error_text="#fc9292",
+    accent_text="#8b95fa",
+    success_text="#34d369",
+    warning_text="#fbbf24",
+    error_text="#fca5a5",
     info_text="#38bdf8",
     radius_sm="6px",
     radius_md="10px",
@@ -190,27 +187,27 @@ DARK = Theme(
 
 LIGHT = Theme(
     name="light",
-    bg_base="#f8f9fa",
-    bg_deep="#f1f3f4",
+    bg_base="#f8f9fc",
+    bg_deep="#f1f4f9",
     bg_surface="#ffffff",
     bg_elevated="#ffffff",
-    bg_pressed="#f1f3f4",
-    bg_disabled="#f8f9fa",
-    border="#e8eaed",
-    border_input="#8b9096",
-    border_hover="#6f757b",
+    bg_pressed="#e8eef7",
+    bg_disabled="#f4f6fa",
+    border="#e2e8f0",
+    border_input="#858d99",
+    border_hover="#646d7a",
     accent="#6c4cf1",
     accent_hover="#7454f2",
     accent_pressed="#5930c9",
-    text_primary="#202124",
-    text_secondary="#5f6368",
-    text_muted="#646a70",
-    text_disabled="#767b80",
+    text_primary="#1a1d24",
+    text_secondary="#525866",
+    text_muted="#5e6573",
+    text_disabled="#727885",
     success="#1e8e3e",
     warning="#f9ab00",
     error="#d93025",
     info="#1a73e8",
-    accent_text="#6c4cf1",
+    accent_text="#6242e8",
     success_text="#137333",
     warning_text="#8a5300",
     error_text="#b31d17",
@@ -585,21 +582,23 @@ def build_stylesheet(t: Theme) -> str:
         background: transparent;
     }}
     QTabBar::tab {{
-        background-color: {t.bg_surface};
+        background-color: transparent;
         color: {t.text_secondary};
-        padding: 10px 20px;
+        padding: 8px 16px;
         border: none;
-        border-top-left-radius: 8px;
-        border-top-right-radius: 8px;
-        margin-right: 2px;
+        border-bottom: 2px solid transparent;
+        border-top-left-radius: {t.radius_sm};
+        border-top-right-radius: {t.radius_sm};
+        margin-right: 4px;
         font-size: {t.font_md};
     }}
     QTabBar::tab:selected {{
-        background-color: {t.bg_elevated};
+        background-color: {rgba(t.accent, 0.14)};
         color: {t.text_primary};
+        border-bottom: 2px solid {t.accent};
     }}
     QTabBar::tab:hover:!selected {{
-        background-color: {t.bg_elevated};
+        background-color: {t.bg_surface};
         color: {t.text_primary};
     }}
 
@@ -661,7 +660,7 @@ def build_stylesheet(t: Theme) -> str:
 
     /* ── Splitter ── */
     QSplitter::handle {{
-        background-color: transparent;
+        background-color: {t.border};
     }}
     QSplitter::handle:horizontal {{ width: 1px; }}
     QSplitter::handle:vertical {{ height: 1px; }}
@@ -1255,6 +1254,41 @@ def build_stylesheet(t: Theme) -> str:
         padding: 2px 8px;
         font-size: {t.font_xs};
         font-weight: bold;
+    }}
+
+    /* ── Modern surfaces & roles ── */
+    QWidget[role="sidebar-pane"] {{
+        background-color: {t.bg_deep};
+        border-right: 1px solid {t.border};
+    }}
+    QWidget[role="segmented-bar"] {{
+        background-color: {t.bg_deep};
+        border: 1px solid {t.border};
+        border-radius: {t.radius_lg};
+    }}
+    QLabel[role="tabular-num"] {{
+        color: {t.text_secondary};
+        font-family: "SF Mono", "Menlo", "Consolas", monospace;
+        background: transparent;
+    }}
+    QWidget[role="wysiwyg-bar"] {{
+        background-color: {t.bg_surface};
+        border: 1px solid {t.border};
+        border-radius: {t.radius_md};
+    }}
+    QDialog[role="command-palette"] {{
+        background-color: {t.bg_surface};
+    }}
+    QLineEdit[role="palette-search"] {{
+        background-color: {t.bg_deep};
+        color: {t.text_primary};
+        border: 1px solid {t.border_input};
+        border-radius: {t.radius_md};
+        padding: 8px 12px;
+        font-size: {t.font_lg};
+    }}
+    QLineEdit[role="palette-search"]:focus {{
+        border-color: {t.accent};
     }}
 
     /* ── Message boxes ── */

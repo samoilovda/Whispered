@@ -6,6 +6,7 @@ Main application window with compact header-bar layout and AI processing
 from __future__ import annotations
 
 import os
+import sys
 import time
 from pathlib import Path
 from typing import Literal
@@ -541,6 +542,10 @@ class MainWindow(QMainWindow):
     def _build_window_chrome(self) -> None:
         """Create the window and the vertical host for shell + status."""
         self.setWindowTitle("Whispered")
+        if sys.platform == "darwin":
+            unify = getattr(self, "setUnifiedTitleAndToolbarOnMac", None)
+            if callable(unify):
+                unify(True)
         self.setMinimumSize(900, 550)
         self.resize(1100, 700)
         self._restore_window_geometry()
@@ -906,9 +911,7 @@ class MainWindow(QMainWindow):
         self.transcript_view.bookmark_requested.connect(lambda seconds: self._add_bookmark(seconds))
         self.transcript_view.cut_requested.connect(self.cut_view.set_cut)
         self.cut_view.plan_changed.connect(self._save_cut_plan)
-        self.cut_view.cut_changed.connect(
-            lambda: self.transcript_view.set_cut_indices(self.cut_view.cut_indices())
-        )
+        self.cut_view.cut_changed.connect(self._on_cut_changed)
         self._shutdownables.append(self.youtube_panel)
 
         # The five generator panels plus Cut/Chat used to live as inspector
@@ -1010,6 +1013,8 @@ class MainWindow(QMainWindow):
 
         self.workspace_shell = WorkspaceShell(self.library_view, self._stack)
         self.workspace_shell.new_requested.connect(self._show_new_draft)
+        self.workspace_shell.palette_requested.connect(lambda: self.command_palette.open_palette())
+        self.workspace_shell.queue_requested.connect(lambda: self.status_bar._toggle_queue())
         self._workspace_layout.addWidget(self.workspace_shell, stretch=1)
 
         self.status_bar = StatusBar()
@@ -1649,8 +1654,29 @@ class MainWindow(QMainWindow):
             lambda result: self.cut_view.set_result(result)
         )
         self._document_session.register_consumer(
+            lambda result: self.player.set_segments_envelope(
+                result.segments,
+                fallback_duration=result.duration or (result.segments[-1].end if result.segments else None),
+            )
+        )
+        self._document_session.register_consumer(
             lambda result: self.book_panel.set_has_transcript(True)
         )
+
+    def _on_cut_changed(self) -> None:
+        cut_indices = self.cut_view.cut_indices()
+        self.transcript_view.set_cut_indices(cut_indices)
+        result = self._current_result
+        if result is not None and result.segments:
+            ranges = [
+                (float(seg.start), float(seg.end))
+                for idx, seg in enumerate(result.segments)
+                if idx in cut_indices
+            ]
+            fallback = result.duration or result.segments[-1].end
+            self.player.set_cut_ranges(ranges, fallback_duration=fallback)
+        else:
+            self.player.set_cut_ranges([])
 
     def _connect_signals(self):
         """Connect widget signals."""

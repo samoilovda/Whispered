@@ -132,19 +132,33 @@ class StartView(QWidget):
 
         self._build_first_run_card(root)
 
-        switcher = QHBoxLayout()
+        switcher_bar = QWidget()
+        switcher_bar.setProperty("role", "segmented-bar")
+        switcher = QHBoxLayout(switcher_bar)
+        switcher.setContentsMargins(4, 4, 4, 4)
+        switcher.setSpacing(4)
         self._source_group = QButtonGroup(self)
         self._source_group.setExclusive(True)
         self._source_buttons: dict[str, QPushButton] = {}
+        source_icons = {
+            "file": "file",
+            "recorder": "microphone",
+            "live": "radio",
+            "folder": "folder",
+        }
+        from ui.icons import IconColors, get_icon
         for index, key in enumerate(self._source_keys):
             button = self._i18n.text(QPushButton(), f"draft_source_{key}")
             button.setCheckable(True)
             button.setProperty("role", "quick-chip")
+            button.setIcon(get_icon(source_icons.get(key, "file"), IconColors.default(), 15))
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.clicked.connect(lambda _checked, i=index, name=key: self.set_source(name, i))
             self._source_group.addButton(button)
             self._source_buttons[key] = button
             switcher.addWidget(button)
-        root.addLayout(switcher)
+        self._source_bar = switcher_bar
+        root.addWidget(switcher_bar)
 
         self.stack = QStackedWidget()
         live_body = QWidget()
@@ -203,14 +217,24 @@ class StartView(QWidget):
         # Config.recipes changes — see _build_recipe_chips().
         self._configure_btn = self._i18n.text(QPushButton(), "start_recipe_configure")
         self._configure_btn.setProperty("role", "quick-chip")
+        self._configure_btn.setIcon(get_icon("settings", IconColors.default(), 14))
+        self._configure_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._configure_btn.clicked.connect(self.configure_recipe_requested.emit)
         self._build_recipe_chips()
         recipe_layout.addWidget(self._recipe_row_widget)
 
-        # What the selected recipe will do, step by step.
+        # What the selected recipe will do, step by step: visual step badges
+        # plus the accessible text summary in _steps_label.
+        self._steps_pipeline_widget = QWidget()
+        self._steps_pipeline_widget.setProperty("role", "transparent")
+        self._steps_pipeline_layout = FlowLayout(self._steps_pipeline_widget, spacing=6)
+        self._steps_pipeline_layout.setContentsMargins(0, 2, 0, 2)
+        recipe_layout.addWidget(self._steps_pipeline_widget)
+
         self._steps_label = QLabel()
         self._steps_label.setProperty("role", "muted")
         self._steps_label.setWordWrap(True)
+        self._steps_label.setVisible(False)
         recipe_layout.addWidget(self._steps_label)
 
         # Whether it can run right now (S1): one glyph + text per check,
@@ -472,6 +496,15 @@ class StartView(QWidget):
         whenever the recipe editor adds, renames, or removes a custom
         recipe. self._configure_btn survives the rebuild (it carries no
         per-recipe state) — everything else is torn down and rebuilt."""
+        from ui.icons import IconColors, get_icon
+
+        recipe_icons = {
+            "transcript_only": "file",
+            "youtube_video": "play",
+            "podcast_article": "clipboard",
+            "meeting_notes": "users",
+            "book": "layers",
+        }
         while self._recipe_row_layout.count():
             item = self._recipe_row_layout.takeAt(0)
             widget = item.widget()
@@ -489,6 +522,8 @@ class StartView(QWidget):
             button = QPushButton(recipe_label(recipe))
             button.setCheckable(True)
             button.setProperty("role", "quick-chip")
+            button.setIcon(get_icon(recipe_icons.get(key, "rocket"), IconColors.default(), 14))
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.setChecked(key == self._recipe_key)
             button.clicked.connect(lambda _checked, key=key: self._select_recipe(key))
             self._recipe_group.addButton(button)
@@ -610,6 +645,21 @@ class StartView(QWidget):
         self._steps_label.setText(
             "  →  ".join(tr(STEP_REGISTRY[name].label_key) for name in steps)
         )
+        if hasattr(self, "_steps_pipeline_layout"):
+            while self._steps_pipeline_layout.count():
+                item = self._steps_pipeline_layout.takeAt(0)
+                w = item.widget() if item is not None else None
+                if w is not None:
+                    w.hide()
+                    w.deleteLater()
+            for idx, name in enumerate(steps):
+                if idx > 0:
+                    arrow = QLabel("→")
+                    arrow.setProperty("role", "dim")
+                    self._steps_pipeline_layout.addWidget(arrow)
+                chip = QLabel(tr(STEP_REGISTRY[name].label_key))
+                chip.setProperty("role", "chip")
+                self._steps_pipeline_layout.addWidget(chip)
         llm_steps = [d.name for d in STEP_REGISTRY.values() if d.resource == "local_llm"]
         checks = recipe_checks(steps, llm_steps, self._readiness_facts())
 

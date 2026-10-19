@@ -95,7 +95,7 @@ class RecorderWidget(QWidget):
 
         # Timer label
         self._timer_label = QLabel("00:00")
-        self._timer_label.setProperty("role", "page-title")
+        self._timer_label.setProperty("role", "tabular-num")
         controls.addWidget(self._timer_label)
         layout.addLayout(controls)
 
