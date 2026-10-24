@@ -43,6 +43,7 @@ from core.logger import get_logger
 from core.platform_support import reveal_in_file_manager
 from domain.youtube_publish import PublishPackage, UploadRecord
 from ui.cover_inspector import PhotoFraming
+from ui.cover_preview import CoverPreview
 from ui.theme import set_role
 from ui.toast import show_toast
 from ui.qt_util import must
@@ -76,6 +77,10 @@ class CoverStudio(Protocol):
     def photo_framing(self, slot: str) -> tuple[tuple[float, float], float]: ...
     def set_photo_framing(
         self, slot: str, focus: tuple[float, float], zoom: float) -> None: ...
+    def photo_slots(self) -> tuple[dict[str, tuple[float, float, float, float]], set[str]]: ...
+    def drag_photo(self, slot: str, dx: float, dy: float) -> None: ...
+    def zoom_photo(self, slot: str, factor: float, ax: float, ay: float) -> None: ...
+    def photo_framed(self, slot: str) -> None: ...
 
 
 class YouTubePublishDialog(QDialog):
@@ -254,8 +259,8 @@ class YouTubePublishDialog(QDialog):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        self._cover_preview = QLabel()
-        self._cover_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Drag a photo inside its frame, wheel to zoom — as in the Cover workspace.
+        self._cover_preview = CoverPreview()
         self._cover_preview.setMinimumSize(_COVER_PREVIEW_WIDTH, _COVER_PREVIEW_WIDTH * 9 // 16)
         layout.addWidget(self._cover_preview, 1)
         self._cover_status = QLabel()
@@ -267,26 +272,40 @@ class YouTubePublishDialog(QDialog):
         self._regenerate_btn.setToolTip(tr("cover_shuffle_tip"))
         self._regenerate_btn.clicked.connect(self._regenerate_cover)
         row.addWidget(self._regenerate_btn)
+        self._host_photo_btn = QPushButton(tr("yt_wizard_host_photo"))
+        self._host_photo_btn.clicked.connect(lambda: self._choose_photo("photo_a"))
+        row.addWidget(self._host_photo_btn)
         self._guest_photo_btn = QPushButton(tr("yt_wizard_guest_photo"))
-        self._guest_photo_btn.clicked.connect(self._choose_guest_photo)
+        self._guest_photo_btn.clicked.connect(lambda: self._choose_photo("photo_b"))
         row.addWidget(self._guest_photo_btn)
-        self._guest_frame_btn = QPushButton(tr("cover_frame_from_video"))
-        self._guest_frame_btn.clicked.connect(self._grab_guest_frame)
-        row.addWidget(self._guest_frame_btn)
+        self._frame_btn = QPushButton(tr("cover_frame_from_video"))
+        self._frame_btn.setToolTip(tr("yt_wizard_frame_tip"))
+        self._frame_btn.clicked.connect(self._grab_frame)
+        row.addWidget(self._frame_btn)
         row.addStretch(1)
         layout.addLayout(row)
-        # The second speaker's crop: a face from a video-call tile is small,
+        # The chosen speaker's crop: a face from a video-call tile is small,
         # so it can be zoomed and pointed at right here.
-        self._guest_framing = PhotoFraming()
-        layout.addWidget(self._guest_framing)
+        framing_row = QHBoxLayout()
+        self._framing_slot = QComboBox()
+        self._framing_slot.addItem(tr("yt_wizard_host"), "photo_a")
+        self._framing_slot.addItem(tr("yt_wizard_guest"), "photo_b")
+        self._framing_slot.setCurrentIndex(1)
+        framing_row.addWidget(self._framing_slot)
+        self._photo_framing = PhotoFraming()
+        framing_row.addWidget(self._photo_framing, 1)
+        layout.addLayout(framing_row)
         if self._cover_studio is not None:
             self._cover_studio.preview_changed.connect(self._show_cover_image)  # type: ignore[attr-defined]
-            focus, zoom = self._cover_studio.photo_framing("photo_b")
-            self._guest_framing.set_framing(focus, zoom)
-            self._guest_framing.framing_changed.connect(self._on_guest_framing)
+            self._show_slot_framing()
+            self._framing_slot.currentIndexChanged.connect(self._show_slot_framing)
+            self._photo_framing.framing_changed.connect(self._on_photo_framing)
+            self._cover_preview.photo_dragged.connect(self._on_photo_dragged)
+            self._cover_preview.photo_zoomed.connect(self._on_photo_zoomed)
+            self._cover_preview.framing_done.connect(self._on_photo_framed)
         else:
-            for widget in (self._regenerate_btn, self._guest_photo_btn,
-                           self._guest_frame_btn, self._guest_framing):
+            for widget in (self._regenerate_btn, self._host_photo_btn, self._guest_photo_btn,
+                           self._frame_btn, self._framing_slot, self._photo_framing):
                 widget.setVisible(False)
             self._show_cover_file()
         return page
@@ -388,9 +407,10 @@ class YouTubePublishDialog(QDialog):
         self._next_btn.setEnabled(not busy and not (
             page == PAGE_TEXTS and not self.current_title()))
         self._back_btn.setEnabled(not busy and not self._uploading)
-        for widget in (self._regenerate_btn, self._guest_photo_btn, self._guest_framing):
+        for widget in (self._regenerate_btn, self._host_photo_btn, self._guest_photo_btn,
+                       self._framing_slot, self._photo_framing):
             widget.setEnabled(not busy)
-        self._guest_frame_btn.setEnabled(
+        self._frame_btn.setEnabled(
             not busy and self._cover_studio is not None and self._cover_studio.has_video())
 
     def _go_back(self) -> None:
@@ -406,6 +426,8 @@ class YouTubePublishDialog(QDialog):
                 self._cover_status.setText("")
                 self._cover_studio.set_cover_texts(
                     self.cover_text(), self.host_name(), self.guest_name())
+                # The solo layout has no second photo to frame.
+                self._select_slot("photo_b" if self.guest_name() else "photo_a")
         elif page == PAGE_COVER:
             if self._cover_studio is None:
                 self._show_page(PAGE_PUBLISH)
@@ -451,17 +473,47 @@ class YouTubePublishDialog(QDialog):
     def guest_name(self) -> str:
         return self._guest_edit.text().strip()
 
-    def _on_guest_framing(self, fx: float, fy: float, zoom: float) -> None:
-        if self._cover_studio is not None:
-            self._cover_studio.set_photo_framing("photo_b", (fx, fy), zoom)
+    def framing_slot(self) -> str:
+        """The photo slot the framing row and "Frame from video" act on."""
+        return str(self._framing_slot.currentData())
 
-    def _choose_guest_photo(self) -> None:
-        if self._cover_studio is not None:
-            self._cover_studio.choose_photo("photo_b")
+    def _select_slot(self, slot: str) -> None:
+        index = self._framing_slot.findData(slot)
+        if index >= 0:
+            self._framing_slot.setCurrentIndex(index)
 
-    def _grab_guest_frame(self) -> None:
+    def _show_slot_framing(self, *_args) -> None:
         if self._cover_studio is not None:
-            self._cover_studio.grab_frame("photo_b")
+            self._photo_framing.set_framing(*self._cover_studio.photo_framing(self.framing_slot()))
+
+    def _on_photo_framing(self, fx: float, fy: float, zoom: float) -> None:
+        if self._cover_studio is not None:
+            self._cover_studio.set_photo_framing(self.framing_slot(), (fx, fy), zoom)
+
+    def _on_photo_dragged(self, slot: str, dx: float, dy: float) -> None:
+        if self._cover_studio is not None:
+            self._select_slot(slot)
+            self._cover_studio.drag_photo(slot, dx, dy)
+
+    def _on_photo_zoomed(self, slot: str, factor: float, ax: float, ay: float) -> None:
+        if self._cover_studio is not None:
+            self._select_slot(slot)
+            self._cover_studio.zoom_photo(slot, factor, ax, ay)
+            self._show_slot_framing()
+
+    def _on_photo_framed(self, slot: str) -> None:
+        if self._cover_studio is not None:
+            self._cover_studio.photo_framed(slot)
+            self._show_slot_framing()
+
+    def _choose_photo(self, slot: str) -> None:
+        if self._cover_studio is not None:
+            self._select_slot(slot)
+            self._cover_studio.choose_photo(slot)
+
+    def _grab_frame(self) -> None:
+        if self._cover_studio is not None:
+            self._cover_studio.grab_frame(self.framing_slot())
 
     def _regenerate_cover(self) -> None:
         if self._cover_studio is not None:
@@ -472,6 +524,9 @@ class YouTubePublishDialog(QDialog):
             return
         self._cover_preview.setPixmap(QPixmap.fromImage(image).scaledToWidth(
             _COVER_PREVIEW_WIDTH, Qt.TransformationMode.SmoothTransformation))
+        if self._cover_studio is not None:
+            boxes, movable = self._cover_studio.photo_slots()
+            self._cover_preview.set_photo_slots(boxes, movable)
 
     def _show_cover_file(self) -> None:
         pixmap = QPixmap(str(self._cover_path)) if self._cover_path else QPixmap()

@@ -55,6 +55,19 @@ class _FakeStudio(QObject):
     def set_photo_framing(self, slot, focus, zoom):
         self.calls.append(("framing", slot, focus, zoom))
 
+    def photo_slots(self):
+        return ({"photo_a": (100.0, 100.0, 400.0, 400.0),
+                 "photo_b": (700.0, 100.0, 400.0, 400.0)}, {"photo_a", "photo_b"})
+
+    def drag_photo(self, slot, dx, dy):
+        self.calls.append(("drag", slot, dx, dy))
+
+    def zoom_photo(self, slot, factor, ax, ay):
+        self.calls.append(("zoom", slot, factor, ax, ay))
+
+    def photo_framed(self, slot):
+        self.calls.append(("framed", slot))
+
 
 @pytest.fixture
 def video(tmp_path: Path) -> Path:
@@ -106,23 +119,55 @@ def test_cover_text_can_differ_from_the_video_title(video, tmp_path):
     assert studio.calls[-1][1] == "Короче для обложки"
 
 
-def test_regenerate_and_guest_photo_drive_the_studio(video, tmp_path):
+def test_regenerate_and_speaker_photos_drive_the_studio(video, tmp_path):
     studio = _FakeStudio()
     dlg = _wizard(video, tmp_path, studio)
+    dlg._guest_edit.setText("Валерия Воронина")
     dlg._next_btn.click()
     dlg._regenerate_btn.click()
     dlg._guest_photo_btn.click()
-    dlg._guest_frame_btn.click()
+    dlg._frame_btn.click()
     assert ("shuffle",) in studio.calls
     assert ("photo", "photo_b") in studio.calls
     assert ("frame", "photo_b") in studio.calls
+    # Picking the first speaker's photo points the framing row and the
+    # frame grab at that speaker.
+    dlg._host_photo_btn.click()
+    assert ("photo", "photo_a") in studio.calls
+    assert dlg.framing_slot() == "photo_a"
+    dlg._frame_btn.click()
+    assert studio.calls[-1] == ("frame", "photo_a")
+
+
+def test_solo_cover_frames_the_first_speaker(video, tmp_path):
+    dlg = _wizard(video, tmp_path, _FakeStudio())
+    dlg._next_btn.click()
+    assert dlg.framing_slot() == "photo_a"
+
+
+def test_photos_can_be_dragged_on_the_preview(video, tmp_path):
+    studio = _FakeStudio()
+    dlg = _wizard(video, tmp_path, studio)
+    dlg._guest_edit.setText("Валерия Воронина")
+    dlg._next_btn.click()
+    preview = dlg._cover_preview
+    assert preview._movable == {"photo_a", "photo_b"}
+    preview.photo_dragged.emit("photo_a", 5.0, -3.0)
+    assert studio.calls[-1] == ("drag", "photo_a", 5.0, -3.0)
+    assert dlg.framing_slot() == "photo_a"
+    preview.framing_done.emit("photo_a")
+    assert studio.calls[-1] == ("framed", "photo_a")
+    preview.photo_zoomed.emit("photo_b", 1.1, 20.0, 30.0)
+    assert ("zoom", "photo_b", 1.1, 20.0, 30.0) in studio.calls
+    assert dlg.framing_slot() == "photo_b"
 
 
 def test_guest_photo_framing_drives_the_studio(video, tmp_path):
     studio = _FakeStudio()
     dlg = _wizard(video, tmp_path, studio)
+    dlg._guest_edit.setText("Валерия Воронина")
     dlg._next_btn.click()
-    framing = dlg._guest_framing
+    framing = dlg._photo_framing
     # Opens on the workspace's current crop for the second speaker.
     assert framing.framing() == ((0.5, 0.15), 1.5)
     assert not any(call[0] == "framing" for call in studio.calls)
@@ -135,7 +180,7 @@ def test_guest_photo_framing_drives_the_studio(video, tmp_path):
 def test_frame_button_needs_a_video(video, tmp_path):
     dlg = _wizard(video, tmp_path, _FakeStudio(video=False))
     dlg._next_btn.click()
-    assert not dlg._guest_frame_btn.isEnabled()
+    assert not dlg._frame_btn.isEnabled()
 
 
 def test_approving_waits_for_the_saved_cover(video, tmp_path):

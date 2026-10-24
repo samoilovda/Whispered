@@ -537,6 +537,27 @@ class CoverView(QWidget):
         self.inspector.framing[slot].set_framing(focus, zoom)
         self._on_framing_changed(slot, focus[0], focus[1], zoom)
 
+    def photo_slots(self) -> tuple[dict[str, tuple[float, float, float, float]], set[str]]:
+        """The current layout's photo boxes on the canvas and the slots that
+        hold a photo — what the wizard's preview lets the user drag."""
+        from covers.photo_pan import photo_boxes
+
+        layout = self.inspector.layout_combo.currentData() or ""
+        return (photo_boxes(self.template, layout),
+                {slot for slot, path in self.photos.items() if path})
+
+    def drag_photo(self, slot: str, dx: float, dy: float) -> None:
+        """Move *slot*'s photo by canvas pixels (a drag on the wizard's preview)."""
+        self._on_photo_dragged(slot, dx, dy)
+
+    def zoom_photo(self, slot: str, factor: float, ax: float, ay: float) -> None:
+        """Zoom *slot*'s photo around a point (the wheel on the wizard's preview)."""
+        self._on_photo_zoomed(slot, factor, ax, ay)
+
+    def photo_framed(self, slot: str) -> None:
+        """A drag on the wizard's preview ended: keep the framing."""
+        self._on_photo_framed(slot)
+
     def _suggest_title(self) -> None:
         if not self._segments:
             self.warning.setText(tr("cover_no_transcript"))
