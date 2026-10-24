@@ -150,9 +150,11 @@ class Uploader(Protocol):
 @dataclass(frozen=True)
 class Outcome:
     item: QueuedUpload
-    status: str                    # "uploaded" | "updated" | "skipped" | "failed" | "planned"
+    status: str                    # "uploaded" | "updated" | "skipped" | "failed" | "planned" | "cancelled"
     detail: str = ""
     video_id: str = ""
+    # The stored YouTube login is no longer valid: connect the account again.
+    relogin: bool = False
 
 
 def run_queue(
@@ -163,14 +165,23 @@ def run_queue(
     force: bool = False,
     on_progress: Callable[[QueuedUpload, int, int], None] = lambda item, sent, total: None,
     on_uploaded: Callable[[QueuedUpload, UploadRecord], None] = lambda item, record: None,
+    is_cancelled: Callable[[], bool] = lambda: False,
 ) -> list[Outcome]:
     """Upload *items* in order, at most *limit* of them. ``uploader=None``
     is a dry run: it reports what would be uploaded. An item already
     uploaded is skipped unless *force*; one failure does not stop the rest
-    (its resumable session is kept for the next run)."""
+    (its resumable session is kept for the next run). *is_cancelled*
+    stops the run between chunks; an expired login stops it too, since
+    every later upload would fail the same way."""
+    from core.youtube_oauth import YouTubeAuthExpired
+    from core.youtube_upload import UploadCancelled
+
     outcomes: list[Outcome] = []
     started = 0
     for item in items:
+        if is_cancelled():
+            outcomes.append(Outcome(item, "cancelled"))
+            continue
         done = uploaded_record(item)
         if done is not None and not force:
             outcomes.append(Outcome(item, "skipped", "already uploaded", done.video_id))
@@ -190,7 +201,14 @@ def run_queue(
             result = uploader.publish(
                 item.package, pending_path=item.pending_path, record_path=item.record_path,
                 on_progress=functools.partial(on_progress, item),
+                is_cancelled=is_cancelled,
             )
+        except UploadCancelled:
+            outcomes.append(Outcome(item, "cancelled"))
+            continue
+        except YouTubeAuthExpired as exc:
+            outcomes.append(Outcome(item, "failed", f"{type(exc).__name__}: {exc}", relogin=True))
+            break
         except Exception as exc:  # report, keep going with the next record
             outcomes.append(Outcome(item, "failed", f"{type(exc).__name__}: {exc}"))
             continue
@@ -209,6 +227,8 @@ def run_updates(items: list[QueuedUpload], updater: Optional[Updater]) -> list[O
     """Push the queued title, description and tags of every item that is
     already on YouTube to its video (``updater=None`` is a dry run). An
     item not uploaded yet is skipped — uploading stays an explicit run."""
+    from core.youtube_oauth import YouTubeAuthExpired
+
     outcomes: list[Outcome] = []
     for item in items:
         done = uploaded_record(item)
@@ -220,6 +240,10 @@ def run_updates(items: list[QueuedUpload], updater: Optional[Updater]) -> list[O
             continue
         try:
             updater.update_metadata(done.video_id, item.package)
+        except YouTubeAuthExpired as exc:
+            outcomes.append(Outcome(item, "failed", f"{type(exc).__name__}: {exc}",
+                                    done.video_id, relogin=True))
+            break
         except Exception as exc:  # report, keep going with the next record
             outcomes.append(Outcome(item, "failed", f"{type(exc).__name__}: {exc}", done.video_id))
             continue

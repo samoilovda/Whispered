@@ -69,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     uploader = None
+    where = "Settings → AI / LM Studio → YouTube account"
     if not args.dry_run:
         from config import get_config
         from core import youtube_oauth
@@ -77,7 +78,6 @@ def main(argv: list[str] | None = None) -> int:
         cfg = get_config()
         # Say what is missing: the OAuth client (its secret can be lost on
         # its own, e.g. a keyring entry removed) or the account login.
-        where = "Settings → AI / LM Studio → YouTube account"
         if not (cfg.yt_oauth_client_id and cfg.yt_oauth_client_secret):
             print(f"YouTube is not connected: the OAuth client is missing — {where} → "
                   "\"Import client_secret.json…\".")
@@ -120,12 +120,16 @@ def main(argv: list[str] | None = None) -> int:
         elif outcome.status == "planned":
             cover = outcome.item.package.thumbnail_path
             print(f"→ would upload {title} (cover: {cover.name if cover else 'none'})")
+        elif outcome.status == "cancelled":
+            print(f"– {title}: cancelled")
         elif outcome.status == "skipped":
             suffix = f" ({outcome.video_id})" if outcome.video_id else ""
             print(f"– {title}: {outcome.detail}{suffix}")
         else:
             failed = True
             print(f"✗ {title}: {outcome.detail}")
+            if outcome.relogin:
+                print(f"  Connect the account again: {where} → \"Connect account\".")
     return 1 if failed else 0
 
 

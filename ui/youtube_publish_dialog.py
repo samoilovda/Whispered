@@ -118,6 +118,8 @@ class YouTubePublishDialog(QDialog):
     # "Approve cover": the owner renders the final cover.png in the
     # background and answers with set_cover_ready() / set_cover_failed().
     cover_render_requested = pyqtSignal()
+    # "Upload now" after queuing: the owner opens the upload queue and runs it.
+    queue_run_requested = pyqtSignal()
 
     def __init__(
         self,
@@ -359,11 +361,18 @@ class YouTubePublishDialog(QDialog):
         self._queue_btn.clicked.connect(self._queue_upload)
         row.addWidget(self._queue_btn)
         box.addLayout(row)
+        status_row = QHBoxLayout()
         self._queue_status = QLabel()
         self._queue_status.setWordWrap(True)
         self._queue_status.setVisible(False)
         set_role(self._queue_status, "dim")
-        box.addWidget(self._queue_status)
+        status_row.addWidget(self._queue_status, 1)
+        self._queue_run_btn = QPushButton(tr("yt_queue_upload_now"))
+        self._queue_run_btn.setProperty("variant", "primary")
+        self._queue_run_btn.setVisible(False)
+        self._queue_run_btn.clicked.connect(self.queue_run_requested.emit)
+        status_row.addWidget(self._queue_run_btn)
+        box.addLayout(status_row)
         return box
 
     def _queue_upload(self) -> None:
@@ -382,6 +391,7 @@ class YouTubePublishDialog(QDialog):
         self.save_draft()
         self._queue_status.setText(tr("yt_queue_done"))
         self._queue_status.setVisible(True)
+        self._queue_run_btn.setVisible(True)
         show_toast(self, tr("yt_queue_done"), kind="success")
 
     # ------------------------------------------------------------- wizard

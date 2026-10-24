@@ -168,3 +168,41 @@ def test_updates_only_what_is_already_on_youtube(tmp_path):
     assert outcomes[1].status == "updated" and outcomes[1].video_id == "id-1"
     assert outcomes[2].status == "skipped"           # never uploaded: no update
     assert updater.calls == [("id-1", items[[i.record_id for i in items].index(1)].package.title)]
+
+
+def test_an_expired_login_stops_the_run(tmp_path):
+    from core.youtube_oauth import YouTubeAuthExpired
+
+    _queue(tmp_path, "first", 1)
+    _queue(tmp_path, "second", 2)
+
+    class _Expired(_FakeUploader):
+        def publish(self, pkg, **kwargs):
+            self.calls.append(pkg.title)
+            raise YouTubeAuthExpired("the login was revoked or expired")
+
+    uploader = _Expired()
+    outcomes = run_queue(find_queued(tmp_path / "output"), uploader)
+    # One failed call, not one per record: the rest would fail the same way.
+    assert len(uploader.calls) == 1
+    assert [(o.status, o.relogin) for o in outcomes] == [("failed", True)]
+
+
+def test_cancelling_keeps_the_rest_for_the_next_run(tmp_path):
+    from core.youtube_upload import UploadCancelled
+
+    _queue(tmp_path, "first", 1)
+    _queue(tmp_path, "second", 2)
+    cancelled = []
+
+    class _Cancelling(_FakeUploader):
+        def publish(self, pkg, **kwargs):
+            self.calls.append(pkg.title)
+            cancelled.append(True)
+            raise UploadCancelled("stopped")
+
+    uploader = _Cancelling()
+    outcomes = run_queue(find_queued(tmp_path / "output"), uploader,
+                         is_cancelled=lambda: bool(cancelled))
+    assert len(uploader.calls) == 1
+    assert [o.status for o in outcomes] == ["cancelled", "cancelled"]

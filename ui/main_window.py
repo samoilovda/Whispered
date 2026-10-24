@@ -593,6 +593,7 @@ class MainWindow(QMainWindow):
             ("menu_file", "menu_export_project", "", lambda: self.project.export_open_record(), True),
             ("menu_file", "menu_import_project", "", lambda: self.project.import_project(), True),
             ("menu_file", "yt_publish_btn", "", self.youtube_publish.open_dialog, True),
+            ("menu_file", "menu_yt_queue", "", lambda: self.youtube_publish.open_queue(), True),
             ("menu_file", "menu_run_youtube_package", "", self._menu_run_youtube_package, True),
             ("menu_file", _SEPARATOR, "", None, False),
             ("menu_file", "menu_settings", "Ctrl+,", self._open_settings, True),

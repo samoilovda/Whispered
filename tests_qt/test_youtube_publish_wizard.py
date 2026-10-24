@@ -247,6 +247,12 @@ def test_queue_for_upload_writes_the_approved_package(video, tmp_path):
     assert item.package.privacy == "unlisted"
     assert "0:00 Вступление" in item.package.description
     assert not dlg._queue_status.isHidden()
+    # Uploading right away is one more click, not a terminal command.
+    assert not dlg._queue_run_btn.isHidden()
+    asked = []
+    dlg.queue_run_requested.connect(lambda: asked.append(True))
+    dlg._queue_run_btn.click()
+    assert asked == [True]
 
 
 def test_no_queue_button_without_a_record(video, tmp_path):

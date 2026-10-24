@@ -37,6 +37,10 @@ class YouTubePublishController:
         # The upload worker (core/youtube_upload_worker.py); outlives the dialog.
         self.upload: Any = None
         self.upload_record_id: Optional[int] = None
+        # The open upload-queue dialog and its worker (ui/youtube_queue_worker.py);
+        # the worker, like the single upload, outlives the dialog.
+        self.queue_dialog: Any = None
+        self.queue: Any = None
 
     # ------------------------------------------------------------ wizard
 
@@ -89,6 +93,7 @@ class YouTubePublishController:
             lambda pkg: self.start_upload(pkg, record_id, record_path, pending_path)
         )
         dialog.upload_cancel_requested.connect(self.cancel_upload)
+        dialog.queue_run_requested.connect(lambda: self.open_queue(parent=dialog, start=True))
         self.dialog = dialog
         try:
             dialog.exec()
@@ -184,18 +189,122 @@ class YouTubePublishController:
             self.upload.cancel()
 
     def shutdown(self) -> None:
-        """Shutdownable (ui/shutdownable.py): cancel a running upload and
-        wait a bounded time; one that outlives it is retired, not dropped."""
-        worker = self.upload
-        if worker is None or not worker.isRunning():
+        """Shutdownable (ui/shutdownable.py): cancel a running upload (or
+        queue run) and wait a bounded time; one that outlives it is
+        retired, not dropped."""
+        for worker in (self.upload, self.queue):
+            if worker is None or not worker.isRunning():
+                continue
+            worker.cancel()
+            if not worker.wait(_UPLOAD_WAIT_MS):
+                logger.warning(
+                    "YouTube upload did not stop within %d ms; deferring cleanup to WorkerRegistry",
+                    _UPLOAD_WAIT_MS,
+                )
+                self._host._registry.retire(worker)
+
+    # ------------------------------------------------------------ queue
+
+    def queue_connected(self) -> bool:
+        """The OAuth client is imported and an account is signed in — all
+        the queue needs (it is an explicit run, so API mode is not asked)."""
+        from core import youtube_oauth
+        cfg = get_config()
+        return bool(cfg.yt_oauth_client_id and cfg.yt_oauth_client_secret) and \
+            youtube_oauth.is_connected()
+
+    def queue_running(self) -> bool:
+        return self.queue is not None and self.queue.isRunning()
+
+    def open_queue(self, parent: Any = None, start: bool = False) -> None:
+        """Show the upload queue (File → YouTube upload queue…, or "Upload
+        now" on the wizard's last step, which also starts it)."""
+        from core.paths import output_dir
+        from ui.youtube_queue_dialog import YouTubeQueueDialog
+
+        dialog = YouTubeQueueDialog(
+            output_dir(), connected=self.queue_connected(), running=self.queue_running(),
+            parent=parent or self._host,
+        )
+        dialog.run_requested.connect(self.start_queue)
+        dialog.cancel_requested.connect(self.cancel_queue)
+        dialog.settings_requested.connect(lambda: self._queue_settings(dialog))
+        self.queue_dialog = dialog
+        if start and not self.queue_running():
+            self.start_queue(False)
+        try:
+            dialog.exec()
+        finally:
+            self.queue_dialog = None
+            dialog.deleteLater()
+
+    def _queue_settings(self, dialog) -> None:
+        self._host._open_settings("settings_category_ai")
+        dialog.set_connected(self.queue_connected())
+
+    def start_queue(self, update: bool = False) -> None:
+        """Run the queue on a worker: upload what is waiting, or with
+        *update* push the queued texts to the videos already uploaded."""
+        from core.paths import output_dir
+        from ui.youtube_queue_worker import YouTubeQueueWorker
+
+        dialog = self.queue_dialog
+        busy = self.queue_running() or (self.upload is not None and self.upload.isRunning())
+        if busy:
+            if dialog is not None:
+                dialog.set_error(tr("yt_publish_busy"))
             return
-        worker.cancel()
-        if not worker.wait(_UPLOAD_WAIT_MS):
-            logger.warning(
-                "YouTube upload did not stop within %d ms; deferring cleanup to WorkerRegistry",
-                _UPLOAD_WAIT_MS,
-            )
-            self._host._registry.retire(worker)
+        if not self.queue_connected():
+            if dialog is not None:
+                dialog.set_connected(False)
+            return
+        cfg = get_config()
+        worker = YouTubeQueueWorker(
+            output_dir(), client_id=cfg.yt_oauth_client_id,
+            client_secret=cfg.yt_oauth_client_secret, update=update, parent=self._host,
+        )
+        worker.progress.connect(self._on_queue_progress)
+        worker.uploaded.connect(self._on_queue_uploaded)
+        worker.done.connect(self._on_queue_done)
+        worker.failed.connect(self._on_queue_failed)
+        self._host._registry.register(worker, name="youtube_queue")
+        self.queue = worker
+        if dialog is not None:
+            dialog.set_running(True, update=update)
+        worker.start()
+
+    def cancel_queue(self) -> None:
+        if self.queue_running():
+            self.queue.cancel()
+
+    def _on_queue_progress(self, item, percent: int) -> None:
+        self._host.status_label.setText(tr("status_yt_uploading", percent=percent))
+        if self.queue_dialog is not None:
+            self.queue_dialog.set_progress(item, percent)
+
+    def _on_queue_uploaded(self, item, _record) -> None:
+        if add_record_badges(item.record_id, {"youtube_upload"}):
+            self._host.library_view.refresh()
+
+    def _on_queue_done(self, outcomes) -> None:
+        host = self._host
+        host.status_label.setText("")
+        sent = sum(1 for outcome in outcomes if outcome.status in ("uploaded", "updated"))
+        failed = [outcome for outcome in outcomes if outcome.status == "failed"]
+        if self.queue_dialog is not None:
+            self.queue_dialog.set_outcomes(outcomes)
+        elif failed:
+            detail = tr("yt_publish_relogin") if any(o.relogin for o in failed) else failed[0].detail
+            show_toast(host, tr("yt_publish_upload_failed", detail=detail), kind="error")
+        elif sent:
+            show_toast(host, tr("yt_queue_result", sent=sent), kind="success")
+
+    def _on_queue_failed(self, message: str) -> None:
+        self._host.status_label.setText("")
+        if self.queue_dialog is not None:
+            self.queue_dialog.set_error(message)
+        else:
+            show_toast(self._host, tr("yt_queue_run_failed", detail=message), kind="error")
 
     def _on_progress(self, percent: int, sent: object, total: object) -> None:
         self._host.status_label.setText(tr("status_yt_uploading", percent=percent))
