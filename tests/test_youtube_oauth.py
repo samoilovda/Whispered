@@ -169,6 +169,17 @@ def test_invalid_grant_means_the_login_expired():
         provider.access_token()
 
 
+def test_a_rejected_stored_login_is_forgotten(_memory_store):
+    oauth.store_refresh_token("dead")
+    assert oauth.is_connected()
+    provider = oauth.TokenProvider(
+        "cid", "csec", session=_Session(_Response(400, {"error": "invalid_grant"})))
+    with pytest.raises(oauth.YouTubeAuthExpired):
+        provider.access_token()
+    # Not "connected" any more, so Settings offers "Connect account" again.
+    assert not oauth.is_connected()
+
+
 def test_not_connected_is_reported_as_expired():
     provider = oauth.TokenProvider("cid", "csec", session=_Session(), refresh_token=lambda: None)
     with pytest.raises(oauth.YouTubeAuthExpired):

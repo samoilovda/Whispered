@@ -294,6 +294,8 @@ class TokenProvider:
         self._session = session or _default_session()
         self._clock = clock
         self._refresh_token = refresh_token or load_refresh_token
+        # Only the token from the store is forgotten when Google rejects it.
+        self._uses_store = refresh_token is None
         self._lock = threading.Lock()
         self._access_token: Optional[str] = None
         self._expires_at = 0.0
@@ -322,6 +324,10 @@ class TokenProvider:
             if response.status_code != 200:
                 code = _error_code(response)
                 if code == "invalid_grant":
+                    # A dead login would otherwise still count as connected,
+                    # which keeps Settings' "Connect account" disabled.
+                    if self._uses_store and load_refresh_token() == token:
+                        clear_refresh_token()
                     raise YouTubeAuthExpired("the login was revoked or expired")
                 raise YouTubeAuthError(f"Token refresh failed ({response.status_code} {code})".strip())
             body = response.json()
