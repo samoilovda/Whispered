@@ -113,6 +113,7 @@ CI mirrors all of the above (`.github/workflows/ci.yml`).
 - Standalone driver scripts that use `multiprocessing` spawn MUST have an
   `if __name__ == "__main__"` guard.
 - `build.py` signs with a self-signed "Whispered Local Signing" certificate
+  (create it once with `tools/create_signing_cert.sh`)
   from the login keychain when one exists (or `WHISPERED_SIGN_IDENTITY`),
   else ad-hoc. Ad-hoc builds change identity on every rebuild, so macOS asks
   for the keychain password again to read the stored YouTube login.
