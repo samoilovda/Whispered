@@ -38,6 +38,7 @@ OPTIONAL_FILES = (SPEAKERS_JSON, SPEAKERS_MD, "youtube_package.json")
 MARKER_FILE = "hermes_push.json"
 READY_FILE = "ready.json"
 _SSH_OPTS = ("-o", "BatchMode=yes", "-o", "ConnectTimeout=10")
+_SENT_MODE = 0o640
 
 Runner = Callable[[Sequence[str]], "subprocess.CompletedProcess[str]"]
 # Rewrites the staged copies in the given folder (never the record's own
@@ -127,6 +128,10 @@ def _transfer(
         for src in item.files:
             shutil.copy2(src, stage / src.name)
             files.append(stage / src.name)
+        # The data dir is private (0600), and rsync/scp carry the mode over:
+        # the server's reader shares only the group.
+        for path in files:
+            path.chmod(_SENT_MODE)
         info = annotate(item, stage) if annotate else {}
         ready = stage / READY_FILE
         ready.write_text(json.dumps({

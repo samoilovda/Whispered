@@ -60,7 +60,10 @@ def test_annotate_rewrites_the_staged_copy_only(tmp_path):
     folder = _folder(tmp_path)
     seen = {}
 
+    (folder / hp.UPLOAD_JSON).chmod(0o600)
+
     def annotate(item, stage):
+        seen["mode"] = (stage / hp.UPLOAD_JSON).stat().st_mode & 0o777
         (stage / hp.CLEAN_MD).write_text("changed", encoding="utf-8")
         return {"me": {"speaker_id": "S1"}}
 
@@ -74,6 +77,7 @@ def test_annotate_rewrites_the_staged_copy_only(tmp_path):
     (outcome,) = hp.run_push(hp.find_pending(tmp_path), "me@srv:/i", annotate=annotate,
                              runner=runner, which=lambda n: "x")
     assert outcome.info == {"me": {"speaker_id": "S1"}}
+    assert seen["mode"] == 0o640   # group-readable on the server
     assert seen["clean"] == "changed" and seen["ready"]["me"] == {"speaker_id": "S1"}
     assert (folder / hp.CLEAN_MD).read_text() == "{}"
 
