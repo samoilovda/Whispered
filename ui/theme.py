@@ -1126,6 +1126,32 @@ def build_stylesheet(t: Theme) -> str:
         background-color: {rgba(t.accent, 0.24)};
         color: {t.accent_pressed};
     }}
+    QPushButton[role="status-chip"] {{
+        background-color: transparent;
+        border: none;
+        border-radius: {t.radius_sm};
+        padding: 3px 8px;
+        color: {t.text_secondary};
+        font-size: {t.font_sm};
+    }}
+    QPushButton[role="status-chip"]:hover {{
+        background-color: {t.bg_pressed};
+        color: {t.text_primary};
+    }}
+    QFrame[role="status-sep"] {{
+        background-color: {t.border_input};
+        border: none;
+    }}
+    QFrame[role="popover"] {{
+        background-color: {t.bg_surface};
+        border: 1px solid {t.border_input};
+        border-radius: {t.radius_md};
+    }}
+    QLabel[role="popover-title"] {{
+        color: {t.text_primary};
+        font-size: {t.font_md};
+        font-weight: 600;
+    }}
     QWidget[role="drop-zone"] {{
         border: 2px dashed {t.border_input};
         border-radius: {t.radius_lg};

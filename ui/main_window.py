@@ -263,7 +263,6 @@ class MainWindow(QMainWindow):
     status_label: QLabel
     progress_bar: QProgressBar
     cancel_btn: QPushButton
-    device_btn: QPushButton
     progress_timeline: ProgressTimeline
     start_view: StartView
     run_view: RunView
@@ -527,8 +526,6 @@ class MainWindow(QMainWindow):
             self._folder_hint_label.setText(tr("draft_folder_hint"))
         if hasattr(self, "_draft_queue_button"):
             self._draft_queue_button.setText(tr("draft_open_queue"))
-        if hasattr(self, "device_btn"):
-            self.device_btn.setToolTip(tr("tooltip_device"))
         if hasattr(self, "progress_timeline"):
             self.progress_timeline.stages = [
                 tr(k) for k in self._timeline_stage_keys
@@ -1025,9 +1022,12 @@ class MainWindow(QMainWindow):
         self.status_label = self.status_bar.status_label
         self.progress_bar = self.status_bar.progress
         self.cancel_btn = self.status_bar.cancel_button
-        self.device_btn = self.status_bar.device_button
-        self.device_btn.setToolTip(tr("tooltip_device"))
-        self.device_btn.clicked.connect(self._toggle_device)
+        self.status_bar.device_selected.connect(self._set_use_gpu)
+        self.status_bar.settings_requested.connect(self._open_settings)
+        self.status_bar.llm_refresh_requested.connect(self.book_panel.refresh_connection)
+        self.status_bar.set_whisper_model(get_config().default_model)
+        self.transcribe_options.changed.connect(
+            lambda: self.status_bar.set_whisper_model(get_config().default_model))
         self.status_bar.cancel_requested.connect(self._cancel_operation)
         self.status_bar.bind_queue(self.batch_panel)
         self.batch_panel.queue_changed.connect(self.status_bar.set_queue_count)
@@ -1748,14 +1748,14 @@ class MainWindow(QMainWindow):
         self.run_view.retry_step(name)
         self._stack.setCurrentIndex(self._run_index)
 
-    def _toggle_device(self):
-        """Toggle between GPU and CPU mode."""
-        if self._gpu_type == 'cpu':
-            # No GPU available, can't toggle
+    def _set_use_gpu(self, use_gpu: bool) -> None:
+        """The status bar's compute popover picked GPU or CPU."""
+        if use_gpu and self._gpu_type == 'cpu':
+            # No GPU available, can't switch to it
             self.status_label.setText(tr("status_no_gpu"))
             return
 
-        self._use_gpu = not self._use_gpu
+        self._use_gpu = use_gpu
         self._update_device_badge()
 
         device_name = self._gpu_name if self._use_gpu else "CPU"
@@ -1783,30 +1783,8 @@ class MainWindow(QMainWindow):
         worker.deleteLater()
 
     def _update_device_badge(self):
-        """Update the device button appearance based on current selection."""
-        if self._gpu_type == "detecting":
-            self.device_btn.setText(tr("device_detecting"))
-            self.device_btn.setEnabled(False)
-            role = "muted-badge"
-        elif self._use_gpu and self._gpu_type in ('cuda', 'rocm'):
-            self.device_btn.setText(f"🚀 {self._gpu_name}")
-            self.device_btn.setEnabled(True)
-            role = "muted-badge"
-        elif self._use_gpu and self._gpu_type == 'metal':
-            self.device_btn.setText(f"🍎 {self._gpu_name}")
-            self.device_btn.setEnabled(True)
-            role = "muted-badge"
-        else:
-            # CPU mode or no GPU
-            self.device_btn.setText("💻 CPU")
-            self.device_btn.setEnabled(self._gpu_type != "cpu")
-            role = "muted-badge"
-
-        self.device_btn.setProperty("role", role)
-        # Property-based selectors need an explicit re-polish to take effect
-        # once the widget has already been shown with a different role.
-        self.device_btn.style().unpolish(self.device_btn)
-        self.device_btn.style().polish(self.device_btn)
+        """Show the detected hardware and the GPU/CPU choice in the status bar."""
+        self.status_bar.set_device(self._gpu_type, self._gpu_name, self._use_gpu)
 
     def _open_settings(self, category: str = ""):
         """Open the Settings dialog (on *category*, a settings_category_*
@@ -1856,6 +1834,7 @@ class MainWindow(QMainWindow):
         self._apply_watch_folder_config()
         self.youtube_panel.refresh_description()
         self.transcribe_options.refresh_model_state()
+        self.status_bar.set_whisper_model(cfg.default_model)
         self.course_capture_panel.setup.refresh_model_state()
         self.live_view.setup.refresh_model_state()
         self.start_view.refresh_readiness()

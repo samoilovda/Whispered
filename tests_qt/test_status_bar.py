@@ -122,3 +122,134 @@ def test_queue_overlay_stays_on_screen_for_an_anchor_near_the_top(process_events
 
     overlay.close()
     anchor.close()
+
+
+def test_queue_chip_is_hidden_while_nothing_is_queued(process_events):
+    """"Queue 0" used to be a permanent button to an empty panel."""
+    from core.i18n import load_locale
+
+    load_locale("en")
+    bar = StatusBar()
+    bar.show()
+    process_events()
+    assert not bar.queue_button.isVisibleTo(bar)
+
+    bar.set_queue_count(2)
+    bar.set_course_count(1)
+    process_events()
+    assert bar.queue_button.isVisibleTo(bar)
+    assert bar.queue_button.text() == "3 tasks queued"
+
+    bar.set_queue_count(0)
+    bar.set_course_count(0)
+    process_events()
+    assert not bar.queue_button.isVisibleTo(bar)
+    bar.close()
+
+
+def test_queue_overlay_opens_with_the_chip_hidden(process_events):
+    """The sidebar and View menu still open an empty queue: the card then
+    anchors to the bar itself."""
+    bar = StatusBar()
+    bar.bind_queue(QWidget())
+    bar.show()
+    process_events()
+
+    bar.show_queue(True)
+    process_events()
+    assert bar._overlay is not None and bar._overlay.isVisible()
+    bar.show_queue(False)
+    bar.close()
+
+
+def test_llm_chip_follows_the_probe(process_events):
+    from core.i18n import load_locale, tr
+
+    load_locale("en")
+    bar = StatusBar()
+    assert bar.llm_chip.state() == "idle"
+    assert bar.llm_chip.text() == "LM Studio"
+
+    bar.set_llm_status(True, "google/gemma-4-12b")
+    assert bar.llm_chip.state() == "ok"
+    assert bar.llm_chip.text() == "gemma-4-12b"
+    assert bar.llm_chip.toolTip() == "google/gemma-4-12b"
+
+    bar.set_llm_status(True, "")
+    assert bar.llm_chip.state() == "idle"
+
+    bar.set_llm_status(False, "connection refused")
+    assert bar.llm_chip.state() == "error"
+    assert bar.llm_chip.text() == tr("status_llm_offline")
+    bar.close()
+
+
+def test_device_chip_names_the_model_and_backend_without_emoji(process_events):
+    bar = StatusBar()
+    bar.set_whisper_model("large-v3-turbo-q5_0")
+    bar.set_device("metal", "Apple Metal (Apple Silicon)", True)
+    assert bar.device_button.text() == "large-v3-turbo · Metal"
+
+    bar.set_device("metal", "Apple Metal (Apple Silicon)", False)
+    assert bar.device_button.text() == "large-v3-turbo · CPU"
+
+    bar.set_device("cpu", "", True)
+    assert bar.device_button.text() == "large-v3-turbo · CPU"
+    bar.close()
+
+
+def test_compute_popover_switches_the_device(process_events):
+    from PyQt6.QtWidgets import QRadioButton
+
+    bar = StatusBar()
+    bar.set_whisper_model("large-v3-turbo-q5_0")
+    bar.set_device("metal", "Apple Metal (Apple Silicon)", True)
+    bar.show()
+    process_events()
+    picked: list[bool] = []
+    bar.device_selected.connect(picked.append)
+
+    bar.device_button.click()
+    process_events()
+    pop = bar._popover
+    assert pop is not None and pop.isVisible()
+    gpu, cpu = pop.findChildren(QRadioButton)
+    assert gpu.isChecked() and gpu.text() == "Apple Metal (Apple Silicon)"
+
+    cpu.setChecked(True)
+    process_events()
+    assert picked == [False]
+    assert bar.device_button.text().endswith("· CPU")
+    pop.close()
+    bar.close()
+
+
+def test_llm_popover_offers_recheck_and_settings(process_events):
+    from PyQt6.QtWidgets import QPushButton
+
+    from core.i18n import load_locale, tr
+
+    load_locale("en")
+    bar = StatusBar()
+    bar.set_llm_status(False, "connection refused")
+    bar.show()
+    process_events()
+    rechecks: list[bool] = []
+    categories: list[str] = []
+    bar.llm_refresh_requested.connect(lambda: rechecks.append(True))
+    bar.settings_requested.connect(categories.append)
+
+    bar.llm_chip.click()
+    process_events()
+    pop = bar._popover
+    assert pop is not None and pop.isVisible()
+    buttons = {b.text(): b for b in pop.findChildren(QPushButton)}
+    buttons[tr("status_llm_recheck")].click()
+    assert rechecks == [True]
+
+    bar.llm_chip.click()
+    process_events()
+    buttons = {b.text(): b for b in bar._popover.findChildren(QPushButton)}
+    buttons[tr("status_open_settings")].click()
+    assert categories == ["settings_category_ai"]
+    bar.close()
