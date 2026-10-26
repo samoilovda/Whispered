@@ -1457,5 +1457,17 @@
   "wysiwyg_text_placeholder": "Текст фразы…",
   "wysiwyg_prev_tip": "Предыдущая фраза",
   "wysiwyg_next_tip": "Следующая фраза",
-  "wysiwyg_close_tip": "Закрыть панель правки фразы"
+  "wysiwyg_close_tip": "Закрыть панель правки фразы",
+  "progress_insight_chapters": "Главы",
+  "progress_insight_action_items": "Задачи",
+  "progress_insight_key_moments": "Ключевые моменты",
+  "progress_insight_yt_titles": "Заголовки",
+  "progress_insight_yt_description": "Описание",
+  "progress_insight_yt_tags": "Теги",
+  "progress_insight_yt_questions": "Вопросы зрителям",
+  "progress_insight_yt_hashtags": "Хештеги",
+  "progress_insight_part": "{name} ({n} из {total})…",
+  "status_elapsed": "прошло {elapsed}",
+  "cover_suggesting_title": "Подбираю название…",
+  "chat_thinking": "Думаю… {elapsed}"
 }

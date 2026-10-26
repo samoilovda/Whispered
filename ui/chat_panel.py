@@ -5,6 +5,7 @@ Ask questions about the transcript using a local LM Studio model.
 
 from __future__ import annotations
 
+import time
 from typing import Optional
 
 from PyQt6.QtWidgets import (
@@ -134,6 +135,8 @@ class ChatPanel(QWidget):
         self._current_bubble: Optional[_Bubble] = None
         self._token_buf: list[str] = []
         self._scroll_timer: Optional[QTimer] = None
+        self._thinking_timer: Optional[QTimer] = None
+        self._wait_started = 0.0
         self._quick_chip_buttons: list = []
         self._i18n = Retranslator()
         self._setup_ui()
@@ -548,6 +551,25 @@ class ChatPanel(QWidget):
         self._send_btn.setEnabled(False)
         self._stop_btn.setVisible(True)
         self._input.setEnabled(False)
+
+        # A reasoning model streams nothing visible while it thinks — up to
+        # minutes on a long transcript. Until the first word, the bubble
+        # says so with a running clock instead of a still "…".
+        self._wait_started = time.monotonic()
+        if self._thinking_timer is None:
+            self._thinking_timer = QTimer(self)
+            self._thinking_timer.setInterval(1000)
+            self._thinking_timer.timeout.connect(self._tick_thinking)
+        self._thinking_timer.start()
+
+    def _tick_thinking(self) -> None:
+        bubble = self._current_bubble
+        if bubble is None or self._token_buf or self._worker is None or not self._worker.isRunning():
+            if self._thinking_timer is not None:
+                self._thinking_timer.stop()
+            return
+        seconds = int(time.monotonic() - self._wait_started)
+        bubble.setText(tr("chat_thinking", elapsed=f"{seconds // 60}:{seconds % 60:02d}"))
 
     def _on_token(self, delta: str):
         if self._current_bubble:

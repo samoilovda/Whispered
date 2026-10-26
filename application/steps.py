@@ -630,8 +630,9 @@ def _insights_runner(context: StepContext) -> StepRunner:
 
         notes = _user_notes(context)
         payload: dict[str, Any] = {}
-        for insight_type in _INSIGHTS_TYPES:
+        for index, insight_type in enumerate(_INSIGHTS_TYPES):
             check_cancelled(context.is_cancelled)
+            _report_part(context, index, len(_INSIGHTS_TYPES), insight_type)
             payload[insight_type] = generate_insight(
                 insight_type, context.result.segments,
                 lm_url=lm_url, language=language, cache=cache,
@@ -645,6 +646,21 @@ def _insights_runner(context: StepContext) -> StepRunner:
         return payload
 
     return run
+
+
+def _report_part(context: StepContext, index: int, total: int, insight_type: str) -> None:
+    """Say which of a step's LLM calls is running ("Titles (2/6)…"): each
+    one can take minutes, and a step that reports nothing in between
+    looks stuck."""
+    if context.on_progress is None:
+        return
+    from core.i18n import tr
+
+    context.on_progress(
+        index * 100 // total,
+        tr("progress_insight_part", name=tr(f"progress_insight_{insight_type}"),
+           n=index + 1, total=total),
+    )
 
 
 def _user_notes(context: StepContext) -> str:
@@ -711,8 +727,9 @@ def _youtube_package_runner(context: StepContext) -> StepRunner:
         examples = _style_examples(context).for_insights()
 
         payload: dict[str, Any] = {}
-        for insight_type in _YOUTUBE_TYPES:
+        for index, insight_type in enumerate(_YOUTUBE_TYPES):
             check_cancelled(context.is_cancelled)
+            _report_part(context, index, len(_YOUTUBE_TYPES), insight_type)
             payload[insight_type] = generate_insight(
                 insight_type, context.result.segments,
                 lm_url=lm_url, language=language, provider=provider, cache=cache,

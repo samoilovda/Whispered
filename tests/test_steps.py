@@ -1036,3 +1036,23 @@ def test_cover_without_youtube_package_still_schedules(tmp_path):
 def test_cover_runner_without_a_renderer_fails_clearly(tmp_path):
     with pytest.raises(RuntimeError, match="cover_renderer"):
         STEP_REGISTRY["cover"].make_runner(_context(tmp_path))()
+
+
+def test_llm_steps_say_which_part_is_running(tmp_path, monkeypatch):
+    """Each insight is its own LLM call, minutes long: the step reports
+    "<part> (n of N)" before each one instead of staying silent."""
+    import dataclasses
+
+    from core.i18n import set_locale
+
+    set_locale("en")
+    monkeypatch.setattr("core.insights.generate_insight",
+                        lambda insight_type, segments, **kwargs: [])
+    reports: list[tuple[int, str]] = []
+    context = dataclasses.replace(
+        _context(tmp_path, provider=None, model="m", language="en"),
+        on_progress=lambda percent, message: reports.append((percent, message)))
+    STEP_REGISTRY["youtube_package"].make_runner(context)()
+    assert reports[0] == (0, "Chapters (1 of 6)…")
+    assert reports[1] == (16, "Titles (2 of 6)…")
+    assert len(reports) == 6

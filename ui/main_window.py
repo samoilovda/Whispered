@@ -302,6 +302,9 @@ class MainWindow(QMainWindow):
         self._clean_job: JobRunner | None = None
         self._article_job: JobRunner | None = None
         self._insights_job: JobRunner | None = None
+        # Single-step jobs (clean, article, insights, YouTube, book) running
+        # now — the status bar's progress stays up while any of them is.
+        self._step_jobs: set[JobRunner] = set()
         self._youtube_job: JobRunner | None = None
         self._book_job: JobRunner | None = None
         # StepContext of whichever job is currently running, kept around
@@ -3275,15 +3278,32 @@ class MainWindow(QMainWindow):
             context, (step,), progress_factory=job.make_progress_callback
         )
         job.set_runners(runners, cache_checks=build_cache_checks(context, (step,)))
+        # The status bar's bar moves with the step (indeterminate until the
+        # first report) so a long LLM call never looks like nothing is on.
+        self._step_jobs.add(job)
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.setVisible(True)
+        job.step_progress.connect(self._on_step_job_progress)
         job.step_progress.connect(on_progress)
+        job.job_finished.connect(lambda _run, j=job: self._on_step_job_ended(j))
         job.job_finished.connect(on_finished)
         job.start()
+
+    def _on_step_job_progress(self, _name: str, percent: int, _message: str) -> None:
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(max(0, min(100, percent)))
+
+    def _on_step_job_ended(self, job) -> None:
+        self._step_jobs.discard(job)
+        if not self._step_jobs and not self.recipe_run.is_running():
+            self.progress_bar.setVisible(False)
 
     def _cancel_clean_job(self) -> None:
         """Cancel the running "clean" JobRunner, mirroring
         RecipeRunController.cancel()'s non-blocking retire-through-the-registry
         pattern (see its docstring)."""
         if self._clean_job is not None and self._clean_job.isRunning():
+            self._on_step_job_ended(self._clean_job)
             self._registry.retire(self._clean_job)
             self._clean_job = None
         self.cleaned_view.set_busy(False)
@@ -3344,6 +3364,7 @@ class MainWindow(QMainWindow):
         _cancel_clean_job()'s docstring for the retire-through-the-
         registry pattern this mirrors."""
         if self._article_job is not None and self._article_job.isRunning():
+            self._on_step_job_ended(self._article_job)
             self._registry.retire(self._article_job)
             self._article_job = None
         self.article_view.set_busy(False)
@@ -3406,6 +3427,7 @@ class MainWindow(QMainWindow):
         _cancel_clean_job()'s docstring for the retire-through-the-
         registry pattern this mirrors."""
         if self._insights_job is not None and self._insights_job.isRunning():
+            self._on_step_job_ended(self._insights_job)
             self._registry.retire(self._insights_job)
             self._insights_job = None
 
@@ -3502,6 +3524,7 @@ class MainWindow(QMainWindow):
         _cancel_clean_job()'s docstring for the retire-through-the-
         registry pattern this mirrors."""
         if self._youtube_job is not None and self._youtube_job.isRunning():
+            self._on_step_job_ended(self._youtube_job)
             self._registry.retire(self._youtube_job)
             self._youtube_job = None
 
@@ -3904,6 +3927,7 @@ class MainWindow(QMainWindow):
         docstring for the retire-through-the-registry pattern this
         mirrors."""
         if self._book_job is not None and self._book_job.isRunning():
+            self._on_step_job_ended(self._book_job)
             self._registry.retire(self._book_job)
             self._book_job = None
 

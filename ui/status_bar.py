@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import pyqtSignal
+import time
+
+from PyQt6.QtCore import QTimer, pyqtSignal
 from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtWidgets import (
     QButtonGroup,
@@ -141,6 +143,14 @@ class StatusBar(QFrame):
         self.status_label = QLabel(tr("status_idle"))
         self.status_label.setProperty("role", "muted")
         row.addWidget(self.status_label, stretch=1)
+        # How long the current operation has been going, ticking every
+        # second: an LLM call can sit on one percentage (or stream nothing
+        # while it reasons) for minutes, and a clock that moves is what
+        # tells "still working" apart from "hung".
+        self.elapsed_label = QLabel()
+        self.elapsed_label.setProperty("role", "muted")
+        self.elapsed_label.setVisible(False)
+        row.addWidget(self.elapsed_label)
         self.progress = QProgressBar()
         self.progress.setTextVisible(False)
         self.progress.setMaximumWidth(300)
@@ -171,9 +181,38 @@ class StatusBar(QFrame):
         self._status_is_idle = True
         self._llm_connected = False
         self._llm_detail = ""
+        self._busy_since: float | None = None
+        self._clock = QTimer(self)
+        self._clock.setInterval(1000)
+        self._clock.timeout.connect(self._tick)
+        self._clock.start()
         self._i18n = Retranslator()
         self._i18n.call(self._retranslate_status)
         self._i18n.bind()
+
+    # Shown only once an operation has run this long: a quick one ends
+    # before a clock would mean anything.
+    ELAPSED_AFTER_S = 3
+
+    def is_busy(self) -> bool:
+        """An operation is on: its progress bar or Cancel button is up
+        (callers toggle those widgets directly, so this reads them)."""
+        return not self.progress.isHidden() or not self.cancel_button.isHidden()
+
+    def _tick(self) -> None:
+        if not self.is_busy():
+            self._busy_since = None
+            self.elapsed_label.setVisible(False)
+            return
+        now = time.monotonic()
+        if self._busy_since is None:
+            self._busy_since = now
+        elapsed = int(now - self._busy_since)
+        if elapsed < self.ELAPSED_AFTER_S:
+            return
+        self.elapsed_label.setText(
+            tr("status_elapsed", elapsed=f"{elapsed // 60}:{elapsed % 60:02d}"))
+        self.elapsed_label.setVisible(True)
 
     def _retranslate_status(self) -> None:
         """Re-apply the count/state-derived captions after a live

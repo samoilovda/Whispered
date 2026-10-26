@@ -570,6 +570,13 @@ class CoverView(QWidget):
         worker.error_occurred.connect(
             lambda _kind, message: self.warning.setText(message)
         )
+        # An LLM call can take a minute: say so and keep it from being
+        # started twice.
+        button = self.inspector.suggest_button
+        button.setEnabled(False)
+        self.warning.setText(tr("cover_suggesting_title"))
+        for signal in (worker.finished, worker.error_occurred):
+            signal.connect(lambda *_args: button.setEnabled(True))
         worker.finished.connect(
             lambda *_args: self._workers.remove(worker)
             if worker in self._workers
@@ -583,6 +590,8 @@ class CoverView(QWidget):
         if suggestions:
             self.inspector.title_edit.setPlainText(suggestions[0].text)
             self.warning.setText(" · ".join(suggestions[0].warnings))
+        else:
+            self.warning.setText("")
 
     def _on_shuffle(self) -> None:
         self._shuffle += 1

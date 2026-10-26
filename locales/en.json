@@ -1455,5 +1455,17 @@
   "wysiwyg_text_placeholder": "Segment text…",
   "wysiwyg_prev_tip": "Previous segment",
   "wysiwyg_next_tip": "Next segment",
-  "wysiwyg_close_tip": "Close segment editor"
+  "wysiwyg_close_tip": "Close segment editor",
+  "progress_insight_chapters": "Chapters",
+  "progress_insight_action_items": "Action items",
+  "progress_insight_key_moments": "Key moments",
+  "progress_insight_yt_titles": "Titles",
+  "progress_insight_yt_description": "Description",
+  "progress_insight_yt_tags": "Tags",
+  "progress_insight_yt_questions": "Viewer questions",
+  "progress_insight_yt_hashtags": "Hashtags",
+  "progress_insight_part": "{name} ({n} of {total})…",
+  "status_elapsed": "{elapsed} elapsed",
+  "cover_suggesting_title": "Suggesting a title…",
+  "chat_thinking": "Thinking… {elapsed}"
 }

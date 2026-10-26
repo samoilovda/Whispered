@@ -28,7 +28,7 @@ from __future__ import annotations
 import time
 from typing import Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -98,6 +98,8 @@ class RunStepRow(QWidget):
         # already-finished steps, so a value that kept changing after the
         # step was done would skew it.
         self._elapsed: Optional[float] = None
+        # The last progress message while running (set_progress).
+        self._message = ""
         # SUCCEEDED/SKIPPED only — a completed step whose cache a user
         # wants to force past (B1's "forced regeneration"). Offered via
         # this row's context menu rather than a second header button: the
@@ -183,8 +185,24 @@ class RunStepRow(QWidget):
 
     # ── state transitions ───────────────────────────────────────────────
 
+    def is_running(self) -> bool:
+        return self._started_at is not None and not self._progress.isHidden()
+
+    def _running_text(self) -> str:
+        """The step's last message (or "running") with how long it has
+        been at it — the part that keeps moving while an LLM call does not."""
+        text = self._message or tr("run_status_running")
+        if self._started_at is None:
+            return text
+        return f"{text} · {_format_mmss(time.monotonic() - self._started_at)}"
+
+    def tick(self) -> None:
+        if self.is_running():
+            self._status_badge.set_status(self._running_text(), "info")
+
     def set_running(self) -> None:
         self._started_at = time.monotonic()
+        self._message = ""
         self._status_badge.set_status(tr("run_status_running"), "info")
         self._progress.setVisible(True)
         self._progress.setRange(0, 0)
@@ -195,7 +213,8 @@ class RunStepRow(QWidget):
     def set_progress(self, percent: int, message: str) -> None:
         self._progress.setRange(0, 100)
         self._progress.setValue(max(0, min(100, percent)))
-        self._status_badge.set_status(message or tr("run_status_running"), "info")
+        self._message = message
+        self._status_badge.set_status(self._running_text(), "info")
 
     def apply_outcome(self, outcome: Optional[StepOutcome]) -> None:
         """Render *outcome* — or, if ``None``, the "hasn't started yet"
@@ -295,6 +314,12 @@ class RunView(QWidget):
         self._run_started_at: Optional[float] = None
         self._finished = False
         self._publish_available = False
+        # Moves the header clock and the running step's own time every
+        # second; without it both stood still between progress reports.
+        self._clock = QTimer(self)
+        self._clock.setInterval(1000)
+        self._clock.timeout.connect(self._tick)
+        self._clock.start()
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -564,6 +589,14 @@ class RunView(QWidget):
     # Connect these directly to a JobRunner's step_started/step_progress/
     # step_finished/job_finished signals once a caller actually drives one
     # (B6) — each is a plain slot, safe to call from Qt's own dispatch.
+
+    def _tick(self) -> None:
+        running = [row for row in self._rows.values() if row.is_running()]
+        if not running:
+            return
+        for row in running:
+            row.tick()
+        self._recompute_overall()
 
     def on_step_started(self, name: str) -> None:
         if self._run_started_at is None:
