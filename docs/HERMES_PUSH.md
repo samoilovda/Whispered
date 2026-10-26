@@ -18,6 +18,13 @@ found and marked (see "Which speaker is me").
 Each folder lands in `<inbox>/<name>-<id>/`: `clean.md`, `youtube_upload.json`,
 plus `transcript.speakers.json`, `transcript.speakers.md` and
 `youtube_package.json` when they exist, and `ready.json` **last**.
+
+A record that was never diarized has no speaker transcript, and `clean.md`
+has no timecodes. For such a record the push first writes
+`transcript.timed.json` into its folder (`start`/`end`/`text` of every
+segment, from the history database) and sends it too, so Hermes can quote a
+moment of the video. Its segments carry no speaker, so «whose voice» stays
+unknown until the record is diarized.
 Re-running sends nothing until one of those files, the voice profile or
 your name changes (state: `hermes_push.json` in the folder). `--force`
 sends everything again.

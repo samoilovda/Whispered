@@ -30,7 +30,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from application import hermes_speaker as hs  # noqa: E402
-from application.hermes_push import SPEAKERS_JSON, find_pending, run_push  # noqa: E402
+from application.hermes_push import (  # noqa: E402
+    SPEAKERS_JSON,
+    find_pending,
+    run_push,
+    write_timed_transcripts,
+)
 from config import get_config  # noqa: E402
 from core.paths import data_dir, output_dir  # noqa: E402
 
@@ -119,6 +124,11 @@ def main(argv: list[str] | None = None) -> int:
     name = config.cover_host_name.strip() or "me"
     salt = f"{profile.fingerprint() if profile else ''}|{name}"
     try:
+        if not args.dry_run:
+            from core.history import HistoryStore
+
+            # Records without a speaker transcript still get timecodes to quote.
+            write_timed_transcripts(output_dir(), HistoryStore().get)
         items = find_pending(output_dir(), force=args.force, salt=salt)
         voice = _Voice() if items and not args.dry_run else None
         annotate = hs.annotator(profile, name, voice.model, voice.embedder) if voice else None

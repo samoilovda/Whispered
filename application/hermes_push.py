@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -31,10 +32,14 @@ CLEAN_MD = "clean.md"
 UPLOAD_JSON = "youtube_upload.json"   # the video id: the video is on YouTube
 SPEAKERS_JSON = "transcript.speakers.json"
 SPEAKERS_MD = "transcript.speakers.md"
+# The plain timed transcript, for records that were never diarized: without
+# it the server has no timecodes to quote from (clean.md has none).
+TIMED_JSON = "transcript.timed.json"
 REQUIRED_FILES = (CLEAN_MD, UPLOAD_JSON)
 # Sent when present: the diarized transcript (written by the ``diarize``
-# step) and the generated YouTube texts.
-OPTIONAL_FILES = (SPEAKERS_JSON, SPEAKERS_MD, "youtube_package.json")
+# step) or the timed one, and the generated YouTube texts.
+OPTIONAL_FILES = (SPEAKERS_JSON, SPEAKERS_MD, TIMED_JSON, "youtube_package.json")
+_RECORD_ID_RE = re.compile(r"-(\d+)$")
 MARKER_FILE = "hermes_push.json"
 READY_FILE = "ready.json"
 _SSH_OPTS = ("-o", "BatchMode=yes", "-o", "ConnectTimeout=10")
@@ -83,6 +88,48 @@ def _pushed_digest(folder: Path) -> str:
         return str(data.get("digest", ""))
     except (OSError, ValueError, AttributeError):
         return ""
+
+
+def write_timed_transcripts(
+    root: Path, payload_for: Callable[[int], Optional[dict[str, Any]]]
+) -> list[Path]:
+    """For every record that would be sent but has no speaker transcript,
+    write ``transcript.timed.json`` (start/end/text of each segment) from its
+    history payload. *payload_for* maps the record id — the number that ends
+    the folder name (``core.paths.artifact_dir``) — to that payload. Rewrites
+    only when the content changed, so the push digest stays put. Returns the
+    files written."""
+    written = []
+    for folder in sorted(p for p in root.iterdir() if p.is_dir()):
+        if not all((folder / n).is_file() for n in REQUIRED_FILES):
+            continue
+        if (folder / SPEAKERS_JSON).is_file():
+            continue
+        match = _RECORD_ID_RE.search(folder.name)
+        payload = payload_for(int(match.group(1))) if match else None
+        segments = [
+            {"start": float(seg["start"]), "end": float(seg["end"]), "text": str(seg["text"]).strip()}
+            for seg in (payload or {}).get("segments") or []
+            if isinstance(seg, dict) and str(seg.get("text") or "").strip()
+            and isinstance(seg.get("start"), (int, float))
+            and isinstance(seg.get("end"), (int, float))
+        ]
+        if not segments:
+            continue
+        text = json.dumps({
+            "language": (payload or {}).get("language", ""),
+            "duration": (payload or {}).get("duration", 0),
+            "segments": segments,
+        }, ensure_ascii=False, indent=1)
+        target = folder / TIMED_JSON
+        try:
+            if target.read_text(encoding="utf-8") == text:
+                continue
+        except OSError:
+            pass
+        target.write_text(text, encoding="utf-8")
+        written.append(target)
+    return written
 
 
 def find_pending(root: Path, *, force: bool = False, salt: str = "") -> list[PushItem]:

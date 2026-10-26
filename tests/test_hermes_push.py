@@ -133,3 +133,49 @@ def test_marker_json_records_the_digest(tmp_path):
     folder = _folder(tmp_path)
     hp.run_push(hp.find_pending(tmp_path), "me@srv:/i", runner=_Runner(), which=lambda n: "x")
     assert json.loads((folder / hp.MARKER_FILE).read_text())["digest"]
+
+
+def _payload(*texts):
+    return {
+        "language": "ru", "duration": 30.0,
+        "segments": [
+            {"start": float(i * 10), "end": float(i * 10 + 9), "text": t, "speaker": None, "words": []}
+            for i, t in enumerate(texts)
+        ],
+    }
+
+
+def test_a_record_without_speakers_gets_a_timed_transcript(tmp_path):
+    folder = _folder(tmp_path, name="talk-48")
+    asked = []
+
+    def payload_for(record_id):
+        asked.append(record_id)
+        return _payload("Первая мысль.", "  ", "Вторая мысль.")
+
+    (written,) = hp.write_timed_transcripts(tmp_path, payload_for)
+    assert asked == [48]
+    data = json.loads(written.read_text(encoding="utf-8"))
+    assert data["segments"] == [
+        {"start": 0.0, "end": 9.0, "text": "Первая мысль."},
+        {"start": 20.0, "end": 29.0, "text": "Вторая мысль."},
+    ]
+    (item,) = hp.find_pending(tmp_path)
+    assert hp.TIMED_JSON in [p.name for p in item.files]
+    assert folder / hp.TIMED_JSON == written
+
+
+def test_the_timed_transcript_is_not_rewritten_when_unchanged(tmp_path):
+    _folder(tmp_path, name="talk-48")
+    hp.write_timed_transcripts(tmp_path, lambda _id: _payload("Мысль."))
+    assert hp.write_timed_transcripts(tmp_path, lambda _id: _payload("Мысль.")) == []
+
+
+def test_records_with_speakers_or_without_a_payload_are_left_alone(tmp_path):
+    _folder(tmp_path, name="talk-1", extra=(hp.SPEAKERS_JSON,))
+    _folder(tmp_path, name="talk-2")
+    _folder(tmp_path, name="no-id")
+    assert hp.write_timed_transcripts(tmp_path, lambda _id: None) == []
+    assert hp.write_timed_transcripts(
+        tmp_path, lambda i: _payload("Мысль.") if i == 1 else None
+    ) == []
