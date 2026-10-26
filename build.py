@@ -20,6 +20,7 @@ extension was built for — the .so is tagged cpython-311).
 """
 
 import argparse
+import os
 import plistlib
 import shutil
 import subprocess
@@ -169,8 +170,31 @@ def build_face_helper() -> Path:
     return helper
 
 
+# A self-signed code-signing certificate with this name in the login keychain
+# (or any identity named by WHISPERED_SIGN_IDENTITY) gives every local build
+# the same code identity, so macOS keeps the Keychain "Always Allow" for the
+# YouTube login across rebuilds. Without one the build is ad-hoc signed, and
+# each rebuild looks like a new app to the Keychain.
+LOCAL_SIGN_IDENTITY = "Whispered Local Signing"
+
+
+def signing_identity() -> str:
+    """The codesign identity for this build: configured, local, or ad-hoc."""
+    configured = os.environ.get("WHISPERED_SIGN_IDENTITY", "").strip()
+    if configured:
+        return configured
+    try:
+        found = subprocess.run(["security", "find-identity", "-p", "codesigning"],
+                               capture_output=True, text=True, check=False).stdout
+    except FileNotFoundError:
+        return "-"
+    return LOCAL_SIGN_IDENTITY if f'"{LOCAL_SIGN_IDENTITY}"' in found else "-"
+
+
 def install_capture_helper(app: Path, helper: Path, extra: "tuple[Path, ...]" = ()) -> None:
-    """Embed and ad-hoc sign the helpers before sealing the outer app bundle."""
+    """Embed and sign the helpers before sealing the outer app bundle."""
+    identity = signing_identity()
+    print(f"🔏 Signing with {'ad-hoc signature' if identity == '-' else identity}")
     for source in (helper, *extra):
         destination = app / "Contents" / "Helpers" / source.name
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -178,9 +202,8 @@ def install_capture_helper(app: Path, helper: Path, extra: "tuple[Path, ...]" = 
         destination.chmod(destination.stat().st_mode | 0o111)
         # PyInstaller has already signed the outer bundle. Adding code changes
         # its seal, so sign the nested executables first and the app last.
-        # Release distribution can replace '-' with a Developer ID later.
-        subprocess.run(["codesign", "--force", "--sign", "-", str(destination)], check=True)
-    subprocess.run(["codesign", "--force", "--sign", "-", str(app)], check=True)
+        subprocess.run(["codesign", "--force", "--sign", identity, str(destination)], check=True)
+    subprocess.run(["codesign", "--force", "--sign", identity, str(app)], check=True)
 
 
 def configure_macos_privacy(app: Path) -> None:

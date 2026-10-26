@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import plistlib
+from types import SimpleNamespace
 
 import build
 
@@ -66,6 +67,7 @@ def test_install_capture_helper_embeds_and_signs_nested_code(tmp_path, monkeypat
     helper.write_bytes(b"helper")
     calls: list[list[str]] = []
     monkeypatch.setattr(build.subprocess, "run", lambda command, **_kwargs: calls.append(command))
+    monkeypatch.setattr(build, "signing_identity", lambda: "-")
 
     build.install_capture_helper(app, helper)
 
@@ -75,3 +77,28 @@ def test_install_capture_helper_embeds_and_signs_nested_code(tmp_path, monkeypat
         ["codesign", "--force", "--sign", "-", str(destination)],
         ["codesign", "--force", "--sign", "-", str(app)],
     ]
+
+
+def _identities(monkeypatch, listing: str) -> None:
+    monkeypatch.delenv("WHISPERED_SIGN_IDENTITY", raising=False)
+    monkeypatch.setattr(build.subprocess, "run",
+                        lambda *_args, **_kwargs: SimpleNamespace(stdout=listing))
+
+
+def test_a_local_signing_certificate_keeps_one_code_identity(monkeypatch):
+    _identities(monkeypatch, '  1) ABC123 "Whispered Local Signing"\n     1 identities found\n')
+
+    assert build.signing_identity() == "Whispered Local Signing"
+
+
+def test_without_a_certificate_the_build_is_ad_hoc_signed(monkeypatch):
+    _identities(monkeypatch, "     0 identities found\n")
+
+    assert build.signing_identity() == "-"
+
+
+def test_a_configured_identity_wins(monkeypatch):
+    _identities(monkeypatch, '  1) ABC123 "Whispered Local Signing"\n')
+    monkeypatch.setenv("WHISPERED_SIGN_IDENTITY", "Developer ID Application: Someone")
+
+    assert build.signing_identity() == "Developer ID Application: Someone"
