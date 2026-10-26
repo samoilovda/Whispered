@@ -93,7 +93,7 @@ class YouTubePublishController:
             lambda pkg: self.start_upload(pkg, record_id, record_path, pending_path)
         )
         dialog.upload_cancel_requested.connect(self.cancel_upload)
-        dialog.queue_run_requested.connect(lambda: self.open_queue(parent=dialog, start=True))
+        dialog.queue_run_requested.connect(lambda: self._upload_queued_now(dialog))
         self.dialog = dialog
         try:
             dialog.exec()
@@ -102,6 +102,17 @@ class YouTubePublishController:
             # then just stop reaching it.
             self.dialog = None
             dialog.deleteLater()
+
+    def _upload_queued_now(self, dialog) -> None:
+        """"Upload now" on the wizard's last step: the package is approved
+        and queued, so the wizard's job is done — close it (a modal wizard
+        would block every other window) and run the queue in its own,
+        non-modal window."""
+        from PyQt6.QtCore import QTimer
+
+        dialog.accept()
+        # Once the wizard's exec() has returned and nothing is modal.
+        QTimer.singleShot(0, lambda: self.open_queue(start=True))
 
     def render_cover(self, dialog, record_id, source_path, art_dir) -> None:
         """The publish wizard approved its cover: render it through the
@@ -216,27 +227,40 @@ class YouTubePublishController:
     def queue_running(self) -> bool:
         return self.queue is not None and self.queue.isRunning()
 
-    def open_queue(self, parent: Any = None, start: bool = False) -> None:
+    def open_queue(self, start: bool = False) -> None:
         """Show the upload queue (File → YouTube upload queue…, or "Upload
-        now" on the wizard's last step, which also starts it)."""
+        now" on the wizard's last step, which also starts it). The window
+        is not modal: an upload takes minutes, and the rest of the app
+        stays usable meanwhile. An open window is brought to the front
+        rather than opened twice."""
+        from PyQt6.QtCore import Qt
+
         from core.paths import output_dir
         from ui.youtube_queue_dialog import YouTubeQueueDialog
 
-        dialog = YouTubeQueueDialog(
-            output_dir(), connected=self.queue_connected(), running=self.queue_running(),
-            parent=parent or self._host,
-        )
-        dialog.run_requested.connect(self.start_queue)
-        dialog.cancel_requested.connect(self.cancel_queue)
-        dialog.settings_requested.connect(lambda: self._queue_settings(dialog))
-        self.queue_dialog = dialog
+        dialog = self.queue_dialog
+        if dialog is None:
+            dialog = YouTubeQueueDialog(
+                output_dir(), connected=self.queue_connected(), running=self.queue_running(),
+                parent=self._host,
+            )
+            dialog.setModal(False)
+            dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            dialog.run_requested.connect(self.start_queue)
+            dialog.cancel_requested.connect(self.cancel_queue)
+            dialog.settings_requested.connect(lambda: self._queue_settings(dialog))
+            dialog.finished.connect(lambda _result: self._on_queue_closed(dialog))
+            self.queue_dialog = dialog
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
         if start and not self.queue_running():
             self.start_queue(False)
-        try:
-            dialog.exec()
-        finally:
+
+    def _on_queue_closed(self, dialog) -> None:
+        # A running upload goes on; its results then come as a toast.
+        if self.queue_dialog is dialog:
             self.queue_dialog = None
-            dialog.deleteLater()
 
     def _queue_settings(self, dialog) -> None:
         self._host._open_settings("settings_category_ai")

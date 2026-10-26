@@ -9,8 +9,9 @@ already on YouTube ("Update texts on YouTube"). The dialog is only a view:
 through ``set_running`` / ``set_progress`` / ``set_outcomes`` /
 ``set_error``, so an upload keeps going if the dialog is closed.
 
-Opened with ``.exec()`` and rebuilt each time, so (per CLAUDE.md's i18n
-notes) it is deliberately not retranslated live.
+Not modal (an upload takes minutes and the rest of the app stays usable),
+but rebuilt each time it is opened, like a transient window: its captions
+follow a language change on the next opening, not live.
 """
 
 from __future__ import annotations
