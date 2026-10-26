@@ -37,7 +37,8 @@ call sites).
    (`core/youtube_oauth.py`, `core/youtube_upload.py`,
    `application/youtube_autoupload.py`; `Config.yt_publish_mode` is `off`
    by default),
-   and for copying finished records (speaker transcript, YouTube package) to
+   and for copying finished records (cleaned text, speaker transcript with
+   the user's voice marked, YouTube package) whose video is on YouTube to
    the user's own server over SSH, only when `Config.hermes_push_target` is
    set and `tools/hermes_push.py` runs (`application/hermes_push.py`;
    empty by default).

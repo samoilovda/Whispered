@@ -1,9 +1,10 @@
 # Sending finished records to Hermes
 
-The "YouTube video" recipe diarizes the transcript and writes
-`transcript.speakers.json` / `.md` into the record's folder
-(`<data dir>/output/<name>-<record id>/`). `tools/hermes_push.py` copies
-such folders to the server over SSH — Hermes never polls this machine.
+Once a record's video is on YouTube (`youtube_upload.json` in the record's
+folder, `<data dir>/output/<name>-<record id>/`) and it has a cleaned text
+(`clean.md`), `tools/hermes_push.py` copies it to the server over SSH —
+Hermes never polls this machine. In the speaker transcript your own voice is
+found and marked (see "Which speaker is me").
 
 ## Setup
 
@@ -11,13 +12,45 @@ such folders to the server over SSH — Hermes never polls this machine.
    (`ssh user@host true`).
 2. In `config.json` set `"hermes_push_target": "user@host:/srv/hermes/inbox"`
    (empty = off).
-3. `.venv/bin/python tools/hermes_push.py --dry-run`, then without the flag.
+3. Enroll your voice once (below).
+4. `.venv/bin/python tools/hermes_push.py --dry-run`, then without the flag.
 
-Each folder lands in `<inbox>/<name>-<id>/`: `transcript.speakers.json`,
-`transcript.speakers.md`, `youtube_package.json` and `youtube_upload.json`
-(when they exist), and `ready.json` **last**. Re-running sends nothing until
-the transcript or YouTube package changes (state: `hermes_push.json` in the
-folder). `--force` sends everything again.
+Each folder lands in `<inbox>/<name>-<id>/`: `clean.md`, `youtube_upload.json`,
+plus `transcript.speakers.json`, `transcript.speakers.md` and
+`youtube_package.json` when they exist, and `ready.json` **last**.
+Re-running sends nothing until one of those files, the voice profile or
+your name changes (state: `hermes_push.json` in the folder). `--force`
+sends everything again.
+
+## Which speaker is me
+
+Diarization labels speakers `Speaker 1`, `Speaker 2`, … in no fixed order,
+so the push finds you by voice. Once, pick a record where you know your
+label and enroll from it:
+
+```bash
+.venv/bin/python tools/hermes_push.py --enroll ~/.local/share/Whispered/output/<name>-<id> "Speaker 1"
+```
+
+That averages the speaker embedding (the diarizer's own model, offline) of
+up to 40 of your turns into `<data dir>/voice_profile.json`. On every push
+each speaker's average embedding is compared with it: you are marked only
+when the best cosine score is ≥ 0.70 **and** at least 0.15 above the next
+speaker (`application/hermes_speaker.py`). Otherwise nobody is marked and
+the reason is sent — never a guess. The name is `cover_host_name` from
+Settings.
+
+What Hermes gets (the record's own files are untouched — the marks are made
+on the copy being sent):
+
+- `ready.json` → `"me": {"speaker_id": "Speaker 1", "name": "…", "method":
+  "voice", "score": 0.93, "runner_up": 0.41}`, or `"speaker_id": null` with
+  a `"reason"` (no profile, no speaker transcript, voices too alike, …);
+- `transcript.speakers.json` → the same `"me"` block, your name in
+  `speaker_names`, `"is_me": true/false` on every segment;
+- `transcript.speakers.md` → your turns labelled `**<name> (я)**`.
+
+A new profile re-sends every record with the new marks.
 
 ## Run it automatically (macOS)
 

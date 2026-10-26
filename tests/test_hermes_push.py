@@ -13,7 +13,8 @@ from application import hermes_push as hp
 def _folder(root, name="talk-7", extra=()):
     folder = root / name
     folder.mkdir()
-    (folder / hp.SPEAKERS_JSON).write_text('{"segments": []}', encoding="utf-8")
+    for fname in hp.REQUIRED_FILES:
+        (folder / fname).write_text("{}", encoding="utf-8")
     for fname in extra:
         (folder / fname).write_text("x", encoding="utf-8")
     return folder
@@ -30,16 +31,51 @@ class _Runner:
         return subprocess.CompletedProcess(cmd, code, "", "boom" if code else "")
 
 
-def test_folders_without_a_speaker_transcript_are_ignored(tmp_path):
+def test_only_uploaded_records_with_a_clean_text_go(tmp_path):
     (tmp_path / "plain-1").mkdir()
+    not_uploaded = tmp_path / "draft-2"
+    not_uploaded.mkdir()
+    (not_uploaded / hp.CLEAN_MD).write_text("x", encoding="utf-8")
+    (not_uploaded / hp.SPEAKERS_JSON).write_text("{}", encoding="utf-8")
     _folder(tmp_path)
     assert [i.artifact_dir.name for i in hp.find_pending(tmp_path)] == ["talk-7"]
 
 
 def test_optional_files_are_included_when_present(tmp_path):
-    _folder(tmp_path, extra=("youtube_package.json", "cover.png"))
+    _folder(tmp_path, extra=(hp.SPEAKERS_JSON, "youtube_package.json", "cover.png"))
     (item,) = hp.find_pending(tmp_path)
-    assert [p.name for p in item.files] == [hp.SPEAKERS_JSON, "youtube_package.json"]
+    assert [p.name for p in item.files] == [
+        hp.CLEAN_MD, hp.UPLOAD_JSON, hp.SPEAKERS_JSON, "youtube_package.json",
+    ]
+
+
+def test_a_new_salt_sends_everything_again(tmp_path):
+    _folder(tmp_path)
+    hp.run_push(hp.find_pending(tmp_path, salt="a"), "me@srv:/i", runner=_Runner(), which=lambda n: "x")
+    assert hp.find_pending(tmp_path, salt="a") == []
+    assert len(hp.find_pending(tmp_path, salt="b")) == 1
+
+
+def test_annotate_rewrites_the_staged_copy_only(tmp_path):
+    folder = _folder(tmp_path)
+    seen = {}
+
+    def annotate(item, stage):
+        (stage / hp.CLEAN_MD).write_text("changed", encoding="utf-8")
+        return {"me": {"speaker_id": "S1"}}
+
+    def runner(cmd):
+        if cmd[0] == "rsync" and cmd[-2].endswith(hp.READY_FILE):
+            seen["ready"] = json.loads(open(cmd[-2], encoding="utf-8").read())
+        elif cmd[0] == "rsync":
+            seen["clean"] = open(next(c for c in cmd if c.endswith(hp.CLEAN_MD))).read()
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    (outcome,) = hp.run_push(hp.find_pending(tmp_path), "me@srv:/i", annotate=annotate,
+                             runner=runner, which=lambda n: "x")
+    assert outcome.info == {"me": {"speaker_id": "S1"}}
+    assert seen["clean"] == "changed" and seen["ready"]["me"] == {"speaker_id": "S1"}
+    assert (folder / hp.CLEAN_MD).read_text() == "{}"
 
 
 def test_push_sends_files_then_ready_and_marks_the_folder(tmp_path):
@@ -55,7 +91,7 @@ def test_push_sends_files_then_ready_and_marks_the_folder(tmp_path):
     assert runner.cmds[2][-2].endswith(hp.READY_FILE)  # completion marker last
     assert not (folder / hp.READY_FILE).exists()
     assert hp.find_pending(tmp_path) == []             # idempotent
-    (folder / hp.SPEAKERS_JSON).write_text('{"segments": [1]}', encoding="utf-8")
+    (folder / hp.CLEAN_MD).write_text("edited", encoding="utf-8")
     assert len(hp.find_pending(tmp_path)) == 1         # changed → sent again
 
 
