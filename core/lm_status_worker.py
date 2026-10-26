@@ -45,6 +45,21 @@ class LMStatusWorker(BaseWorker):
         from core.lm_client import LMStudioClient
 
         connected, detail = LMStudioClient(self._url).probe(timeout=self._timeout)
+        if connected:
+            detail = self._loaded_model(detail)
         if self.is_cancelled():
             return
         self.status_ready.emit(connected, detail)
+
+    def _loaded_model(self, listed: str) -> str:
+        """The model LM Studio actually holds in memory. Under JIT loading
+        ``/v1/models`` lists every downloaded model, so *listed* (its first
+        entry) is not necessarily loaded; LM Studio's own ``/api/v0/models``
+        knows. Another OpenAI-compatible server has no such endpoint —
+        then *listed* stays the best answer."""
+        from core.lm_state import loaded_llms
+
+        loaded = loaded_llms(self._url, timeout=self._timeout)
+        if loaded is None:
+            return listed
+        return min(loaded) if loaded else ""

@@ -1,9 +1,26 @@
 """Unit tests for core/lm_status_worker.py — Qt stand-ins from conftest."""
 
 import sys
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from core.lm_status_worker import LMStatusWorker
+
+
+@pytest.fixture(autouse=True)
+def no_load_state(monkeypatch):
+    """No real /api/v0 request: by default the server has no LM Studio
+    load-state endpoint (an LM Studio may well be running on this machine)."""
+    state = SimpleNamespace(result=None, calls=[])
+
+    def fake(url, timeout=5):
+        state.calls.append((url, timeout))
+        return state.result
+
+    monkeypatch.setattr("core.lm_state.loaded_llms", fake)
+    return state
 
 
 def _collect(worker) -> list[tuple[bool, str]]:
@@ -81,3 +98,35 @@ class TestLMStatusWorker:
         connected, detail = emitted[0]
         assert connected is False
         assert "boom" in detail
+
+    def test_prefers_the_model_lm_studio_has_loaded(self, no_load_state):
+        """/v1/models lists every downloaded model under JIT loading; the
+        status shows the one actually in memory."""
+        no_load_state.result = frozenset({"qwen/qwen3-8b"})
+        worker = LMStatusWorker("http://localhost:1234/v1", timeout=2)
+        emitted = _collect(worker)
+        ctx, _ = _patched_client((True, "google/gemma-4-12b"))
+        with ctx:
+            worker._execute()
+
+        assert emitted == [(True, "qwen/qwen3-8b")]
+        assert no_load_state.calls == [("http://localhost:1234/v1", 2)]
+
+    def test_nothing_loaded_reports_an_empty_model(self, no_load_state):
+        no_load_state.result = frozenset()
+        worker = LMStatusWorker("http://localhost:1234/v1")
+        emitted = _collect(worker)
+        ctx, _ = _patched_client((True, "google/gemma-4-12b"))
+        with ctx:
+            worker._execute()
+
+        assert emitted == [(True, "")]
+
+    def test_unreachable_server_skips_the_load_state_probe(self, no_load_state):
+        worker = LMStatusWorker("http://localhost:1234/v1")
+        _collect(worker)
+        ctx, _ = _patched_client((False, "refused"))
+        with ctx:
+            worker._execute()
+
+        assert no_load_state.calls == []
