@@ -319,3 +319,24 @@ def test_queue_snapshot_applies_the_recipe_s_transcription_settings(window, proc
     snapshot = window.queue_controller.snapshot_now()
     assert (snapshot.transcription["model_name"], snapshot.transcription["language"],
             snapshot.transcription["translate"]) == ("tiny", "en", True)
+
+
+def test_a_failed_config_write_does_not_leave_a_recipe_that_will_vanish(window, monkeypatch, process_events):
+    from PyQt6.QtWidgets import QDialog, QMessageBox
+    from ui.recipe_editor import RecipeEditorDialog
+    import config
+
+    warned = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warned.append(a[-1]))
+    monkeypatch.setattr("ui.main_window.save_config", lambda: False)
+
+    def fake_exec(dialog):
+        dialog._name_edit.setText("Lost recipe")
+        dialog.result_action = "save_as_new"
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(RecipeEditorDialog, "exec", fake_exec)
+    before = list(config.get_config().recipes)
+    window._open_recipe_editor()
+    process_events()
+    assert config.get_config().recipes == before and warned and str(config.CONFIG_FILE) in warned[0]

@@ -2807,27 +2807,44 @@ class MainWindow(QMainWindow):
         dialog.deleteLater()
 
         if action == "delete":
-            cfg.recipes = [e for e in cfg.recipes if e.get("name") != recipe.name]
-            if cfg.last_recipe == recipe.name:
-                cfg.last_recipe = TRANSCRIPT_ONLY.builtin_key
-            save_config()
-            self.start_view.refresh_recipe_chips()
-            self.library_view.refresh_recipe_filters()
+            last = TRANSCRIPT_ONLY.builtin_key if cfg.last_recipe == recipe.name else cfg.last_recipe
+            if self._commit_recipes([e for e in cfg.recipes if e.get("name") != recipe.name], last):
+                self.start_view.refresh_recipe_chips()
+                self.library_view.refresh_recipe_filters()
+            else:
+                self.start_view.set_recipe(original_key)
         elif action in ("save", "save_as_new") and name is not None and steps is not None:
             final_name = (
                 name if action == "save" else self._unique_recipe_name(name, existing_names)
             )
             edited = Recipe(name=final_name, steps=steps, builtin_key="", params=params or {})
-            cfg.recipes = [
-                e for e in cfg.recipes if e.get("name") != final_name
-            ] + [edited.to_dict()]
-            cfg.last_recipe = final_name
-            save_config()
-            self.start_view.refresh_recipe_chips()
-            self.library_view.refresh_recipe_filters()
+            if self._commit_recipes(
+                [e for e in cfg.recipes if e.get("name") != final_name] + [edited.to_dict()], final_name,
+            ):
+                self.start_view.refresh_recipe_chips()
+                self.library_view.refresh_recipe_filters()
+            else:
+                self.start_view.set_recipe(original_key)
         else:
             self.start_view.set_recipe(original_key)
         self.start_view.refresh_summary()
+
+    def _commit_recipes(self, recipes: list, last_recipe: str) -> bool:
+        """Store the recipe list and the chosen one. When the config file
+        cannot be written the previous state is put back (so the chips never
+        show a recipe that will be gone after a restart) and the user is
+        told where it failed."""
+        import config as config_module
+
+        cfg = get_config()
+        before = (cfg.recipes, cfg.last_recipe)
+        cfg.recipes, cfg.last_recipe = recipes, last_recipe
+        if save_config():
+            return True
+        cfg.recipes, cfg.last_recipe = before
+        QMessageBox.warning(self, tr("recipe_editor_title"),
+                            tr("settings_save_failed", path=str(config_module.CONFIG_FILE)))
+        return False
 
     def _show_step_result(self, viewer: str, result) -> None:
         """Hand a step's result to the panel named by ``StepDefinition.viewer``."""
