@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QTextEdit, QLineEdit, QPlainTextEdit, QStackedWidget, QToolButton, QMenu, QInputDialog,
     QProgressBar, QPushButton,
 )
-from PyQt6.QtCore import QByteArray, QEvent, Qt, QTimer, QUrl, pyqtSignal
+from PyQt6.QtCore import QByteArray, QEvent, QObject, Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices, QKeySequence, QShortcut, QDragEnterEvent, QDropEvent
 
 from ui.toast import show_toast
@@ -108,6 +108,24 @@ from ui.qt_util import must
 logger = get_logger(__name__)
 
 ALL_OPERATIONS = "*"
+
+
+class _CancelTooltip(QObject):
+    """Fills the Cancel button's tooltip with the running operations just
+    before it is shown."""
+
+    def __init__(self, button: QWidget, operations) -> None:
+        super().__init__(button)
+        self._button = button
+        self._operations = operations
+        button.installEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        if obj is self._button and event.type() == QEvent.Type.ToolTip:
+            ops = self._operations()
+            self._button.setToolTip(
+                tr("cancel_operation_tip", names=describe(ops)) if len(ops) > 1 else "")
+        return False
 
 
 # ============================================================================
@@ -1029,7 +1047,9 @@ class MainWindow(QMainWindow):
         self.status_label = self.status_bar.status_label
         self.progress_bar = self.status_bar.progress
         self.cancel_btn = self.status_bar.cancel_button
-        self.cancel_btn.installEventFilter(self)       # its tooltip names what it would stop
+        # Its tooltip names what it would stop. A filter object of its own,
+        # parented to the button: the window itself is not a filter.
+        self._cancel_tooltip = _CancelTooltip(self.cancel_btn, self.running_operations)
         self.status_bar.device_selected.connect(self._set_use_gpu)
         self.status_bar.settings_requested.connect(self._open_settings)
         self.status_bar.llm_refresh_requested.connect(self.book_panel.refresh_connection)
@@ -2542,13 +2562,6 @@ class MainWindow(QMainWindow):
             on_finished=self._on_finished,
             on_error=self._on_error
         )
-
-    def eventFilter(self, obj, event) -> bool:  # noqa: N802
-        if obj is self.cancel_btn and event.type() == QEvent.Type.ToolTip:
-            ops = self.running_operations()
-            self.cancel_btn.setToolTip(
-                tr("cancel_operation_tip", names=describe(ops)) if len(ops) > 1 else "")
-        return super().eventFilter(obj, event)
 
     def running_operations(self) -> "list[Operation]":
         """Everything running in the background right now, each with the
