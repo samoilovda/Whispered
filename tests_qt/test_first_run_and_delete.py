@@ -81,16 +81,16 @@ def test_delete_offers_files_and_moves_them_to_trash_only_on_request(env, monkey
     (folder / "book.md").write_text("x" * 2048)
     trashed = []
     monkeypatch.setattr("PyQt6.QtCore.QFile.moveToTrash", staticmethod(lambda p: trashed.append(p) or True))
-    window._ask_delete = lambda box: next(
+    window.lifecycle.ask_delete = lambda box: next(
         b for b in box.buttons() if tr("history_delete_with_files", size="2.0 KB") == b.text())
-    window._confirm_delete(rid, str(folder), 2048, 1)
+    window.lifecycle.confirm_delete(rid, str(folder), 2048, 1)
     assert trashed == [str(folder)] and store.get_record(rid) is None
 
     rid2 = store.add(_result(), source_path="", source_name="b.mp3")
     window._open_record_view(rid2)
-    window._ask_delete = lambda box: next(
+    window.lifecycle.ask_delete = lambda box: next(
         b for b in box.buttons() if b.text() == tr("history_delete_record_only"))
-    window._confirm_delete(rid2, str(folder), 2048, 1)
+    window.lifecycle.confirm_delete(rid2, str(folder), 2048, 1)
     assert trashed == [str(folder)] and store.get_record(rid2) is None  # files untouched
     window.close()
     process_events()
