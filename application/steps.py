@@ -1453,7 +1453,7 @@ def reindex_record(record_id: int, source_path: str, artifact_types: "Iterable[s
     return indexed
 
 
-def reindex_artifacts() -> int:
+def reindex_artifacts(is_cancelled: Optional[Callable[[], bool]] = None) -> int:
     """Rebuild ``artifact_texts`` from whatever's already on disk (B7 plan
     item 6) — a manual action from Settings, not run automatically.
     Useful after upgrading from a build that predates B7 (nothing was
@@ -1464,10 +1464,12 @@ def reindex_artifacts() -> int:
     from core.history import get_history_store
 
     store = get_history_store()
-    return sum(
-        reindex_record(record.id, record.source_path, record.artifacts or [])
-        for record in store.list(limit=1_000_000)
-    )
+    total = 0
+    for record in store.list(limit=1_000_000):
+        if is_cancelled is not None and is_cancelled():
+            break
+        total += reindex_record(record.id, record.source_path, record.artifacts or [])
+    return total
 
 
 def step_outcome_result(

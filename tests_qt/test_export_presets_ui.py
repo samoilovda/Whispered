@@ -166,7 +166,7 @@ def test_export_preset_shows_a_success_toast_when_nothing_is_missing(
     monkeypatch.setattr("ui.main_window.show_toast", lambda *a, **k: seen_toasts.append(k))
 
     window._export_preset("article_draft")
-    process_events()
+    _until(lambda: seen_toasts)
 
     assert seen_toasts == [{"kind": "success"}]
 
@@ -198,7 +198,7 @@ def test_export_preset_shows_a_warning_toast_when_something_is_missing(
     monkeypatch.setattr("ui.main_window.show_toast", lambda *a, **k: seen_toasts.append(k))
 
     window._export_preset("youtube")
-    process_events()
+    _until(lambda: seen_toasts)
 
     assert seen_toasts == [{"kind": "warning"}]
 
@@ -217,9 +217,19 @@ def test_declined_review_writes_nothing(window, process_events, monkeypatch, tmp
     monkeypatch.setattr(window, "_review_export_plan",
                         lambda plan: reviewed.append(plan) or (False, False))
     window._export_preset("article_draft")
-    process_events()
+    _until(lambda: reviewed)
     assert reviewed and [i.key for i in reviewed[0].items][:2] == ["md", "docx"]
     assert list(out_dir.iterdir()) == []
+
+
+def _until(condition, timeout_ms: int = 5000) -> None:
+    """Planning and writing run on worker threads: let their signals arrive."""
+    from PyQt6.QtTest import QTest
+
+    waited = 0
+    while not condition() and waited < timeout_ms:
+        QTest.qWait(20)
+        waited += 20
 
 
 def test_plan_dialog_lists_freshness_and_offers_overwrite(process_events):
@@ -242,4 +252,55 @@ def test_plan_dialog_lists_freshness_and_offers_overwrite(process_events):
     assert texts[2].startswith("—")
     assert tr("export_plan_edits", keys="title") in texts[3]
     assert not dialog.overwrite.isHidden() and not dialog.overwrite.isChecked()
+    dialog.close()
+
+
+def test_bundle_planning_and_writing_leave_the_gui_thread(window, process_events, monkeypatch, tmp_path):
+    import threading
+
+    from PyQt6.QtWidgets import QFileDialog
+    from application import export_plan
+
+    window.transcript_view.set_result(_result())
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", staticmethod(lambda *a, **k: str(out_dir)))
+    monkeypatch.setattr(window, "_review_export_plan", lambda plan: (True, False))
+    threads = {}
+    real_build, real_execute = export_plan.build_export_plan, export_plan.execute_export_plan
+    monkeypatch.setattr(export_plan, "build_export_plan",
+                        lambda *a, **k: threads.setdefault("build", threading.current_thread()) and real_build(*a, **k))
+    monkeypatch.setattr(export_plan, "execute_export_plan",
+                        lambda *a, **k: threads.setdefault("write", threading.current_thread()) and real_execute(*a, **k))
+    toasts = []
+    monkeypatch.setattr("ui.main_window.show_toast", lambda *a, **k: toasts.append(k))
+    window._export_preset("article_draft")
+    _until(lambda: toasts)
+    assert toasts and threads["build"] is not threading.main_thread()
+    assert threads["write"] is not threading.main_thread()
+    assert window.status_bar.status_label.text() == tr("status_idle")
+
+
+def test_reindexing_materials_runs_in_the_background(process_events, monkeypatch):
+    import threading
+
+    from PyQt6.QtWidgets import QMessageBox
+    from ui.settings_dialog import SettingsDialog
+
+    seen = {}
+
+    def fake(is_cancelled=None):
+        seen["thread"] = threading.current_thread()
+        return 7
+
+    monkeypatch.setattr("application.steps.reindex_artifacts", fake)
+    infos = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: infos.append(a[-1]))
+    dialog = SettingsDialog()
+    dialog._reindex_materials()
+    assert not dialog._reindex_btn.isEnabled() and dialog._reindex is not None
+    dialog._reindex_materials()                                # a second click is ignored
+    _until(lambda: infos)
+    assert infos and "7" in infos[0] and seen["thread"] is not threading.main_thread()
+    assert dialog._reindex_btn.isEnabled() and dialog._reindex is None
     dialog.close()

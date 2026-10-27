@@ -50,6 +50,7 @@ class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.clear_blocked: Callable[[], bool] = lambda: False
+        self._reindex = None
         self._cfg = get_config()
         self._checker: Optional[LMStatusWorker] = None
         self._yt_login: Optional[YouTubeLoginWorker] = None
@@ -336,10 +337,10 @@ class SettingsDialog(QDialog):
         # manual rebuild of artifact_texts from whatever's already on
         # disk, not run automatically — useful after upgrading from a
         # build that predates the materials search index.
-        reindex_btn = QPushButton()
-        self._tt(reindex_btn, "library_reindex_materials")
-        reindex_btn.clicked.connect(self._reindex_materials)
-        layout.addRow(reindex_btn)
+        self._reindex_btn = QPushButton()
+        self._tt(self._reindex_btn, "library_reindex_materials")
+        self._reindex_btn.clicked.connect(self._reindex_materials)
+        layout.addRow(self._reindex_btn)
 
         # UI language
         self._lang_ui_combo = QComboBox()
@@ -959,6 +960,9 @@ class SettingsDialog(QDialog):
         if self._checker is not None:
             self._registry.retire(self._checker)
             self._checker = None
+        if self._reindex is not None:
+            self._registry.retire(self._reindex)    # cancelled; it stops at the next record
+            self._reindex = None
         self._stop_yt_login()
 
     def reject(self):
@@ -1044,13 +1048,36 @@ class SettingsDialog(QDialog):
             logger.warning("History clear failed: %s", e)
 
     def _reindex_materials(self):
-        try:
-            from application.steps import reindex_artifacts
-            n = reindex_artifacts()
-            logger.info("Materials reindexed from settings: %d", n)
-            QMessageBox.information(
-                self, tr("library_reindex_materials"),
-                tr("library_reindex_materials_done", count=n),
-            )
-        except Exception as e:
-            logger.warning("Materials reindex failed: %s", e)
+        """Rebuild the materials index in the background; the button shows
+        that it is working and the dialog stays usable."""
+        if self._reindex is not None:
+            return
+        from application.steps import reindex_artifacts
+        from ui.call_worker import CallWorker
+
+        self._reindex_btn.setEnabled(False)
+        self._reindex_btn.setText(tr("library_reindex_running"))
+        worker = CallWorker(reindex_artifacts, parent=self)
+        worker.done.connect(self._on_reindexed)
+        worker.failed.connect(self._on_reindex_failed)
+        self._reindex = worker
+        self._registry.register(worker, name="reindex")
+        worker.start()
+
+    def _end_reindex(self) -> None:
+        self._reindex = None
+        self._reindex_btn.setEnabled(True)
+        self._reindex_btn.setText(tr("library_reindex_materials"))
+
+    def _on_reindexed(self, count: object) -> None:
+        self._end_reindex()
+        logger.info("Materials reindexed from settings: %s", count)
+        QMessageBox.information(
+            self, tr("library_reindex_materials"),
+            tr("library_reindex_materials_done", count=count),
+        )
+
+    def _on_reindex_failed(self, message: str) -> None:
+        self._end_reindex()
+        logger.warning("Materials reindex failed: %s", message)
+        QMessageBox.warning(self, tr("library_reindex_materials"), message)

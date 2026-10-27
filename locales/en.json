@@ -1503,5 +1503,8 @@
   "player_envelope_tip": "Speech activity by segment, not volume.",
   "project_line_refused": "{count} files with upload approvals or credentials will not be imported.",
   "project_line_refused_one": "{count} file with upload approvals or credentials will not be imported.",
-  "project_line_refused_many": "{count} files with upload approvals or credentials will not be imported."
+  "project_line_refused_many": "{count} files with upload approvals or credentials will not be imported.",
+  "library_reindex_running": "Reindexing…",
+  "export_plan_building": "Preparing the export…",
+  "export_plan_writing": "Writing the export…"
 }

@@ -3260,7 +3260,7 @@ class MainWindow(QMainWindow):
         if preset is None:
             return
 
-        directory = QFileDialog.getExistingDirectory(self, "Select Export Directory")
+        directory = QFileDialog.getExistingDirectory(self, tr("export_dir_title"))
         if not directory:
             return
 
@@ -3270,21 +3270,36 @@ class MainWindow(QMainWindow):
 
         # UX-15: the bundle is planned, shown, and only then written —
         # exactly the reviewed snapshot (a changed transcript is refused).
+        # Planning stats every material and writing copies them: both run
+        # off the GUI thread.
         from application import export_plan
 
-        plan = export_plan.build_export_plan(
-            result, preset, directory, record_id,
-            media_source=self._source_filepath or "",
-            artifact_source=self._artifact_source(), default_name=default_name,
+        media_source = self._source_filepath or ""
+        artifact_source = self._artifact_source()
+        self._run_call(
+            lambda _cancelled: export_plan.build_export_plan(
+                result, preset, directory, record_id, media_source=media_source,
+                artifact_source=artifact_source, default_name=default_name),
+            lambda plan: self._write_export_bundle(plan, result, directory),
+            tr("export_plan_building"),
         )
+
+    def _write_export_bundle(self, plan, result, directory: str) -> None:
+        from application import export_plan
+
         accepted, overwrite = self._review_export_plan(plan)
         if not accepted:
             return
-        try:
-            report = export_plan.execute_export_plan(plan, result, overwrite=overwrite)
-        except export_plan.PlanOutdated:
-            QMessageBox.information(self, tr("export_plan_title"), tr("export_plan_outdated"))
-            return
+        self._run_call(
+            lambda _cancelled: export_plan.execute_export_plan(plan, result, overwrite=overwrite),
+            lambda report: self._bundle_written(plan, report, directory),
+            tr("export_plan_writing"),
+            on_error=lambda exc: QMessageBox.information(
+                self, tr("export_plan_title"), tr("export_plan_outdated"))
+            if "changed after the export was reviewed" in exc else None,
+        )
+
+    def _bundle_written(self, plan, report, directory: str) -> None:
         outcome = export_controller.outcome_from_report(plan, report)
         if outcome.any_missing:
             show_toast(
@@ -3301,6 +3316,35 @@ class MainWindow(QMainWindow):
                 tr("toast_export_preset_done", count=outcome.total_files, dir=directory),
                 kind="success",
             )
+
+    def _run_call(self, fn, on_done, label: str, on_error=None) -> None:
+        """Run *fn* off the GUI thread behind a status-bar operation, then
+        continue with ``on_done(result)`` on the GUI thread. A failure is
+        shown (or handed to *on_error*, which returns non-None when it
+        handled the message)."""
+        from ui.call_worker import CallWorker
+
+        self.status_bar.set_operation(label, cancellable=False)
+        worker = CallWorker(fn, parent=self)
+
+        def finish() -> None:
+            if self.status_bar.status_label.text() == label:
+                self.status_bar.clear()
+
+        def done(result: object) -> None:
+            finish()
+            on_done(result)
+
+        def failed(message: str) -> None:
+            finish()
+            if on_error is not None and on_error(message) is not None:
+                return
+            QMessageBox.warning(self, tr("error_export"), message)
+
+        worker.done.connect(done)
+        worker.failed.connect(failed)
+        self._registry.register(worker, name=f"call_{id(worker)}")
+        worker.start()
 
     def _review_export_plan(self, plan) -> "tuple[bool, bool]":
         """Show the plan; (accepted, overwrite existing files)."""
