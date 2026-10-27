@@ -34,8 +34,21 @@ def make_snapshot(recipe: Any, transcription: dict) -> q.QueueSnapshot:
     from config import get_config
     from domain.ai_profile import DEFAULT_PROFILE
 
-    profile = active_profile(get_config())
-    llm = profile.to_dict() if profile.name != DEFAULT_PROFILE else {}
+    cfg = get_config()
+    profile = active_profile(cfg)
+    if profile.name != DEFAULT_PROFILE:
+        llm = profile.to_dict()
+    else:
+        # The plain settings are frozen too: editing the LM Studio address
+        # later must not redirect a file that is already waiting. Values
+        # only — no keys or tokens are ever copied.
+        llm = {q.FROZEN_DEFAULT: {
+            "lm_url": cfg.lm_studio_url,
+            "book_lm_url": getattr(cfg, "book_lm_url", "http://localhost:1234/v1"),
+            "book_model": getattr(cfg, "book_model_name", ""),
+            "book_temperature": getattr(cfg, "book_temperature", 0.3),
+            "insights_context_chars": getattr(cfg, "insights_context_chars", 48000),
+        }}
     return q.QueueSnapshot(recipe.to_dict(), dict(transcription), llm)
 
 

@@ -104,7 +104,7 @@ def test_queued_file_keeps_the_profile_it_was_queued_with(cfg):
     assert _queued_profile(item).name == "Big"
     assert llm_params(cfg, profile=_queued_profile(item))["lm_url"] == "http://localhost:5678/v1"
     plain = queue_store.make_snapshot(Recipe(name="r", steps=("transcribe",)), {})
-    assert plain.llm == {} and _queued_profile(QueueItem(2, "b", 2, "/b.mp3", plain)) is None
+    assert list(plain.llm) == ["default_settings"] and _queued_profile(QueueItem(2, "b", 2, "/b.mp3", plain)) is None
 
 
 # ----------------------------------------------------------------- templates

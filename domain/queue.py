@@ -22,6 +22,9 @@ FAILED = "failed"
 CANCELLED = "cancelled"
 INTERRUPTED = "interrupted"
 
+# Key in QueueSnapshot.llm for the plain (Default) AI settings frozen at queue time.
+FROZEN_DEFAULT = "default_settings"
+
 STATES = (PENDING, RUNNING, DONE, FAILED, CANCELLED, INTERRUPTED)
 UNFINISHED = (PENDING, RUNNING, INTERRUPTED)      # still has work to do
 RETRYABLE = (FAILED, CANCELLED, INTERRUPTED)      # can be put back to pending
@@ -35,7 +38,8 @@ class QueueSnapshot:
     transcription: dict[str, Any]   # model, language, translate, n_threads, diarization, use_gpu
     # The local AI profile in force when it was queued (domain/ai_profile
     # LmProfile.to_dict()); empty = the plain settings. A later change of
-    # profile never changes an item already waiting (N05).
+    # profile never changes an item already waiting (N05). With the Default
+    # profile it is {FROZEN_DEFAULT: {step params}} instead.
     llm: dict[str, Any] = field(default_factory=dict)
 
     def to_json(self) -> str:

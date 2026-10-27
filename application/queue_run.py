@@ -66,7 +66,8 @@ def prepare_follow_up(
         item.source_path, result, record_id,
         artifact_source=item.source_path,
         params={**llm_params(cfg, result, provider=provider, insights_cache=insights_cache,
-                             profile=_queued_profile(item)), **(extra_params or {})},
+                             profile=_queued_profile(item)),
+                **_frozen_default(item), **(extra_params or {})},
         get_result=get_result, is_cancelled=run.is_cancelled,
     )
     stored = run_store.load_run(item.run_id) if item.run_id is not None else None
@@ -77,6 +78,16 @@ def prepare_follow_up(
         run.outcomes["transcribe"] = StepOutcome("transcribe", StepStatus.SUCCEEDED, result=result)
     return FollowUp(spec, run, context, step_names, recipe.builtin_key or recipe.name,
                     stored.id if stored is not None else None)
+
+
+def _frozen_default(item: QueueItem) -> dict:
+    """The plain AI settings as they were when the item was queued (empty
+    for an older snapshot: then today's settings apply, as before)."""
+    from domain.queue import FROZEN_DEFAULT
+
+    data = item.snapshot.llm if item.snapshot is not None else {}
+    frozen = data.get(FROZEN_DEFAULT) if isinstance(data, dict) else None
+    return dict(frozen) if isinstance(frozen, dict) else {}
 
 
 def _queued_profile(item: QueueItem):

@@ -132,3 +132,22 @@ def test_queued_cover_step_gets_a_renderer_and_each_item_its_own_cover(store, tm
         _cover_runner(follow_up.context)()
         covers.append(tmp_path / f"a-{record_id}" / "cover.png")
     assert all(path.is_file() for path in covers) and len(seen) == 2
+
+
+def test_queued_item_keeps_the_default_ai_settings_it_was_queued_with(store, monkeypatch):
+    import config
+
+    monkeypatch.setattr(config, "_config", Config(lm_studio_url="http://old:1234/v1"))
+    snapshot = queue_store.make_snapshot(Recipe(name="r", steps=("transcribe", "article")), {})
+    assert "key" not in str(snapshot.llm).lower() and "token" not in str(snapshot.llm).lower()
+    config.get_config().lm_studio_url = "http://new:1234/v1"            # changed after queueing
+    item = SimpleNamespace(source_path="/a.mp3", run_id=None, snapshot=snapshot)
+    from domain.transcription import Segment, TranscriptionResult
+
+    result = TranscriptionResult([Segment(0.0, 1.0, "hi")], "en", 1.0)
+    follow_up = queue_run.prepare_follow_up(item, result, 1, cfg=config.get_config())
+    assert follow_up.context.params["lm_url"] == "http://old:1234/v1"
+    legacy = SimpleNamespace(source_path="/a.mp3", run_id=None,
+                             snapshot=q.QueueSnapshot(snapshot.recipe, {}, {}))
+    follow_up = queue_run.prepare_follow_up(legacy, result, 1, cfg=config.get_config())
+    assert follow_up.context.params["lm_url"] == "http://new:1234/v1"
