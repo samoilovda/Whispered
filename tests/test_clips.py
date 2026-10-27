@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from domain import clips as c
 from domain.subtitles import SubtitleCue
 
@@ -152,3 +154,39 @@ def test_store_round_trip_and_newer_schema(tmp_path):
     assert not app.clips_file(tmp_path).exists() and app.load_clips(tmp_path).clips == []
     save_overlay(app.clips_file(tmp_path), {"schema_version": 99, "clips": []})
     assert app.load_clips(tmp_path) is None
+
+
+def test_a_failed_subtitle_write_keeps_the_previous_video(tmp_path, monkeypatch):
+    from application import clips as app
+    import video_cut
+
+    (tmp_path / "o.mp4").write_bytes(b"ORIGINAL")
+    (tmp_path / "o.srt").mkdir()                       # the subtitle path is unwritable
+    plan = app.RenderPlan("/s.mp4", str(tmp_path / "o.mp4"), [(0.0, 5.0)], "1\n...\n", str(tmp_path / "o.srt"))
+
+    def fake_assemble(source, segments, output, **kw):
+        Path(output).write_bytes(b"NEW")
+
+    from pathlib import Path
+    monkeypatch.setattr(video_cut, "assemble_draft", fake_assemble)
+    with pytest.raises(OSError):
+        app.render(plan)
+    assert (tmp_path / "o.mp4").read_bytes() == b"ORIGINAL"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["o.mp4", "o.srt"]
+
+    (tmp_path / "o.srt").rmdir()                       # a cancel also keeps the old pair
+    (tmp_path / "o.srt").write_text("OLD")
+
+    def cancelled(*a, **k):
+        Path(a[2]).write_bytes(b"PARTIAL")
+        raise video_cut.VideoCutCancelled("cancelled")
+
+    monkeypatch.setattr(video_cut, "assemble_draft", cancelled)
+    with pytest.raises(video_cut.VideoCutCancelled):
+        app.render(plan)
+    assert (tmp_path / "o.mp4").read_bytes() == b"ORIGINAL" and (tmp_path / "o.srt").read_text() == "OLD"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["o.mp4", "o.srt"]
+
+    monkeypatch.setattr(video_cut, "assemble_draft", fake_assemble)   # success replaces both
+    app.render(plan)
+    assert (tmp_path / "o.mp4").read_bytes() == b"NEW" and (tmp_path / "o.srt").read_text() == "1\n...\n"

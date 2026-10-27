@@ -11,6 +11,7 @@ neither video nor subtitles behind.
 from __future__ import annotations
 
 import os
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
@@ -77,20 +78,30 @@ def render(
     plan: RenderPlan, *, on_progress: Optional[Callable[[str], None]] = None,
     should_cancel: Optional[Callable[[], bool]] = None,
 ) -> None:
-    """Render *plan*. The subtitles are written only after the video is in
-    place, and removed again if that write fails."""
+    """Render *plan*. Both files are built next to their destinations and
+    swapped in only when both exist, so a failure or cancel never costs the
+    user a video or subtitles from an earlier render."""
     from video_cut import assemble_draft
 
+    out = Path(plan.output)
+    srt_path = Path(plan.srt_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tag = uuid.uuid4().hex[:8]
+    tmp_video = out.with_name(f".{out.stem}.{tag}.tmp.mp4")
+    tmp_srt = srt_path.with_name(f".{srt_path.stem}.{tag}.tmp.srt")
     segments = [_Piece(a, b) for a, b in plan.pieces]
-    assemble_draft(plan.source, segments, plan.output, on_progress=on_progress,
-                   should_cancel=should_cancel)
-    if plan.subtitles:
-        try:
-            with open(plan.srt_path, "w", encoding="utf-8", newline="\n") as handle:
+    try:
+        if plan.subtitles:
+            with open(tmp_srt, "w", encoding="utf-8", newline="\n") as handle:
                 handle.write(plan.subtitles)
-        except OSError:
+        assemble_draft(plan.source, segments, str(tmp_video), on_progress=on_progress,
+                       should_cancel=should_cancel)
+        if plan.subtitles:
+            os.replace(tmp_srt, srt_path)
+        os.replace(tmp_video, out)
+    finally:
+        for leftover in (tmp_video, tmp_srt):
             try:
-                os.remove(plan.output)
+                leftover.unlink()
             except OSError:
                 pass
-            raise
