@@ -1489,5 +1489,7 @@
   "progress_insight_part": "{name} ({n} из {total})…",
   "status_elapsed": "прошло {elapsed}",
   "cover_suggesting_title": "Подбираю название…",
-  "chat_thinking": "Думаю… {elapsed}"
+  "chat_thinking": "Думаю… {elapsed}",
+  "edit_record_gone": "Эта запись удалена из Библиотеки, поэтому правку не удалось сохранить.",
+  "history_delete_busy": "По этой записи идёт прогон рецепта. Дождитесь его окончания или отмените его."
 }

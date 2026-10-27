@@ -6,7 +6,7 @@ Unified settings window (Ctrl+,).
 import os
 import subprocess
 import sys
-from typing import Optional
+from typing import Callable, Optional
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QStackedWidget, QWidget,
@@ -38,9 +38,11 @@ class SettingsDialog(QDialog):
     """Unified settings dialog (Ctrl+,)."""
 
     settings_applied = pyqtSignal()
+    history_cleared = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.clear_blocked: Callable[[], bool] = lambda: False
         self._cfg = get_config()
         self._checker: Optional[LMStatusWorker] = None
         self._yt_login: Optional[YouTubeLoginWorker] = None
@@ -978,6 +980,9 @@ class SettingsDialog(QDialog):
             logger.warning("Could not list input devices: %s", exc)
 
     def _clear_history(self):
+        if self.clear_blocked():
+            QMessageBox.information(self, tr("history_clear_title"), tr("history_delete_busy"))
+            return
         reply = QMessageBox.question(
             self,
             tr("history_clear_title"),
@@ -990,6 +995,7 @@ class SettingsDialog(QDialog):
             from core.history import get_history_store
             n = get_history_store().clear()
             logger.info("History cleared from settings: %d records", n)
+            self.history_cleared.emit()
         except Exception as e:
             logger.warning("History clear failed: %s", e)
 

@@ -19,6 +19,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from pathlib import Path
+from typing import Callable, Optional
 
 from PyQt6.QtCore import QPoint, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup, QKeyEvent
@@ -299,12 +300,15 @@ class LibraryView(QWidget):
     open_cover = pyqtSignal()
     resume_run = pyqtSignal(int)  # record id (B2)
     record_renamed = pyqtSignal(int, str)  # record id, new title
+    records_deleted = pyqtSignal(list)  # record ids; empty = every record
 
     _SCOPES = ("all", "transcripts", "materials")
     _SOURCES = ("all", "file", "recorder", "live")
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        # Set by the window: whether a running recipe forbids deleting a record.
+        self.delete_blocked: Callable[[Optional[int]], bool] = lambda _record_id: False
         self._store = None   # lazy: avoid import at startup if history_enabled=False
         self._records: list = []
         self._material_hits: list = []
@@ -1113,6 +1117,9 @@ class LibraryView(QWidget):
         self.record_renamed.emit(record_id, title)
 
     def _delete_record(self, record_id: int):
+        if self.delete_blocked(record_id):
+            QMessageBox.information(self, tr("history_delete_title"), tr("history_delete_busy"))
+            return
         reply = QMessageBox.question(
             self,
             tr("history_delete_title"),
@@ -1126,8 +1133,12 @@ class LibraryView(QWidget):
         except Exception as e:
             logger.warning("Library delete failed: %s", e)
         self.refresh()
+        self.records_deleted.emit([record_id])
 
     def _clear_all(self):
+        if self.delete_blocked(None):
+            QMessageBox.information(self, tr("history_clear_title"), tr("history_delete_busy"))
+            return
         # Say how much goes before it goes (UX-16).
         try:
             count = self._get_store().count()
@@ -1148,6 +1159,7 @@ class LibraryView(QWidget):
         except Exception as e:
             logger.warning("Library clear failed: %s", e)
         self.refresh()
+        self.records_deleted.emit([])
 
 
 def _record_title(record) -> str:

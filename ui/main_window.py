@@ -834,6 +834,8 @@ class MainWindow(QMainWindow):
         self.library_view.resume_run.connect(self.recipe_run.resume)
         self.library_view.open_cover.connect(lambda: self._on_section_changed("cover"))
         self.library_view.record_renamed.connect(self._on_record_renamed)
+        self.library_view.records_deleted.connect(self._on_records_deleted)
+        self.library_view.delete_blocked = self._library_delete_blocked
 
     def _build_queue_section(self) -> None:
         """Queue is mounted in the persistent status surface later."""
@@ -1454,11 +1456,55 @@ class MainWindow(QMainWindow):
             # To the Trash, not erased: a mistaken click stays recoverable.
             if not QFile.moveToTrash(folder):
                 show_toast(self, tr("history_delete_files_failed", path=folder), kind="warning")
+        self._close_open_record()
+
+    def _close_open_record(self) -> None:
+        """The open record no longer exists: leave it and show a new draft."""
         self._last_record_id = None
+        self._last_persist_ok = True
+        # Single-step jobs for the deleted record must not land anywhere.
+        self._cancel_youtube_job()
+        self._cancel_insights_job()
+        self._cancel_clean_job()
+        self._cancel_article_job()
+        self._cancel_book_job()
+        for panel in (self.transcript_view, self.cleaned_view, self.article_view, self.youtube_panel,
+                      self.insights_panel, self.subtitle_view, self.clips_view, self.cut_view):
+            panel.clear()
+        self.book_panel.clear_book()
+        self.chat_panel.clear_transcript()
+        self._cleaned_text = None
         self._load_bookmarks()
         self.library_view.set_open_record(None)
         self.library_view.refresh()
         self._show_new_draft()
+
+    def _on_records_deleted(self, record_ids: list) -> None:
+        """The Library or Settings deleted records (an empty list = all):
+        if the open one went with them, close it like the record header's
+        own delete does."""
+        rid = self._last_record_id
+        if rid is None:
+            return
+        if record_ids:
+            gone = rid in record_ids
+        else:
+            from core.history import get_history_store
+            try:
+                gone = get_history_store().get_record(rid) is None
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Could not check record %s: %s", rid, exc)
+                return
+        if not gone:
+            return
+        if self.transcript_view.is_editing():
+            self.transcript_view._exit_edit_mode(save=False)
+        self._close_open_record()
+
+    def _library_delete_blocked(self, record_id: int | None) -> bool:
+        """A recipe run is writing into this record (None = any record)."""
+        run = self.recipe_run
+        return run.is_running() and (record_id is None or run.record_id == record_id)
 
     def _ask_delete(self, box: QMessageBox):
         box.exec()
@@ -1794,6 +1840,8 @@ class MainWindow(QMainWindow):
         if category:
             dlg.open_category(category)
         dlg.settings_applied.connect(self._on_settings_applied)
+        dlg.history_cleared.connect(lambda: self._on_records_deleted([]))
+        dlg.clear_blocked = lambda: self._library_delete_blocked(None)
         dlg.exec()
 
     def _on_readiness_fix(self, fix: str) -> None:
@@ -2147,11 +2195,17 @@ class MainWindow(QMainWindow):
                     if alias and alias != sid:
                         store.remember_speaker_alias(alias)
             if self._last_record_id is not None:
-                store.update_result(
+                if not store.update_result(
                     self._last_record_id,
                     result,
                     getattr(result, "speaker_names", {}),
-                )
+                ):
+                    # The row is gone (deleted from the Library or Settings).
+                    logger.warning("Record %s no longer exists; edit not saved", self._last_record_id)
+                    self._last_persist_ok = False
+                    self._last_persist_error = tr("edit_record_gone")
+                    self.record_view.mark_save_failed()
+                    return False
                 self.library_view.refresh()
                 self.record_view.mark_saved()
                 # Debounced version save (B8) — restarted on every edit so

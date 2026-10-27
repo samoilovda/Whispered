@@ -1486,5 +1486,7 @@
   "progress_insight_part": "{name} ({n} of {total})…",
   "status_elapsed": "{elapsed} elapsed",
   "cover_suggesting_title": "Suggesting a title…",
-  "chat_thinking": "Thinking… {elapsed}"
+  "chat_thinking": "Thinking… {elapsed}",
+  "edit_record_gone": "This record was deleted from the Library, so the edit could not be saved.",
+  "history_delete_busy": "A recipe is running on this record. Wait for it to finish or cancel it first."
 }

@@ -108,3 +108,66 @@ def test_settings_search_finds_controls_in_the_new_language(env, process_events)
     assert shown, "Russian search must find its category after a live language switch"
     load_locale("en")
     dialog.close()
+
+
+def test_library_delete_closes_the_open_record(env, monkeypatch, process_events):
+    from PyQt6.QtWidgets import QMessageBox
+
+    store, _ = env
+    rid = store.add(_result(), source_path="", source_name="a.mp3")
+    window = _window(process_events)
+    window._open_record_view(rid)
+    assert window._last_record_id == rid
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    window.library_view._delete_record(rid)
+    process_events()
+    assert window._last_record_id is None
+    assert window.transcript_view.get_result() is None
+    window.close()
+    process_events()
+
+
+def test_library_clear_all_closes_the_open_record(env, monkeypatch, process_events):
+    from PyQt6.QtWidgets import QMessageBox
+
+    store, _ = env
+    rid = store.add(_result(), source_path="", source_name="a.mp3")
+    window = _window(process_events)
+    window._open_record_view(rid)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    window.library_view._clear_all()
+    process_events()
+    assert window._last_record_id is None
+    window.close()
+    process_events()
+
+
+def test_a_running_recipe_blocks_deleting_its_record(env, monkeypatch, process_events):
+    from PyQt6.QtWidgets import QMessageBox
+
+    store, _ = env
+    rid = store.add(_result(), source_path="", source_name="a.mp3")
+    window = _window(process_events)
+    window._open_record_view(rid)
+    monkeypatch.setattr(window.recipe_run, "is_running", lambda: True)
+    window.recipe_run.record_id = rid
+    asked = []
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: asked.append(1))
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    window.library_view._delete_record(rid)
+    assert not asked and store.get_record(rid) is not None and window._last_record_id == rid
+    window.close()
+    process_events()
+
+
+def test_a_vanished_record_is_reported_as_not_saved(env, process_events):
+    store, _ = env
+    rid = store.add(_result(), source_path="", source_name="a.mp3")
+    window = _window(process_events)
+    window._open_record_view(rid)
+    store.delete(rid)                                  # behind the window's back
+    assert window._persist_transcript() is False
+    assert window._last_persist_ok is False
+    window._last_persist_ok = True                     # closing would otherwise ask to retry
+    window.close()
+    process_events()
