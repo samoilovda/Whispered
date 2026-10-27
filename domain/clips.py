@@ -140,6 +140,20 @@ def edited_range_to_source(
     return pieces
 
 
+def source_to_edited(kept: Sequence[Any], t: float) -> Optional[float]:
+    """Where source time *t* lies on the edited timeline, or ``None`` when
+    it falls inside a removed stretch."""
+    cursor = 0.0
+    for seg in kept:
+        length = float(seg.end) - float(seg.start)
+        if length <= 0:
+            continue
+        if float(seg.start) <= t <= float(seg.end):
+            return round(cursor + (t - float(seg.start)), 3)
+        cursor += length
+    return None
+
+
 def edited_duration(kept: Sequence[Any]) -> float:
     return sum(max(0.0, float(s.end) - float(s.start)) for s in kept)
 

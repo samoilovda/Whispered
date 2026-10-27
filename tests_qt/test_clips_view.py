@@ -129,3 +129,20 @@ def test_adding_a_clip_does_not_make_older_clips_look_current(make):
     again.set_result(edited)
     texts = [again.list.item(i).text() for i in range(again.list.count())]
     assert tr("clips_stale") in texts[0] and tr("clips_stale") not in texts[1]
+
+
+def test_playhead_buttons_use_the_chosen_timeline(make):
+    v = make()
+    messages = []
+    v.message.connect(lambda text, kind: messages.append(text))
+    v.kept = lambda: [Segment(0.0, 4.0, "x"), Segment(8.0, 12.0, "y")]
+    v.timeline.setCurrentIndex(v.timeline.findData(c.EDITED))
+    v.playhead = lambda: 9.0
+    v._take_playhead(v.start_edit)
+    assert v.start_edit.text() == "00:00:05.000"          # 4 s kept before + 1 s into the second piece
+    v.playhead = lambda: 6.0                               # inside the removed 4–8 s
+    v._take_playhead(v.end_edit)
+    assert v.end_edit.text() == "00:00:00.000" and messages == [tr("clips_playhead_in_cut")]
+    v.timeline.setCurrentIndex(v.timeline.findData(c.SOURCE))
+    v._take_playhead(v.end_edit)
+    assert v.end_edit.text() == "00:00:06.000"

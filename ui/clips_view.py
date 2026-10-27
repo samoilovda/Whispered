@@ -126,9 +126,22 @@ class ClipsView(QWidget):
         lay.addWidget(edit, 1)
         here = QPushButton(tr("clips_playhead"))
         here.setToolTip(tr("clips_playhead_tip"))
-        here.clicked.connect(lambda: edit.setText(_fmt(self.playhead())))
+        here.clicked.connect(lambda: self._take_playhead(edit))
         lay.addWidget(here)
         return edit, box
+
+    def _take_playhead(self, edit: QLineEdit) -> None:
+        """Put the player's position into *edit*, on the chosen timeline:
+        the player runs on the source, so for the edited timeline it is
+        converted through the kept segments."""
+        position = self.playhead()
+        if self.timeline.currentData() == c.EDITED:
+            converted = c.source_to_edited(self.kept(), position)
+            if converted is None:
+                self.message.emit(tr("clips_playhead_in_cut"), "info")
+                return
+            position = converted
+        edit.setText(_fmt(position))
 
     # ------------------------------------------------------------------ context
 

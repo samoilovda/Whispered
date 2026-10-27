@@ -190,3 +190,11 @@ def test_a_failed_subtitle_write_keeps_the_previous_video(tmp_path, monkeypatch)
     monkeypatch.setattr(video_cut, "assemble_draft", fake_assemble)   # success replaces both
     app.render(plan)
     assert (tmp_path / "o.mp4").read_bytes() == b"NEW" and (tmp_path / "o.srt").read_text() == "1\n...\n"
+
+
+def test_source_to_edited_converts_before_after_and_inside_a_cut():
+    kept = [seg(0, 10), seg(20, 30)]
+    assert c.source_to_edited(kept, 5) == 5
+    assert c.source_to_edited(kept, 25) == 15
+    assert c.source_to_edited(kept, 10) == 10 and c.source_to_edited(kept, 20) == 10
+    assert c.source_to_edited(kept, 15) is None and c.source_to_edited(kept, 31) is None

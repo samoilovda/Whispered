@@ -1496,5 +1496,6 @@
   "export_skip_existing": "Skip existing",
   "run_busy_msg": "A recipe run is already in progress. Wait for it to finish or cancel it first.",
   "live_preflight_failed": "The readiness check could not run: {error}",
-  "settings_save_failed": "The settings could not be saved to {path}. Check that the folder is writable."
+  "settings_save_failed": "The settings could not be saved to {path}. Check that the folder is writable.",
+  "clips_playhead_in_cut": "The playhead is inside a removed stretch, which the edited timeline does not have. Move it onto kept material."
 }
