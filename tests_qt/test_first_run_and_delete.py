@@ -229,3 +229,30 @@ def test_ok_does_not_close_settings_when_the_file_cannot_be_written(env, monkeyp
     monkeypatch.setattr("ui.settings_dialog.save_config", lambda: True)
     dialog._on_ok()
     assert applied and not dialog.isVisible()
+
+
+def test_reset_ui_keeps_cancel_while_a_single_step_job_runs(env, monkeypatch, process_events):
+    window = _window(process_events)
+    window.cancel_btn.setVisible(True)
+    window._reset_ui()
+    assert not window.cancel_btn.isVisibleTo(window)
+    running = type("Job", (), {"isRunning": lambda self: True})()
+    monkeypatch.setattr(window, "_article_job", running)
+    window._reset_ui()
+    assert window.cancel_btn.isVisibleTo(window)
+    monkeypatch.setattr(window, "_article_job", None)
+    window.close()
+    process_events()
+
+
+def test_project_controller_leaves_another_operations_status_text(env, process_events):
+    window = _window(process_events)
+    window.status_bar.set_operation("Transcribing")
+    window.project._status_text = "Exporting project"
+    window.project._clear()
+    assert window.status_bar.status_label.text() == "Transcribing"
+    window.project._status_text = "Transcribing"
+    window.project._clear()
+    assert window.status_bar.status_label.text() != "Transcribing"
+    window.close()
+    process_events()

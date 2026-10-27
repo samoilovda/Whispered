@@ -30,6 +30,7 @@ class ProjectController:
     def __init__(self, host: "MainWindow") -> None:
         self._host = host
         self._worker: Optional[ProjectWorker] = None
+        self._status_text = ""
 
     def is_busy(self) -> bool:
         return self._worker is not None and self._worker.isRunning()
@@ -114,6 +115,7 @@ class ProjectController:
         host = self._host
         self._worker = worker
         label = tr("project_exporting" if export else "project_importing")
+        self._status_text = label
         host.status_bar.set_operation(label, cancel_text=tr("btn_cancel"))
         worker.progress.connect(
             lambda done, total: host.status_bar.set_operation(
@@ -130,7 +132,11 @@ class ProjectController:
 
     def _clear(self) -> None:
         self._worker = None
-        self._host.status_bar.clear()
+        # Only take the status bar down if it still shows this operation's
+        # text — another one (a transcription, a recipe) may have taken it over.
+        if self._host.status_bar.status_label.text() == self._status_text:
+            self._host.status_bar.clear()
+        self._status_text = ""
 
     def _finished(self, result: object, export: bool, path: str) -> None:
         host = self._host

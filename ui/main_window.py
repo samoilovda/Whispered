@@ -3128,9 +3128,20 @@ class MainWindow(QMainWindow):
             not run_active and self.file_selector.get_file() is not None
         )
         self.transcribe_btn.setVisible(True)
-        self.cancel_btn.setVisible(run_active)
+        # Cancel belongs to whatever still runs: a finished transcription
+        # must not hide it from a single-step job or a project export.
+        self.cancel_btn.setVisible(run_active or self._other_operation_running())
         self.progress_bar.setVisible(False)
         self.progress_timeline.setVisible(False)
+
+    def _other_operation_running(self) -> bool:
+        """A single-step job, a project export/import or the batch queue is
+        still working (the transcription itself is not counted)."""
+        jobs = (self._clean_job, self._article_job, self._insights_job,
+                self._youtube_job, self._book_job)
+        return (any(job is not None and job.isRunning() for job in jobs)
+                or self.project.is_busy() or self.queue_controller.is_busy()
+                or self.batch_panel._is_processing())
 
     def _copy_to_clipboard(self):
         """Copy transcription to clipboard."""
