@@ -1493,5 +1493,6 @@
   "export_dir_title": "Select export folder",
   "export_exists_msg": "These files already exist in the folder:",
   "export_replace": "Replace",
-  "export_skip_existing": "Skip existing"
+  "export_skip_existing": "Skip existing",
+  "run_busy_msg": "A recipe run is already in progress. Wait for it to finish or cancel it first."
 }

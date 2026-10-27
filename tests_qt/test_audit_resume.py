@@ -102,3 +102,14 @@ def test_resume_does_not_trust_success_without_current_readable_artifact(recover
     assert runner is not None and runner.wait(5000)
     process_events()
     assert calls == ["clean", ("article", "new cleaned speech")]
+
+
+def test_resume_is_refused_while_another_run_is_running(recovery, monkeypatch):
+    window, store, record, result, calls = recovery
+    other = store.add(result, source_path="")
+    window._load_from_history(other)
+    monkeypatch.setattr(window.recipe_run, "is_running", lambda: True)
+    window.recipe_run.record_id = other
+    window.recipe_run.resume(record)
+    assert window.recipe_run.record_id == other and window._last_record_id == other
+    assert calls == []

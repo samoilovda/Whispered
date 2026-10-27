@@ -191,6 +191,11 @@ class RecipeRunController:
         from application import run_store
 
         host = self._host
+        if self.is_running():
+            # Loading the record would swap the document out from under the
+            # running job.
+            show_toast(host, tr("run_busy_msg"), kind="warning")
+            return
         if not host._load_from_history(record_id):
             return
         stored = run_store.load_latest_run(record_id)
