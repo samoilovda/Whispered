@@ -100,3 +100,17 @@ def test_store_keeps_other_overlay_keys_and_a_newer_schema(tmp_path):
     assert task_store.load_cards(tmp_path) == []
     save_overlay(task_store.overlay_file(tmp_path), {"tasks": {"schema_version": 99, "cards": []}})
     assert task_store.load_cards(tmp_path) is None
+
+
+def test_csv_export_cannot_smuggle_spreadsheet_formulas():
+    import csv
+    import io
+
+    cards = [t.new_user_card("=1+1", []), t.new_user_card("  +SUM(A1)", ["x"]),
+             t.new_user_card("Заказать кофе\nи чай", ["y"])]
+    cards[0].owner, cards[0].deadline = "@cmd", "-5"
+    cards[2].owner = "Алиса"
+    rows = list(csv.reader(io.StringIO(task_export.to_csv(cards), newline="")))
+    assert rows[1][0] == "'=1+1" and rows[1][1] == "'@cmd" and rows[1][2] == "'-5"
+    assert rows[2][0] == "'+SUM(A1)"
+    assert rows[3][0] == "Заказать кофе\nи чай" and rows[3][1] == "Алиса"     # normal text untouched

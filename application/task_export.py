@@ -41,15 +41,30 @@ def to_markdown(cards: Sequence[TaskCard], unknown: str = "—") -> str:
     return "\n".join(lines) + ("\n" if lines else "")
 
 
+_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe(value: str) -> str:
+    """Stop a spreadsheet from running text as a formula: a cell whose first
+    real character (after spaces and control characters) is ``= + - @`` is
+    prefixed with an apostrophe. Model- and user-written text goes through
+    this; the apostrophe is the usual sign that the cell is plain text."""
+    stripped = value.lstrip(" \x00\x01\x02\x03\x04\x05\x06\x07\x08\x0b\x0c\x0e\x0f")
+    if stripped.startswith(_FORMULA_START):
+        return "'" + value
+    return value
+
+
 def to_csv(cards: Sequence[TaskCard]) -> str:
-    """Every card, unknown values left empty (not "N/A")."""
+    """Every card, unknown values left empty (not "N/A"). Free text is
+    protected against spreadsheet formulas (see :func:`_csv_safe`)."""
     out = io.StringIO()
     writer = csv.writer(out, lineterminator="\r\n")
     writer.writerow(CSV_COLUMNS)
     for card in cards:
         writer.writerow([
-            card.task, card.owner or "", card.deadline or "", card.status,
-            _clock(card.start), card.quote, card.origin,
+            _csv_safe(card.task), _csv_safe(card.owner or ""), _csv_safe(card.deadline or ""),
+            card.status, _clock(card.start), _csv_safe(card.quote), card.origin,
         ])
     return out.getvalue()
 
