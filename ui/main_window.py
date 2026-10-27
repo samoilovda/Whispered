@@ -3154,7 +3154,7 @@ class MainWindow(QMainWindow):
             format_name, _ = EXPORT_FORMATS[format_key]
             ext = export_controller.format_extension(format_key)
             filepath, _ = QFileDialog.getSaveFileName(
-                self, f"Export as {format_name}", f"{default_name}.{ext}",
+                self, tr("export_as_title", format=format_name), f"{default_name}.{ext}",
                 f"{format_name} (*.{ext});;All Files (*)"
             )
 
@@ -3166,10 +3166,25 @@ class MainWindow(QMainWindow):
                     QMessageBox.critical(self, tr("error_export"), str(e))
         else:
             # Multiple formats - directory
-            directory = QFileDialog.getExistingDirectory(self, "Select Export Directory")
+            directory = QFileDialog.getExistingDirectory(self, tr("export_dir_title"))
             if directory:
+                overwrite = False
+                clashes = export_controller.existing_paths(directory, format_keys, default_name)
+                if clashes:
+                    box = QMessageBox(self)
+                    box.setIcon(QMessageBox.Icon.Question)
+                    box.setWindowTitle(tr("error_export"))
+                    box.setText(tr("export_exists_msg"))
+                    box.setInformativeText("\n".join(os.path.basename(p) for p in clashes))
+                    replace_btn = box.addButton(tr("export_replace"), QMessageBox.ButtonRole.DestructiveRole)
+                    skip_btn = box.addButton(tr("export_skip_existing"), QMessageBox.ButtonRole.AcceptRole)
+                    box.addButton(QMessageBox.StandardButton.Cancel)
+                    box.exec()
+                    if box.clickedButton() not in (replace_btn, skip_btn):
+                        return
+                    overwrite = box.clickedButton() is replace_btn
                 outcome = export_controller.export_many_to_directory(
-                    result, directory, format_keys, default_name
+                    result, directory, format_keys, default_name, overwrite=overwrite
                 )
                 if outcome.any_succeeded:
                     show_toast(

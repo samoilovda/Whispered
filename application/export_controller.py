@@ -33,6 +33,7 @@ class ExportOutcome:
     """Per-format result of a multi-format export run."""
     succeeded: list[str] = field(default_factory=list)
     failed: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)   # file already there, not replaced
 
     @property
     def any_succeeded(self) -> bool:
@@ -52,23 +53,41 @@ def export_single(result: TranscriptionResult, filepath: str, format_key: str) -
     export_result(result, filepath, format_key)
 
 
+def planned_paths(directory: str, format_keys: Sequence[str], default_name: str) -> dict[str, str]:
+    """The file each format would be written to, by format key."""
+    paths = {}
+    for format_key in format_keys:
+        suffix = '_ts' if format_key == 'txt_ts' else ''
+        paths[format_key] = os.path.join(
+            directory, f"{default_name}{suffix}.{format_extension(format_key)}")
+    return paths
+
+
+def existing_paths(directory: str, format_keys: Sequence[str], default_name: str) -> list[str]:
+    """Which of the planned files already exist (a replace would lose them)."""
+    return [path for path in planned_paths(directory, format_keys, default_name).values()
+            if os.path.exists(path)]
+
+
 def export_many_to_directory(
     result: TranscriptionResult,
     directory: str,
     format_keys: Sequence[str],
     default_name: str,
+    overwrite: bool = False,
 ) -> ExportOutcome:
     """Export *result* in every format in *format_keys* into *directory*,
-    one file per format.
+    one file per format. A file that already exists is left alone and
+    listed in ``ExportOutcome.skipped`` unless *overwrite* is true.
 
     Never raises — a failure in one format must not stop the others; the
     caller reports ``ExportOutcome.failed`` instead.
     """
     outcome = ExportOutcome()
-    for format_key in format_keys:
-        ext = format_extension(format_key)
-        suffix = '_ts' if format_key == 'txt_ts' else ''
-        filepath = os.path.join(directory, f"{default_name}{suffix}.{ext}")
+    for format_key, filepath in planned_paths(directory, format_keys, default_name).items():
+        if not overwrite and os.path.exists(filepath):
+            outcome.skipped.append(format_key)
+            continue
         try:
             export_result(result, filepath, format_key)
             outcome.succeeded.append(format_key)

@@ -1488,5 +1488,10 @@
   "cover_suggesting_title": "Suggesting a title…",
   "chat_thinking": "Thinking… {elapsed}",
   "edit_record_gone": "This record was deleted from the Library, so the edit could not be saved.",
-  "history_delete_busy": "A recipe is running on this record. Wait for it to finish or cancel it first."
+  "history_delete_busy": "A recipe is running on this record. Wait for it to finish or cancel it first.",
+  "export_as_title": "Export as {format}",
+  "export_dir_title": "Select export folder",
+  "export_exists_msg": "These files already exist in the folder:",
+  "export_replace": "Replace",
+  "export_skip_existing": "Skip existing"
 }

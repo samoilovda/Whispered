@@ -302,3 +302,15 @@ def test_export_preset_total_files_counts_formats_and_materials_together(tmp_pat
 
     assert outcome.total_files == len(outcome.formats.succeeded) + len(outcome.materials_copied)
     assert outcome.total_files == 3
+
+
+def test_export_many_keeps_an_existing_file_unless_told_to_replace_it(tmp_path):
+    from application.export_controller import existing_paths
+
+    (tmp_path / "demo.txt").write_text("USER FILE")
+    assert existing_paths(str(tmp_path), ["txt", "srt"], "demo") == [str(tmp_path / "demo.txt")]
+    outcome = export_many_to_directory(_result(), str(tmp_path), ["txt", "srt"], default_name="demo")
+    assert (tmp_path / "demo.txt").read_text() == "USER FILE"
+    assert outcome.skipped == ["txt"] and outcome.succeeded == ["srt"]
+    outcome = export_many_to_directory(_result(), str(tmp_path), ["txt"], default_name="demo", overwrite=True)
+    assert (tmp_path / "demo.txt").read_text() != "USER FILE" and outcome.succeeded == ["txt"]
