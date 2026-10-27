@@ -116,6 +116,8 @@ class AiProfilesDialog(QDialog):
             steps_row.addWidget(check)
         steps_box = QWidget()
         steps_box.setLayout(steps_row)
+        # A note for the reader, not a switch: the profile is used by every AI step.
+        steps_box.setToolTip(tr("ai_profile_steps_tip"))
         form.addRow(tr("ai_profile_steps"), steps_box)
         test_row = QHBoxLayout()
         self.test_btn = QPushButton(tr("btn_test_connection"))

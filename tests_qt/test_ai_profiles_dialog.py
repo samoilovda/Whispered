@@ -137,3 +137,11 @@ def test_a_probe_result_for_an_edited_endpoint_is_discarded(dialog):
     dlg.endpoint_edit.setText("http://other/v1")
     dlg._on_tested(True, "model", "http://localhost:1/v1")
     assert dlg.test_result.text() == "" and dlg.test_btn.isEnabled()
+
+
+def test_profile_steps_are_labelled_as_a_recommendation(dialog):
+    dlg, _ = dialog
+    check = next(iter(dlg.step_checks.values()))
+    box = check.parentWidget()
+    assert tr("ai_profile_steps_tip") in box.toolTip()
+    assert tr("ai_profile_steps") == "Recommended for"

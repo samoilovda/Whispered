@@ -179,7 +179,7 @@
   "ai_profile_model_auto": "empty = whatever is loaded",
   "ai_profile_context": "Transcript chars per request",
   "ai_profile_temperature": "Temperature (book)",
-  "ai_profile_steps": "Made for",
+  "ai_profile_steps": "Recommended for",
   "ai_profile_save": "Save profile",
   "ai_profile_in_use": "in use",
   "ai_profile_note": "A profile replaces the address, model, transcript size and book temperature for AI steps. Already queued files keep the profile they were queued with. No keys are stored here.",
@@ -1497,5 +1497,6 @@
   "run_busy_msg": "A recipe run is already in progress. Wait for it to finish or cancel it first.",
   "live_preflight_failed": "The readiness check could not run: {error}",
   "settings_save_failed": "The settings could not be saved to {path}. Check that the folder is writable.",
-  "clips_playhead_in_cut": "The playhead is inside a removed stretch, which the edited timeline does not have. Move it onto kept material."
+  "clips_playhead_in_cut": "The playhead is inside a removed stretch, which the edited timeline does not have. Move it onto kept material.",
+  "ai_profile_steps_tip": "Only a note: a profile applies to every AI step, whichever boxes are ticked."
 }
