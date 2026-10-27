@@ -132,3 +132,31 @@ def test_the_dry_runs_leave_the_gui_thread(env, monkeypatch, tmp_path):
     _wait(window, process_events)
     main = threading.main_thread()
     assert seen["plan"] is not main and seen["inspect"] is not main
+
+
+def test_import_preview_says_which_files_will_not_come_along(env, monkeypatch, tmp_path):
+    import hashlib
+    import json
+    import zipfile
+
+    from domain import project_manifest as pm
+
+    window, store, rid, shown, process_events = env
+    transcript = json.dumps({"json_payload": json.dumps({"segments": []}), "source_name": "a.mp3"}).encode()
+    members = {"record/transcript.json": transcript, "artifacts/youtube_upload.queued.json": b"{}",
+               "artifacts/oauth_token.json": b"{}"}
+    files = [{"path": n, "size": len(d), "sha256": hashlib.sha256(d).hexdigest(),
+              "kind": "record" if n.startswith("record/") else "artifact"} for n, d in members.items()]
+    manifest = {"format": pm.FORMAT, "format_version": 1, "created_at": "", "app_version": "t",
+                "record": {"title": "T"}, "counts": {}, "media": {"included": False}, "files": files}
+    path = tmp_path / "hand.zip"
+    with zipfile.ZipFile(path, "w") as z:
+        for n, d in members.items():
+            z.writestr(n, d)
+        z.writestr(pm.MANIFEST_NAME, json.dumps(manifest))
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(path), "")))
+    window.project.import_project()
+    _wait(window, process_events)
+    texts = " ".join(label.text() for label in shown[0].findChildren(QLabel))
+    assert "2 files with upload approvals or credentials will not be imported" in texts
+    _wait(window, process_events)

@@ -1500,5 +1500,8 @@
   "clips_playhead_in_cut": "The playhead is inside a removed stretch, which the edited timeline does not have. Move it onto kept material.",
   "ai_profile_steps_tip": "Only a note: a profile applies to every AI step, whichever boxes are ticked.",
   "project_preparing": "Preparing project…",
-  "player_envelope_tip": "Speech activity by segment, not volume."
+  "player_envelope_tip": "Speech activity by segment, not volume.",
+  "project_line_refused": "{count} files with upload approvals or credentials will not be imported.",
+  "project_line_refused_one": "{count} file with upload approvals or credentials will not be imported.",
+  "project_line_refused_many": "{count} files with upload approvals or credentials will not be imported."
 }

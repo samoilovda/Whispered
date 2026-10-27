@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Optional
 from PyQt6.QtWidgets import QDialog, QFileDialog, QMessageBox
 
 from application import project_archive as pa
-from core.i18n import tr
+from core.i18n import tr, tr_count
 from core.logger import get_logger
 from ui.project_dialogs import ProjectPreviewDialog, human_size
 from ui.project_worker import ProjectWorker
@@ -140,6 +140,9 @@ class ProjectController:
             tr("project_line_media_in" if plan.manifest.media_included else "project_line_media_out"),
             tr("project_line_import_new"),
         ]
+        refused = sum(1 for w in plan.warnings if w.startswith("skipped:"))
+        if refused:
+            lines.append(tr_count("project_line_refused", refused))
         dialog = ProjectPreviewDialog(tr("project_import_title"), plan.title or path, lines,
                                       tr("project_import_go"), parent=host)
         if dialog.exec() != QDialog.DialogCode.Accepted:
