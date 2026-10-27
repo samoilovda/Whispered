@@ -60,3 +60,21 @@ def test_playback_keys_work_in_the_reading_transcript_not_while_typing(monkeypat
 
     window.close()
     process_events()
+
+
+def test_a_speech_envelope_never_replaces_real_peaks(process_events):
+    from domain.transcription import Segment
+    from ui.player_widget import PlayerWidget
+
+    player = PlayerWidget()
+    segments = [Segment(0.0, 2.0, "hello there"), Segment(3.0, 5.0, "more words")]
+    player.set_segments_envelope(segments, fallback_duration=6.0)
+    assert player._slider.peaks() and "volume" in player._slider.toolTip()
+    player.set_waveform([0.2, 0.9, 0.4])
+    real = player._slider.peaks()
+    assert not player._slider.toolTip()
+    player.set_segments_envelope(segments, fallback_duration=6.0)      # a later transcript update
+    assert player._slider.peaks() == real and not player._slider.toolTip()
+    player.set_waveform([])                                            # the file changed, no audio peaks
+    player.set_segments_envelope(segments, fallback_duration=6.0)
+    assert player._slider.peaks() != real and player._slider.toolTip()

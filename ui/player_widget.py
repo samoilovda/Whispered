@@ -314,6 +314,8 @@ class PlayerWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._has_real_peaks = False          # amplitude bars from the audio itself
+        self._envelope_shown = False          # a speech-activity envelope is drawn instead
         self._available = _MULTIMEDIA_AVAILABLE
         self._duration = 0.0
         self._raw_cut_ranges: list[tuple[float, float]] = []
@@ -439,6 +441,7 @@ class PlayerWidget(QWidget):
         self._vol_slider.setToolTip(tr("player_volume_tooltip"))
         self._vol_slider.setAccessibleName(tr("player_volume_tooltip"))
         self._slider.setAccessibleName(tr("player_position"))
+        self._sync_peak_tooltip()
 
     def _init_player(self):
         self._audio_output = QAudioOutput()
@@ -461,12 +464,11 @@ class PlayerWidget(QWidget):
 
     def load(self, filepath: str):
         """Load a media file. Pass an empty string to unload."""
-        if not filepath:
-            self._slider.set_peaks([])
-        else:
+        self.set_waveform([])
+        if filepath:
             wav_peaks = _extract_wav_peaks(filepath)
             if wav_peaks:
-                self._slider.set_peaks(wav_peaks)
+                self.set_waveform(wav_peaks)
         player = self._player
         if not self._available or player is None:
             return
@@ -478,8 +480,13 @@ class PlayerWidget(QWidget):
         self._play_btn.setText("▶")
 
     def set_waveform(self, peaks: list[float]) -> None:
-        """Set normalized [0..1] amplitude bars on the scrubbing slider."""
+        """Set normalized [0..1] amplitude bars on the scrubbing slider.
+        These are real amplitudes: a speech envelope drawn from the
+        transcript never replaces them."""
+        self._has_real_peaks = bool(peaks)
+        self._envelope_shown = False
         self._slider.set_peaks(peaks)
+        self._sync_peak_tooltip()
 
     def set_segments_envelope(
         self,
@@ -491,7 +498,7 @@ class PlayerWidget(QWidget):
         transcript segments when raw PCM peaks aren't already present."""
         if fallback_duration is not None and fallback_duration > 0:
             self._fallback_duration = float(fallback_duration)
-        if not segments:
+        if self._has_real_peaks or not segments:
             return
         duration = self._media_duration()
         if duration <= 0:
@@ -517,8 +524,14 @@ class PlayerWidget(QWidget):
                 # Subtle organic syllabic modulation across the segment
                 mod = 0.82 + 0.18 * abs(math.sin((b * 1.7) + idx * 0.9))
                 envelope[b] = max(envelope[b], min(1.0, base_energy * mod))
+        self._envelope_shown = True
         self._slider.set_peaks(envelope)
+        self._sync_peak_tooltip()
         self._sync_cut_ranges()
+
+    def _sync_peak_tooltip(self) -> None:
+        """A drawn envelope is not a volume graph — say so."""
+        self._slider.setToolTip(tr("player_envelope_tip") if self._envelope_shown else "")
 
     def set_cut_ranges(
         self,
