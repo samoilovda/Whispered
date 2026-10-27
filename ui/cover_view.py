@@ -56,6 +56,19 @@ def _style_seed(slots: dict, source_path: str | None) -> str:
     return title or (Path(source_path).stem if source_path else "")
 
 
+def default_render_params() -> dict:
+    """The cover step's params without any record's workspace state: the
+    Qt renderer and the user's default layout/style from Settings. For runs
+    that are not the open record (the queue) — a record's own texts and
+    photos must not leak into another's cover."""
+    cfg = get_config()
+    return {
+        "cover_layout": cfg.cover_layout,
+        "cover_variant": cfg.cover_variant,
+        "cover_renderer": render,
+    }
+
+
 class CoverView(QWidget):
     # The freshly rendered 1280x720 preview (QImage) — the YouTube publish
     # wizard shows it while the user tunes the cover there.

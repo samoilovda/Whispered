@@ -32,6 +32,7 @@ from config import get_config
 from core.i18n import tr
 from core.logger import get_logger
 from domain import queue as q
+from ui.cover_view import default_render_params
 from ui.job_runner import JobRunner
 
 if TYPE_CHECKING:
@@ -187,6 +188,7 @@ class QueueController(QObject):
                 stored, result, stored.record_id, cfg=cfg,
                 provider=provider_from_config(cfg),
                 insights_cache=self._host._insights_cache,
+                extra_params=default_render_params(),
             )
         except Exception as exc:  # noqa: BLE001 - one bad item must not stop the queue
             logger.warning("Could not prepare steps for %s: %s", item.filepath, exc)

@@ -35,6 +35,7 @@ class FollowUp:
 def prepare_follow_up(
     item: QueueItem, result: TranscriptionResult, record_id: int,
     *, cfg: Any, provider: Any = None, insights_cache: Any = None,
+    extra_params: Optional[dict] = None,
 ) -> Optional[FollowUp]:
     """The recipe steps still to run for *item*, or ``None`` when its
     snapshot has none (a transcript-only recipe).
@@ -43,6 +44,8 @@ def prepare_follow_up(
     *result*. When the item already has a stored run (a retry or a resume
     after a restart) its finished steps are kept and only the rest run —
     ``prepare_resumed_run`` drops any whose saved output no longer fits.
+    *extra_params* are merged into the steps' params — what only the UI can
+    supply, such as the cover step's Qt renderer.
     """
     from application import run_store
 
@@ -62,8 +65,8 @@ def prepare_follow_up(
     context = build_step_context(
         item.source_path, result, record_id,
         artifact_source=item.source_path,
-        params=llm_params(cfg, result, provider=provider, insights_cache=insights_cache,
-                          profile=_queued_profile(item)),
+        params={**llm_params(cfg, result, provider=provider, insights_cache=insights_cache,
+                             profile=_queued_profile(item)), **(extra_params or {})},
         get_result=get_result, is_cancelled=run.is_cancelled,
     )
     stored = run_store.load_run(item.run_id) if item.run_id is not None else None

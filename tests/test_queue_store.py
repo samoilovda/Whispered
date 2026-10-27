@@ -8,6 +8,7 @@ import pytest
 
 from application import queue_run, queue_store
 from application.job_engine import JobRun
+from config import Config
 from core.history import HistoryStore
 from domain import queue as q
 from domain.job import JobSpec, StepOutcome, StepSpec, StepStatus
@@ -97,3 +98,37 @@ def test_finish_run_maps_a_run_to_a_queue_state():
     assert queue_run.finish_run(run_with(StepStatus.CANCELLED))[0] == "cancelled"
     state, error, _ = queue_run.finish_run(run_with(StepStatus.FAILED, "LM Studio is not responding"))
     assert state == "failed" and error == "article:provider_unavailable"
+
+
+def test_queued_cover_step_gets_a_renderer_and_each_item_its_own_cover(store, tmp_path, monkeypatch):
+    from application.steps import _cover_runner
+    from domain.transcription import Segment, TranscriptionResult
+
+    class FakeImage:
+        def save(self, path, fmt):
+            with open(path, "wb") as handle:
+                handle.write(b"PNG")
+            return True
+
+    seen = []
+
+    def renderer(template, layout, variant, slots, size, decor_set):
+        seen.append((layout, slots.get("title")))
+        return FakeImage(), []
+
+    monkeypatch.setattr("core.paths.artifact_dir", lambda record_id, source: tmp_path / f"a-{record_id}")
+    recipe = Recipe(name="Video", steps=("transcribe", "cover"))
+    result = TranscriptionResult([Segment(0.0, 1.0, "hello")], "en", 1.0)
+    covers = []
+    for record_id, name in ((1, "first.mp3"), (2, "second.mp3")):
+        item = SimpleNamespace(
+            source_path=str(tmp_path / name), run_id=None,
+            snapshot=q.QueueSnapshot(recipe.to_dict(), {}, {}))
+        (tmp_path / f"a-{record_id}").mkdir()
+        follow_up = queue_run.prepare_follow_up(
+            item, result, record_id, cfg=Config(),
+            extra_params={"cover_renderer": renderer, "cover_layout": "solo"})
+        assert follow_up.context.params["cover_renderer"] is renderer
+        _cover_runner(follow_up.context)()
+        covers.append(tmp_path / f"a-{record_id}" / "cover.png")
+    assert all(path.is_file() for path in covers) and len(seen) == 2
