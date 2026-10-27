@@ -39,6 +39,7 @@ from core import prompt_templates
 from core.i18n import tr
 from core.logger import get_logger
 from core.lm_status_worker import LMStatusWorker
+from core.worker_registry import WorkerRegistry
 from domain import ai_profile as model
 from ui.theme import set_role
 
@@ -50,6 +51,7 @@ class AiProfilesDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(tr("ai_profiles_title"))
         self.setMinimumSize(640, 460)
+        self._registry = WorkerRegistry(parent=self)
         self._checker: "LMStatusWorker | None" = None
         layout = QVBoxLayout(self)
         tabs = QTabWidget()
@@ -231,17 +233,24 @@ class AiProfilesDialog(QDialog):
 
     def _test_profile(self) -> None:
         """Probe the endpoint off the GUI thread — a test of the connection,
-        nothing is generated."""
+        nothing is generated. One probe at a time; its worker is owned by
+        the registry, so closing the dialog never drops a running thread."""
         url = self.endpoint_edit.text().strip()
-        if not url:
+        if not url or (self._checker is not None and self._checker.isRunning()):
             return
         self.test_result.setText(tr("book_lm_checking"))
-        worker = LMStatusWorker(url, parent=self)
-        worker.status_ready.connect(self._on_tested)
+        self.test_btn.setEnabled(False)
+        worker = LMStatusWorker(url)
+        worker.status_ready.connect(lambda connected, detail, u=url: self._on_tested(connected, detail, u))
         self._checker = worker
+        self._registry.register(worker, name="lm_status_checker")
         worker.start()
 
-    def _on_tested(self, connected: bool, detail: str) -> None:
+    def _on_tested(self, connected: bool, detail: str, url: str = "") -> None:
+        self.test_btn.setEnabled(True)
+        if url and url != self.endpoint_edit.text().strip():
+            self.test_result.clear()           # the field changed while it ran
+            return
         if connected:
             self.test_result.setText(tr("ai_profile_test_ok", model=detail or tr("ai_profile_no_model")))
         else:
@@ -445,8 +454,9 @@ class AiProfilesDialog(QDialog):
         self._reload_templates(select=template.name)
 
     def done(self, result: int) -> None:  # noqa: D102 - QDialog
-        checker = self._checker
-        if checker is not None and checker.isRunning():
-            checker.cancel()
-            checker.wait(1500)
+        if self._checker is not None:
+            # Retired, not waited for: the registry keeps the thread alive
+            # until it finishes and its late result goes nowhere.
+            self._registry.retire(self._checker)
+            self._checker = None
         super().done(result)

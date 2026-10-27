@@ -102,3 +102,38 @@ def test_template_copy_edit_use_and_remove(dialog):
     assert "empty" in dlg.template_error.text()
     dlg._delete_template()
     assert cfg.prompt_template_active == {} and prompt_templates.list_templates() == []
+
+
+def test_connection_probe_is_owned_and_single(dialog, monkeypatch, process_events):
+    import threading
+
+    from core.lm_status_worker import LMStatusWorker
+
+    dlg, _ = dialog
+    release = threading.Event()
+    started = []
+
+    def slow(self):
+        started.append(1)
+        release.wait(5)
+        self.status_ready.emit(True, "late-model")
+
+    monkeypatch.setattr(LMStatusWorker, "_execute", slow)
+    dlg.endpoint_edit.setText("http://localhost:1/v1")
+    dlg._test_profile()
+    dlg._test_profile()                                # a second click while it runs
+    assert not dlg.test_btn.isEnabled()
+    assert dlg._registry.active_names == ["lm_status_checker"]
+    dlg.done(0)                                        # closed mid-probe: retired, not waited for
+    shown = dlg.test_result.text()
+    release.set()
+    assert dlg._registry.shutdown_all(5000) == []
+    process_events()
+    assert len(started) == 1 and dlg.test_result.text() == shown
+
+
+def test_a_probe_result_for_an_edited_endpoint_is_discarded(dialog):
+    dlg, _ = dialog
+    dlg.endpoint_edit.setText("http://other/v1")
+    dlg._on_tested(True, "model", "http://localhost:1/v1")
+    assert dlg.test_result.text() == "" and dlg.test_btn.isEnabled()
