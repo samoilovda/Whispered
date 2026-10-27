@@ -1520,5 +1520,9 @@
   "subs_import_add": "Add to current",
   "subs_import_too_large": "The file is larger than 5 MB.",
   "subs_import_not_utf8": "The file is not UTF-8 text.",
-  "subs_import_no_cues": "No subtitle cues were found in this file."
+  "subs_import_no_cues": "No subtitle cues were found in this file.",
+  "operation_queue": "Queue",
+  "cancel_operation_named": "Cancel “{name}”",
+  "cancel_operation_all": "Cancel everything",
+  "cancel_operation_tip": "Running: {names}. Click to choose what to cancel."
 }

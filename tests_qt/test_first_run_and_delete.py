@@ -274,3 +274,39 @@ def test_unwired_photo_processing_settings_are_not_offered(env, process_events):
     dialog._save_values()                              # hidden, but saved values survive
     assert cfg.cover_comfy_url == "http://example:8188" and cfg.cover_image_provider == "comfyui"
     dialog.close()
+
+
+def test_cancel_is_addressed_to_a_named_operation(env, monkeypatch, process_events):
+    window = _window(process_events)
+    stopped = []
+
+    class Job:
+        def __init__(self, name):
+            self.name = name
+
+        def isRunning(self):
+            return self.name not in stopped
+
+    monkeypatch.setattr(window, "_clean_job", Job("clean"))
+    monkeypatch.setattr(window, "_book_job", Job("book"))
+    monkeypatch.setattr(window.project, "is_busy", lambda: True)
+    monkeypatch.setattr(window.project, "cancel", lambda: stopped.append("project"))
+    monkeypatch.setattr(window, "_cancel_clean_job", lambda: stopped.append("clean"))
+    monkeypatch.setattr(window, "_cancel_book_job", lambda: stopped.append("book"))
+    keys = [op.key for op in window.running_operations()]
+    assert keys == ["clean", "book", "project"]
+    # The Cancel button asks which one when several are running.
+    asked = []
+    monkeypatch.setattr(window, "_pick_operation", lambda ops: asked.append([o.key for o in ops]) or "book")
+    window._cancel_operation()
+    assert asked == [keys] and stopped == ["book"]
+    # A panel's own Cancel stops only its operation, and the others stay cancellable.
+    window._cancel_operation("clean")
+    assert stopped == ["book", "clean"]
+    assert [op.key for op in window.running_operations()] == ["project"]
+    assert window.cancel_btn.isVisibleTo(window)               # the project export can still be cancelled
+    monkeypatch.setattr(window, "_pick_operation", lambda ops: "*")
+    window._cancel_operation()
+    assert "project" in stopped
+    window.close()
+    process_events()

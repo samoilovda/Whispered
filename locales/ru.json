@@ -1524,5 +1524,9 @@
   "subs_import_add": "Добавить к текущим",
   "subs_import_too_large": "Файл больше 5 МБ.",
   "subs_import_not_utf8": "Файл не является текстом в UTF-8.",
-  "subs_import_no_cues": "В файле не найдено субтитров."
+  "subs_import_no_cues": "В файле не найдено субтитров.",
+  "operation_queue": "Очередь",
+  "cancel_operation_named": "Отменить «{name}»",
+  "cancel_operation_all": "Отменить всё",
+  "cancel_operation_tip": "Выполняется: {names}. Нажмите, чтобы выбрать, что отменить."
 }

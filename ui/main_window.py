@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QTextEdit, QLineEdit, QPlainTextEdit, QStackedWidget, QToolButton, QMenu, QInputDialog,
     QProgressBar, QPushButton,
 )
-from PyQt6.QtCore import QByteArray, Qt, QTimer, QUrl, pyqtSignal
+from PyQt6.QtCore import QByteArray, QEvent, Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices, QKeySequence, QShortcut, QDragEnterEvent, QDropEvent
 
 from ui.toast import show_toast
@@ -65,6 +65,7 @@ from utils import (
 )
 from application.document_session import DocumentSession
 from application.job_engine import JobRun
+from application.operations import Operation, cancel_all, cancel_one, describe
 from application.launch_params import resolve_transcription
 from application.records import finalize_live_record, save_new_record
 from ui.speaker_detection_controller import SpeakerDetectionController
@@ -105,6 +106,8 @@ from ui.transcription_progress import (
 from ui.qt_util import must
 
 logger = get_logger(__name__)
+
+ALL_OPERATIONS = "*"
 
 
 # ============================================================================
@@ -824,7 +827,7 @@ class MainWindow(QMainWindow):
         # as its own tab on the Record view (see content_tabs below).
         self.book_panel = BookPanel()
         self.book_panel.run_single_requested.connect(self._start_book_job)
-        self.book_panel.cancel_requested.connect(self._cancel_operation)
+        self.book_panel.cancel_requested.connect(lambda: self._cancel_operation("book"))
         self.book_panel.book_action_done.connect(
             lambda message: show_toast(self, message, kind="success")
         )
@@ -1026,6 +1029,7 @@ class MainWindow(QMainWindow):
         self.status_label = self.status_bar.status_label
         self.progress_bar = self.status_bar.progress
         self.cancel_btn = self.status_bar.cancel_button
+        self.cancel_btn.installEventFilter(self)       # its tooltip names what it would stop
         self.status_bar.device_selected.connect(self._set_use_gpu)
         self.status_bar.settings_requested.connect(self._open_settings)
         self.status_bar.llm_refresh_requested.connect(self.book_panel.refresh_connection)
@@ -2539,46 +2543,73 @@ class MainWindow(QMainWindow):
             on_error=self._on_error
         )
 
-    def _cancel_operation(self):
-        """Cancel the current operation (transcription, a recipe run, or
-        one of the five single-step re-run/retry jobs)."""
-        if self.project.is_busy():
-            self.project.cancel()
-            self.status_label.setText(tr("status_cancelled"))
-            return
-        if self.batch_panel._is_processing() or self.queue_controller.is_busy():
-            self.batch_panel.cancel_processing()
-            self.queue_controller.cancel()
-            self.status_label.setText(tr("status_cancelled"))
-            return
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        if obj is self.cancel_btn and event.type() == QEvent.Type.ToolTip:
+            ops = self.running_operations()
+            self.cancel_btn.setToolTip(
+                tr("cancel_operation_tip", names=describe(ops)) if len(ops) > 1 else "")
+        return super().eventFilter(obj, event)
 
+    def running_operations(self) -> "list[Operation]":
+        """Everything running in the background right now, each with the
+        call that stops just that one."""
+        ops: list[Operation] = []
+        if self.transcriber.is_busy():
+            ops.append(Operation("transcribe", tr("step_transcribe"), self.transcriber.cancel))
         if self.recipe_run.is_running():
-            # RecipeRunController.cancel() reports and resets on its own — the run
-            # screen's per-step Cancel reaches it directly, without coming
-            # through here.
-            self.recipe_run.cancel()
-            return
+            ops.append(Operation("recipe", tr("record_run_running"), self.recipe_run.cancel))
+        for key, job, cancel in (
+            ("clean", self._clean_job, self._cancel_clean_job),
+            ("article", self._article_job, self._cancel_article_job),
+            ("insights", self._insights_job, self._cancel_insights_job),
+            ("youtube_package", self._youtube_job, self._cancel_youtube_job),
+            ("book", self._book_job, self._cancel_book_job),
+        ):
+            if job is not None and job.isRunning():
+                ops.append(Operation(key, tr(f"step_{key}"), cancel, ai=True))
+        if self.project.is_busy():
+            ops.append(Operation("project", tr("project_title"), self.project.cancel))
+        if self.batch_panel._is_processing() or self.queue_controller.is_busy():
+            def cancel_batch() -> None:
+                self.batch_panel.cancel_processing()
+                self.queue_controller.cancel()
+            ops.append(Operation("batch", tr("operation_queue"), cancel_batch))
+        return ops
 
-        if self._clean_job is not None and self._clean_job.isRunning():
-            self._cancel_clean_job()
-            self.status_label.setText(tr("status_ai_cancelled"))
-        elif self._article_job is not None and self._article_job.isRunning():
-            self._cancel_article_job()
-            self.status_label.setText(tr("status_ai_cancelled"))
-        elif self._insights_job is not None and self._insights_job.isRunning():
-            self._cancel_insights_job()
-            self.status_label.setText(tr("status_ai_cancelled"))
-        elif self._youtube_job is not None and self._youtube_job.isRunning():
-            self._cancel_youtube_job()
-            self.status_label.setText(tr("status_ai_cancelled"))
-        elif self._book_job is not None and self._book_job.isRunning():
-            self._cancel_book_job()
-            self.status_label.setText(tr("status_ai_cancelled"))
+    def _cancel_operation(self, key: "str | None" = None):
+        """Cancel one named operation; without a *key*, the only running one,
+        or — when several overlap — the one the user picks from a menu
+        (or all of them)."""
+        ops = self.running_operations()
+        if key is None:
+            if len(ops) > 1:
+                key = self._pick_operation(ops)
+                if key is None:
+                    return
+            elif ops:
+                key = ops[0].key
+        if key == ALL_OPERATIONS:
+            cancel_all(ops)
+            self.status_label.setText(tr("status_cancelled"))
+        elif key is not None:
+            done = cancel_one(ops, key)
+            if done is not None:
+                self.status_label.setText(tr("status_ai_cancelled" if done.ai else "status_cancelled"))
         else:
             self.transcriber.cancel()
             self.status_label.setText(tr("status_cancelled"))
-
         self._reset_ui()
+
+    def _pick_operation(self, ops: "list[Operation]") -> "str | None":
+        """Menu of what is running (Cancel <name>… / Cancel all); the key
+        of the choice, or None when dismissed."""
+        menu = QMenu(self)
+        for op in ops:
+            must(menu.addAction(tr("cancel_operation_named", name=op.label))).setData(op.key)
+        menu.addSeparator()
+        must(menu.addAction(tr("cancel_operation_all"))).setData(ALL_OPERATIONS)
+        chosen = menu.exec(self.cancel_btn.mapToGlobal(self.cancel_btn.rect().bottomLeft()))
+        return chosen.data() if chosen is not None else None
 
     def _ensure_whisper_model(self, model: str) -> bool:
         """Offer to download a missing whisper model; True when it is present.
