@@ -156,14 +156,14 @@ def test_export_preset_shows_a_success_toast_when_nothing_is_missing(
     outcome.materials_copied = ["article"]
     outcome.formats.succeeded = ["md", "docx"]
     # UX-15: plan → review → execute; the review is accepted here.
-    monkeypatch.setattr(window, "_review_export_plan", lambda plan: (True, False))
+    monkeypatch.setattr(window.export_flow, "review_plan", lambda plan: (True, False))
     monkeypatch.setattr("application.export_plan.execute_export_plan", lambda *a, **k: None)
     monkeypatch.setattr(
         "application.export_controller.outcome_from_report", lambda *a, **k: outcome,
     )
 
     seen_toasts = []
-    monkeypatch.setattr("ui.main_window.show_toast", lambda *a, **k: seen_toasts.append(k))
+    monkeypatch.setattr("ui.export_flow_controller.show_toast", lambda *a, **k: seen_toasts.append(k))
 
     window._export_preset("article_draft")
     _until(lambda: seen_toasts)
@@ -188,14 +188,14 @@ def test_export_preset_shows_a_warning_toast_when_something_is_missing(
     outcome.materials_missing = ["youtube_package", "cover"]
     outcome.formats.succeeded = ["srt", "vtt"]
     # UX-15: plan → review → execute; the review is accepted here.
-    monkeypatch.setattr(window, "_review_export_plan", lambda plan: (True, False))
+    monkeypatch.setattr(window.export_flow, "review_plan", lambda plan: (True, False))
     monkeypatch.setattr("application.export_plan.execute_export_plan", lambda *a, **k: None)
     monkeypatch.setattr(
         "application.export_controller.outcome_from_report", lambda *a, **k: outcome,
     )
 
     seen_toasts = []
-    monkeypatch.setattr("ui.main_window.show_toast", lambda *a, **k: seen_toasts.append(k))
+    monkeypatch.setattr("ui.export_flow_controller.show_toast", lambda *a, **k: seen_toasts.append(k))
 
     window._export_preset("youtube")
     _until(lambda: seen_toasts)
@@ -214,7 +214,7 @@ def test_declined_review_writes_nothing(window, process_events, monkeypatch, tmp
         QFileDialog, "getExistingDirectory", staticmethod(lambda *a, **k: str(out_dir)),
     )
     reviewed = []
-    monkeypatch.setattr(window, "_review_export_plan",
+    monkeypatch.setattr(window.export_flow, "review_plan",
                         lambda plan: reviewed.append(plan) or (False, False))
     window._export_preset("article_draft")
     _until(lambda: reviewed)
@@ -265,7 +265,7 @@ def test_bundle_planning_and_writing_leave_the_gui_thread(window, process_events
     out_dir = tmp_path / "out"
     out_dir.mkdir()
     monkeypatch.setattr(QFileDialog, "getExistingDirectory", staticmethod(lambda *a, **k: str(out_dir)))
-    monkeypatch.setattr(window, "_review_export_plan", lambda plan: (True, False))
+    monkeypatch.setattr(window.export_flow, "review_plan", lambda plan: (True, False))
     threads = {}
     real_build, real_execute = export_plan.build_export_plan, export_plan.execute_export_plan
     monkeypatch.setattr(export_plan, "build_export_plan",
@@ -273,7 +273,7 @@ def test_bundle_planning_and_writing_leave_the_gui_thread(window, process_events
     monkeypatch.setattr(export_plan, "execute_export_plan",
                         lambda *a, **k: threads.setdefault("write", threading.current_thread()) and real_execute(*a, **k))
     toasts = []
-    monkeypatch.setattr("ui.main_window.show_toast", lambda *a, **k: toasts.append(k))
+    monkeypatch.setattr("ui.export_flow_controller.show_toast", lambda *a, **k: toasts.append(k))
     window._export_preset("article_draft")
     _until(lambda: toasts)
     assert toasts and threads["build"] is not threading.main_thread()
