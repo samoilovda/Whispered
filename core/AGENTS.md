@@ -19,6 +19,9 @@ read `docs/agents/llm.md`.
 - `youtube_oauth.py`/`youtube_upload.py` are Qt-free clients and
   `youtube_upload_worker.py` the `BaseWorker` wrapper; network use only under
   root rule 1. Tokens live in the OS keyring.
+- `recording_watch.py` watches `Config.source_folder` and emits each finished
+  new recording; `MainWindow` then offers a recipe via
+  `ui/recording_offer_dialog.py` (opt-in: `Config.recording_offer_enabled`).
 - `ai_provider.py` is the optional user-keyed cloud provider (root rule 1).
 - `thumb_titles.py` parses the LLM's cover title proposals; `fuzzy.py` does
   command-palette matching.

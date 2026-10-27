@@ -62,6 +62,11 @@ class TrayController(QObject):
     def hide(self) -> None:
         self._icon.hide()
 
+    def notify(self, title: str, message: str) -> None:
+        """A system notification from the tray icon (when it is shown)."""
+        if self._icon.isVisible() and QSystemTrayIcon.supportsMessages():
+            self._icon.showMessage(title, message)
+
     def menu(self) -> QMenu:
         return self._menu
 

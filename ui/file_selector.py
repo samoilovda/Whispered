@@ -251,6 +251,10 @@ class FileSelector(QWidget):
             self._set_file(filepath)
 
 
+    def refresh_source_folder(self) -> None:
+        """Re-read Config.source_folder (Settings can change it too)."""
+        self._refresh_source_row()
+
     def _refresh_source_row(self) -> None:
         folder = get_config().source_folder
         self.latest_btn.setText(tr("source_folder_latest"))

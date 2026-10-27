@@ -69,6 +69,7 @@ from ui.speaker_detection_controller import SpeakerDetectionController
 from ui.youtube_publish_controller import YouTubePublishController
 from ui.live_session_controller import LiveSessionController
 from ui.recipe_run_controller import RecipeRunController
+from ui.recording_offer_dialog import RecordingOfferDialog
 from application.steps import (
     STEP_DEFINITIONS,
     STEP_REGISTRY,
@@ -82,7 +83,7 @@ from application.steps import (
     step_outcome_result,
 )
 from domain.job import StepStatus
-from domain.recipe import BUILTIN_RECIPES_BY_KEY, Recipe, TRANSCRIPT_ONLY
+from domain.recipe import BUILTIN_RECIPES, BUILTIN_RECIPES_BY_KEY, Recipe, TRANSCRIPT_ONLY
 from config import get_config, save_config
 from core.insights_cache import InsightsCache
 from core.base_worker import BaseWorker
@@ -802,6 +803,16 @@ class MainWindow(QMainWindow):
         self._watch_folder_service = WatchFolderService(self)
         self._watch_folder_service.file_found.connect(self._on_watch_folder_file_found)
         self._apply_watch_folder_config()
+
+        # "New recording" offer: once a new recording in the source folder
+        # (Zoom's) finishes converting, ask which recipe to run it through
+        # — see _apply_recording_offer_config().
+        from core.recording_watch import RecordingWatchService
+        self._recording_watch = RecordingWatchService(self)
+        self._recording_watch.recording_ready.connect(self._on_new_recording_ready)
+        self._recording_offers: "list[str]" = []
+        self._recording_offer_dialog: RecordingOfferDialog | None = None
+        self._apply_recording_offer_config()
 
         # Course Capture Panel — same "persistent status surface" placement
         # as Batch (see _build_queue_section): a queue of lessons captured
@@ -1777,6 +1788,8 @@ class MainWindow(QMainWindow):
         self.status_bar.set_course_available(cfg.live_transcription_enabled)
         self.live_session.apply_presentation_flag()
         self._apply_watch_folder_config()
+        self._apply_recording_offer_config()
+        self.file_selector.refresh_source_folder()
         self.youtube_panel.refresh_description()
         self.transcribe_options.refresh_model_state()
         self.status_bar.set_whisper_model(cfg.default_model)
@@ -1800,6 +1813,83 @@ class MainWindow(QMainWindow):
         multi-file drop does (B5a)."""
         self.batch_panel.add_files([path])
         self.status_bar.show_queue(True)
+
+    def _apply_recording_offer_config(self) -> None:
+        """Watch Config.source_folder (Zoom's default folder when unset)
+        for finished recordings while the offer is enabled, else stop —
+        called at startup and again after Settings is applied."""
+        from domain.recording_settle import default_recording_folder
+
+        cfg = get_config()
+        folder = ""
+        if getattr(cfg, "recording_offer_enabled", False):
+            folder = getattr(cfg, "source_folder", "") or default_recording_folder()
+        self._recording_watch.set_folder(folder)
+
+    def _recording_choices(self) -> "list[tuple[str, Recipe]]":
+        """Every recipe the start screen offers, keyed the same way."""
+        recipes = list(BUILTIN_RECIPES) + [
+            Recipe.from_dict(entry) for entry in get_config().recipes
+        ]
+        return [(recipe.builtin_key or recipe.name, recipe) for recipe in recipes]
+
+    def _on_new_recording_ready(self, path: str) -> None:
+        """RecordingWatchService.recording_ready: offer the recording, one
+        dialog at a time; draw attention when the window is in the back."""
+        shown = self._recording_offer_dialog
+        if path in self._recording_offers or (shown is not None and shown.path == path):
+            return
+        self._recording_offers.append(path)
+        self._show_next_recording_offer()
+        if not self.isActiveWindow():
+            QApplication.alert(self)
+            if self._tray is not None:
+                self._tray.notify(tr("recording_offer_title"), os.path.basename(path))
+
+    def _show_next_recording_offer(self) -> None:
+        if self._recording_offer_dialog is not None or not self._recording_offers:
+            return
+        path = self._recording_offers.pop(0)
+        cfg = get_config()
+        selected = (
+            getattr(cfg, "recording_offer_recipe", "") or cfg.last_recipe
+            or TRANSCRIPT_ONLY.builtin_key
+        )
+        dialog = RecordingOfferDialog(path, self._recording_choices(), selected, self)
+        dialog.run_requested.connect(self._run_recording_offer)
+        dialog.finished.connect(self._on_recording_offer_closed)
+        self._recording_offer_dialog = dialog
+        dialog.show()
+        dialog.raise_()
+
+    def _on_recording_offer_closed(self, _result: int) -> None:
+        self._recording_offer_dialog = None
+        QTimer.singleShot(0, self._show_next_recording_offer)
+
+    def _run_recording_offer(self, path: str, recipe_key: str) -> None:
+        """The offer's "Run": launch *recipe_key* on *path* the way the
+        start screen does, or queue it when something is already running."""
+        if not os.path.isfile(path):
+            show_toast(self, tr("recording_offer_missing"), kind="warning")
+            return
+        cfg = get_config()
+        cfg.recording_offer_recipe = recipe_key
+        save_config()
+        self.start_view.select_recipe(recipe_key)
+        if self.recipe_run.is_running() or self.transcriber.is_busy():
+            # The queue snapshots the recipe just selected; Start stays
+            # the user's decision there, as for any queued file.
+            self.batch_panel.add_files([path])
+            self.status_bar.show_queue(True)
+            show_toast(self, tr("recording_offer_queued"), kind="info")
+            return
+        if not self._prepare_leave():
+            return
+        self._stack.setCurrentIndex(self._start_index)
+        self.start_view.set_source("file")
+        self.file_selector._set_file(path)
+        self._source_kind = "file"
+        self._start_transcription()
 
     def _maybe_show_first_run(self) -> None:
         """The skippable first-launch card: only for an empty library."""

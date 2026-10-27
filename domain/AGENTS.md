@@ -14,7 +14,8 @@ The root `AGENTS.md` import rules apply: nothing here imports `PyQt6`, `ui`,
 - `job.py` (`JobSpec`/`StepSpec`/`StepOutcome`) is only a step DAG's shape;
   `application/job_engine.py` runs it. `recipe.Recipe` is a named, editable
   set of steps plus run params.
-- `watch_folder.py`/`latest_source.py` hold the pure "what's new" logic;
-  `core/watch_folder.py` is the Qt side.
+- `watch_folder.py`/`latest_source.py`/`recording_settle.py` hold the pure
+  "what's new" logic (`recording_settle` decides when a new Zoom recording has
+  finished converting); `core/watch_folder.py` is the Qt side.
 - `multitrack.py`/`multitrack_merge.py` model Zoom per-participant recordings;
   `diarization.py` holds the diarizer's result types and `assign_speakers`.

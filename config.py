@@ -152,6 +152,14 @@ class Config:
     # file or sub-folder from here (domain/latest_source.py). Empty = unset.
     source_folder: str = ""
 
+    # "New recording" offer (core/recording_watch.py): when a new recording
+    # in source_folder finishes (Zoom's conversion after the meeting), ask
+    # which recipe to run it through. Off by default; nothing starts
+    # without the user's click. recording_offer_recipe is the recipe last
+    # chosen there, preselected next time ("" = Config.last_recipe).
+    recording_offer_enabled: bool = False
+    recording_offer_recipe: str = ""
+
     # Export formats last selected in the Record view's Export menu
     # (see ui/record_view.py). Persisted so the choice survives restarts.
     export_formats: list = field(default_factory=lambda: ["txt"])

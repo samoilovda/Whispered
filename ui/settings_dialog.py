@@ -31,6 +31,7 @@ from core.youtube_oauth_worker import YouTubeLoginWorker
 from core.worker_registry import WorkerRegistry
 from core.logger import get_logger
 from core.i18n import on_language_changed, set_locale, tr
+from domain.recording_settle import default_recording_folder
 
 logger = get_logger(__name__)
 
@@ -375,6 +376,32 @@ class SettingsDialog(QDialog):
         watch_hint.setWordWrap(True)
         layout.addRow(watch_hint)
 
+        # "New recording" offer (core/recording_watch.py): when a new
+        # recording in the source folder (Zoom's) finishes converting,
+        # ask which recipe to run it through.
+        self._recording_offer_chk = QCheckBox()
+        self._tt(self._recording_offer_chk, "settings_recording_offer_enabled")
+        layout.addRow(self._recording_offer_chk)
+
+        source_row = QHBoxLayout()
+        self._source_folder_edit = QLineEdit()
+        self._source_folder_edit.setPlaceholderText(default_recording_folder())
+        source_row.addWidget(self._source_folder_edit, stretch=1)
+        source_browse_btn = QPushButton()
+        self._tt(source_browse_btn, "settings_watch_folder_browse")
+        source_browse_btn.clicked.connect(self._browse_source_folder)
+        source_row.addWidget(source_browse_btn)
+        source_container = QWidget()
+        source_container.setLayout(source_row)
+        self._row(layout, "settings_recording_offer_folder", source_container)
+
+        offer_hint = QLabel()
+        self._tt(offer_hint, "settings_recording_offer_hint")
+        offer_hint.setProperty("role", "muted")
+        offer_hint.setProperty("size", "small")
+        offer_hint.setWordWrap(True)
+        layout.addRow(offer_hint)
+
         tab_layout.addWidget(card)
         tab_layout.addStretch()
         return tab
@@ -385,6 +412,14 @@ class SettingsDialog(QDialog):
         )
         if folder:
             self._watch_folder_edit.setText(folder)
+
+    def _browse_source_folder(self) -> None:
+        start = self._source_folder_edit.text() or default_recording_folder()
+        folder = QFileDialog.getExistingDirectory(
+            self, tr("settings_recording_offer_folder"), start
+        )
+        if folder:
+            self._source_folder_edit.setText(folder)
 
     def _build_transcription_tab(self) -> QWidget:
         tab = QWidget()
@@ -677,6 +712,8 @@ class SettingsDialog(QDialog):
         self._lang_ui_combo.setCurrentIndex(idx if idx >= 0 else 0)
         self._watch_enabled_chk.setChecked(getattr(cfg, "watch_folder_enabled", False))
         self._watch_folder_edit.setText(getattr(cfg, "watch_folder", ""))
+        self._recording_offer_chk.setChecked(getattr(cfg, "recording_offer_enabled", False))
+        self._source_folder_edit.setText(getattr(cfg, "source_folder", ""))
 
         # Transcription
         idx = self._model_combo.findData(getattr(cfg, "default_model", "large-v3-turbo"))
@@ -748,6 +785,8 @@ class SettingsDialog(QDialog):
         cfg.ui_language = self._lang_ui_combo.currentData() or "auto"
         cfg.watch_folder_enabled = self._watch_enabled_chk.isChecked()
         cfg.watch_folder = self._watch_folder_edit.text().strip()
+        cfg.recording_offer_enabled = self._recording_offer_chk.isChecked()
+        cfg.source_folder = self._source_folder_edit.text().strip()
 
         # Transcription
         cfg.default_model = self._model_combo.currentData() or "large-v3-turbo"
