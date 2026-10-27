@@ -1506,5 +1506,9 @@
   "project_line_refused_many": "{count} files with upload approvals or credentials will not be imported.",
   "library_reindex_running": "Reindexing…",
   "export_plan_building": "Preparing the export…",
-  "export_plan_writing": "Writing the export…"
+  "export_plan_writing": "Writing the export…",
+  "clips_update": "Save changes",
+  "clips_duplicate": "Duplicate",
+  "clips_undo_remove": "Undo remove",
+  "clips_copy_title": "{title} (copy)"
 }

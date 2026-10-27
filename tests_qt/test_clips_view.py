@@ -146,3 +146,44 @@ def test_playhead_buttons_use_the_chosen_timeline(make):
     v.timeline.setCurrentIndex(v.timeline.findData(c.SOURCE))
     v._take_playhead(v.end_edit)
     assert v.end_edit.text() == "00:00:06.000"
+
+
+def test_an_existing_clip_can_be_edited_duplicated_and_restored(make):
+    v = make()
+    for title, a, b in (("One", "00:00:01.000", "00:00:04.000"), ("Two", "00:00:05.000", "00:00:09.000"),
+                        ("Three", "00:00:02.000", "00:00:06.000")):
+        _fill(v, title, a, b)
+        v._add()
+    ids = [clip.id for clip in v._set.clips]
+    assert all(ids) and len(set(ids)) == 3
+    v.list.setCurrentRow(1)
+    assert (v.title_edit.text(), v.start_edit.text()) == ("Two", "00:00:05.000")     # picked → in the form
+    v.title_edit.setText("Two, fixed")
+    v.end_edit.setText("00:00:10.000")
+    v._update_selected()
+    assert [c_.title for c_ in v._set.clips] == ["One", "Two, fixed", "Three"]       # same place, others intact
+    assert v._set.clips[1].id == ids[1] and v._set.clips[1].end == 10.0
+    assert v.list.currentRow() == 1
+    v._duplicate()
+    assert [c_.title for c_ in v._set.clips][1:3] == ["Two, fixed", tr("clips_copy_title", title="Two, fixed")]
+    assert v._set.clips[2].id not in ids
+    v.list.setCurrentRow(0)
+    v._remove()
+    assert [c_.title for c_ in v._set.clips][0] == "Two, fixed"
+    v._undo_remove()
+    assert [c_.title for c_ in v._set.clips][0] == "One" and v._set.clips[0].id == ids[0]
+    again = make()                                                                    # survives a restart
+    assert [c_.title for c_ in again._set.clips] == [c_.title for c_ in v._set.clips]
+    assert [c_.id for c_ in again._set.clips] == [c_.id for c_ in v._set.clips]
+
+
+def test_an_invalid_change_leaves_the_clip_alone(make):
+    v = make()
+    _fill(v, "One", "00:00:01.000", "00:00:04.000")
+    v._add()
+    v.list.setCurrentRow(0)
+    messages = []
+    v.message.connect(lambda text, kind: messages.append(text))
+    v.end_edit.setText("00:00:00.500")
+    v._update_selected()
+    assert v._set.clips[0].end == 4.0 and messages == [tr("clips_problem_bad_range")]

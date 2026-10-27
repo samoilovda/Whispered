@@ -17,6 +17,7 @@ source.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field, replace
 from typing import Any, Optional, Sequence
 
@@ -30,6 +31,10 @@ MIN_CLIP = 1.0
 MAX_CLIP = 600.0       # a "short" clip: ten minutes at most (editorial, adjustable by the caller)
 
 
+def new_clip_id() -> str:
+    return uuid.uuid4().hex[:12]
+
+
 @dataclass(frozen=True)
 class ClipDraft:
     title: str
@@ -39,6 +44,9 @@ class ClipDraft:
     # The transcript this clip was chosen against: editing the list must not
     # make an old clip look current. Not part of the clip's identity.
     transcript_revision: str = field(default="", compare=False)
+    # Stable identity, so edits, duplicates and undo address one clip whatever
+    # its position in the list.
+    id: str = field(default="", compare=False)
 
     @property
     def duration(self) -> float:
@@ -46,14 +54,14 @@ class ClipDraft:
 
     def to_dict(self) -> dict:
         return {"title": self.title, "start": self.start, "end": self.end, "timeline": self.timeline,
-                "transcript_revision": self.transcript_revision}
+                "transcript_revision": self.transcript_revision, "id": self.id}
 
     @classmethod
     def from_dict(cls, data: Any) -> Optional["ClipDraft"]:
         try:
             timeline = EDITED if data.get("timeline") == EDITED else SOURCE
             return cls(str(data.get("title", "")), float(data["start"]), float(data["end"]), timeline,
-                       str(data.get("transcript_revision", "")))
+                       str(data.get("transcript_revision", "")), str(data.get("id", "")))
         except (AttributeError, KeyError, TypeError, ValueError):
             return None
 
@@ -83,6 +91,7 @@ class ClipSet:
         # were chosen against the set's.
         clips = [replace(c, transcript_revision=revision) if not c.transcript_revision else c
                  for c in clips]
+        clips = [c if c.id else replace(c, id=new_clip_id()) for c in clips]
         return cls(clips, revision)
 
 

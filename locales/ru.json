@@ -1510,5 +1510,9 @@
   "project_line_refused_many": "{count} файлов с разрешениями на публикацию или учётными данными не будут импортированы.",
   "library_reindex_running": "Переиндексация…",
   "export_plan_building": "Подготовка экспорта…",
-  "export_plan_writing": "Запись экспорта…"
+  "export_plan_writing": "Запись экспорта…",
+  "clips_update": "Сохранить изменения",
+  "clips_duplicate": "Дублировать",
+  "clips_undo_remove": "Вернуть удалённый",
+  "clips_copy_title": "{title} (копия)"
 }

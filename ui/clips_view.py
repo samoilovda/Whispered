@@ -64,6 +64,7 @@ class ClipsView(QWidget):
         self._source_path: Optional[str] = None
         self._unsupported = False
         self._worker: Optional[ClipExportWorker] = None
+        self._removed: list[tuple[int, c.ClipDraft]] = []      # for "undo remove"
         self._registry = WorkerRegistry(parent=self)
         # Host hooks (set by MainWindow): where the playhead is, the passage
         # under the transcript cursor, the media file, the segments left
@@ -108,17 +109,21 @@ class ClipsView(QWidget):
         self.passage_btn = self._button(row, "clips_from_passage", self._from_passage)
         self.preview_btn = self._button(row, "clips_preview", self._preview)
         self.add_btn = self._button(row, "clips_add", self._add)
+        self.update_btn = self._button(row, "clips_update", self._update_selected)
         row.addStretch()
         layout.addLayout(row)
 
         self.list = QListWidget()
         self.list.setMinimumHeight(120)
+        self.list.currentRowChanged.connect(self._row_changed)
         layout.addWidget(self.list, stretch=1)
         bottom = QHBoxLayout()
         self.export_btn = self._button(bottom, "clips_export", self._export)
         self.cancel_btn = self._button(bottom, "btn_cancel", self.cancel)
         self.cancel_btn.setVisible(False)
+        self.duplicate_btn = self._button(bottom, "clips_duplicate", self._duplicate)
         self.remove_btn = self._button(bottom, "clips_remove", self._remove)
+        self.undo_btn = self._button(bottom, "clips_undo_remove", self._undo_remove)
         bottom.addStretch()
         outer.addLayout(bottom)
         self._i18n.add(self._retranslate_fields)
@@ -177,6 +182,7 @@ class ClipsView(QWidget):
         self._source_path = source_path
         self._unsupported = False
         self._set = c.ClipSet()
+        self._removed = []
         self._reset_draft()
         if isinstance(record_id, int):
             try:
@@ -211,6 +217,7 @@ class ClipsView(QWidget):
     def clear(self) -> None:
         self.cancel()
         self._set = c.ClipSet()
+        self._removed = []
         self._record_id = None
         self._reset_draft()
         self._render()
@@ -255,14 +262,27 @@ class ClipsView(QWidget):
         return c.check_clip(clip, media_duration=self._duration or None,
                             edited_duration=c.edited_duration(kept) if kept else None)
 
+    def _selected_id(self) -> str:
+        row = self.list.currentRow()
+        return self._set.clips[row].id if 0 <= row < len(self._set.clips) else ""
+
     def _render(self) -> None:
+        keep = self._selected_id()
+        self.list.blockSignals(True)       # rebuilding is not the user picking a clip
         self.list.clear()
         for clip in self._set.clips:
             self.list.addItem(self._describe(clip))
+        index = next((i for i, clip in enumerate(self._set.clips) if keep and clip.id == keep), -1)
+        self.list.setCurrentRow(index)
+        self.list.blockSignals(False)
         busy = self._worker is not None and self._worker.isRunning()
         has = bool(self._set.clips)
         self.export_btn.setEnabled(has and not busy and not self._unsupported)
         self.remove_btn.setEnabled(has and not busy)
+        picked = self.list.currentRow() >= 0
+        self.update_btn.setEnabled(picked and not busy and not self._unsupported)
+        self.duplicate_btn.setEnabled(picked and not busy and not self._unsupported)
+        self.undo_btn.setEnabled(bool(self._removed) and not busy and not self._unsupported)
         self.add_btn.setEnabled(not self._unsupported)
         self.cancel_btn.setVisible(busy)
         if self._unsupported:
@@ -321,8 +341,54 @@ class ClipsView(QWidget):
         if problems:
             self.message.emit(tr(f"clips_problem_{problems[0]}"), "error")
             return
-        self._set.clips.append(replace(clip, transcript_revision=self._revision))
+        self._set.clips.append(replace(clip, transcript_revision=self._revision, id=c.new_clip_id()))
         self.title_edit.clear()
+        self._save()
+        self._render()
+        self.content_changed.emit()
+
+    def _row_changed(self, row: int) -> None:
+        """Picking a clip puts it in the form, ready to change."""
+        if 0 <= row < len(self._set.clips):
+            clip = self._set.clips[row]
+            self.title_edit.setText(clip.title)
+            self.timeline.setCurrentIndex(self.timeline.findData(clip.timeline))
+            self.start_edit.setText(_fmt(clip.start))
+            self.end_edit.setText(_fmt(clip.end))
+        self._render_buttons()
+
+    def _render_buttons(self) -> None:
+        busy = self._worker is not None and self._worker.isRunning()
+        picked = self.list.currentRow() >= 0
+        self.update_btn.setEnabled(picked and not busy and not self._unsupported)
+        self.duplicate_btn.setEnabled(picked and not busy and not self._unsupported)
+
+    def _update_selected(self) -> None:
+        """Save the form into the picked clip: same place in the list, same
+        identity, every other clip untouched."""
+        row = self.list.currentRow()
+        if not 0 <= row < len(self._set.clips):
+            return
+        clip = self.draft()
+        if clip is None:
+            return
+        problems = self._problems(clip)
+        if problems:
+            self.message.emit(tr(f"clips_problem_{problems[0]}"), "error")
+            return
+        old = self._set.clips[row]
+        self._set.clips[row] = replace(clip, transcript_revision=self._revision, id=old.id)
+        self._save()
+        self._render()
+        self.content_changed.emit()
+
+    def _duplicate(self) -> None:
+        row = self.list.currentRow()
+        if not 0 <= row < len(self._set.clips):
+            return
+        original = self._set.clips[row]
+        copy = replace(original, title=tr("clips_copy_title", title=original.title), id=c.new_clip_id())
+        self._set.clips.insert(row + 1, copy)
         self._save()
         self._render()
         self.content_changed.emit()
@@ -330,10 +396,19 @@ class ClipsView(QWidget):
     def _remove(self) -> None:
         row = self.list.currentRow()
         if 0 <= row < len(self._set.clips):
-            del self._set.clips[row]
+            self._removed.append((row, self._set.clips.pop(row)))
             self._save()
             self._render()
             self.content_changed.emit()
+
+    def _undo_remove(self) -> None:
+        if not self._removed:
+            return
+        row, clip = self._removed.pop()
+        self._set.clips.insert(min(row, len(self._set.clips)), clip)
+        self._save()
+        self._render()
+        self.content_changed.emit()
 
     # ------------------------------------------------------------------ render a clip
 
