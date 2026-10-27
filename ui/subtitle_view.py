@@ -35,6 +35,7 @@ from application import subtitle_store
 from core.i18n import tr
 from core.logger import get_logger
 from domain import subtitles as sub
+from ui.i18n_helpers import Retranslator
 from ui.qt_util import must
 
 logger = get_logger(__name__)
@@ -93,6 +94,7 @@ class SubtitleView(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self._i18n = Retranslator()
         self._track = sub.SubtitleTrack()
         self._segments: list = []
         self._duration = 0.0
@@ -118,9 +120,6 @@ class SubtitleView(QWidget):
         layout.addLayout(top)
 
         self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(
-            [tr("subs_col_in"), tr("subs_col_out"), tr("subs_col_text"), tr("subs_col_issues")])
-        self.table.setAccessibleName(tr("subs_table"))
         header = must(self.table.horizontalHeader())
         header.setSectionResizeMode(_COL_TEXT, header.ResizeMode.Stretch)
         header.setSectionResizeMode(_COL_ISSUES, header.ResizeMode.ResizeToContents)
@@ -134,10 +133,26 @@ class SubtitleView(QWidget):
         self.delete_btn = self._button(bottom, "subs_delete", self._delete)
         bottom.addStretch()
         layout.addLayout(bottom)
+        self._i18n.add(self._retranslate_table)
         self._render()
+        self._i18n.call(self._rerender_keeping_selection)
+        self._i18n.bind()
+
+    def _retranslate_table(self) -> None:
+        self.table.setHorizontalHeaderLabels(
+            [tr("subs_col_in"), tr("subs_col_out"), tr("subs_col_text"), tr("subs_col_issues")])
+        self.table.setAccessibleName(tr("subs_table"))
+
+    def _rerender_keeping_selection(self) -> None:
+        """Rows carry issue texts and the status line is derived: rebuild
+        them in the new language without losing the cue the user is on."""
+        row, col = self.table.currentRow(), self.table.currentColumn()
+        self._render()
+        if 0 <= row < self.table.rowCount():
+            self.table.setCurrentCell(row, max(col, 0))
 
     def _button(self, row, key: str, slot) -> QPushButton:
-        btn = QPushButton(tr(key))
+        btn = self._i18n.text(QPushButton(), key)
         btn.clicked.connect(slot)
         row.addWidget(btn)
         return btn
