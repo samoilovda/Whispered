@@ -690,8 +690,19 @@ class SettingsDialog(QDialog):
         self._cover_upscale_chk.setChecked(cfg.cover_upscale_enabled)
         self._cover_shorts_chk.setChecked(cfg.cover_export_shorts)
 
-    def _save_values(self):
-        """Write widget values back to config."""
+    def _save_to_disk(self) -> bool:
+        """Write the config file; tell the user, with the path, when it fails."""
+        import config as config_module
+
+        if save_config():
+            return True
+        QMessageBox.warning(self, tr("settings_title"), tr(
+            "settings_save_failed", path=str(config_module.CONFIG_FILE)))
+        return False
+
+    def _save_values(self) -> bool:
+        """Write widget values back to config; False when the file could
+        not be written (the dialog then stays open and unapplied)."""
         cfg = self._cfg
         prev_lang = getattr(cfg, "ui_language", "auto")
 
@@ -738,10 +749,10 @@ class SettingsDialog(QDialog):
         cfg.cover_upscale_enabled = self._cover_upscale_chk.isChecked()
         cfg.cover_export_shorts = self._cover_shorts_chk.isChecked()
 
-        save_config()
-
+        saved = self._save_to_disk()
         if cfg.ui_language != prev_lang:
             self._lang_changed = True
+        return saved
 
     def _on_yt_provider_changed(self, *_args) -> None:
         is_cloud = (self._yt_provider_combo.currentData() or "lmstudio") != "lmstudio"
@@ -807,7 +818,8 @@ class SettingsDialog(QDialog):
 
     def _on_apply(self):
         self._lang_changed = False
-        self._save_values()
+        if not self._save_values():
+            return
         self._apply_button.setEnabled(False)
         self.settings_applied.emit()
         self._apply_language_change()
@@ -815,7 +827,8 @@ class SettingsDialog(QDialog):
     def _on_ok(self):
         self._stop_checker()
         self._lang_changed = False
-        self._save_values()
+        if not self._save_values():
+            return
         self.settings_applied.emit()
         self._apply_language_change()
         self.accept()
@@ -859,7 +872,7 @@ class SettingsDialog(QDialog):
             return
         self._cfg.yt_oauth_client_id = client_id
         self._cfg.yt_oauth_client_secret = client_secret
-        save_config()
+        self._save_to_disk()
         self._refresh_yt_status()
 
     def _connect_youtube(self) -> None:
@@ -876,7 +889,7 @@ class SettingsDialog(QDialog):
 
     def _on_yt_connected(self, channel_title: str) -> None:
         self._cfg.yt_channel_title = channel_title
-        save_config()
+        self._save_to_disk()
         self._on_yt_login_ended()
 
     def _on_yt_login_failed(self, message: str) -> None:
@@ -892,7 +905,7 @@ class SettingsDialog(QDialog):
         from core import youtube_oauth
         youtube_oauth.disconnect()
         self._cfg.yt_channel_title = ""
-        save_config()
+        self._save_to_disk()
         self._refresh_yt_status()
 
     def _stop_yt_login(self) -> None:

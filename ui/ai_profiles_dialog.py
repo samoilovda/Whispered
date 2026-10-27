@@ -199,7 +199,7 @@ class AiProfilesDialog(QDialog):
             return
         ai_profiles.save_profile(get_config(), profile,
                                  replace=current.name if current else None)
-        save_config()
+        self._persist()
         self._reload_profiles(select=profile.name)
 
     def _new_profile(self) -> None:
@@ -212,7 +212,7 @@ class AiProfilesDialog(QDialog):
             name = f"Profile {n}"
         ai_profiles.save_profile(cfg, model.LmProfile(name, base.endpoint, "", base.context_chars,
                                                        base.temperature))
-        save_config()
+        self._persist()
         self._reload_profiles(select=name)
 
     def _delete_profile(self) -> None:
@@ -220,7 +220,7 @@ class AiProfilesDialog(QDialog):
         if current is None or current.name == model.DEFAULT_PROFILE:
             return
         ai_profiles.delete_profile(get_config(), current.name)
-        save_config()
+        self._persist()
         self._reload_profiles()
 
     def _use_profile(self) -> None:
@@ -228,8 +228,18 @@ class AiProfilesDialog(QDialog):
         if current is None:
             return
         get_config().lm_profile_active = "" if current.name == model.DEFAULT_PROFILE else current.name
-        save_config()
+        self._persist()
         self._reload_profiles(select=current.name)
+
+    def _persist(self) -> bool:
+        """Write the config file; tell the user, with the path, when it fails."""
+        import config as config_module
+
+        if save_config():
+            return True
+        QMessageBox.warning(self, tr("ai_profiles_title"), tr(
+            "settings_save_failed", path=str(config_module.CONFIG_FILE)))
+        return False
 
     def _test_profile(self) -> None:
         """Probe the endpoint off the GUI thread — a test of the connection,
@@ -279,7 +289,7 @@ class AiProfilesDialog(QDialog):
             profile = model.LmProfile(f"{profile.name} (imported)", profile.endpoint, profile.model,
                                       profile.context_chars, profile.temperature, profile.steps)
         ai_profiles.save_profile(get_config(), profile)
-        save_config()
+        self._persist()
         self._reload_profiles(select=profile.name)
 
     # ================================================================ templates
@@ -414,7 +424,7 @@ class AiProfilesDialog(QDialog):
         elif active.get(saved.base) == saved.name:
             active.pop(saved.base)
         get_config().prompt_template_active = active
-        save_config()
+        self._persist()
         self._reload_templates(select=saved.name)
 
     def _delete_template(self) -> None:
@@ -426,7 +436,7 @@ class AiProfilesDialog(QDialog):
         if active.get(template.base) == template.name:
             active.pop(template.base)
             get_config().prompt_template_active = active
-            save_config()
+            self._persist()
         self._reload_templates()
 
     def _export_template(self) -> None:

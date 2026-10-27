@@ -207,3 +207,25 @@ def test_run_chip_only_says_running_for_the_run_s_own_record(env, monkeypatch, p
     assert seen[-1] == tr("record_run_running")
     window.close()
     process_events()
+
+
+def test_ok_does_not_close_settings_when_the_file_cannot_be_written(env, monkeypatch, process_events):
+    from PyQt6.QtWidgets import QMessageBox
+
+    from ui.settings_dialog import SettingsDialog
+
+    dialog = SettingsDialog()
+    dialog.show()
+    applied = []
+    dialog.settings_applied.connect(lambda: applied.append(1))
+    warned = []
+    monkeypatch.setattr("ui.settings_dialog.save_config", lambda: False)
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warned.append(a[-1]))
+    dialog._on_ok()
+    assert dialog.isVisible() and not applied
+    assert warned and str(config.CONFIG_FILE) in warned[0]
+    dialog._on_apply()
+    assert not applied
+    monkeypatch.setattr("ui.settings_dialog.save_config", lambda: True)
+    dialog._on_ok()
+    assert applied and not dialog.isVisible()
