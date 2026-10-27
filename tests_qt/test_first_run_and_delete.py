@@ -171,3 +171,19 @@ def test_a_vanished_record_is_reported_as_not_saved(env, process_events):
     window._last_persist_ok = True                     # closing would otherwise ask to retry
     window.close()
     process_events()
+
+
+def test_declining_the_model_download_keeps_the_open_record(env, monkeypatch, tmp_path, process_events):
+    store, _ = env
+    rid = store.add(_result(), source_path="", source_name="a.mp3")
+    window = _window(process_events)
+    window._open_record_view(rid)
+    media = tmp_path / "new.mp3"
+    media.write_bytes(b"x")
+    monkeypatch.setattr(window.file_selector, "get_file", lambda: str(media))
+    monkeypatch.setattr(window, "_ensure_whisper_model", lambda _model: False)
+    window._start_transcription()
+    assert window.transcript_view.get_result() is not None
+    assert window._last_record_id == rid
+    window.close()
+    process_events()

@@ -2434,29 +2434,12 @@ class MainWindow(QMainWindow):
         filepath = self.file_selector.get_file()
         if not filepath:
             return
-
-        # Update UI for transcription mode
-        self.transcribe_btn.setEnabled(False)
-        self.transcribe_btn.setVisible(False)
-        self.status_bar.set_busy(True)
-        self.progress_bar.setValue(0)
-        # Select is done (file chosen); Extract is the first active stage
-        self.progress_timeline.setVisible(True)
-        self.progress_timeline.set_stage(1, 0)
-        self.transcript_view.clear()
-        self.cleaned_view.clear()
-        self.article_view.clear()
-        self.chat_panel.clear_transcript()
-        self._cancel_insights_job()
-        self.insights_panel.clear()
-        self.subtitle_view.clear()
-        self.clips_view.clear()
-        self._cancel_youtube_job()
-        self.youtube_panel.clear()
-        self._cancel_book_job()
-        self.book_panel.clear_book()
-        self.cut_view.clear()
-        self._cleaned_text = None
+        if self.transcriber.is_busy():
+            return
+        # Starting replaces the open record's panels: commit or refuse a
+        # pending edit first, as every other navigation does.
+        if not self._prepare_leave():
+            return
 
         # Get settings from header controls, with the selected recipe's
         # own params (B4, docs/IMPROVEMENT_PLAN_2026-08.ru.md) overriding
@@ -2483,10 +2466,35 @@ class MainWindow(QMainWindow):
             else "diarize" in recipe.steps or self.diarization_checkbox.isChecked()
         )
 
+        # The model comes first: declining its download must leave the open
+        # record exactly as it was.
         if not self._ensure_whisper_model(model):
-            self._reset_ui()
             self.status_label.setText(tr("status_cancelled"))
             return
+
+        # Update UI for transcription mode
+        self.transcribe_btn.setEnabled(False)
+        self.transcribe_btn.setVisible(False)
+        self.status_bar.set_busy(True)
+        self.progress_bar.setValue(0)
+        # Select is done (file chosen); Extract is the first active stage
+        self.progress_timeline.setVisible(True)
+        self.progress_timeline.set_stage(1, 0)
+        self.transcript_view.clear()
+        self.cleaned_view.clear()
+        self.article_view.clear()
+        self.chat_panel.clear_transcript()
+        self._cancel_insights_job()
+        self.insights_panel.clear()
+        self.subtitle_view.clear()
+        self.clips_view.clear()
+        self._cancel_youtube_job()
+        self.youtube_panel.clear()
+        self._cancel_book_job()
+        self.book_panel.clear_book()
+        self.cut_view.clear()
+        self._cleaned_text = None
+        self._last_record_id = None
 
         self._transcription_start = time.monotonic()
         # Build initial prompt from custom vocabulary
