@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QTextEdit, QLineEdit, QPlainTextEdit, QStackedWidget, QToolButton, QMenu, QInputDialog,
     QProgressBar, QPushButton,
 )
-from PyQt6.QtCore import QByteArray, QEvent, QObject, Qt, QTimer, QUrl, pyqtSignal
+from PyQt6.QtCore import QByteArray, Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices, QKeySequence, QShortcut, QDragEnterEvent, QDropEvent
 
 from ui.toast import show_toast
@@ -65,7 +65,6 @@ from utils import (
 )
 from application.document_session import DocumentSession
 from application.job_engine import JobRun
-from application.operations import Operation, cancel_all, cancel_one, describe
 from application.launch_params import resolve_transcription
 from application.records import finalize_live_record, save_new_record
 from ui.speaker_detection_controller import SpeakerDetectionController
@@ -103,30 +102,10 @@ from ui.transcription_progress import (
     localized_progress,
     timeline_stage_for_progress,
 )
+from ui.operation_controller import OperationController
 from ui.qt_util import must
 
 logger = get_logger(__name__)
-
-ALL_OPERATIONS = "*"
-
-
-class _CancelTooltip(QObject):
-    """Fills the Cancel button's tooltip with the running operations just
-    before it is shown."""
-
-    def __init__(self, button: QWidget, operations) -> None:
-        super().__init__(button)
-        self._button = button
-        self._operations = operations
-        button.installEventFilter(self)
-
-    def eventFilter(self, obj, event) -> bool:  # noqa: N802
-        if obj is self._button and event.type() == QEvent.Type.ToolTip:
-            ops = self._operations()
-            self._button.setToolTip(
-                tr("cancel_operation_tip", names=describe(ops)) if len(ops) > 1 else "")
-        return False
-
 
 # ============================================================================
 # MAIN WINDOW
@@ -1049,7 +1028,7 @@ class MainWindow(QMainWindow):
         self.cancel_btn = self.status_bar.cancel_button
         # Its tooltip names what it would stop. A filter object of its own,
         # parented to the button: the window itself is not a filter.
-        self._cancel_tooltip = _CancelTooltip(self.cancel_btn, self.running_operations)
+        self.operations = OperationController(self)
         self.status_bar.device_selected.connect(self._set_use_gpu)
         self.status_bar.settings_requested.connect(self._open_settings)
         self.status_bar.llm_refresh_requested.connect(self.book_panel.refresh_connection)
@@ -2563,66 +2542,9 @@ class MainWindow(QMainWindow):
             on_error=self._on_error
         )
 
-    def running_operations(self) -> "list[Operation]":
-        """Everything running in the background right now, each with the
-        call that stops just that one."""
-        ops: list[Operation] = []
-        if self.transcriber.is_busy():
-            ops.append(Operation("transcribe", tr("step_transcribe"), self.transcriber.cancel))
-        if self.recipe_run.is_running():
-            ops.append(Operation("recipe", tr("record_run_running"), self.recipe_run.cancel))
-        for key, job, cancel in (
-            ("clean", self._clean_job, self._cancel_clean_job),
-            ("article", self._article_job, self._cancel_article_job),
-            ("insights", self._insights_job, self._cancel_insights_job),
-            ("youtube_package", self._youtube_job, self._cancel_youtube_job),
-            ("book", self._book_job, self._cancel_book_job),
-        ):
-            if job is not None and job.isRunning():
-                ops.append(Operation(key, tr(f"step_{key}"), cancel, ai=True))
-        if self.project.is_busy():
-            ops.append(Operation("project", tr("project_title"), self.project.cancel))
-        if self.batch_panel._is_processing() or self.queue_controller.is_busy():
-            def cancel_batch() -> None:
-                self.batch_panel.cancel_processing()
-                self.queue_controller.cancel()
-            ops.append(Operation("batch", tr("operation_queue"), cancel_batch))
-        return ops
-
-    def _cancel_operation(self, key: "str | None" = None):
-        """Cancel one named operation; without a *key*, the only running one,
-        or — when several overlap — the one the user picks from a menu
-        (or all of them)."""
-        ops = self.running_operations()
-        if key is None:
-            if len(ops) > 1:
-                key = self._pick_operation(ops)
-                if key is None:
-                    return
-            elif ops:
-                key = ops[0].key
-        if key == ALL_OPERATIONS:
-            cancel_all(ops)
-            self.status_label.setText(tr("status_cancelled"))
-        elif key is not None:
-            done = cancel_one(ops, key)
-            if done is not None:
-                self.status_label.setText(tr("status_ai_cancelled" if done.ai else "status_cancelled"))
-        else:
-            self.transcriber.cancel()
-            self.status_label.setText(tr("status_cancelled"))
-        self._reset_ui()
-
-    def _pick_operation(self, ops: "list[Operation]") -> "str | None":
-        """Menu of what is running (Cancel <name>… / Cancel all); the key
-        of the choice, or None when dismissed."""
-        menu = QMenu(self)
-        for op in ops:
-            must(menu.addAction(tr("cancel_operation_named", name=op.label))).setData(op.key)
-        menu.addSeparator()
-        must(menu.addAction(tr("cancel_operation_all"))).setData(ALL_OPERATIONS)
-        chosen = menu.exec(self.cancel_btn.mapToGlobal(self.cancel_btn.rect().bottomLeft()))
-        return chosen.data() if chosen is not None else None
+    def _cancel_operation(self, key: "str | None" = None) -> None:
+        """Cancel button / a panel's own Cancel: see OperationController."""
+        self.operations.cancel(key)
 
     def _ensure_whisper_model(self, model: str) -> bool:
         """Offer to download a missing whisper model; True when it is present.
@@ -3202,18 +3124,9 @@ class MainWindow(QMainWindow):
         self.transcribe_btn.setVisible(True)
         # Cancel belongs to whatever still runs: a finished transcription
         # must not hide it from a single-step job or a project export.
-        self.cancel_btn.setVisible(run_active or self._other_operation_running())
+        self.cancel_btn.setVisible(run_active or self.operations.others_running())
         self.progress_bar.setVisible(False)
         self.progress_timeline.setVisible(False)
-
-    def _other_operation_running(self) -> bool:
-        """A single-step job, a project export/import or the batch queue is
-        still working (the transcription itself is not counted)."""
-        jobs = (self._clean_job, self._article_job, self._insights_job,
-                self._youtube_job, self._book_job)
-        return (any(job is not None and job.isRunning() for job in jobs)
-                or self.project.is_busy() or self.queue_controller.is_busy()
-                or self.batch_panel._is_processing())
 
     def _copy_to_clipboard(self):
         """Copy transcription to clipboard."""
