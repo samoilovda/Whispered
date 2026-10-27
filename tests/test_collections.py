@@ -96,3 +96,12 @@ def test_hit_time_points_at_where_the_words_are_said_and_follows_edits(store):
     store.update_result(rid, result, {})
     assert store.match_time(rid, "budget") is None             # the edited-away match is gone
     assert rid not in [r.id for r in store.query_records(RecordQuery(text="budget")).items]
+
+
+def test_editing_a_transcript_keeps_its_material_badges(store):
+    rid = _add(store, (0.0, "hello there"))
+    store.set_artifacts(rid, ["transcript", "article", "book"])
+    result = SimpleNamespace(segments=[SimpleNamespace(start=0.0, end=5.0, text="hello again", speaker=None)],
+                             language="en", duration=5.0)
+    store.update_result(rid, result, {})
+    assert list(store.get_record(rid)["artifacts"]) == ["transcript", "article", "book"]

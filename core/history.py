@@ -881,20 +881,16 @@ class HistoryStore:
 
     def update_result(self, record_id: int, result: Any,
                       speaker_names: dict | None = None) -> bool:
-        """Replace a stored result without creating a duplicate history row."""
+        """Replace a stored result without creating a duplicate history row.
+        The record's material badges stay: whether a material is out of date
+        is the provenance revision's business, not a reason to hide it."""
         payload = _result_to_payload(result, speaker_names=speaker_names)
         with self._connect() as conn:
             cur = conn.execute(
                 """UPDATE transcripts
-                   SET duration = ?, language = ?, json_payload = ?, artifacts = ?
+                   SET duration = ?, language = ?, json_payload = ?
                    WHERE id = ?""",
-                (
-                    result.duration,
-                    result.language,
-                    payload,
-                    json.dumps(["transcript"], ensure_ascii=False),
-                    record_id,
-                ),
+                (result.duration, result.language, payload, record_id),
             )
             return cur.rowcount > 0
 
