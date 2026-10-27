@@ -306,3 +306,16 @@ def test_cancelling_the_recipe_editor_leaves_the_default_settings_alone(window, 
     process_events()
     assert config.get_config().default_model == "large-v3-turbo-q5_0"
     assert window.model_combo.currentData() == shared_model
+
+
+def test_queue_snapshot_applies_the_recipe_s_transcription_settings(window, process_events):
+    import config
+
+    config.get_config().recipes = [{"name": "Tiny en", "steps": ["transcribe"], "builtin_key": "",
+                                    "params": {"model": "tiny", "language": "en", "translate": True}}]
+    window.start_view.refresh_recipe_chips()
+    window.start_view.select_recipe("Tiny en")
+    process_events()
+    snapshot = window.queue_controller.snapshot_now()
+    assert (snapshot.transcription["model_name"], snapshot.transcription["language"],
+            snapshot.transcription["translate"]) == ("tiny", "en", True)

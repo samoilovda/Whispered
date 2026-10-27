@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from application import queue_run, queue_store
+from application.launch_params import resolve_transcription
 from application.records import add_record_badges, save_new_record
 from batch_processor import BatchItem, BatchStatus
 from config import get_config
@@ -73,12 +74,13 @@ class QueueController(QObject):
 
         host = self._host
         recipe = host._resolve_recipe(host.start_view.current_recipe_key())
+        chosen = resolve_transcription(recipe.params, recipe.steps, host._header_transcription_values())
         transcription = {
-            "model_name": host.model_combo.currentData(),
-            "language": host.language_combo.currentData(),
-            "translate": host.translate_checkbox.isChecked(),
-            "n_threads": get_thread_count(host.perf_combo.currentData()),
-            "enable_diarization": host.diarization_checkbox.isChecked(),
+            "model_name": chosen["model"],
+            "language": chosen["language"],
+            "translate": chosen["translate"],
+            "n_threads": get_thread_count(chosen["performance_mode"]),
+            "enable_diarization": chosen["diarization"],
             "use_gpu": host._use_gpu,
         }
         return queue_store.make_snapshot(recipe, transcription)

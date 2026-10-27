@@ -65,6 +65,7 @@ from utils import (
 )
 from application.document_session import DocumentSession
 from application.job_engine import JobRun
+from application.launch_params import resolve_transcription
 from application.records import finalize_live_record, save_new_record
 from ui.speaker_detection_controller import SpeakerDetectionController
 from ui.youtube_publish_controller import YouTubePublishController
@@ -2422,6 +2423,17 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             logger.warning("Failed to restore transcript version: %s", exc)
 
+    def _header_transcription_values(self) -> dict:
+        """What the header controls currently say (the base a recipe's own
+        params override)."""
+        return {
+            "model": self.model_combo.currentData(),
+            "language": self.language_combo.currentData(),
+            "translate": self.translate_checkbox.isChecked(),
+            "performance_mode": self.perf_combo.currentData(),
+            "diarization": self.diarization_checkbox.isChecked(),
+        }
+
     def _start_transcription(self):
         """Start the transcription process."""
         # The Process button is disabled while a recipe run is active, but
@@ -2447,24 +2459,12 @@ class MainWindow(QMainWindow):
         # back to whatever the shared widget/Config already has, same as
         # every launch before B4.
         recipe = self._resolve_recipe(self.start_view.current_recipe_key())
-        params = recipe.params or {}
-        model = params.get("model") or self.model_combo.currentData()
-        language = params.get("language") or self.language_combo.currentData()
-        translate = (
-            params["translate"] if "translate" in params
-            else self.translate_checkbox.isChecked()
-        )
-        perf_mode = params.get("performance_mode") or self.perf_combo.currentData()
-
-        # Determine thread count based on performance mode
-        n_threads = get_thread_count(perf_mode)
-
-        # A recipe with the "diarize" step needs speakers from this pass:
-        # its runner only passes the transcription result through.
-        enable_diarization = (
-            params["diarization"] if "diarization" in params
-            else "diarize" in recipe.steps or self.diarization_checkbox.isChecked()
-        )
+        chosen = resolve_transcription(recipe.params, recipe.steps, self._header_transcription_values())
+        model = chosen["model"]
+        language = chosen["language"]
+        translate = chosen["translate"]
+        n_threads = get_thread_count(chosen["performance_mode"])
+        enable_diarization = chosen["diarization"]
 
         # The model comes first: declining its download must leave the open
         # record exactly as it was.
