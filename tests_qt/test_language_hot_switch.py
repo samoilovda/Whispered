@@ -125,3 +125,45 @@ def test_settings_dialog_retranslates_in_place(process_events):
     dialog.close()
     window.close()
     process_events()
+
+
+def test_subtitles_clips_and_tasks_tabs_retranslate_and_keep_their_data(process_events, monkeypatch, tmp_path):
+    from domain import clips as c
+    from domain import subtitles as sub
+    from domain import tasks as t
+    from ui.clips_view import ClipsView
+    from ui.subtitle_view import SubtitleView
+    from ui.tasks_view import TasksView
+
+    i18n.set_locale("ru")
+    subs, clips, tasks = SubtitleView(), ClipsView(), TasksView()
+    subs._track.cues = [sub.SubtitleCue(0.0, 2.0, "typed text")]
+    subs._render()
+    subs.table.setCurrentCell(0, 2)
+    clips.title_edit.setText("typed title")
+    clips.start_edit.setText("00:00:03.000")
+    clips.timeline.setCurrentIndex(clips.timeline.findData(c.EDITED))
+    card = t.new_user_card("write the report", [])
+    tasks.set_cards([card])
+    tasks.new_task.setText("half typed")
+    process_events()
+    ru = (subs.generate_btn.text(), clips.export_btn.text(), tasks.add_btn.text(),
+          subs.table.horizontalHeaderItem(0).text(), tasks.new_task.placeholderText(),
+          clips.timeline.itemText(0), clips.status.text(), tasks._md_action.text())
+    for lang in ("en", "ru", "en"):
+        i18n.set_locale(lang)
+        process_events()
+    assert subs.generate_btn.text() == i18n.tr("subs_generate")
+    assert clips.export_btn.text() == i18n.tr("clips_export")
+    assert tasks.add_btn.text() == i18n.tr("task_add")
+    assert subs.table.horizontalHeaderItem(0).text() == i18n.tr("subs_col_in")
+    assert tasks.new_task.placeholderText() == i18n.tr("task_add_placeholder")
+    assert clips.timeline.itemText(0) == i18n.tr("clips_timeline_source")
+    assert clips.status.text() == i18n.tr("clips_empty")
+    assert tasks._md_action.text() == i18n.tr("task_export_md")
+    assert ru[0] != subs.generate_btn.text() and ru[2] != tasks.add_btn.text()
+    # Input and selection survive the round trip.
+    assert subs.table.item(0, 2).text() == "typed text" and subs.table.currentRow() == 0
+    assert clips.title_edit.text() == "typed title" and clips.start_edit.text() == "00:00:03.000"
+    assert clips.timeline.currentData() == c.EDITED
+    assert tasks.new_task.text() == "half typed" and [x.task for x in tasks.cards()] == ["write the report"]

@@ -29,6 +29,7 @@ from application import task_export
 from core.i18n import tr
 from core.logger import get_logger
 from domain import tasks as t
+from ui.i18n_helpers import Retranslator
 from ui.qt_util import must
 from ui.theme import px
 from utils import format_duration
@@ -158,6 +159,7 @@ class TasksView(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self._i18n = Retranslator()
         self._cards: list[t.TaskCard] = []
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -170,27 +172,31 @@ class TasksView(QWidget):
 
         add_row = QHBoxLayout()
         self.new_task = QLineEdit()
-        self.new_task.setPlaceholderText(tr("task_add_placeholder"))
-        self.new_task.setAccessibleName(tr("task_add_placeholder"))
+        self._i18n.text(self.new_task, "task_add_placeholder", "setPlaceholderText")
+        self._i18n.text(self.new_task, "task_add_placeholder", "setAccessibleName")
         self.new_task.returnPressed.connect(self._add_task)
         add_row.addWidget(self.new_task, stretch=1)
-        self.add_btn = QPushButton(tr("task_add"))
+        self.add_btn = self._i18n.text(QPushButton(), "task_add")
         self.add_btn.clicked.connect(self._add_task)
         add_row.addWidget(self.add_btn)
         self.export_btn = QToolButton()
-        self.export_btn.setText(tr("task_export"))
+        self._i18n.text(self.export_btn, "task_export")
         self.export_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._menu = QMenu(self.export_btn)
         self.export_btn.setMenu(self._menu)
-        self._md_action = must(self._menu.addAction(tr("task_export_md")))
+        self._md_action = self._i18n.text(must(self._menu.addAction("")), "task_export_md")
         self._md_action.triggered.connect(lambda: self._export("md"))
-        self._csv_action = must(self._menu.addAction(tr("task_export_csv")))
+        self._csv_action = self._i18n.text(must(self._menu.addAction("")), "task_export_csv")
         self._csv_action.triggered.connect(lambda: self._export("csv"))
-        self._ics_action = must(self._menu.addAction(tr("task_export_ics")))
+        self._ics_action = self._i18n.text(must(self._menu.addAction("")), "task_export_ics")
         self._ics_action.triggered.connect(lambda: self._export("ics"))
         add_row.addWidget(self.export_btn)
         root.addLayout(add_row)
         self._refresh_export()
+        # Rows are built from the cards, so a language change rebuilds them
+        # (nothing is lost: every edit is already on its card).
+        self._i18n.call(lambda: self.set_cards(self._cards))
+        self._i18n.bind()
 
     # ------------------------------------------------------------------ data
 
