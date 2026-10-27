@@ -15,6 +15,7 @@ from ui.components import FormSection, StatusBadge
 
 class LivePreflightWorker(BaseWorker):
     completed = pyqtSignal(object)
+    failed = pyqtSignal(str)
 
     def __init__(self, *, use_mic: bool, use_system: bool, model_name: str,
                  target_available: bool, helper_path: Path, parent=None) -> None:
@@ -32,9 +33,8 @@ class LivePreflightWorker(BaseWorker):
             helper_path=self._helper_path,
         ))
 
-    # No error signal exists for this worker — a failing check has nowhere
-    # to report to. BaseWorker.run() already logs the exception; leaving
-    # _on_error() at its no-op default is deliberate, not an oversight.
+    def _on_error(self, msg: str) -> None:
+        self.failed.emit(msg)
 
 
 class LivePreflightPanel(FormSection):
@@ -46,12 +46,29 @@ class LivePreflightPanel(FormSection):
         """Whether a preflight has filled the panel (it starts hidden)."""
         return self.body_layout.count() > 2
 
-    def show_checks(self, checks: tuple[PreflightCheck, ...]) -> None:
+    def _clear_rows(self) -> None:
         while self.body_layout.count() > 2:
             item = self.body_layout.takeAt(2)
             widget = item.widget() if item is not None else None
             if widget:
                 widget.deleteLater()
+
+    def show_error(self, message: str) -> None:
+        """The check itself crashed: say so instead of leaving the screen
+        as it was."""
+        self._clear_rows()
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 2, 0, 2)
+        layout.addWidget(StatusBadge(tr("preflight_fail"), "error"))
+        text = QLabel(tr("live_preflight_failed", error=message))
+        text.setWordWrap(True)
+        layout.addWidget(text, 1)
+        self.body_layout.addWidget(row)
+        self.setVisible(True)
+
+    def show_checks(self, checks: tuple[PreflightCheck, ...]) -> None:
+        self._clear_rows()
         for check in checks:
             row = QWidget()
             layout = QHBoxLayout(row)

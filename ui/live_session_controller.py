@@ -104,6 +104,7 @@ class LiveSessionController:
             parent=self._host,
         )
         worker.completed.connect(view.show_preflight)
+        worker.failed.connect(view.show_preflight_failed)
         self._preflight_worker = worker
         worker.start()
 

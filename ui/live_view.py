@@ -281,6 +281,15 @@ class LiveView(QWidget):
         self._set_start_enabled(False)
         self.state_badge.set_status(tr("live_preflighting"), "info")
 
+    def show_preflight_failed(self, message: str) -> None:
+        """The readiness check crashed: back to a state the user can retry from."""
+        self.preflight_btn.setEnabled(True)
+        self.preflight_panel.show_error(message)
+        self._preflight_valid = False
+        self._state = "idle"
+        self._set_start_enabled(False)
+        self.state_badge.set_status(tr("live_not_ready"), "error")
+
     def show_preflight(self, checks) -> None:
         self.preflight_btn.setEnabled(True)
         self.preflight_panel.show_checks(checks)
