@@ -170,6 +170,7 @@ class TranscriptView(QWidget):
     # Proofreading (N01): marks changed (to be stored); play this passage.
     review_changed = pyqtSignal()
     listen_requested = pyqtSignal(float, float, bool)  # start, end, loop
+    passage_changed = pyqtSignal()  # the cursor or selection moved
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -434,6 +435,8 @@ class TranscriptView(QWidget):
         self.text_edit.viewport().installEventFilter(self)
         self.text_edit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.text_edit.customContextMenuRequested.connect(self._show_context_menu)
+        self.text_edit.cursorPositionChanged.connect(self.passage_changed.emit)
+        self.text_edit.selectionChanged.connect(self.passage_changed.emit)
         # MainWindow says whether a chapter can be added right now (there
         # is a YouTube package to add it to).
         self._can_add_chapter = lambda: False
@@ -829,6 +832,23 @@ class TranscriptView(QWidget):
         self._review_marks = tuple(marks)
         if self._result is not None:
             self._update_display()
+
+    def selected_passage(self) -> Optional[tuple[float, float]]:
+        """``(start, end)`` in seconds of the selected passage — from the
+        first to the last segment the selection touches — or of the segment
+        under the cursor; ``None`` when neither is on a segment."""
+        if self._result is None or self._edit_mode:
+            return None
+        cursor = self.text_edit.textCursor()
+        low, high = cursor.selectionStart(), cursor.selectionEnd()
+        if low == high:
+            span = self._span_at(low)
+            touched = [span] if span is not None and span.index >= 0 else []
+        else:
+            touched = [s for s in self._segment_spans if s.pos_to >= low and s.pos_from <= high]
+        if not touched:
+            return None
+        return touched[0].seconds, touched[-1].end
 
     def _current_segment_index(self) -> int:
         """The passage under the cursor, else the first one to review."""

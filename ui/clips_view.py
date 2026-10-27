@@ -111,6 +111,7 @@ class ClipsView(QWidget):
         bottom.addStretch()
         layout.addLayout(bottom)
         self._render()
+        self.update_passage_availability()
 
     def _button(self, row, key: str, slot) -> QPushButton:
         btn = QPushButton(tr(key))
@@ -172,6 +173,7 @@ class ClipsView(QWidget):
         self._revision = transcript_revision(
             result.segments, result.language, getattr(result, "speaker_names", None))
         self._render()
+        self.update_passage_availability()
 
     def _reset_draft(self) -> None:
         """Empty the form: a half-typed clip belongs to the record it was
@@ -256,6 +258,13 @@ class ClipsView(QWidget):
             self.message.emit(tr("subs_bad_time"), "error")
             return None
         return c.ClipDraft(self.title_edit.text().strip(), start, end, self.timeline.currentData())
+
+    def update_passage_availability(self) -> None:
+        """Enable "from passage" only while the transcript has a passage to
+        take, and say why not otherwise."""
+        has = self.passage() is not None
+        self.passage_btn.setEnabled(has)
+        self.passage_btn.setToolTip("" if has else tr("clips_no_passage"))
 
     def _from_passage(self) -> None:
         passage = self.passage()

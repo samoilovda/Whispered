@@ -188,3 +188,27 @@ def test_a_clip_across_a_cut_plays_every_piece_in_order(setup):
     assert seeks == [5.0, 20.0] and not paused
     window._on_player_position(25.1)
     assert paused and window._listen is None and window._listen_queue == []
+
+
+def test_clips_take_their_range_from_the_selected_transcript_passage(setup):
+    make, *_ = setup
+    window = make()
+    view, clips = window.transcript_view, window.clips_view
+    spans = [s for s in view._segment_spans if s.index >= 0]
+    assert len(spans) >= 2
+    cursor = view.text_edit.textCursor()
+    cursor.setPosition(spans[0].pos_from)
+    cursor.setPosition(spans[1].pos_to, cursor.MoveMode.KeepAnchor)
+    view.text_edit.setTextCursor(cursor)
+    assert view.selected_passage() == (spans[0].seconds, spans[1].end)
+    assert clips.passage_btn.isEnabled()
+    clips._from_passage()
+    assert clips.start_edit.text().startswith("00:00:0") and clips.end_edit.text() != "00:00:00.000"
+    cursor.clearSelection()
+    cursor.setPosition(spans[1].pos_from + 1)
+    view.text_edit.setTextCursor(cursor)
+    assert view.selected_passage() == (spans[1].seconds, spans[1].end)
+    # Entering edit mode leaves no passage to take: the button says why.
+    view._enter_edit_mode()
+    assert view.selected_passage() is None
+    assert not clips.passage_btn.isEnabled() and clips.passage_btn.toolTip()

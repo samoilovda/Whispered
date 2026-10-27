@@ -937,6 +937,8 @@ class MainWindow(QMainWindow):
         self.clips_view.listen_sequence.connect(self._listen_sequence)
         self.clips_view.message.connect(lambda text, kind: show_toast(self, text, kind=kind))
         self.clips_view.playhead = self.player.current_position
+        self.clips_view.passage = self.transcript_view.selected_passage
+        self.transcript_view.passage_changed.connect(self.clips_view.update_passage_availability)
         self.clips_view.source = lambda: self._source_filepath or self.file_selector.get_file() or ""
         self.clips_view.kept = lambda: self.cut_view.get_kept_segments()
         self.clips_view.cues = lambda: list(self.subtitle_view._track.cues)
