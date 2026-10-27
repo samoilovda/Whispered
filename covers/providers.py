@@ -33,6 +33,10 @@ class ImageProvider(Protocol):
 
 
 class LocalProvider:
+    """Experimental, not wired into the Cover workspace. ``process`` hands
+    the image back unchanged: it does NOT restore anything, so no UI may
+    tell the user a restoration happened."""
+
     def process(self, image: QImage, intent: str, cancel: Callable[[], bool]) -> QImage:
         if intent != "restore":
             raise ValueError("Локальный провайдер поддерживает только реставрацию")
@@ -44,6 +48,9 @@ class LocalProvider:
 
 
 class HttpProvider:
+    """Placeholder for a cloud image provider: always raises. Not offered
+    anywhere in the UI."""
+
     def process(self, image: QImage, intent: str, cancel: Callable[[], bool]) -> QImage:
         raise NotImplementedError("облачный провайдер не настроен")
 
