@@ -12,9 +12,9 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QStackedWidget, QWidget,
     QPushButton, QLabel, QComboBox, QCheckBox, QLineEdit,
     QDialogButtonBox, QSpinBox, QFormLayout,
-    QDoubleSpinBox, QMessageBox, QPlainTextEdit, QFileDialog
+    QDoubleSpinBox, QMessageBox, QPlainTextEdit, QFileDialog, QFrame, QScrollArea,
 )
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
 
 from config import get_config, save_config
 from utils import get_models_dir
@@ -24,6 +24,7 @@ from ui.option_labels import (
     whisper_language_options,
     whisper_model_options,
 )
+from ui.components import ElidedLabel, FlowLayout
 from ui.theme import apply_theme, set_role
 from core.lm_status_worker import LMStatusWorker
 from core.youtube_oauth_worker import YouTubeLoginWorker
@@ -136,6 +137,17 @@ class SettingsDialog(QDialog):
 
     # ------------------------------------------------------------------ setup
 
+    @staticmethod
+    def _scrolling(page: QWidget) -> QScrollArea:
+        """A page that scrolls instead of being cut off when the dialog is
+        smaller than its content (the minimum window is 900×550)."""
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.Shape.NoFrame)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        area.setWidget(page)
+        return area
+
     def _setup_ui(self):
         self.setWindowTitle(tr("settings_title"))
         self.setModal(True)
@@ -180,7 +192,7 @@ class SettingsDialog(QDialog):
         self._category_keys: list[str] = [k for k, _ in pages]
         for label_key, page in pages:
             self._categories.addItem(tr(label_key))
-            self._pages.addWidget(page)
+            self._pages.addWidget(self._scrolling(page))
         self._rebuild_search_index()
         self._categories.currentRowChanged.connect(self._pages.setCurrentIndex)
         self._categories.setCurrentRow(0)
@@ -211,9 +223,22 @@ class SettingsDialog(QDialog):
         # docs/UI_REDESIGN_PLAN_2026-09.ru.md, A7). Size to what the
         # content actually needs instead of a fixed guess; the floor stays
         # comfortably below that so a user can still shrink it a bit.
+        # The pages scroll (a scroll area reports a capped size hint), so the
+        # content's own size is measured here and capped to the screen.
         hint = self.sizeHint()
-        self.setMinimumSize(max(620, hint.width() - 120), max(360, hint.height() - 40))
-        self.resize(hint)
+        content = QSize(0, 0)
+        for row in range(self._pages.count()):
+            area = self._pages.widget(row)
+            inner = area.widget().sizeHint() if isinstance(area, QScrollArea) and area.widget() else QSize()
+            content = content.expandedTo(inner)
+        chrome = hint - self._pages.sizeHint()
+        wanted = hint.expandedTo(chrome + content + QSize(4, 4))
+        screen = self.screen()
+        if screen is not None:
+            available = screen.availableGeometry()
+            wanted = wanted.boundedTo(QSize(int(available.width() * 0.9), int(available.height() * 0.9)))
+        self.setMinimumSize(620, 360)
+        self.resize(wanted)
 
     def _rebuild_search_index(self) -> None:
         """Index every child with a plain .text() — QLabel/QCheckBox/
@@ -386,7 +411,7 @@ class SettingsDialog(QDialog):
 
         # Models directory (read-only)
         models_row = QHBoxLayout()
-        self._models_dir_label = QLabel()
+        self._models_dir_label = ElidedLabel(mode=Qt.TextElideMode.ElideMiddle)
         self._models_dir_label.setProperty("role", "muted")
         self._models_dir_label.setProperty("size", "small")
         self._models_dir_label.setText(get_models_dir())
@@ -597,7 +622,7 @@ class SettingsDialog(QDialog):
         self._row(layout, "settings_yt_publish_mode", self._yt_publish_combo)
 
         # YouTube account (own Google Cloud OAuth client) for API uploads
-        yt_row = QHBoxLayout()
+        yt_row = FlowLayout()          # wraps instead of widening the page
         self._yt_import_btn = QPushButton()
         self._tt(self._yt_import_btn, "settings_yt_import")
         self._yt_import_btn.clicked.connect(self._import_yt_client)
@@ -610,7 +635,6 @@ class SettingsDialog(QDialog):
         self._tt(self._yt_disconnect_btn, "settings_yt_disconnect")
         self._yt_disconnect_btn.clicked.connect(self._disconnect_youtube)
         yt_row.addWidget(self._yt_disconnect_btn)
-        yt_row.addStretch(1)
         yt_container = QWidget()
         yt_container.setLayout(yt_row)
         self._yt_status = QLabel("")

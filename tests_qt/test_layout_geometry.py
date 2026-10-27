@@ -80,3 +80,32 @@ def test_populated_transcript_toolbar_wraps_instead_of_clipping(russian, process
         assert gallery.vertically_clipped_widgets(view) == [], width
         assert gallery.overlapping_layout_siblings(view) == [], width
     view.close()
+
+
+@pytest.mark.parametrize("lang", ["en", "ru"])
+def test_settings_pages_scroll_instead_of_clipping_at_the_minimum_window(process_events, lang):
+    from PyQt6.QtWidgets import QScrollArea
+
+    from ui.settings_dialog import SettingsDialog
+
+    load_locale(lang)
+    try:
+        dialog = SettingsDialog()
+        dialog.show()
+        dialog.resize(900, 550)
+        process_events()
+        assert dialog.minimumSizeHint().width() <= 900 and dialog.minimumSizeHint().height() <= 550
+        for row in range(dialog._pages.count()):
+            dialog._categories.setCurrentRow(row)
+            process_events()
+            area = dialog._pages.widget(row)
+            assert isinstance(area, QScrollArea)
+            inner = area.widget()
+            # Wide enough for its content (no sideways clipping) …
+            assert inner.minimumSizeHint().width() <= area.viewport().width(), (lang, row)
+            # … and when it is taller than the window, the user can scroll to the rest.
+            if inner.minimumSizeHint().height() > area.viewport().height():
+                assert area.verticalScrollBar().maximum() > 0, (lang, row)
+        dialog.close()
+    finally:
+        load_locale("en")
