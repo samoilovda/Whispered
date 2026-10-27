@@ -37,6 +37,7 @@ from core.worker_registry import WorkerRegistry
 from domain import clips as c
 from domain import subtitles as sub
 from ui.clip_worker import ClipExportWorker
+from ui.i18n_helpers import Retranslator
 
 logger = get_logger(__name__)
 
@@ -53,6 +54,7 @@ class ClipsView(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self._i18n = Retranslator()
         self._set = c.ClipSet()
         self._revision = ""
         self._duration = 0.0
@@ -79,18 +81,15 @@ class ClipsView(QWidget):
 
         form = QFormLayout()
         self.title_edit = QLineEdit()
-        self.title_edit.setAccessibleName(tr("clips_title"))
-        form.addRow(tr("clips_title"), self.title_edit)
+        self._i18n.form_row(form, "clips_title", self.title_edit)
         self.timeline = QComboBox()
-        self.timeline.setAccessibleName(tr("clips_timeline"))
-        self.timeline.addItem(tr("clips_timeline_source"), c.SOURCE)
-        self.timeline.addItem(tr("clips_timeline_edited"), c.EDITED)
-        self.timeline.setToolTip(tr("clips_timeline_tip"))
-        form.addRow(tr("clips_timeline"), self.timeline)
+        self.timeline.addItem("", c.SOURCE)
+        self.timeline.addItem("", c.EDITED)
+        self._i18n.form_row(form, "clips_timeline", self.timeline)
         self.start_edit, start_row = self._time_row("clips_in")
-        form.addRow(tr("clips_in"), start_row)
+        self._i18n.form_row(form, "clips_in", start_row)
         self.end_edit, end_row = self._time_row("clips_out")
-        form.addRow(tr("clips_out"), end_row)
+        self._i18n.form_row(form, "clips_out", end_row)
         layout.addLayout(form)
 
         row = QHBoxLayout()
@@ -101,7 +100,6 @@ class ClipsView(QWidget):
         layout.addLayout(row)
 
         self.list = QListWidget()
-        self.list.setAccessibleName(tr("clips_list"))
         layout.addWidget(self.list, stretch=1)
         bottom = QHBoxLayout()
         self.export_btn = self._button(bottom, "clips_export", self._export)
@@ -110,24 +108,38 @@ class ClipsView(QWidget):
         self.remove_btn = self._button(bottom, "clips_remove", self._remove)
         bottom.addStretch()
         layout.addLayout(bottom)
+        self._i18n.add(self._retranslate_fields)
         self._render()
         self.update_passage_availability()
+        # State-derived text: the status line, the list rows, the tooltip.
+        self._i18n.call(self._render)
+        self._i18n.call(self.update_passage_availability)
+        self._i18n.bind()
 
     def _button(self, row, key: str, slot) -> QPushButton:
-        btn = QPushButton(tr(key))
+        btn = self._i18n.text(QPushButton(), key)
         btn.clicked.connect(slot)
         row.addWidget(btn)
         return btn
+
+    def _retranslate_fields(self) -> None:
+        """Captions that are not a plain label or button text."""
+        self.title_edit.setAccessibleName(tr("clips_title"))
+        self.start_edit.setAccessibleName(tr("clips_in"))
+        self.end_edit.setAccessibleName(tr("clips_out"))
+        self.timeline.setAccessibleName(tr("clips_timeline"))
+        self.timeline.setItemText(self.timeline.findData(c.SOURCE), tr("clips_timeline_source"))
+        self.timeline.setItemText(self.timeline.findData(c.EDITED), tr("clips_timeline_edited"))
+        self.timeline.setToolTip(tr("clips_timeline_tip"))
+        self.list.setAccessibleName(tr("clips_list"))
 
     def _time_row(self, key: str):
         box = QWidget()
         lay = QHBoxLayout(box)
         lay.setContentsMargins(0, 0, 0, 0)
         edit = QLineEdit("00:00:00.000")
-        edit.setAccessibleName(tr(key))
         lay.addWidget(edit, 1)
-        here = QPushButton(tr("clips_playhead"))
-        here.setToolTip(tr("clips_playhead_tip"))
+        here = self._i18n.text(QPushButton(), "clips_playhead", tooltip="clips_playhead_tip")
         here.clicked.connect(lambda: self._take_playhead(edit))
         lay.addWidget(here)
         return edit, box
