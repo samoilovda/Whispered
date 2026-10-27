@@ -17,7 +17,7 @@ source.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Optional, Sequence
 
 from domain.subtitles import SubtitleCue
@@ -36,19 +36,24 @@ class ClipDraft:
     start: float
     end: float
     timeline: str = SOURCE      # which timeline start/end are on
+    # The transcript this clip was chosen against: editing the list must not
+    # make an old clip look current. Not part of the clip's identity.
+    transcript_revision: str = field(default="", compare=False)
 
     @property
     def duration(self) -> float:
         return self.end - self.start
 
     def to_dict(self) -> dict:
-        return {"title": self.title, "start": self.start, "end": self.end, "timeline": self.timeline}
+        return {"title": self.title, "start": self.start, "end": self.end, "timeline": self.timeline,
+                "transcript_revision": self.transcript_revision}
 
     @classmethod
     def from_dict(cls, data: Any) -> Optional["ClipDraft"]:
         try:
             timeline = EDITED if data.get("timeline") == EDITED else SOURCE
-            return cls(str(data.get("title", "")), float(data["start"]), float(data["end"]), timeline)
+            return cls(str(data.get("title", "")), float(data["start"]), float(data["end"]), timeline,
+                       str(data.get("transcript_revision", "")))
         except (AttributeError, KeyError, TypeError, ValueError):
             return None
 
@@ -73,7 +78,12 @@ class ClipSet:
         if int(data.get("schema_version", 1)) > CLIPS_SCHEMA_VERSION:
             return None
         clips = [c for c in (ClipDraft.from_dict(e) for e in data.get("clips", [])) if c is not None]
-        return cls(clips, str(data.get("transcript_revision", "")))
+        revision = str(data.get("transcript_revision", ""))
+        # A file from before clips carried their own revision: they all
+        # were chosen against the set's.
+        clips = [replace(c, transcript_revision=revision) if not c.transcript_revision else c
+                 for c in clips]
+        return cls(clips, revision)
 
 
 # ------------------------------------------------------------------ checks

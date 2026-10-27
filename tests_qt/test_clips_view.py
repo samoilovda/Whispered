@@ -101,3 +101,31 @@ def test_edited_timeline_is_labelled(make):
     v.kept = lambda: [Segment(0.0, 6.0, "x"), Segment(8.0, 12.0, "y")]
     v._add()
     assert tr("clips_timeline_edited") in v.list.item(0).text()
+
+
+def test_a_half_typed_clip_does_not_follow_the_user_to_another_record(make):
+    v = make(4)
+    _fill(v, "Mine", "00:00:01.000", "00:00:05.000")
+    v.timeline.setCurrentIndex(v.timeline.findData(c.EDITED))
+    v.set_provenance(5, "/m/other.mp4")
+    assert v.title_edit.text() == "" and v.start_edit.text() == "00:00:00.000"
+    assert v.timeline.currentData() == c.SOURCE
+    _fill(v, "Mine", "00:00:01.000", "00:00:05.000")
+    v.clear()
+    assert v.title_edit.text() == "" and v.end_edit.text() == "00:00:00.000"
+
+
+def test_adding_a_clip_does_not_make_older_clips_look_current(make):
+    v = make()
+    _fill(v, "Old", "00:00:01.000", "00:00:05.000")
+    v._add()
+    edited = TranscriptionResult(segments=[Segment(0.0, 12.0, "Totally different words.")],
+                                 language="en", duration=12.0)
+    v.set_result(edited)                                  # the transcript changed since "Old"
+    assert tr("clips_stale") in v.status.text()
+    _fill(v, "New", "00:00:06.000", "00:00:10.000")
+    v._add()
+    again = make()
+    again.set_result(edited)
+    texts = [again.list.item(i).text() for i in range(again.list.count())]
+    assert tr("clips_stale") in texts[0] and tr("clips_stale") not in texts[1]

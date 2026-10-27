@@ -11,6 +11,7 @@ original aspect ratio (a 9:16 reframe is a later step).
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -136,6 +137,7 @@ class ClipsView(QWidget):
         self._source_path = source_path
         self._unsupported = False
         self._set = c.ClipSet()
+        self._reset_draft()
         if isinstance(record_id, int):
             try:
                 loaded = clips_app.load_clips(self._dir())
@@ -157,10 +159,19 @@ class ClipsView(QWidget):
             result.segments, result.language, getattr(result, "speaker_names", None))
         self._render()
 
+    def _reset_draft(self) -> None:
+        """Empty the form: a half-typed clip belongs to the record it was
+        typed for."""
+        self.title_edit.clear()
+        self.start_edit.setText("00:00:00.000")
+        self.end_edit.setText("00:00:00.000")
+        self.timeline.setCurrentIndex(self.timeline.findData(c.SOURCE))
+
     def clear(self) -> None:
         self.cancel()
         self._set = c.ClipSet()
         self._record_id = None
+        self._reset_draft()
         self._render()
         self.content_changed.emit()
 
@@ -176,7 +187,6 @@ class ClipsView(QWidget):
     def _save(self) -> None:
         if self._unsupported or not isinstance(self._record_id, int):
             return
-        self._set.transcript_revision = self._revision
         try:
             clips_app.save_clips(self._dir(), self._set)
         except OSError as exc:
@@ -191,7 +201,13 @@ class ClipsView(QWidget):
                   timeline=tr("clips_timeline_edited" if clip.timeline == c.EDITED
                               else "clips_timeline_source"))
         problems = self._problems(clip)
-        return line + (f"  ⚠ {tr(f'clips_problem_{problems[0]}')}" if problems else "")
+        if problems:
+            return line + f"  ⚠ {tr(f'clips_problem_{problems[0]}')}"
+        return line + (f"  ⚠ {tr('clips_stale')}" if self._is_stale(clip) else "")
+
+    def _is_stale(self, clip: c.ClipDraft) -> bool:
+        return bool(clip.transcript_revision and self._revision
+                    and clip.transcript_revision != self._revision)
 
     def _problems(self, clip: c.ClipDraft) -> list[str]:
         kept = self.kept()
@@ -214,8 +230,7 @@ class ClipsView(QWidget):
             text = tr("clips_empty")
         else:
             text = tr("clips_count", count=len(self._set.clips))
-            if self._set.transcript_revision and self._revision \
-                    and self._set.transcript_revision != self._revision:
+            if any(self._is_stale(clip) for clip in self._set.clips):
                 text += " · " + tr("clips_stale")
         self.status.setText(text)
 
@@ -255,7 +270,7 @@ class ClipsView(QWidget):
         if problems:
             self.message.emit(tr(f"clips_problem_{problems[0]}"), "error")
             return
-        self._set.clips.append(clip)
+        self._set.clips.append(replace(clip, transcript_revision=self._revision))
         self.title_edit.clear()
         self._save()
         self._render()
