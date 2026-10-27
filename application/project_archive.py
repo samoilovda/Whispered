@@ -291,6 +291,21 @@ def _check_zip(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
     return by_name
 
 
+def _refused_on_import(member: str) -> bool:
+    """Whether an archive member is a credential or an upload approval.
+    Export leaves these out, but a hand-made archive can carry them, and an
+    imported approval would let ``youtube_autoupload`` publish something
+    the user never approved here. Any path part counts, and a provenance
+    manifest follows the file it describes."""
+    if not member.startswith(pm.ARTIFACT_DIR):
+        return False
+    for part in member[len(pm.ARTIFACT_DIR):].split("/"):
+        base = part[: -len(".manifest.json")] if part.endswith(".manifest.json") else part
+        if pm.excluded_artifact(part) or pm.excluded_artifact(base):
+            return True
+    return False
+
+
 def inspect_archive(path: str) -> ImportPlan:
     """Dry run: validate *path* and say what importing would add. Reads
     only the archive's directory and manifest."""
@@ -321,6 +336,7 @@ def inspect_archive(path: str) -> ImportPlan:
     plan = ImportPlan(path, manifest, sum(e.size for e in manifest.files))
     if not manifest.media_included:
         plan.warnings.append("no_media")
+    plan.warnings.extend(f"skipped:{e.path}" for e in manifest.files if _refused_on_import(e.path))
     return plan
 
 
@@ -333,6 +349,8 @@ def _extract(path: str, plan: ImportPlan, staging: Path, cancelled: Cancelled,
         for entry in plan.manifest.files:
             if cancelled():
                 raise ProjectCancelled("cancelled")
+            if _refused_on_import(entry.path):
+                continue
             target = staging / entry.path
             if staging.resolve() not in target.resolve().parents:
                 raise ProjectError(f"{entry.path}: escapes the import folder")

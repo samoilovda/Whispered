@@ -328,3 +328,30 @@ def test_manifest_rules():
     assert pm.excluded_artifact("sub/youtube_upload.queued.json")
     assert pm.excluded_artifact("OAuth_client.json")
     assert not pm.excluded_artifact("articles.json")
+
+
+def test_import_never_brings_upload_approvals_or_credentials(world):
+    from application import youtube_autoupload as yau
+    from core.paths import output_dir
+
+    members = {
+        **_GOOD,
+        "artifacts/notes.md": b"keep",
+        "artifacts/youtube_upload.queued.json": b'{"video": "x"}',
+        "artifacts/sub/youtube_upload.pending.json": b"{}",
+        "artifacts/oauth_token.json": b'{"refresh_token": "S"}',
+        "artifacts/cover.queued.png.manifest.json": b"{}",
+    }
+    path = _craft(world.tmp / "hand.zip", members)
+    world.use("dst")
+    plan = pa.inspect_archive(str(path))
+    for name in ("youtube_upload.queued.json", "sub/youtube_upload.pending.json", "oauth_token.json"):
+        assert f"skipped:artifacts/{name}" in plan.warnings
+    new_id = pa.import_archive(str(path))
+    record = world.dst.store.get_record(new_id)
+    from core.paths import artifact_dir
+
+    folder = artifact_dir(new_id, record["source_path"])
+    assert (folder / "notes.md").read_bytes() == b"keep"
+    assert sorted(p.name for p in folder.rglob("*") if p.is_file()) == ["notes.md"]
+    assert yau.find_queued(output_dir()) == []
