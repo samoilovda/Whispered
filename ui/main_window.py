@@ -294,6 +294,7 @@ class MainWindow(QMainWindow):
         self._record_source_path: str | None = None
         # Proofreading's "Listen": (start, end, loop) while a passage plays.
         self._listen: "tuple[float, float, bool] | None" = None
+        self._listen_queue: "list[tuple[float, float]]" = []   # clip pieces still to play
         # The open record's media identity (UX-09): stored fingerprint,
         # duration, and when its source was replaced, if ever.
         self._record_media: dict = {}
@@ -933,6 +934,7 @@ class MainWindow(QMainWindow):
         self.clips_view = ClipsView()
         self._shutdownables.append(self.clips_view)
         self.clips_view.listen_requested.connect(self._listen_range)
+        self.clips_view.listen_sequence.connect(self._listen_sequence)
         self.clips_view.message.connect(lambda text, kind: show_toast(self, text, kind=kind))
         self.clips_view.playhead = self.player.current_position
         self.clips_view.source = lambda: self._source_filepath or self.file_selector.get_file() or ""
@@ -1463,6 +1465,8 @@ class MainWindow(QMainWindow):
         """The open record no longer exists: leave it and show a new draft."""
         self._last_record_id = None
         self._last_persist_ok = True
+        self._listen = None
+        self._listen_queue = []
         # Single-step jobs for the deleted record must not land anywhere.
         self._cancel_youtube_job()
         self._cancel_insights_job()
@@ -2074,6 +2078,10 @@ class MainWindow(QMainWindow):
             start, _end, loop = listening
             if loop:
                 self.player.seek_to(start)
+            elif self._listen_queue:
+                next_start, next_end = self._listen_queue.pop(0)
+                self._listen = (next_start, max(next_end, next_start + 0.5), False)
+                self.player.seek_to(next_start)
             else:
                 self._listen = None
                 self.player.pause()
@@ -2084,9 +2092,18 @@ class MainWindow(QMainWindow):
         if not self._source_filepath and not self.file_selector.get_file():
             show_toast(self, tr("review_no_media"), kind="info")
             return
+        self._listen_queue = []
         self._listen = (start, max(end, start + 0.5), loop)
         self.player.seek_to(start)
         self.player.play()
+
+    def _listen_sequence(self, pieces: list) -> None:
+        """Play a clip that spans a cut: every piece, in order, then stop."""
+        if not pieces:
+            return
+        self._listen_range(pieces[0][0], pieces[0][1], False)
+        if self._listen is not None:
+            self._listen_queue = [(a, b) for a, b in pieces[1:]]
 
     # ── Proofreading marks (N01) ─────────────────────────────────────
 
@@ -2674,6 +2691,7 @@ class MainWindow(QMainWindow):
         self._record_media = {"fingerprint": "", "duration": result.duration, "changed_at": ""}
         self._review_readonly = False
         self._listen = None
+        self._listen_queue = []
         self.record_view.set_missing_source("")
         self._document_session.apply_result(result)
         # _last_record_id is finalized by now regardless of path (set
@@ -2944,6 +2962,8 @@ class MainWindow(QMainWindow):
             # record, so editing a stale one would write them into this
             # record's folder. A single-step job still running for the
             # previous record is cancelled so its result can't land here.
+            self._listen = None
+            self._listen_queue = []
             self._cancel_youtube_job()
             self.youtube_panel.clear()
             self._cancel_insights_job()

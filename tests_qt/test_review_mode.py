@@ -164,3 +164,27 @@ def test_proofreading_keys_do_nothing_while_editing(setup):
     view._exit_edit_mode(save=False)
     view._review_hotkey(lambda: hits.append(1))
     assert hits == [1]
+
+
+def test_a_clip_across_a_cut_plays_every_piece_in_order(setup):
+    make, *_ = setup
+    window = make()
+    played, paused, seeks = [], [], []
+    window._source_filepath = "/media/talk.mp3"
+    window.player.seek_to = lambda s: seeks.append(s)
+    window.player.play = lambda: played.append(1)
+    window.player.pause = lambda: paused.append(1)
+    window.clips_view.kept = lambda: [type("S", (), {"start": 0.0, "end": 10.0})(),
+                                      type("S", (), {"start": 20.0, "end": 30.0})()]
+    from domain import clips as c
+
+    window.clips_view.title_edit.setText("Across")
+    window.clips_view.start_edit.setText("00:00:05.000")
+    window.clips_view.end_edit.setText("00:00:15.000")
+    window.clips_view.timeline.setCurrentIndex(window.clips_view.timeline.findData(c.EDITED))
+    window.clips_view._preview()                      # edited 5–15 = source 5–10 then 20–25
+    assert seeks == [5.0]
+    window._on_player_position(10.1)
+    assert seeks == [5.0, 20.0] and not paused
+    window._on_player_position(25.1)
+    assert paused and window._listen is None and window._listen_queue == []

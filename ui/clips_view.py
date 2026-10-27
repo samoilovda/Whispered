@@ -47,6 +47,7 @@ def _fmt(seconds: float) -> str:
 
 class ClipsView(QWidget):
     listen_requested = pyqtSignal(float, float, bool)
+    listen_sequence = pyqtSignal(list)          # [(start, end), ...] played one after the other
     content_changed = pyqtSignal()
     message = pyqtSignal(str, str)
 
@@ -273,7 +274,10 @@ class ClipsView(QWidget):
         if not pieces:
             self.message.emit(tr(f"clips_problem_{c.CLIP_NO_PIECES}"), "error")
             return
-        self.listen_requested.emit(pieces[0][0], pieces[0][1], False)
+        if len(pieces) == 1:
+            self.listen_requested.emit(pieces[0][0], pieces[0][1], False)
+        else:
+            self.listen_sequence.emit(pieces)
 
     def _add(self) -> None:
         clip = self.draft()
