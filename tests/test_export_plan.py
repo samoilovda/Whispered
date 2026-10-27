@@ -152,5 +152,26 @@ def test_read_only_folder_reports_failures(tmp_path):
         report = execute_export_plan(plan, result, overwrite=True)
     finally:
         out.chmod(0o700)
-    assert not report.written and len(report.failed) == 2
+    assert not report.written and len(report.failed) == 3       # two files and the index
     assert report.index_path == ""
+
+
+def test_existing_index_and_overlay_are_protected_unless_overwriting(tmp_path):
+    from application.user_edits import overlay_path, save_overlay
+
+    result = _result()
+    package = _material("youtube_package", result, 1, b'{"yt_titles": ["model"]}')
+    save_overlay(overlay_path(package), {"title": "Mine", "title_base": "x"})
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "index.txt").write_text("KEEP ME")
+    (out / overlay_path(package).name).write_text("OLD EDITS")
+    plan = build_export_plan(result, PRESET, str(out), 1, default_name="src")
+    assert {"index.txt", package.name} <= {i.target for i in plan.conflicts}
+    report = execute_export_plan(plan, result, overwrite=False)
+    assert (out / "index.txt").read_text() == "KEEP ME"
+    assert (out / overlay_path(package).name).read_text() == "OLD EDITS"
+    assert report.index_path == str(out / "index (2).txt") and (out / "index (2).txt").exists()
+    execute_export_plan(plan, result, overwrite=True)
+    assert (out / "index.txt").read_text() != "KEEP ME"
+    assert (out / overlay_path(package).name).read_text() != "OLD EDITS"

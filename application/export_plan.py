@@ -47,6 +47,7 @@ class ExportItem:
     same_file: bool = False       # target IS the source: never copied onto itself
     user_edits: tuple[str, ...] = ()  # edited keys kept in the overlay beside it
     overlay: str = ""             # the overlay file copied along, if any
+    overlay_exists: bool = False  # the overlay's target is already present
 
     @property
     def will_write(self) -> bool:
@@ -60,10 +61,19 @@ class ExportPlan:
     directory: str
     default_name: str
     items: tuple[ExportItem, ...]
+    index_exists: bool = False    # the folder already has an index file
 
     @property
     def conflicts(self) -> tuple[ExportItem, ...]:
-        return tuple(i for i in self.items if i.exists and i.will_write)
+        """Everything a replace would overwrite: targets, the edit overlay
+        copied beside a material, and the folder's index file."""
+        found = [i for i in self.items if (i.exists or i.overlay_exists) and i.will_write]
+        if self.index_exists:
+            found.append(ExportItem("index", "index", INDEX_NAME, exists=True))
+        return tuple(found)
+
+
+INDEX_NAME = "index.txt"
 
 
 @dataclass
@@ -135,8 +145,10 @@ def build_export_plan(
             "material", key, source.name, str(source), freshness,
             exists=target_path.exists(), same_file=same, user_edits=edits,
             overlay=str(overlay_file) if edits else "",
+            overlay_exists=bool(edits) and (folder / overlay_file.name).exists(),
         ))
-    return ExportPlan(record_id, revision, str(folder), default_name, tuple(items))
+    return ExportPlan(record_id, revision, str(folder), default_name, tuple(items),
+                      index_exists=(folder / INDEX_NAME).exists())
 
 
 def _same_path(a: Path, b: Path) -> bool:
@@ -148,11 +160,13 @@ def _same_path(a: Path, b: Path) -> bool:
 
 def execute_export_plan(
     plan: ExportPlan, result: TranscriptionResult, *, overwrite: bool,
-    index_name: str = "index.txt",
+    index_name: str = INDEX_NAME,
 ) -> ExportReport:
-    """Write *plan*. Existing targets are kept unless *overwrite*; one
-    item failing never stops the others; ``index.txt`` lists exactly what
-    was written, with each material's freshness and user edits."""
+    """Write *plan*. Existing targets, edit overlays and the index are kept
+    unless *overwrite* (a kept index means the new one is written as
+    ``index (2).txt``, ``index (3).txt``, …); one item failing never stops
+    the others; the index lists exactly what was written, with each
+    material's freshness and user edits."""
     from exporters import export_result
 
     if _revision(result) != plan.revision:
@@ -180,7 +194,12 @@ def execute_export_plan(
             else:
                 shutil.copyfile(item.source, target)
                 if item.overlay:
-                    shutil.copyfile(item.overlay, folder / Path(item.overlay).name)
+                    overlay_target = folder / Path(item.overlay).name
+                    if overlay_target.exists() and not overwrite:
+                        report.skipped.append((item.key, "overlay_exists"))
+                        lines.append(f"{item.key}: kept the existing {overlay_target.name}")
+                    else:
+                        shutil.copyfile(item.overlay, overlay_target)
         except Exception as exc:  # noqa: BLE001 - reported per item
             logger.warning("Export of %s failed: %s", item.key, exc)
             report.failed.append((item.target, str(exc)))
@@ -193,11 +212,18 @@ def execute_export_plan(
             note += f" + your edits: {', '.join(item.user_edits)} ({Path(item.overlay).name})"
         lines.append(f"{item.key}: {item.target}{note}")
     index = folder / index_name
+    if index.exists() and not overwrite:
+        stem, suffix = index.stem, index.suffix
+        number = 2
+        while (folder / f"{stem} ({number}){suffix}").exists():
+            number += 1
+        index = folder / f"{stem} ({number}){suffix}"
     try:
         index.write_text("\n".join(lines) + "\n", encoding="utf-8")
         report.index_path = str(index)
     except OSError as exc:
         logger.warning("Failed to write the export index: %s", exc)
+        report.failed.append((index.name, str(exc)))
     return report
 
 
