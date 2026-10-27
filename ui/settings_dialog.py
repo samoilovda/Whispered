@@ -34,6 +34,12 @@ from core.i18n import on_language_changed, set_locale, tr
 
 logger = get_logger(__name__)
 
+# The photo-processing controls (image provider, ComfyUI address, upscaling)
+# are not read by anything yet (covers/providers.py and covers/restore.py
+# are experimental). Their widgets still load and store the Config fields so
+# saved values survive, but they are not shown.
+_SHOW_EXPERIMENTAL_PHOTO = False
+
 
 class SettingsDialog(QDialog):
     """Unified settings dialog (Ctrl+,)."""
@@ -486,9 +492,10 @@ class SettingsDialog(QDialog):
         self._row(layout, "cover_variant", self._cover_variant_combo)
         self._row(layout, "settings_cover_host_name", self._cover_host_name_edit)
         self._row(layout, "settings_cover_host_photo", self._cover_host_photo_edit)
-        self._row(layout, "settings_cover_provider", self._cover_provider_combo)
-        layout.addRow("ComfyUI URL", self._cover_comfy_edit)
-        layout.addRow(self._cover_upscale_chk)
+        if _SHOW_EXPERIMENTAL_PHOTO:
+            self._row(layout, "settings_cover_provider", self._cover_provider_combo)
+            layout.addRow("ComfyUI URL", self._cover_comfy_edit)
+            layout.addRow(self._cover_upscale_chk)
         layout.addRow(self._cover_shorts_chk)
         return tab
 

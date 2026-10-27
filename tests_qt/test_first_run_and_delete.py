@@ -256,3 +256,21 @@ def test_project_controller_leaves_another_operations_status_text(env, process_e
     assert window.status_bar.status_label.text() != "Transcribing"
     window.close()
     process_events()
+
+
+def test_unwired_photo_processing_settings_are_not_offered(env, process_events):
+    from ui.settings_dialog import SettingsDialog
+
+    dialog = SettingsDialog()
+    dialog.show()
+    process_events()
+    for widget in (dialog._cover_provider_combo, dialog._cover_comfy_edit, dialog._cover_upscale_chk):
+        assert not widget.isVisible() and widget.parent() is None
+    assert dialog._cover_shorts_chk.parent() is not None            # the wired setting stays
+    cfg = config.get_config()
+    cfg.cover_image_provider = "comfyui"
+    cfg.cover_comfy_url = "http://example:8188"
+    dialog._load_values()
+    dialog._save_values()                              # hidden, but saved values survive
+    assert cfg.cover_comfy_url == "http://example:8188" and cfg.cover_image_provider == "comfyui"
+    dialog.close()
