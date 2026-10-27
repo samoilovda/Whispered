@@ -20,12 +20,14 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -72,8 +74,18 @@ class ClipsView(QWidget):
         self.kept: Callable[[], list] = lambda: []
         self.cues: Callable[[], list] = lambda: []
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 8, 0, 0)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 8, 0, 0)
+        # The form and the list scroll when the tab is short (the minimum
+        # window leaves ~300 px); the actions below them stay in reach.
+        body = QWidget()
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(body)
+        outer.addWidget(scroll, stretch=1)
         self.status = QLabel()
         self.status.setWordWrap(True)
         self.status.setProperty("role", "muted")
@@ -100,6 +112,7 @@ class ClipsView(QWidget):
         layout.addLayout(row)
 
         self.list = QListWidget()
+        self.list.setMinimumHeight(120)
         layout.addWidget(self.list, stretch=1)
         bottom = QHBoxLayout()
         self.export_btn = self._button(bottom, "clips_export", self._export)
@@ -107,7 +120,7 @@ class ClipsView(QWidget):
         self.cancel_btn.setVisible(False)
         self.remove_btn = self._button(bottom, "clips_remove", self._remove)
         bottom.addStretch()
-        layout.addLayout(bottom)
+        outer.addLayout(bottom)
         self._i18n.add(self._retranslate_fields)
         self._render()
         self.update_passage_availability()

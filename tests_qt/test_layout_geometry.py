@@ -109,3 +109,39 @@ def test_settings_pages_scroll_instead_of_clipping_at_the_minimum_window(process
         dialog.close()
     finally:
         load_locale("en")
+
+
+def test_clips_form_keeps_its_widgets_whole_at_the_minimum_window(russian, process_events, tmp_path, monkeypatch):
+    from PyQt6.QtWidgets import QComboBox, QLineEdit, QPushButton
+
+    import config
+    from core.history import HistoryStore
+    from domain.transcription import Segment, TranscriptionResult
+    from ui.main_window import MainWindow
+
+    monkeypatch.setattr(config, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "config.json")
+    monkeypatch.setattr(config, "_config", config.Config())
+    store = HistoryStore(db_path=tmp_path / "h.sqlite3")
+    monkeypatch.setattr("core.history.get_history_store", lambda: store)
+    rid = store.add(TranscriptionResult(segments=[Segment(0.0, 1.0, "hi")], language="ru", duration=1.0),
+                    source_path="", source_name="a.mp3")
+    window = MainWindow()
+    window.show()
+    window.resize(900, 550)
+    window._open_record_view(rid)
+    window._show_tab(window.clips_view)
+    process_events()
+    clips = window.clips_view
+    squeezed = [
+        (type(w).__name__, w.height(), w.sizeHint().height())
+        for w in clips.findChildren((QLineEdit, QComboBox, QPushButton))
+        if w.isVisibleTo(clips) and w.height() < w.sizeHint().height() - 1
+        and not w.objectName().startswith("qt_")
+    ]
+    assert squeezed == []
+    # The actions under the scrolling form are not part of it.
+    assert clips.export_btn.height() >= clips.export_btn.sizeHint().height() - 1
+    window._revision_save_timer.stop()
+    window.close()
+    process_events()
