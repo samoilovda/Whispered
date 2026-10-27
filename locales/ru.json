@@ -1514,5 +1514,15 @@
   "clips_update": "Сохранить изменения",
   "clips_duplicate": "Дублировать",
   "clips_undo_remove": "Вернуть удалённый",
-  "clips_copy_title": "{title} (копия)"
+  "clips_copy_title": "{title} (копия)",
+  "subs_import": "Импорт SRT/VTT…",
+  "subs_undo": "Отменить",
+  "subs_origin": "импортировано из {name}",
+  "subs_import_summary": "{name}: реплик — {count}, {start} – {end}, возможных проблем — {issues}.",
+  "subs_import_existing": "На вкладке уже есть реплик: {count}. Заменить их или добавить импортированные в список?",
+  "subs_import_replace": "Заменить",
+  "subs_import_add": "Добавить к текущим",
+  "subs_import_too_large": "Файл больше 5 МБ.",
+  "subs_import_not_utf8": "Файл не является текстом в UTF-8.",
+  "subs_import_no_cues": "В файле не найдено субтитров."
 }

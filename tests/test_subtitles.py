@@ -91,3 +91,28 @@ def test_track_round_trip_and_newer_schema():
     assert again.cues == track.cues and again.preset.max_lines == 1 and again.transcript_revision == "rev"
     assert s.SubtitleTrack.from_dict({"schema_version": 99}) is None
     assert s.SubtitlePreset.from_dict({"max_lines": 99, "max_cps": "x"}) == s.SubtitlePreset()
+
+
+def test_reading_a_subtitle_file_for_import(tmp_path):
+    import pytest
+
+    from application import subtitle_store as store
+
+    srt = tmp_path / "a.srt"
+    srt.write_bytes("﻿1\n00:00:05,000 --> 00:00:07,000\nSecond\nline\n\n2\n00:00:00,500 --> 00:00:02,000\nFirst &amp; fine\n".encode())
+    cues = store.read_subtitle_file(str(srt))
+    assert [c.text for c in cues] == ["First & fine", "Second\nline"]       # ordered, multiline kept
+    assert cues[0].start == 0.5
+    vtt = tmp_path / "a.vtt"
+    vtt.write_text("WEBVTT\n\n00:01.000 --> 00:02.000\nHello\n", encoding="utf-8")
+    assert store.read_subtitle_file(str(vtt))[0].start == 1.0
+    for name, data, why in (("empty.srt", b"nothing here", "no_cues"), ("bin.srt", b"\xff\xfe\x00bad", "not_utf8"),
+                            ("big.srt", b"x" * (store.MAX_IMPORT_BYTES + 1), "too_large")):
+        path = tmp_path / name
+        path.write_bytes(data)
+        with pytest.raises(store.SubtitleImportError, match=why):
+            store.read_subtitle_file(str(path))
+    a, b = [s.SubtitleCue(0, 1, "a")], [s.SubtitleCue(0.5, 1.5, "b")]
+    assert store.combine_cues(a, b, "replace") == b
+    assert [c.text for c in store.combine_cues(b, a, "add")] == ["a", "b"]
+    assert s.SubtitleTrack.from_dict(s.SubtitleTrack(a, origin="x.srt").to_dict()).origin == "x.srt"

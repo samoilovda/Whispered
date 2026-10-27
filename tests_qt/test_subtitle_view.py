@@ -121,3 +121,65 @@ def test_unsaved_record_keeps_nothing_on_disk(view, process_events):
     v = make(record_id=None)
     v._generate()
     assert not list(tmp_path.rglob("subtitles.json"))
+
+
+def _srt(tmp_path, name="fixed.srt"):
+    path = tmp_path / name
+    path.write_text("1\n00:00:00,000 --> 00:00:02,000\nCorrected opening\n\n2\n00:00:02,500 --> 00:00:04,000\nCorrected end\n",
+                    encoding="utf-8")
+    return str(path)
+
+
+def _choose(monkeypatch, label_key):
+    """Click the named button of the import summary instead of showing it."""
+    def fake_exec(box):
+        for button in box.buttons():
+            if button.text() == tr(label_key):
+                box._clicked = button
+                return 0
+        box._clicked = None
+        return 0
+
+    monkeypatch.setattr(QMessageBox, "exec", fake_exec)
+    monkeypatch.setattr(QMessageBox, "clickedButton", lambda box: box._clicked)
+
+
+def test_import_replaces_or_adds_and_can_be_undone(view, monkeypatch, process_events):
+    make, result, original, tmp_path = view
+    v = make()
+    v._generate()
+    generated = [(c.start, c.end, c.text) for c in v._track.cues]
+    path = _srt(tmp_path)
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (path, "")))
+    _choose(monkeypatch, "subs_import_add")
+    v._import()
+    assert len(v._track.cues) == len(generated) + 2 and v._track.origin == "fixed.srt"
+    assert tr("subs_origin", name="fixed.srt") in v.status.text()
+    v._undo()
+    assert [(c.start, c.end, c.text) for c in v._track.cues] == generated and v._track.origin == ""
+    _choose(monkeypatch, "subs_import_replace")
+    v._import()
+    assert [c.text for c in v._track.cues] == ["Corrected opening", "Corrected end"]
+    assert v._track.transcript_revision == "" and v.undo_btn.isEnabled()
+    again = make()
+    assert again._track.origin == "fixed.srt" and again.table.rowCount() == 2     # survives a restart
+    assert [(s.start, s.end, s.text) for s in result.segments] == original         # transcript untouched
+
+
+def test_a_bad_file_or_a_cancel_changes_nothing(view, monkeypatch, process_events):
+    make, result, original, tmp_path = view
+    v = make()
+    v._generate()
+    before = [(c.start, c.end, c.text) for c in v._track.cues]
+    warned = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warned.append(a[-1]))
+    bad = tmp_path / "bad.srt"
+    bad.write_text("not subtitles at all")
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(bad), "")))
+    v._import()
+    assert warned == [tr("subs_import_no_cues")]
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (_srt(tmp_path), "")))
+    _choose(monkeypatch, "btn_cancel_nonexistent")                                  # no button clicked = cancel
+    v._import()
+    assert [(c.start, c.end, c.text) for c in v._track.cues] == before
+    assert v._snapshot is not None and v._snapshot.cues == []       # still only the generate step to undo

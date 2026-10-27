@@ -10,6 +10,7 @@ show (empty cue, end not after start).
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 from typing import Any, Optional
 
@@ -103,6 +104,7 @@ class SubtitleView(QWidget):
         self._source_path: Optional[str] = None
         self._unsupported = False
         self._filling = False
+        self._snapshot: Optional[sub.SubtitleTrack] = None      # the track before the last replace/import
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 8, 0, 0)
@@ -114,6 +116,8 @@ class SubtitleView(QWidget):
         top = QHBoxLayout()
         self.generate_btn = self._button(top, "subs_generate", self._generate)
         self.preset_btn = self._button(top, "subs_preset", self._edit_preset)
+        self.import_btn = self._button(top, "subs_import", self._import)
+        self.undo_btn = self._button(top, "subs_undo", self._undo)
         top.addStretch()
         self.srt_btn = self._button(top, "subs_export_srt", lambda: self._export("srt"))
         self.vtt_btn = self._button(top, "subs_export_vtt", lambda: self._export("vtt"))
@@ -176,6 +180,7 @@ class SubtitleView(QWidget):
 
     def clear(self) -> None:
         self._track = sub.SubtitleTrack()
+        self._snapshot = None
         self._segments = []
         self._record_id = None
         self._unsupported = False
@@ -192,6 +197,7 @@ class SubtitleView(QWidget):
                             self._source_path or "recording")
 
     def _load(self) -> None:
+        self._snapshot = None
         self._unsupported = False
         self._track = sub.SubtitleTrack()
         if isinstance(self._record_id, int):
@@ -245,6 +251,8 @@ class SubtitleView(QWidget):
                     self.merge_btn, self.delete_btn):
             btn.setEnabled(has and not self._unsupported)
         self.generate_btn.setEnabled(bool(self._segments) and not self._unsupported)
+        self.import_btn.setEnabled(not self._unsupported)
+        self.undo_btn.setEnabled(self._snapshot is not None and not self._unsupported)
         self.status.setText(self._status_text(issues))
 
     def _status_text(self, issues: list[sub.Issue]) -> str:
@@ -254,6 +262,8 @@ class SubtitleView(QWidget):
             return tr("subs_empty")
         parts = [tr("subs_count", count=len(self._track.cues))]
         parts.append(tr("subs_issues_count", count=len(issues)) if issues else tr("subs_no_issues"))
+        if self._track.origin:
+            parts.append(tr("subs_origin", name=self._track.origin))
         if self._track.transcript_revision and self._revision \
                 and self._track.transcript_revision != self._revision:
             parts.append(tr("subs_stale"))
@@ -296,8 +306,60 @@ class SubtitleView(QWidget):
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             if reply != QMessageBox.StandardButton.Yes:
                 return
+        self._snapshot = copy.deepcopy(self._track)
         self._track.cues = sub.cues_from_segments(self._segments, self._track.preset)
         self._track.transcript_revision = self._revision
+        self._track.origin = ""
+        self._changed()
+
+    def _import(self) -> None:
+        """Bring back a subtitle file edited elsewhere: read and checked
+        first, shown as a summary, then replaces or joins the current track
+        (one step back with Undo)."""
+        path, _ = QFileDialog.getOpenFileName(
+            self, tr("subs_import"), "", "Subtitles (*.srt *.vtt);;All files (*)")
+        if not path:
+            return
+        try:
+            cues = subtitle_store.read_subtitle_file(path)
+        except subtitle_store.SubtitleImportError as exc:
+            reason = str(exc)
+            known = {"too_large", "not_utf8", "no_cues"}
+            QMessageBox.warning(self, tr("subs_import"),
+                                tr(f"subs_import_{reason}") if reason in known else reason)
+            return
+        name = Path(path).name
+        problems = sub.validate(cues, self._track.preset, self._duration or None)
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle(tr("subs_import"))
+        box.setText(tr("subs_import_summary", name=name, count=len(cues),
+                       start=stamp(cues[0].start), end=stamp(max(c.end for c in cues)),
+                       issues=len(problems)))
+        if self._track.cues:
+            box.setInformativeText(tr("subs_import_existing", count=len(self._track.cues)))
+        replace_btn = box.addButton(tr("subs_import_replace"), QMessageBox.ButtonRole.DestructiveRole)
+        add_btn = box.addButton(tr("subs_import_add"), QMessageBox.ButtonRole.AcceptRole) \
+            if self._track.cues else None
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+        chosen = box.clickedButton()
+        if chosen is not replace_btn and (add_btn is None or chosen is not add_btn):
+            return
+        self._snapshot = copy.deepcopy(self._track)
+        if chosen is replace_btn:
+            self._track.cues = subtitle_store.combine_cues(self._track.cues, cues, "replace")
+            self._track.transcript_revision = ""        # no longer made from this transcript
+            self._track.origin = name
+        else:
+            self._track.cues = subtitle_store.combine_cues(self._track.cues, cues, "add")
+            self._track.origin = ", ".join(x for x in (self._track.origin, name) if x)
+        self._changed()
+
+    def _undo(self) -> None:
+        if self._snapshot is None:
+            return
+        self._track, self._snapshot = self._snapshot, None
         self._changed()
 
     def _edit_preset(self) -> None:

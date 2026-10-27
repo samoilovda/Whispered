@@ -1510,5 +1510,15 @@
   "clips_update": "Save changes",
   "clips_duplicate": "Duplicate",
   "clips_undo_remove": "Undo remove",
-  "clips_copy_title": "{title} (copy)"
+  "clips_copy_title": "{title} (copy)",
+  "subs_import": "Import SRT/VTT…",
+  "subs_undo": "Undo",
+  "subs_origin": "imported from {name}",
+  "subs_import_summary": "{name}: {count} cues, {start} – {end}, {issues} possible problems.",
+  "subs_import_existing": "The tab already has {count} cues. Replace them, or add the imported ones to the list?",
+  "subs_import_replace": "Replace",
+  "subs_import_add": "Add to current",
+  "subs_import_too_large": "The file is larger than 5 MB.",
+  "subs_import_not_utf8": "The file is not UTF-8 text.",
+  "subs_import_no_cues": "No subtitle cues were found in this file."
 }

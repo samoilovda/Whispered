@@ -311,11 +311,17 @@ class SubtitleTrack:
     cues: list[SubtitleCue] = field(default_factory=list)
     preset: SubtitlePreset = field(default_factory=SubtitlePreset)
     transcript_revision: str = ""
+    # Where the cues came from when not from this transcript: the name of
+    # the SRT/VTT file they were imported from ("" = generated here).
+    origin: str = ""
 
     def to_dict(self) -> dict:
-        return {"schema_version": CUES_SCHEMA_VERSION, "transcript_revision": self.transcript_revision,
+        data = {"schema_version": CUES_SCHEMA_VERSION, "transcript_revision": self.transcript_revision,
                 "preset": self.preset.to_dict(),
                 "cues": [[c.start, c.end, c.text] for c in self.cues]}
+        if self.origin:
+            data["origin"] = self.origin
+        return data
 
     @classmethod
     def from_dict(cls, data: Any) -> Optional["SubtitleTrack"]:
@@ -331,4 +337,4 @@ class SubtitleTrack:
             except (IndexError, TypeError, ValueError):
                 continue
         return cls(cues, SubtitlePreset.from_dict(data.get("preset")),
-                   str(data.get("transcript_revision", "")))
+                   str(data.get("transcript_revision", "")), str(data.get("origin", "")))
