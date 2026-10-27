@@ -8,8 +8,7 @@ whole thing.
 No PyQt dependency of its own: HistoryStore (core/history.py) is plain
 SQLite. The one widget touch the pre-extraction code made directly —
 refreshing the Library view after a checkpoint — is left to the caller
-(see MainWindow._checkpoint_live_history), the same split
-PresetChainController uses between owned state and caller-driven widgets.
+(see LiveSessionController._checkpoint_history).
 """
 
 from __future__ import annotations

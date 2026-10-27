@@ -15,9 +15,13 @@
 - [ ] Review the authored 1080×1920 layout with the brand owner before enabling
   Shorts export by default.
 
-The frame picker/extraction, Zoom-tile selection, ONNX restoration, and
-ComfyUI modules are not yet wired into this workspace. Their end-to-end manual
-checks become release gates only after that integration is implemented.
+- [ ] From the Cover workspace, grab a frame from the recording
+  (`CoverFrameDialog`) and pick a Zoom tile (`SpeakerTileDialog`); the chosen
+  picture lands in the matching photo slot.
+
+ONNX restoration and the ComfyUI/HTTP image providers (`covers/providers.py`,
+`covers/restore.py`) are experimental and not wired into the workspace; their
+settings are hidden. They are not release gates.
 
 Pre-release checklist for local testing before building with PyInstaller.
 
@@ -66,9 +70,12 @@ python main.py
 
 ## 4. Speaker Diarization
 
-- [ ] **Enable diarization** with valid HF token → Speaker labels appear in output
-- [ ] **Invalid HF token**: Set a garbage token → Should show "Invalid Hugging Face token" error
-- [ ] **No token**: Leave HF token blank → Diarization silently skipped
+Diarization runs locally (sherpa-onnx); no account or token is involved.
+
+- [ ] **Enable diarization** on a two-speaker recording → Speaker labels appear in output
+- [ ] **Models missing**: with the diarization models not yet downloaded →
+  the verified download is offered; declining leaves the transcript unlabelled, no crash
+- [ ] **Cancel** during diarization → UI resets, the open record is unchanged
 
 ## 5. AI Processing (requires LM Studio)
 

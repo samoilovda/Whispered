@@ -496,7 +496,7 @@ class MainWindow(QMainWindow):
 
 
     def _setup_ui(self):
-        """Build the persistent Library | Document | Inspector workspace."""
+        """Build the persistent Library | Document workspace."""
         self._build_window_chrome()
         self._build_library_section()
         self._build_queue_section()
@@ -865,7 +865,7 @@ class MainWindow(QMainWindow):
         self.live_view.open_record_requested.connect(self._open_completed_live)
 
     def _build_record_section(self) -> None:
-        """Build document content, inspector pages, draft and shell."""
+        """Build the record view: document tabs, the new-draft screen and the shell."""
         self.record_view = RecordView()
         self.record_view.back_requested.connect(self._show_library)
         self.record_view.export_requested.connect(self._export_result)
@@ -884,7 +884,7 @@ class MainWindow(QMainWindow):
         self.player = PlayerWidget()
         self.player.bookmark_menu_requested.connect(self._show_bookmark_menu)
 
-        # Document tabs remain in the center; generated tools move to the inspector.
+        # One tab row holds the transcript and every generated material.
         self.main_tabs = QTabWidget()
 
         self.transcript_view = TranscriptView()
@@ -919,10 +919,8 @@ class MainWindow(QMainWindow):
         self.cut_view.cut_changed.connect(self._on_cut_changed)
         self._shutdownables.append(self.youtube_panel)
 
-        # The five generator panels plus Cut/Chat used to live as inspector
-        # rail pages; the inspector is retired in B6, so they become plain
-        # tabs on the same main_tabs widget the transcript/cleaned-text tabs
-        # already use — one content surface, no second navigation column.
+        # The generator panels plus Cut/Chat are plain tabs on the same
+        # main_tabs widget as the transcript and cleaned text.
         self.main_tabs.addTab(self.article_view, tr("tab_articles"))
         self.main_tabs.addTab(self.youtube_panel, tr("tab_youtube"))
         self.main_tabs.addTab(self.book_panel, tr("tab_book"))
@@ -997,9 +995,8 @@ class MainWindow(QMainWindow):
         self.cover_view.save_requested.connect(self._save_cover)
         self._cover_index = self._stack.addWidget(self.cover_view)
         # Run view (docs/UI_REDESIGN_PLAN_2026-09.ru.md, B4): one row per
-        # step in the whole registry, fixed order — a JobRun only ever
-        # populates the subset the active recipe actually includes, so an
-        # out-of-recipe row simply stays "waiting" forever. It stays a pure
+        # step in the whole registry, fixed order — RunView.bind_run() hides
+        # the rows the active recipe does not include. It stays a pure
         # status/retry feed (no per-row viewer, see ui/run_view.py's module
         # docstring): a step's content is shown on its own main_tabs tab
         # instead, since a widget already tabbed into RecordView can't also
