@@ -44,9 +44,11 @@ def env(monkeypatch, tmp_path, process_events):
 
 
 def _wait(window, process_events):
+    # A step may already have finished while the previous one's signals were
+    # being delivered (the dry run hands over to the real work).
     worker = window.project._worker
-    assert worker is not None
-    assert worker.wait(10_000)
+    if worker is not None:
+        assert worker.wait(10_000)
     process_events()
     process_events()
 
@@ -56,13 +58,15 @@ def test_export_shows_a_preview_then_writes_and_import_adds_a_new_record(env, mo
     out = tmp_path / "talk.whispered.zip"
     monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(out), "")))
     window.project.export_open_record()
+    _wait(window, process_events)                              # the dry run, off the GUI thread
     assert shown and "Portable talk" in shown[0].findChildren(QLabel)[0].text()
-    _wait(window, process_events)
+    _wait(window, process_events)                              # the export itself
     assert out.exists()
 
     monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(out), "")))
     window.project.import_project()
-    _wait(window, process_events)
+    _wait(window, process_events)                              # inspecting the archive
+    _wait(window, process_events)                              # the import
     assert store.count() == 2
     assert window._last_record_id != rid                      # the new record is open
     assert window.transcript_view.get_result().full_text == "portable words"
@@ -78,6 +82,7 @@ def test_a_refused_file_explains_why_and_changes_nothing(env, monkeypatch, tmp_p
     monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warnings.append(a[2]))
     monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(bad), "")))
     window.project.import_project()
+    _wait(window, process_events)
     assert warnings and "can't be imported" in warnings[0] and not shown
     assert store.count() == 1 and window.project._worker is None
 
@@ -93,6 +98,7 @@ def test_cancelling_an_export_leaves_no_file(env, monkeypatch, tmp_path):
                         lambda plan, dest, **k: real(plan, dest, **{**k, "cancelled": lambda: True}))
     window.project.export_open_record()
     _wait(window, process_events)
+    _wait(window, process_events)
     assert not out.exists() and not list(tmp_path.glob(".project.*"))
 
 
@@ -101,3 +107,28 @@ def test_nothing_to_export_without_a_saved_record(env, monkeypatch):
     window._last_record_id = None
     window.project.export_open_record()
     assert not shown
+
+
+def test_the_dry_runs_leave_the_gui_thread(env, monkeypatch, tmp_path):
+    import threading
+
+    from application import project_archive as pa
+
+    window, store, rid, shown, process_events = env
+    seen = {}
+    real_plan, real_inspect = pa.plan_export, pa.inspect_archive
+    monkeypatch.setattr(pa, "plan_export",
+                        lambda *a, **k: seen.setdefault("plan", threading.current_thread()) and real_plan(*a, **k))
+    monkeypatch.setattr(pa, "inspect_archive",
+                        lambda *a, **k: seen.setdefault("inspect", threading.current_thread()) and real_inspect(*a, **k))
+    out = tmp_path / "t.whispered.zip"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(out), "")))
+    window.project.export_open_record()
+    _wait(window, process_events)
+    _wait(window, process_events)
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(out), "")))
+    window.project.import_project()
+    _wait(window, process_events)
+    _wait(window, process_events)
+    main = threading.main_thread()
+    assert seen["plan"] is not main and seen["inspect"] is not main

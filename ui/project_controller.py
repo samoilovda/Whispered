@@ -15,7 +15,6 @@ from PyQt6.QtWidgets import QDialog, QFileDialog, QMessageBox
 from application import project_archive as pa
 from core.i18n import tr
 from core.logger import get_logger
-from domain.project_manifest import ProjectError
 from ui.project_dialogs import ProjectPreviewDialog, human_size
 from ui.project_worker import ProjectWorker
 from ui.toast import show_toast
@@ -37,6 +36,28 @@ class ProjectController:
 
     # ------------------------------------------------------------ export
 
+    def _plan(self, worker: ProjectWorker, on_ready, on_failed) -> None:
+        """Run a dry-run worker off the GUI thread with a status-bar
+        operation and Cancel; *on_ready(plan)* continues the flow."""
+        host = self._host
+        self._worker = worker
+        self._status_text = tr("project_preparing")
+        host.status_bar.set_operation(self._status_text, cancel_text=tr("btn_cancel"))
+
+        def ready(plan: object) -> None:
+            self._clear()
+            on_ready(plan)
+
+        def failed(message: str) -> None:
+            self._clear()
+            on_failed(message)
+
+        worker.planned.connect(ready)
+        worker.failed.connect(failed)
+        worker.cancelled.connect(self._clear)
+        host._registry.register(worker, name="project")
+        worker.start()
+
     def export_open_record(self) -> None:
         host = self._host
         record_id = host._last_record_id
@@ -45,11 +66,14 @@ class ProjectController:
             return
         if self.is_busy() or not host._prepare_leave():
             return
-        try:
-            plan = pa.plan_export(record_id)
-        except ProjectError as exc:
-            QMessageBox.warning(host, tr("project_export_title"), str(exc))
-            return
+        self._plan(
+            ProjectWorker(plan_record=record_id, parent=host),
+            lambda plan: self._preview_export(record_id, plan),
+            lambda message: QMessageBox.warning(host, tr("project_export_title"), message),
+        )
+
+    def _preview_export(self, record_id: int, plan: pa.ExportPlan) -> None:
+        host = self._host
         lines = [
             tr("project_line_files", count=plan.counts["artifacts"] + 7,
                size=human_size(plan.total_bytes)),
@@ -70,7 +94,16 @@ class ProjectController:
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         if dialog.include_media:
-            plan = pa.plan_export(record_id, include_media=True)
+            self._plan(
+                ProjectWorker(plan_record=record_id, include_media=True, parent=host),
+                self._choose_export_file,
+                lambda message: QMessageBox.warning(host, tr("project_export_title"), message),
+            )
+        else:
+            self._choose_export_file(plan)
+
+    def _choose_export_file(self, plan: pa.ExportPlan) -> None:
+        host = self._host
         name = "".join(c if c.isalnum() or c in " -_" else "_" for c in plan.title).strip() or "project"
         path, _ = QFileDialog.getSaveFileName(
             host, tr("project_export_title"), f"{name}.whispered.zip", "Whispered project (*.whispered.zip)")
@@ -90,11 +123,15 @@ class ProjectController:
             host, tr("project_import_title"), "", "Whispered project (*.whispered.zip *.zip)")
         if not path:
             return
-        try:
-            plan = pa.inspect_archive(path)
-        except ProjectError as exc:
-            QMessageBox.warning(host, tr("project_import_title"), tr("project_import_refused", error=str(exc)))
-            return
+        self._plan(
+            ProjectWorker(inspect_path=path, parent=host),
+            lambda plan: self._preview_import(path, plan),
+            lambda message: QMessageBox.warning(
+                host, tr("project_import_title"), tr("project_import_refused", error=message)),
+        )
+
+    def _preview_import(self, path: str, plan: pa.ImportPlan) -> None:
+        host = self._host
         counts = plan.manifest.counts
         lines = [
             tr("project_line_files", count=len(plan.manifest.files), size=human_size(plan.total_bytes)),

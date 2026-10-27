@@ -1498,5 +1498,6 @@
   "live_preflight_failed": "The readiness check could not run: {error}",
   "settings_save_failed": "The settings could not be saved to {path}. Check that the folder is writable.",
   "clips_playhead_in_cut": "The playhead is inside a removed stretch, which the edited timeline does not have. Move it onto kept material.",
-  "ai_profile_steps_tip": "Only a note: a profile applies to every AI step, whichever boxes are ticked."
+  "ai_profile_steps_tip": "Only a note: a profile applies to every AI step, whichever boxes are ticked.",
+  "project_preparing": "Preparing project…"
 }
