@@ -62,9 +62,10 @@ class TranscribeOptions(QFrame):
 
     changed = pyqtSignal()
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, persist: bool = True) -> None:
         super().__init__(parent)
         self.setProperty("role", "card")
+        self._persist_changes = persist
         self._i18n = Retranslator()
         self._setup_ui()
         self._load_config()
@@ -159,7 +160,8 @@ class TranscribeOptions(QFrame):
         self.diarization_checkbox.setChecked(cfg.diarization_enabled)
         # Connected after the initial seeding above, so restoring the saved
         # values doesn't immediately write them back out again.
-        self.changed.connect(self._persist)
+        if self._persist_changes:
+            self.changed.connect(self._persist)
 
     def params(self) -> dict:
         """The widget's current selections as a Recipe.params dict (B4,

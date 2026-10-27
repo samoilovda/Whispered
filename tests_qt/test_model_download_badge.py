@@ -175,29 +175,28 @@ def test_settings_applied_refreshes_every_model_combo(
     assert tr("model_state_downloaded") in window.live_view.setup.model_combo.itemText(tiny_index)
 
 
-def test_opening_the_recipe_editor_refreshes_the_model_combo(
+def test_opening_the_recipe_editor_shows_the_current_download_state(
     window, models_dir, monkeypatch, process_events,
 ):
-    """The recipe editor borrows the same long-lived TranscribeOptions
-    instance rather than rebuilding it — a download since it was last
-    open must still show up without going through Settings."""
+    """The recipe editor builds its own TranscribeOptions each time it
+    opens, so a download since the last time shows up without Settings."""
     from PyQt6.QtWidgets import QDialog
 
-    monkeypatch.setattr(
-        "ui.main_window.RecipeEditorDialog.exec",
-        lambda self: QDialog.DialogCode.Rejected,
-    )
+    seen = []
 
-    tiny_index = window.transcribe_options.model_combo.findData("tiny")
-    assert tr("model_state_not_downloaded") in window.transcribe_options.model_combo.itemText(tiny_index)
+    def fake_exec(self):
+        combo = self._transcribe_options.model_combo
+        seen.append(combo.itemText(combo.findData("tiny")))
+        return QDialog.DialogCode.Rejected
 
+    monkeypatch.setattr("ui.main_window.RecipeEditorDialog.exec", fake_exec)
+    window._open_recipe_editor()
     entry = MANIFEST["whisper-tiny"]
     (models_dir / "ggml-tiny.bin").write_bytes(b"\0" * entry.size_bytes)
     window._open_recipe_editor()
     process_events()
-
-    tiny_index = window.transcribe_options.model_combo.findData("tiny")
-    assert tr("model_state_downloaded") in window.transcribe_options.model_combo.itemText(tiny_index)
+    assert tr("model_state_not_downloaded") in seen[0]
+    assert tr("model_state_downloaded") in seen[1]
 
 
 def _run_download(monkeypatch, models_dir, process_events, served: bytes, expected: bytes):

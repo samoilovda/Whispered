@@ -20,12 +20,10 @@ dialog only reports selected_steps()/recipe_name()/recipe_params() and
 which button closed it (result_action), the same "dialog reports, caller
 persists" split every other MainWindow dialog uses.
 
-The caller (MainWindow) owns ``transcribe_options`` — this dialog only
-borrows it for the duration of ``exec()``. The caller must reparent it
-back out (``transcribe_options.setParent(None)``) before discarding the
-dialog: a QDialog owns its child widgets, and letting the dialog get
-garbage-collected with transcribe_options still parented to it would
-destroy that shared, otherwise-persistent widget along with it.
+The dialog has its own transcription options widget with auto-persist
+turned off: the window's shared one writes every change straight to
+Config, so editing a recipe and pressing Cancel used to change the
+default model/language for everything else.
 """
 
 from __future__ import annotations
@@ -62,7 +60,6 @@ _DEPENDENTS: dict[str, tuple[str, ...]] = {
 class RecipeEditorDialog(QDialog):
     def __init__(
         self,
-        transcribe_options: TranscribeOptions,
         recipe: Recipe,
         existing_names: "frozenset[str] | set[str]" = frozenset(),
         parent=None,
@@ -70,7 +67,7 @@ class RecipeEditorDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(tr("recipe_editor_title"))
         self.resize(420, 660)
-        self._transcribe_options = transcribe_options
+        self._transcribe_options = transcribe_options = TranscribeOptions(persist=False)
         # Delete only makes sense for a recipe that's actually a saved
         # entry in Config.recipes — a built-in, or an edit not yet saved
         # under this name, has nothing there to remove.
@@ -96,9 +93,9 @@ class RecipeEditorDialog(QDialog):
         transcription_label = QLabel(tr("recipe_editor_transcription_label"))
         transcription_label.setProperty("role", "section-title")
         root.addWidget(transcription_label)
-        # Seed the shared widget from *this recipe's* saved params before
-        # showing it — any key the recipe doesn't override falls back to
-        # whatever Config already has (see TranscribeOptions.apply_params).
+        # Seed the widget from *this recipe's* saved params — any key the
+        # recipe doesn't override falls back to whatever Config already has
+        # (see TranscribeOptions.apply_params).
         transcribe_options.apply_params(recipe.params)
         root.addWidget(transcribe_options)
 

@@ -2765,10 +2765,8 @@ class MainWindow(QMainWindow):
 
     def _open_recipe_editor(self) -> None:
         """"Настроить…"/"Изменить" on the start screen (see
-        ui/recipe_editor.py). transcribe_options is borrowed by the
-        dialog for the duration of exec() and must be reparented back out
-        before the dialog is discarded, or Qt would destroy it along with
-        the dialog's other children.
+        ui/recipe_editor.py). The dialog has its own transcription
+        options widget, so Cancel cannot touch the default settings.
 
         Save/Save as new/Delete (B4, docs/IMPROVEMENT_PLAN_2026-08.ru.md)
         replaced the old single unnamed "custom" slot: a recipe is
@@ -2783,18 +2781,12 @@ class MainWindow(QMainWindow):
         recipe = self._resolve_recipe(original_key)
         cfg = get_config()
         existing_names = {entry.get("name", "") for entry in cfg.recipes}
-        # Re-check downloaded state (B10) every time the editor opens —
-        # this combo is a single long-lived widget, not rebuilt just by
-        # showing the dialog, so a model downloaded since the last time
-        # it was open would otherwise still read "will download".
-        self.transcribe_options.refresh_model_state()
-        dialog = RecipeEditorDialog(self.transcribe_options, recipe, existing_names, self)
+        dialog = RecipeEditorDialog(recipe, existing_names, self)
         accepted = dialog.exec() == QDialog.DialogCode.Accepted
         action = dialog.result_action if accepted else None
         steps = dialog.selected_steps() if accepted else None
         name = dialog.recipe_name() if accepted else None
         params = dialog.recipe_params() if accepted else None
-        self.transcribe_options.setParent(None)
         dialog.deleteLater()
 
         if action == "delete":

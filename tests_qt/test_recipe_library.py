@@ -176,22 +176,17 @@ def test_delete_removes_the_recipe_and_falls_back_to_transcript_only(
 def test_delete_button_only_visible_for_an_already_saved_recipe(process_events):
     from domain.recipe import PODCAST_ARTICLE, Recipe
     from ui.recipe_editor import RecipeEditorDialog
-    from ui.transcribe_options import TranscribeOptions
 
-    options = TranscribeOptions()
-    builtin_dialog = RecipeEditorDialog(options, PODCAST_ARTICLE, set())
+    builtin_dialog = RecipeEditorDialog(PODCAST_ARTICLE, set())
     process_events()
     assert not builtin_dialog._delete_btn.isVisible()
-    options.setParent(None)
     builtin_dialog.close()
 
     saved = Recipe(name="Already saved", steps=("transcribe",))
-    options2 = TranscribeOptions()
-    saved_dialog = RecipeEditorDialog(options2, saved, {"Already saved"})
+    saved_dialog = RecipeEditorDialog(saved, {"Already saved"})
     saved_dialog.show()
     process_events()
     assert saved_dialog._delete_btn.isVisibleTo(saved_dialog)
-    options2.setParent(None)
     saved_dialog.close()
 
 
@@ -286,3 +281,28 @@ def test_start_transcription_falls_back_to_widget_defaults_without_overrides(
 
     window.close()
     process_events()
+
+
+def test_cancelling_the_recipe_editor_leaves_the_default_settings_alone(window, monkeypatch, process_events):
+    from PyQt6.QtWidgets import QDialog
+    from ui.recipe_editor import RecipeEditorDialog
+    import config
+
+    cfg = config.get_config()
+    cfg.default_model = "large-v3-turbo-q5_0"
+    cfg.recipes = [{"name": "Tiny one", "steps": ["transcribe"], "builtin_key": "",
+                    "params": {"model": "tiny"}}]
+    window.start_view.refresh_recipe_chips()
+    window.start_view.select_recipe("Tiny one")
+    process_events()
+    shared_model = window.model_combo.currentData()
+
+    def fake_exec(dialog):
+        assert dialog._transcribe_options.model_combo.currentData() == "tiny"
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(RecipeEditorDialog, "exec", fake_exec)
+    window._open_recipe_editor()
+    process_events()
+    assert config.get_config().default_model == "large-v3-turbo-q5_0"
+    assert window.model_combo.currentData() == shared_model

@@ -129,17 +129,14 @@ def test_transcribe_options_persist_the_users_choice(process_events, tmp_path, m
 def test_recipe_editor_keeps_transcribe_mandatory(process_events):
     from domain.recipe import TRANSCRIPT_ONLY
     from ui.recipe_editor import RecipeEditorDialog
-    from ui.transcribe_options import TranscribeOptions
 
-    options = TranscribeOptions()
-    dialog = RecipeEditorDialog(options, TRANSCRIPT_ONLY)
+    dialog = RecipeEditorDialog(TRANSCRIPT_ONLY)
     process_events()
 
     assert dialog._checks["transcribe"].isChecked()
     assert dialog._checks["transcribe"].isEnabled() is False
     assert "transcribe" in dialog.selected_steps()
 
-    options.setParent(None)
     dialog.close()
 
 
@@ -150,17 +147,14 @@ def test_recipe_editor_default_name_nudges_toward_a_copy(process_events):
     from core.i18n import load_locale, tr
     from domain.recipe import PODCAST_ARTICLE
     from ui.recipe_editor import RecipeEditorDialog
-    from ui.transcribe_options import TranscribeOptions
 
     load_locale("en")
-    options = TranscribeOptions()
-    dialog = RecipeEditorDialog(options, PODCAST_ARTICLE)
+    dialog = RecipeEditorDialog(PODCAST_ARTICLE)
     process_events()
 
     assert dialog.recipe_name() != tr("recipe_podcast_article")
     assert tr("recipe_podcast_article") in dialog.recipe_name()
 
-    options.setParent(None)
     dialog.close()
 
 
