@@ -187,3 +187,23 @@ def test_declining_the_model_download_keeps_the_open_record(env, monkeypatch, tm
     assert window._last_record_id == rid
     window.close()
     process_events()
+
+
+def test_run_chip_only_says_running_for_the_run_s_own_record(env, monkeypatch, process_events):
+    store, _ = env
+    first = store.add(_result(), source_path="", source_name="a.mp3")
+    second = store.add(_result(), source_path="", source_name="b.mp3")
+    window = _window(process_events)
+    window._open_record_view(second)
+    seen = []
+    monkeypatch.setattr(window.record_view, "set_run_summary",
+                        lambda text, *a, **k: seen.append(text))
+    monkeypatch.setattr(window.recipe_run, "is_running", lambda: True)
+    window.recipe_run.record_id = first
+    window._refresh_run_chip()
+    assert seen and seen[-1] != tr("record_run_running")
+    window.recipe_run.record_id = second
+    window._refresh_run_chip()
+    assert seen[-1] == tr("record_run_running")
+    window.close()
+    process_events()

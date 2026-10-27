@@ -1308,7 +1308,7 @@ class MainWindow(QMainWindow):
     def _refresh_run_chip(self) -> None:
         """The header chip: the open record's last recipe run at a glance
         (glyph + count, never colour alone), each step in the tooltip."""
-        if self.recipe_run.is_running():
+        if self.recipe_run.is_running() and self.recipe_run.record_id == self._last_record_id:
             self.record_view.set_run_summary(
                 tr("record_run_running"), tr("record_run_open_tooltip"), clickable=True,
             )
