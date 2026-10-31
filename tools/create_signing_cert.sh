@@ -1,7 +1,7 @@
 #!/bin/bash
 # Create the self-signed "Whispered Local Signing" code-signing certificate
-# that build.py uses for local builds (see CLAUDE.md, "Standalone build
-# gotchas"). With it every rebuild keeps one code identity, so macOS keeps
+# that build.py uses for local builds (see docs/agents/build.md, "macOS
+# app"). With it every rebuild keeps one code identity, so macOS keeps
 # the Keychain "Always Allow" for the stored YouTube login.
 #
 # Usage: tools/create_signing_cert.sh [keychain]   (default: login keychain)

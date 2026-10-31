@@ -10,7 +10,7 @@ without a choice leaves its slot unchanged.
 Finding runs on a ``BaseWorker`` QThread owned by the workspace's
 registry; results are cached in the record's folder so reopening is
 instant. Like the other modal ``.exec()`` dialogs it is rebuilt on every
-open and not retranslated (see CLAUDE.md, i18n).
+open and not retranslated (see docs/agents/i18n.md).
 """
 
 from __future__ import annotations

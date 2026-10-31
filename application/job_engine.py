@@ -108,7 +108,7 @@ class JobEngine:
 
     def __init__(self, resource_limits: Optional[Dict[str, int]] = None) -> None:
         # Local LM Studio completions are serialized process-wide — see
-        # the CLAUDE.md rule on not firing parallel requests at it (the
+        # the docs/agents/llm.md rule on not firing parallel requests at it (the
         # server can stop responding while `lms server status` still says
         # running). Cloud providers aren't affected by that limit.
         self._resource_limits = dict(resource_limits or {"local_llm": 1})

@@ -5,7 +5,7 @@ Lives in ``ui/`` because it is a Qt adapter (``pyqtSignal``/``QThread``)
 over the Qt-free ``application/job_engine.py``; ``core/`` and
 ``application/`` must not depend on each other through it.
 
-``JobEngine.run()`` is a single blocking call — CLAUDE.md's rule that
+``JobEngine.run()`` is a single blocking call — AGENTS.md's rule that
 anything longer than ~100ms goes through a QThread applies to it exactly
 as much as to transcription or an AI worker. ``JobRunner`` is that
 QThread: ``_execute()`` calls ``JobEngine.run()`` once, and

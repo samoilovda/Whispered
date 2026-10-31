@@ -7,7 +7,7 @@ Whispered - YouTube resumable upload client
 whole protocol is testable without a network. Qt-free.
 
 Network is used only for an upload the user explicitly started from the
-publish dialog (see CLAUDE.md rule 1). The upload session URI is persisted
+publish dialog (see AGENTS.md rule 1). The upload session URI is persisted
 next to the artifacts so an interrupted upload can be continued later.
 """
 

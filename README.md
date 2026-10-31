@@ -413,18 +413,18 @@ The unit suite (`tests/`, run against PyQt6 stubs) and a separate
 offscreen-Qt smoke suite (`tests_qt/`, real Qt) both pass. CI runs tests and
 blocking `ruff` checks on Linux (Python 3.11), and builds an unsigned Windows
 package with a frozen smoke test on every push. `mypy` is blocking for the
-module set listed in [CLAUDE.md](CLAUDE.md) and informational for `ui/`.
+module set listed in [AGENTS.md](AGENTS.md), `ui/` included.
 
 The code is layered — `domain/` (Qt-free DTOs), `application/` (job engine,
 step registry, export controller), `infrastructure/` (artifact manifests),
-`core/` (workers, history, LLM clients), `ui/` — see the architecture map in
-[CLAUDE.md](CLAUDE.md).
+`core/` (workers, history, LLM clients), `ui/` — see the layer rules in
+[AGENTS.md](AGENTS.md).
 
 The AI task templates live in 18 Markdown files under `prompts/`. Some
 modules also keep embedded fallback text for resilience.
 
 See [TESTING.md](TESTING.md), [ROADMAP.md](ROADMAP.md), and
-[CLAUDE.md](CLAUDE.md) for more detail.
+[AGENTS.md](AGENTS.md) for more detail.
 
 ---
 

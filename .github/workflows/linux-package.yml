@@ -1,6 +1,6 @@
 name: Linux package
 
-# The Fedora-oriented PyInstaller tarball (CLAUDE.md rule 6: a preview
+# The Fedora-oriented PyInstaller tarball (AGENTS.md rule 6: a preview
 # channel). release.yml calls this for every release; run it on its own
 # from the Actions tab or `gh workflow run linux-package.yml` to check the
 # Linux build without creating a release — the tarball is then attached to

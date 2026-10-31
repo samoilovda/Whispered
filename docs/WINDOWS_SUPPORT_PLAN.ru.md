@@ -579,7 +579,7 @@ Vulkan можно исследовать отдельно как более ши
 - `README.ru.md`;
 - `TESTING.md`;
 - `ROADMAP.md`;
-- `CLAUDE.md`;
+- `AGENTS.md`;
 - новый `docs/WINDOWS_TESTING.md`;
 - `packaging/windows/README.md`.
 

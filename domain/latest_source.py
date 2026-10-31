@@ -1,7 +1,7 @@
 """Pure "newest source" logic for the recurring-source folder (e.g. the
 folder Zoom writes its recordings to).
 
-Qt-free by design (see CLAUDE.md's domain/ layer rule). A source folder
+Qt-free by design (see AGENTS.md's domain/ import rule). A source folder
 holds either loose media files or one sub-folder per recording (Zoom's
 layout: ``2026-10-08 10.00.00 Meeting/`` with ``audio_only.m4a``, a video
 and per-speaker tracks). ``find_latest_media()`` returns the single file

@@ -14,7 +14,7 @@ transcriber.py uses for the domain DTOs) so nothing importing
 ``core.insights_worker._build_prompt_text`` etc. needs to change.
 
 Qt-free: no PyQt import here, matching the domain/application layering in
-CLAUDE.md's architecture map.
+AGENTS.md.
 """
 
 from __future__ import annotations

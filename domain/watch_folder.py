@@ -1,7 +1,7 @@
 """Pure "what's new" logic for a watched folder (B5b,
 docs/IMPROVEMENT_PLAN_2026-08.ru.md).
 
-Qt-free by design (see CLAUDE.md's domain/ layer rule) — core/watch_folder.py
+Qt-free by design (see AGENTS.md's domain/ import rule) — core/watch_folder.py
 owns the actual QFileSystemWatcher/QTimer debounce and calls into this
 module only to decide which files a directory listing are genuinely new.
 """

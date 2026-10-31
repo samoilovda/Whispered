@@ -12,7 +12,7 @@ server can treat the arrival of ``ready.json`` as "the folder is complete"
 State lives in the folder itself (``hermes_push.json``: a digest of what
 was sent), so the push is idempotent: nothing is re-sent until one of the
 files — or the *salt* (voice profile, name) — changes. Qt-free; the network is touched
-only when ``Config.hermes_push_target`` is set (CLAUDE.md, rule 1).
+only when ``Config.hermes_push_target`` is set (AGENTS.md, rule 1).
 """
 
 from __future__ import annotations

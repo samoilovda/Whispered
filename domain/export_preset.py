@@ -3,7 +3,7 @@ docs/IMPROVEMENT_PLAN_2026-08.ru.md) — "collect the YouTube package" as
 one menu click instead of hand-picking formats, then separately hunting
 down the article/insights/cover files a recipe already generated.
 
-Qt-free (domain layer, per CLAUDE.md's architecture map) — a plain data
+Qt-free (domain layer, per AGENTS.md's layer rules) — a plain data
 description of what a preset bundles; application/export_controller.py
 does the actual file collection.
 """
