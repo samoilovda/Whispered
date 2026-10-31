@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 
 import pytest
@@ -77,7 +78,8 @@ def test_annotate_rewrites_the_staged_copy_only(tmp_path):
     (outcome,) = hp.run_push(hp.find_pending(tmp_path), "me@srv:/i", annotate=annotate,
                              runner=runner, which=lambda n: "x")
     assert outcome.info == {"me": {"speaker_id": "S1"}}
-    assert seen["mode"] == 0o640   # group-readable on the server
+    if os.name != "nt":  # Windows chmod only toggles read-only: st_mode is 0o666
+        assert seen["mode"] == 0o640   # group-readable on the server
     assert seen["clean"] == "changed" and seen["ready"]["me"] == {"speaker_id": "S1"}
     assert (folder / hp.CLEAN_MD).read_text() == "{}"
 
