@@ -7,7 +7,7 @@
 ## 1. Готовое задание для запуска агента
 
 ```text
-Работай в репозитории Whispered. Прочитай CLAUDE.md, актуальные AGENTS.md,
+Работай в репозитории Whispered. Прочитай AGENTS.md (корневой и в затронутых каталогах),
 docs/UI_UX_AUDIT_2026-10-18.ru.md и эту инструкцию.
 
 Реализуй этап M1: T01–T07 и минимальную часть T12 (контраст).
@@ -39,7 +39,7 @@ docs/UI_UX_AUDIT_2026-10-18.ru.md и эту инструкцию.
 ## 2. Сначала установить актуальную базу
 
 1. Проверить `git status`, текущую ветку и изменения относительно `5224eb9`. Сохранить чужие незакоммиченные изменения. Не предполагать, что ветка по-прежнему называется `work`.
-2. Прочитать [CLAUDE.md](../CLAUDE.md), [правила UI сентября](UI_REDESIGN_PLAN_2026-09.ru.md), [итоги предыдущего технического аудита](archive/AUDIT_2026-10-17_FIXES.ru.md). Перед изменением LLM читать [LLM_RESEARCH.ru.md](LLM_RESEARCH.ru.md).
+2. Прочитать [AGENTS.md](../AGENTS.md), [правила UI сентября](UI_REDESIGN_PLAN_2026-09.ru.md), [итоги предыдущего технического аудита](archive/AUDIT_2026-10-17_FIXES.ru.md). Перед изменением LLM читать [LLM_RESEARCH.ru.md](LLM_RESEARCH.ru.md).
 3. Проверить существующие тесты по задаче. Первыми смотреть `tests_qt/test_start_readiness.py`, `test_transcript_versions.py`, `test_document_session.py`, `test_recipe_record_pinning.py`, `test_library_view.py`, `test_book_step_wiring.py`, `test_chat_citations.py`, `test_export_presets_ui.py` и тесты конкретного изменяемого модуля.
 4. Создать журнал `docs/UI_UX_IMPLEMENTATION_STATUS_2026-10-18.ru.md` со столбцами `ID / состояние / commit / проверки / ограничения`. Это **новый файл при реализации**, сейчас его нет. Состояния: `pending`, `in_progress`, `code_complete`, `accepted`, `blocked_validation`.
 5. Все fixtures и прогоны изолировать от реальных истории, keyring, видео и моделей пользователя. Использовать существующие fixtures `tests_qt/conftest.py`, а не менять процессный HOME вручную. Для отдельных Linux-скриптов задавать task-specific XDG-каталог и явно подменять config/history/keyring. Не запускать реальный YouTube upload для автоматического теста.

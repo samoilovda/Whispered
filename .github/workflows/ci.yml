@@ -79,7 +79,7 @@ jobs:
 
       # Blocking, and here rather than in the Tests job: with real PyQt6
       # installed mypy checks the Qt calls themselves, not Any. Keep it in
-      # step with CLAUDE.md's "Pre-commit gate" / "Mypy blocking modules".
+      # step with AGENTS.md's "Pre-commit gate".
       - name: Type check (blocking, real PyQt6)
         run: |
           mypy --ignore-missing-imports core/ transcriber.py diarizer.py \

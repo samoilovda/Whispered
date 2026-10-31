@@ -1,6 +1,6 @@
 # Roadmap
 
-*Working rules for contributors and AI agents live in [CLAUDE.md](CLAUDE.md).
+*Working rules for contributors and AI agents live in [AGENTS.md](AGENTS.md).
 The original long-form development plan (2026-07) is preserved in
 [docs/archive/ROADMAP_full_2026-07.md](docs/archive/ROADMAP_full_2026-07.md).*
 

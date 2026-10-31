@@ -65,7 +65,7 @@ StepRunner = Callable[[], object]
 class StepContext:
     """Everything a step's runner/artifact-factory needs, gathered once
     before a job starts. Qt-free — no PyQt import, no widget reference
-    (see CLAUDE.md's domain/application layering).
+    (see AGENTS.md's layer rules).
 
     ``params`` carries recipe- and run-level configuration a step's
     runner pulls specific keys from (documented per step below): ``lm_url``,

@@ -2,8 +2,8 @@
 parameters they need (see docs/UI_REDESIGN_PLAN_2026-09.ru.md, B2).
 
 Qt-free, and deliberately does not import application/steps.py: domain/
-sits below application/ in this codebase's layering (see CLAUDE.md's
-architecture map — "must never import ... core.live" is the letter of the
+sits below application/ in this codebase's layering (see AGENTS.md's
+import rules — "must never import ... core.live" is the letter of the
 rule, staying below application/ is its spirit), so information about the
 step registry has to flow the other way. ``Recipe.to_job_spec()`` takes a
 ``build_job_spec`` callable (``application.steps.build_job_spec``, at the

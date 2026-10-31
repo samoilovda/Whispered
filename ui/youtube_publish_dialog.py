@@ -14,8 +14,8 @@ three-step wizard:
    show the video, save as a folder, open Studio) and, in API mode, the
    upload itself. Nothing is sent over the network from here.
 
-Opened with ``.exec()`` and rebuilt each time, so (per CLAUDE.md's i18n
-notes) it is deliberately not retranslated live.
+Opened with ``.exec()`` and rebuilt each time, so (per docs/agents/i18n.md)
+it is deliberately not retranslated live.
 """
 
 from __future__ import annotations

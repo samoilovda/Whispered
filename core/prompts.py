@@ -63,7 +63,7 @@ def prompt_version(name: str) -> str:
     generated file can be reused: two artifacts with the same
     prompt_version were produced from the exact same prompt text, so
     editing prompts/<name>.md (the whole point of it being an editable
-    .md file — see CLAUDE.md) invalidates the cache for that step, same
+    .md file — see docs/agents/llm.md) invalidates the cache for that step, same
     as changing the model or provider does. Returns a fixed placeholder
     for a missing/unreadable file rather than raising — provenance must
     never block a generation that would otherwise succeed.

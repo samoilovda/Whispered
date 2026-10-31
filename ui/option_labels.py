@@ -58,9 +58,9 @@ def whisper_model_options_with_state() -> list[tuple[str, str, bool]]:
 
 def model_state_suffix(downloaded: bool) -> str:
     """Localized "· downloaded" / "· will download" suffix for a model
-    combo item — a text signal, not color alone (project convention, see
-    CLAUDE.md). Each label from whisper_model_options() already states
-    the model's size, so the suffix doesn't repeat it."""
+    combo item — a text signal, not color alone. Each label from
+    whisper_model_options() already states the model's size, so the suffix
+    doesn't repeat it."""
     return tr("model_state_downloaded" if downloaded else "model_state_not_downloaded")
 
 

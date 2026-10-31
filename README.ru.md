@@ -394,18 +394,18 @@ Unit-набор (`tests/`, на заглушках PyQt6) и отдельный 
 (`tests_qt/`, настоящий Qt) проходят. CI запускает тесты и блокирующий `ruff`
 на Linux (Python 3.11) и на каждый push собирает unsigned Windows-пакет с
 frozen smoke-тестом. `mypy` блокирующий для набора модулей из
-[CLAUDE.md](CLAUDE.md) и информационный для `ui/`.
+[AGENTS.md](AGENTS.md), включая `ui/`.
 
 Код разбит на слои: `domain/` (DTO без Qt), `application/` (движок заданий,
 реестр шагов, контроллер экспорта), `infrastructure/` (манифесты артефактов),
-`core/` (воркеры, история, LLM-клиенты), `ui/` — карта архитектуры в
-[CLAUDE.md](CLAUDE.md).
+`core/` (воркеры, история, LLM-клиенты), `ui/` — правила слоёв в
+[AGENTS.md](AGENTS.md).
 
 Шаблоны AI-задач находятся в 18 Markdown-файлах каталога `prompts/`.
 Для отказоустойчивости часть модулей также содержит встроенные fallback-тексты.
 
 Подробнее: [TESTING.md](TESTING.md), [ROADMAP.md](ROADMAP.md) и
-[CLAUDE.md](CLAUDE.md).
+[AGENTS.md](AGENTS.md).
 
 ---
 

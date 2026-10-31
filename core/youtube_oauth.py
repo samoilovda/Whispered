@@ -8,7 +8,7 @@ lives in the OS keyring via ``core.secrets_store`` and, when no keyring is
 usable, in process memory only (never in ``config.json``).
 
 Network is used only when the user explicitly connects an account or
-uploads a video (see CLAUDE.md rule 1).
+uploads a video (see AGENTS.md rule 1).
 """
 
 from __future__ import annotations

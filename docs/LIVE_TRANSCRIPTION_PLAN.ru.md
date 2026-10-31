@@ -448,7 +448,7 @@ Live navigation, переход на Live page и выполнение preflight
 ## 9. Источники технических решений
 
 - Текущий код: `transcriber.py`, `core/recorder.py`, `core/lm_client.py`,
-  `docs/APP_OVERVIEW.ru.md`, `CLAUDE.md`.
+  `docs/APP_OVERVIEW.ru.md`, `AGENTS.md`.
 - [Apple ScreenCaptureKit](https://developer.apple.com/documentation/screencapturekit).
 - [whisper.cpp](https://github.com/ggml-org/whisper.cpp) и
   [real-time example](https://github.com/ggml-org/whisper.cpp/blob/master/examples/stream/README.md).
