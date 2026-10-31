@@ -101,6 +101,26 @@ def no_real_lm_studio_probes(monkeypatch):
     monkeypatch.setattr(LMStudioClient, "chat_completion_stream", lambda self, *a, **k: None)
 
 
+@pytest.fixture(autouse=True)
+def ffmpeg_present_for_start_screen(monkeypatch):
+    """The start screen looks up ffmpeg on the host, and without it Launch
+    is disabled (UX-02) — so on a runner with no ffmpeg (CI's ubuntu
+    image) every test that expects a launchable start screen failed while
+    passing on a developer Mac. Treat ffmpeg as found unless a test sets
+    ``StartView._ffmpeg_found`` itself (test_missing_ffmpeg_* does).
+    """
+    from ui.start_view import StartView
+
+    original = StartView._readiness_facts
+
+    def _facts(self):
+        if self._ffmpeg_found is None:
+            self._ffmpeg_found = True
+        return original(self)
+
+    monkeypatch.setattr(StartView, "_readiness_facts", _facts)
+
+
 @pytest.fixture
 def process_events(qt_application):
     """Flush pending queued signals without sleeping in test code."""
