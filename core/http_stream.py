@@ -2,12 +2,15 @@
 
 The reader owns response.close(). The controller interrupts the underlying
 socket instead of waiting for the buffered reader's lock inside close().
+On Windows shutdown() does not wake a read blocked in another thread, so
+the controller also closes the OS handle there.
 Each request gets its own opener; no global urllib handlers are changed.
 """
 
 from __future__ import annotations
 
 import http.client
+import os
 import socket
 import ssl
 import threading
@@ -29,6 +32,17 @@ class CancellableHTTPStream:
             sock.shutdown(socket.SHUT_RDWR)
         except OSError:
             pass  # already closed, or detached by TLS wrapping
+        if os.name == "nt":
+            # Winsock leaves a select()/recv() blocked in the reader thread
+            # waiting after shutdown(); only closing the handle cancels it.
+            # socket.close() would defer that while the response's makefile()
+            # holds a reference, so close the C-level handle directly: it
+            # marks the Python object closed (fileno -1) before releasing
+            # the handle, and the reader's own close() is then a no-op.
+            try:
+                socket.SocketType.close(sock)
+            except OSError:
+                pass
 
     def _track(self, sock: socket.socket | None) -> None:
         if sock is None:
