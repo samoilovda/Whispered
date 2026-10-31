@@ -164,7 +164,9 @@ def test_changed_cover_and_subsecond_video_change_require_restart(video, tmp_pat
         up.load_pending(pending, video, pkg=pkg)
     up.save_pending(pending, video, SESSION_URI, "T", pkg=pkg)
     stat = video.stat()
-    os.utime(video, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1))
+    # 1 µs: sub-second, yet representable on NTFS (100 ns ticks), unlike +1 ns.
+    os.utime(video, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000))
+    assert video.stat().st_mtime_ns != stat.st_mtime_ns
     with pytest.raises(up.UploadPackageChanged):
         up.load_pending(pending, video, pkg=pkg)
 
