@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
+from core.i18n import tr
 from core.lm_client import LMStudioClient
 from core.llm_text import split_into_chunks
 from core.prompts import load_prompt
@@ -144,7 +145,7 @@ def _call_lm(
 
         if on_progress:
             pct = int((i / total) * 100)
-            on_progress(pct, f"Обработка блока {i + 1}/{total}…")
+            on_progress(pct, tr("llm_progress_block", current=i + 1, total=total))
 
         result = None
         # One retry: a dropped connection or a timeout on one chunk must not
@@ -249,7 +250,7 @@ class BookPipeline:
         # ---- Stage 1: Speech unwrapping (расшивка) ----
         if do_unwrap:
             if on_progress:
-                on_progress(0, "Расшивка: отправляю в LM Studio…")
+                on_progress(0, tr("llm_progress_unwrap_sending"))
 
             system_prompt = load_prompt(
                 "расшивка",
@@ -302,7 +303,7 @@ class BookPipeline:
         # ---- Stage 2: Custom user prompt ----
         if do_custom and custom_prompt_path:
             if on_progress:
-                on_progress(0, "Пользовательский промпт: отправляю…")
+                on_progress(0, tr("llm_progress_custom_sending"))
 
             try:
                 custom_system = Path(custom_prompt_path).read_text(encoding="utf-8").strip()
@@ -350,6 +351,6 @@ class BookPipeline:
                 ))
 
         if on_progress:
-            on_progress(100, "Готово")
+            on_progress(100, tr("llm_progress_done"))
 
         return result
