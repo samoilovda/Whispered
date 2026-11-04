@@ -28,6 +28,10 @@ _SECRET_FIELDS = (
     "hf_token", "yt_openai_api_key", "yt_anthropic_api_key", "yt_oauth_client_secret",
 )
 
+# What this process knows to be in the OS keyring per secret field ("" =
+# known absent); save() skips keyring calls that would change nothing.
+_keyring_state: dict[str, str] = {}
+
 # Current schema version written to config.json under "schema_version".
 # Increment when load() gains a new migration step.
 _CURRENT_SCHEMA_VERSION = 1
@@ -303,13 +307,23 @@ class Config:
             data["schema_version"] = _CURRENT_SCHEMA_VERSION
             for name in _SECRET_FIELDS:
                 value = data.get(name)
-                if value:
+                if value == secrets_store.KEYRING_SENTINEL:
+                    # The keyring could not be read at load: keep pointing
+                    # at it, never write the sentinel itself into it.
+                    continue
+                if value and _keyring_state.get(name) == value:
+                    # Already in the keyring: no Keychain call on every
+                    # save (widgets auto-persist; audit 2026-11-04 W23).
+                    data[name] = secrets_store.KEYRING_SENTINEL
+                elif value:
                     if secrets_store.set_secret(name, value):
                         data[name] = secrets_store.KEYRING_SENTINEL
-                else:
+                        _keyring_state[name] = value
+                elif _keyring_state.get(name) != "":
                     # Clear any stale keyring entry from before the field
-                    # was emptied, so it doesn't linger indefinitely.
+                    # was emptied — once, not on every save.
                     secrets_store.delete_secret(name)
+                    _keyring_state[name] = ""
 
             # Create the temporary file privately before any secret-bearing
             # bytes are written, then atomically replace the old config.
@@ -369,6 +383,7 @@ class Config:
                     result = secrets_store.read_secret(name)
                     if result.found:
                         filtered_data[name] = result.value
+                        _keyring_state[name] = result.value
                     elif result.backend_error:
                         # Keyring backend is broken — preserve the sentinel so
                         # the next save() does not overwrite the keyring entry
