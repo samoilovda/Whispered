@@ -521,7 +521,7 @@ class MainWindow(QMainWindow):
             self._refresh_tab_markers()
             self._refresh_tab_visibility()
         if hasattr(self, "_folder_hint_label"):
-            self._folder_hint_label.setText(tr("draft_folder_hint"))
+            self._refresh_folder_hint()
         if hasattr(self, "_draft_queue_button"):
             self._draft_queue_button.setText(tr("draft_open_queue"))
         if hasattr(self, "progress_timeline"):
@@ -973,7 +973,7 @@ class MainWindow(QMainWindow):
         folder_source = QWidget()
         folder_layout = QVBoxLayout(folder_source)
         folder_layout.setContentsMargins(0, 0, 0, 0)
-        folder_hint = QLabel(tr("draft_folder_hint"))
+        folder_hint = QLabel()
         folder_hint.setProperty("role", "muted")
         folder_hint.setWordWrap(True)
         folder_layout.addWidget(folder_hint)
@@ -995,6 +995,8 @@ class MainWindow(QMainWindow):
         self.start_view.configure_recipe_requested.connect(self._open_recipe_editor)
         self.start_view.fix_requested.connect(self._on_readiness_fix)
         self.start_view.profile_applied.connect(self._on_asr_profile_applied)
+        self.start_view.recipe_changed.connect(lambda _key: self._refresh_folder_hint())
+        self._refresh_folder_hint()
         self._start_index = self._stack.addWidget(self.start_view)
         self._record_index = self._stack.addWidget(self.record_view)
         self.cover_view = CoverView(insights_cache=self._insights_cache)
@@ -1804,6 +1806,15 @@ class MainWindow(QMainWindow):
         self.live_view.setup.refresh_model_state()
         self.start_view.refresh_readiness()
         self._apply_tray_config()
+
+    def _refresh_folder_hint(self) -> None:
+        """The Folder source says what the queue really does: each file goes
+        through the selected recipe (audit 2026-11-04 W08 — it used to say
+        recipe steps were not applied in the queue)."""
+        from ui.option_labels import recipe_label
+
+        recipe = self._resolve_recipe(self.start_view.current_recipe_key())
+        self._folder_hint_label.setText(tr("draft_folder_hint", recipe=recipe_label(recipe)))
 
     def _apply_watch_folder_config(self) -> None:
         """Point _watch_folder_service at Config.watch_folder, or stop it

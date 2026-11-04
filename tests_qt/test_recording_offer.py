@@ -213,3 +213,15 @@ def test_settings_store_the_watch_folder_recipe(process_events, monkeypatch, tmp
     assert config.get_config().watch_folder_recipe == "book"
     dialog.close()
     process_events()
+
+
+def test_the_folder_source_names_the_recipe_the_queue_runs(window):
+    """Audit 2026-11-04 W08: the hint said recipe steps were not applied."""
+    from core.i18n import tr
+    from domain.recipe import BUILTIN_RECIPES_BY_KEY
+    from ui.option_labels import recipe_label
+
+    window.start_view.select_recipe("meeting_notes")
+    label = recipe_label(BUILTIN_RECIPES_BY_KEY["meeting_notes"])
+    assert label in window._folder_hint_label.text()
+    assert window._folder_hint_label.text() == tr("draft_folder_hint", recipe=label)
