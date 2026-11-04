@@ -187,3 +187,13 @@ def test_combo_arrows_are_an_image_not_a_border_triangle():
     rule = re.search(r"QComboBox::down-arrow \{([^}]*)\}", sheet).group(1)
     url = re.search(r"image: url\(([^)]*)\)", rule).group(1)
     assert Path(url).is_file() and "border-top" not in rule
+
+
+def test_the_export_button_has_one_arrow():
+    """Audit 2026-11-04 W16: "Export ▾" plus the menu's own indicator."""
+    from core.i18n import load_locale, tr
+
+    for lang in ("en", "ru"):
+        load_locale(lang)
+        assert "▾" not in tr("record_export_menu")
+    load_locale("en")

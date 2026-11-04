@@ -317,7 +317,7 @@
   "library_refresh_tooltip": "Обновить список",
   "library_empty_title": "Пока нет записей",
   "library_empty_hint": "Перетащите аудио или видео файл, либо нажмите «Выбрать файл» выше.",
-  "record_export_menu": "Экспорт ▾",
+  "record_export_menu": "Экспорт",
   "record_export_action": "Экспортировать выбранные форматы…",
   "export_preset_youtube": "YouTube-пакет (SRT + VTT + пакет + обложка)",
   "export_preset_article_draft": "Черновик статьи (MD + DOCX)",

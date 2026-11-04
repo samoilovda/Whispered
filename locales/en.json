@@ -316,7 +316,7 @@
   "library_refresh_tooltip": "Refresh list",
   "library_empty_title": "No recordings yet",
   "library_empty_hint": "Drop an audio or video file, or click Browse Files above.",
-  "record_export_menu": "Export ▾",
+  "record_export_menu": "Export",
   "record_export_action": "Export selected formats…",
   "export_preset_youtube": "YouTube package (SRT + VTT + package + cover)",
   "export_preset_article_draft": "Article draft (MD + DOCX)",
