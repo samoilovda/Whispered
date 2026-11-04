@@ -441,6 +441,7 @@
   "source_folder_choose": "Source folder…",
   "source_folder_tooltip": "Folder with your regular recordings (e.g. Zoom). “Latest” takes its most recently modified file or sub-folder.",
   "source_folder_unset": "No source folder selected",
+  "source_folder_latest_disabled_tip": "Choose a source folder first (\"Source folder…\" on the right)",
   "source_folder_empty": "No audio or video found in {folder}",
   "source_folder_dialog_title": "Select the folder with your recordings",
   "source_folder_missing": "Folder not found: {folder} (it stays saved)",

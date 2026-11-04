@@ -259,6 +259,8 @@ class FileSelector(QWidget):
         folder = get_config().source_folder
         self.latest_btn.setText(tr("source_folder_latest"))
         self.latest_btn.setEnabled(bool(folder))
+        # A disabled button says what enables it (audit 2026-11-04 W22).
+        self.latest_btn.setToolTip("" if folder else tr("source_folder_latest_disabled_tip"))
         self.source_label.setText(folder or tr("source_folder_unset"))
 
     def _choose_source_folder(self) -> None:

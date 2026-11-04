@@ -377,3 +377,17 @@ def test_the_first_run_card_stays_compact_at_the_minimum_size(env, process_event
         assert view._first_run_body.isVisible()
     window.close()
     process_events()
+
+
+def test_latest_from_source_folder_says_why_it_is_disabled(env, process_events):
+    """Audit 2026-11-04 W22."""
+    from core.i18n import tr
+    from ui.file_selector import FileSelector
+
+    config.get_config().source_folder = ""
+    selector = FileSelector()
+    assert not selector.latest_btn.isEnabled()
+    assert selector.latest_btn.toolTip() == tr("source_folder_latest_disabled_tip")
+    config.get_config().source_folder = str(env[1])
+    selector.refresh_source_folder()
+    assert selector.latest_btn.isEnabled() and selector.latest_btn.toolTip() == ""

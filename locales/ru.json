@@ -442,6 +442,7 @@
   "source_folder_choose": "Папка источника…",
   "source_folder_tooltip": "Папка с вашими регулярными записями (например, Zoom). «Последняя» берёт самый свежий по изменению файл или вложенную папку.",
   "source_folder_unset": "Папка источника не выбрана",
+  "source_folder_latest_disabled_tip": "Сначала выберите папку источника (кнопка «Папка источника…» справа)",
   "source_folder_empty": "В {folder} нет аудио- или видеофайлов",
   "source_folder_dialog_title": "Выберите папку с записями",
   "source_folder_missing": "Папка не найдена: {folder} (путь сохранён)",
