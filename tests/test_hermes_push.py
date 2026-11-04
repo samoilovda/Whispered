@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 
 import pytest
@@ -181,3 +182,44 @@ def test_records_with_speakers_or_without_a_payload_are_left_alone(tmp_path):
     assert hp.write_timed_transcripts(
         tmp_path, lambda i: _payload("Мысль.") if i == 1 else None
     ) == []
+
+
+@pytest.mark.parametrize("name, remote", [
+    ("Interview with Anna-12", "Interview_with_Anna-12"),
+    ("Dima's talk-3", "Dima_s_talk-3"),
+    ("a$(touch pwned)-4", "a__touch_pwned_-4"),
+    ("x;rm -rf ~-5", "x_rm_-rf__-5"),
+    ("Интервью-6", "Интервью-6"),
+    ("talk-7", "talk-7"),
+])
+def test_a_folder_name_cannot_reach_the_remote_shell(tmp_path, name, remote):
+    """Audit 2026-11-04 W03: ssh/scp/rsync hand the path to the server's
+    shell, so the remote name holds no character a shell interprets."""
+    _folder(tmp_path, name)
+    runner = _Runner()
+    (outcome,) = hp.run_push(hp.find_pending(tmp_path), "me@srv:/inbox",
+                             runner=runner, which=lambda n: "/usr/bin/rsync")
+    assert outcome.status == "pushed"
+    assert runner.cmds[0][-2:] == ["--", shlex.quote(f"/inbox/{remote}")]
+    assert shlex.split(runner.cmds[0][-1]) == [f"/inbox/{remote}"]
+    assert runner.cmds[1][-1] == f"me@srv:/inbox/{remote}/"
+
+
+def test_ready_json_names_both_folders(tmp_path):
+    _folder(tmp_path, "My talk-8")
+    seen = {}
+
+    def runner(cmd):
+        for arg in cmd:
+            if arg.endswith(hp.READY_FILE):
+                seen.update(json.loads(open(arg, encoding="utf-8").read()))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    hp.run_push(hp.find_pending(tmp_path), "me@srv:/inbox", runner=runner, which=lambda n: None)
+    assert seen["folder"] == "My_talk-8" and seen["local_folder"] == "My talk-8"
+
+
+@pytest.mark.parametrize("bad", ["me@srv:/in box", "me@srv:/x;id", "me@srv:/$(id)", "-oProxyCommand=x:/in"])
+def test_a_remote_dir_a_shell_would_interpret_is_refused(bad):
+    with pytest.raises(ValueError):
+        hp.split_target(bad)

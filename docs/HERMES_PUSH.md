@@ -18,6 +18,10 @@ found and marked (see "Which speaker is me").
 Each folder lands in `<inbox>/<name>-<id>/`: `clean.md`, `youtube_upload.json`,
 plus `transcript.speakers.json`, `transcript.speakers.md` and
 `youtube_package.json` when they exist, and `ready.json` **last**.
+On the server, every character a shell could interpret (spaces, quotes, `$`,
+`;`, …) in `<name>` becomes `_`; `ready.json` names both folders (`folder`
+on the server, `local_folder` here). The inbox path itself may only contain
+letters, digits and `. _ - / ~`.
 
 A record that was never diarized has no speaker transcript, and `clean.md`
 has no timecodes. For such a record the push first writes
