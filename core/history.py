@@ -302,6 +302,43 @@ def _v16_add_collections(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _search_text(payload: str) -> str:
+    """What the transcript search indexes: the words spoken (one segment
+    per line) and the speakers' names — never the JSON around them, whose
+    keys ("text", "start", "speaker"…) and numbers matched every record
+    (audit 2026-11-04 W04)."""
+    data = _payload_to_dict(payload)
+    lines = [str(seg.get("text") or "").strip() for seg in data.get("segments") or []
+             if isinstance(seg, dict)]
+    names = data.get("speaker_names") or {}
+    if isinstance(names, dict):
+        lines.extend(str(name).strip() for name in names.values() if str(name).strip())
+    return "\n".join(line for line in lines if line)
+
+
+def _v17_add_search_text(conn: sqlite3.Connection) -> None:
+    """``transcripts.search_text`` — the plain text the FTS index covers
+    instead of ``json_payload`` (audit 2026-11-04 W04). The old index and
+    its triggers are dropped here; ``_init_fts`` recreates and rebuilds
+    them over the new column."""
+    for statement in (
+        "DROP TRIGGER IF EXISTS transcripts_fts_ai",
+        "DROP TRIGGER IF EXISTS transcripts_fts_ad",
+        "DROP TRIGGER IF EXISTS transcripts_fts_au",
+        "DROP TABLE IF EXISTS transcripts_fts",
+    ):
+        try:
+            conn.execute(statement)
+        except sqlite3.OperationalError as exc:  # no FTS5 module: nothing to drop
+            logger.debug("search_text migration: %s: %s", statement, exc)
+    conn.execute("ALTER TABLE transcripts ADD COLUMN search_text TEXT NOT NULL DEFAULT ''")
+    rows = conn.execute("SELECT id, json_payload FROM transcripts").fetchall()
+    conn.executemany(
+        "UPDATE transcripts SET search_text = ? WHERE id = ?",
+        [(_search_text(row[1]), row[0]) for row in rows],
+    )
+
+
 # Applied in order, tracked via SQLite's built-in `PRAGMA user_version`
 # (see HistoryStore._migrate). Append new migrations here — never edit or
 # reorder an existing one, since a database's user_version records exactly
@@ -323,6 +360,7 @@ _MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _v14_add_queue_items,
     _v15_add_review_marks,
     _v16_add_collections,
+    _v17_add_search_text,
 )
 
 # A transcript_drafts row this code understands; a newer one is left alone.
@@ -332,7 +370,7 @@ DRAFT_SCHEMA_VERSION = 1
 _CREATE_FTS_SQL = """
 CREATE VIRTUAL TABLE IF NOT EXISTS transcripts_fts USING fts5(
     source_name,
-    json_payload,
+    search_text,
     content=transcripts,
     content_rowid=id,
     tokenize="unicode61"
@@ -340,22 +378,22 @@ CREATE VIRTUAL TABLE IF NOT EXISTS transcripts_fts USING fts5(
 
 CREATE TRIGGER IF NOT EXISTS transcripts_fts_ai
 AFTER INSERT ON transcripts BEGIN
-    INSERT INTO transcripts_fts(rowid, source_name, json_payload)
-    VALUES (new.id, new.source_name, new.json_payload);
+    INSERT INTO transcripts_fts(rowid, source_name, search_text)
+    VALUES (new.id, new.source_name, new.search_text);
 END;
 
 CREATE TRIGGER IF NOT EXISTS transcripts_fts_ad
 AFTER DELETE ON transcripts BEGIN
-    INSERT INTO transcripts_fts(transcripts_fts, rowid, source_name, json_payload)
-    VALUES ('delete', old.id, old.source_name, old.json_payload);
+    INSERT INTO transcripts_fts(transcripts_fts, rowid, source_name, search_text)
+    VALUES ('delete', old.id, old.source_name, old.search_text);
 END;
 
 CREATE TRIGGER IF NOT EXISTS transcripts_fts_au
 AFTER UPDATE ON transcripts BEGIN
-    INSERT INTO transcripts_fts(transcripts_fts, rowid, source_name, json_payload)
-    VALUES ('delete', old.id, old.source_name, old.json_payload);
-    INSERT INTO transcripts_fts(rowid, source_name, json_payload)
-    VALUES (new.id, new.source_name, new.json_payload);
+    INSERT INTO transcripts_fts(transcripts_fts, rowid, source_name, search_text)
+    VALUES ('delete', old.id, old.source_name, old.search_text);
+    INSERT INTO transcripts_fts(rowid, source_name, search_text)
+    VALUES (new.id, new.source_name, new.search_text);
 END;
 """
 
@@ -732,10 +770,11 @@ class HistoryStore:
         with self._connect() as conn:
             cur = conn.execute(
                 """INSERT INTO transcripts
-                   (created_at, source_path, source_name, source_kind, duration, language, model, json_payload)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (created_at, source_path, source_name, source_kind, duration, language, model,
+                    json_payload, search_text)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (now, source_path, source_name, source_kind, result.duration,
-                 result.language, model, payload),
+                 result.language, model, payload, _search_text(payload)),
             )
             # lastrowid is Optional only before a successful INSERT; the
             # execute() above either inserted a row or raised.
@@ -888,9 +927,9 @@ class HistoryStore:
         with self._connect() as conn:
             cur = conn.execute(
                 """UPDATE transcripts
-                   SET duration = ?, language = ?, json_payload = ?
+                   SET duration = ?, language = ?, json_payload = ?, search_text = ?
                    WHERE id = ?""",
-                (result.duration, result.language, payload, record_id),
+                (result.duration, result.language, payload, _search_text(payload), record_id),
             )
             return cur.rowcount > 0
 
@@ -962,7 +1001,7 @@ class HistoryStore:
 
     def _search_fts(self, text: str, limit: int) -> List[HistoryRecord]:
         query = _fts_query(text)
-        # snippet() highlights column 1 (json_payload); column 0 is source_name
+        # snippet() highlights column 1 (search_text); column 0 is source_name
         sql = """
             SELECT t.id, t.created_at, t.source_path, t.source_name, t.source_kind,
                    t.duration, t.language, t.model, t.artifacts, t.title,
@@ -1005,7 +1044,7 @@ class HistoryStore:
             SELECT id, created_at, source_path, source_name, source_kind, duration, language, model,
                    artifacts, title, substr(json_payload, 1, 300) AS preview
             FROM transcripts
-            WHERE json_payload LIKE ? OR source_name LIKE ? OR title LIKE ?
+            WHERE search_text LIKE ? OR source_name LIKE ? OR title LIKE ?
             ORDER BY created_at DESC, id DESC
             LIMIT ?
         """
@@ -1079,7 +1118,7 @@ class HistoryStore:
             preview = "substr(t.json_payload, 1, 300) AS preview"
             order = "t.created_at DESC, t.id DESC"
             pattern = f"%{text}%"
-            where.insert(0, "(t.json_payload LIKE ? OR t.source_name LIKE ? OR t.title LIKE ?)")
+            where.insert(0, "(t.search_text LIKE ? OR t.source_name LIKE ? OR t.title LIKE ?)")
             params[:0] = [pattern, pattern, pattern]
             base_params = []
 
@@ -1391,13 +1430,14 @@ class HistoryStore:
         with self._connect() as conn:
             cur = conn.execute(
                 """INSERT INTO transcripts (created_at, source_path, source_name, source_kind,
-                       duration, language, model, json_payload, artifacts, title, media_fingerprint)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       duration, language, model, json_payload, artifacts, title, media_fingerprint,
+                       search_text)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (record.get("created_at") or now, source_path, record.get("source_name") or "",
                  record.get("source_kind") or "file", float(record.get("duration") or 0),
                  record.get("language") or "", record.get("model") or "",
                  record["json_payload"], record.get("artifacts"), record.get("title") or "",
-                 record.get("media_fingerprint") or ""),
+                 record.get("media_fingerprint") or "", _search_text(record["json_payload"])),
             )
             new_id = cur.lastrowid
             assert new_id is not None
