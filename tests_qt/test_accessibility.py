@@ -197,3 +197,27 @@ def test_the_export_button_has_one_arrow():
         load_locale(lang)
         assert "▾" not in tr("record_export_menu")
     load_locale("en")
+
+
+def test_a_long_record_title_ends_in_an_ellipsis(process_events):
+    """Audit 2026-11-04 W17: it was cut mid-word."""
+    from PyQt6.QtWidgets import QLineEdit, QVBoxLayout, QWidget
+
+    from ui.record_view import _TitleEdit
+
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    edit = _TitleEdit()
+    other = QLineEdit()   # holds the focus, as the transcript does in the app
+    layout.addWidget(edit)
+    layout.addWidget(other)
+    host.resize(200, 80)
+    title = "Interview with the editor-in-chief on local transcription, privacy and preparing"
+    edit.set_shown_text(title)
+    host.show()
+    other.setFocus()
+    process_events()
+    assert edit.is_elided() and edit.text() == title   # text() untouched
+    assert title in edit.toolTip()
+    edit.grab()   # paints without error
+    host.close()

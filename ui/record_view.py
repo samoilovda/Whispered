@@ -12,7 +12,7 @@ tab offers to create it while it doesn't exist yet.
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QFocusEvent, QKeyEvent
+from PyQt6.QtGui import QAction, QFocusEvent, QKeyEvent, QPainter, QPaintEvent, QPalette
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -20,6 +20,8 @@ from PyQt6.QtWidgets import (
     QMenu,
     QPushButton,
     QSizePolicy,
+    QStyle,
+    QStyleOptionFrame,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -60,6 +62,12 @@ class _TitleEdit(QLineEdit):
         self._shown = text
         self.setText(text)
         self.setCursorPosition(0)
+        self.update_tooltip()
+
+    def update_tooltip(self) -> None:
+        """The whole title (it may be shortened on screen) and how to rename."""
+        hint = tr("record_title_tooltip")
+        self.setToolTip(f"{self._shown}\n{hint}" if self._shown else hint)
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:  # noqa: N802
         if event is not None and event.key() == Qt.Key.Key_Escape:
@@ -71,6 +79,33 @@ class _TitleEdit(QLineEdit):
     def focusOutEvent(self, event: QFocusEvent | None) -> None:  # noqa: N802
         super().focusOutEvent(event)
         self.setCursorPosition(0)
+
+    def paintEvent(self, event: QPaintEvent | None) -> None:  # noqa: N802
+        """Out of focus, a title too long for the field ends in "…" instead
+        of being cut mid-word (audit 2026-11-04 W17); text() is untouched,
+        and editing shows the whole of it."""
+        full = self.text()
+        metrics = self.fontMetrics()
+        rect = self.contentsRect().adjusted(2, 0, -2, 0)
+        if self.hasFocus() or metrics.horizontalAdvance(full) <= rect.width():
+            super().paintEvent(event)
+            return
+        painter = QPainter(self)
+        option = QStyleOptionFrame()
+        self.initStyleOption(option)
+        must(self.style()).drawPrimitive(
+            QStyle.PrimitiveElement.PE_PanelLineEdit, option, painter, self)
+        painter.setPen(self.palette().color(QPalette.ColorRole.Text))
+        painter.setFont(self.font())
+        painter.drawText(
+            rect, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            metrics.elidedText(full, Qt.TextElideMode.ElideRight, rect.width()))
+        painter.end()
+
+    def is_elided(self) -> bool:
+        """The shown title is shortened (for tests and the tooltip)."""
+        return (not self.hasFocus() and self.fontMetrics().horizontalAdvance(self.text())
+                > self.contentsRect().width() - 4)
 
     def _commit(self) -> None:
         text = self.text().strip()
@@ -118,7 +153,7 @@ class RecordView(QWidget):
         self._retranslate_record()
 
     def _retranslate_record(self) -> None:
-        self.title_edit.setToolTip(tr("record_title_tooltip"))
+        self.title_edit.update_tooltip()
         self.title_edit.setAccessibleName(tr("record_title_tooltip"))
         self.cover_action.setText(tr("record_cover_action"))
         self.versions_action.setText(tr("record_versions_action"))
