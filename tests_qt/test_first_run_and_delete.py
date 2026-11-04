@@ -354,3 +354,26 @@ def test_a_failed_library_delete_is_reported(env, monkeypatch, process_events):
     assert warned and "database is locked" in warned[0]
     window.close()
     process_events()
+
+
+def test_the_first_run_card_stays_compact_at_the_minimum_size(env, process_events):
+    """Audit 2026-11-04 W09/W21: the card took half the start screen at
+    900×550 (intro text, a full models path); a ✕ gave no way out."""
+    from core.paths import models_dir
+
+    window = _window(process_events)
+    view = window.start_view
+    view._diarize_installed = False
+    window.resize(900, 550)
+    view.show_first_run()
+    process_events()
+    assert view._first_run_card.isVisible()
+    assert not view._first_run_body.isVisible()                 # intro hidden when short
+    assert str(models_dir()) not in view._first_run_status.text()
+    assert "sherpa-onnx" in view._first_run_status.text()
+    window.resize(1440, 900)
+    process_events()
+    if view.height() >= view._first_run_compact_below:
+        assert view._first_run_body.isVisible()
+    window.close()
+    process_events()

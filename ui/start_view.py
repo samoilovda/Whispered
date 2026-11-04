@@ -320,8 +320,22 @@ class StartView(QWidget):
         layout.addWidget(self._first_run_done_btn)
         self._first_run_card = card
         card.setVisible(False)
+        # Below this height the card's intro text is hidden, so the source
+        # chips and Launch stay in view (audit 2026-11-04 W09).
+        self._first_run_compact_below = 720
+        self._first_run_profile_picked = False
         root.addWidget(card)
         self._populating_profiles = False
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(event)
+        self._apply_first_run_compact()
+
+    def _apply_first_run_compact(self) -> None:
+        """Hide the intro text on a short window or once a profile was
+        picked: the card then is one status line and its dismiss button."""
+        compact = self.height() < self._first_run_compact_below or self._first_run_profile_picked
+        self._first_run_body.setVisible(not compact)
 
     def should_show_first_run(self, record_count: int) -> bool:
         return not get_config().first_run_done and record_count == 0
@@ -354,6 +368,7 @@ class StartView(QWidget):
         self._profile_combo.setCurrentIndex(self._profile_combo.findData(current))
         self._populating_profiles = False
         self._first_run_status.setText(self._first_run_status_text())
+        self._apply_first_run_compact()
 
     def _first_run_status_text(self) -> str:
         import shutil
@@ -376,7 +391,10 @@ class StartView(QWidget):
             text = tr("first_run_model_ready", model=name)
         else:
             size = size_label(entry.size_bytes) if entry is not None and entry.size_bytes else "?"
-            text = tr("first_run_model_download", model=name, size=size, path=folder)
+            # The folder goes to the tooltip: a full path filled two lines of
+            # the card at the minimum window size (audit 2026-11-04 W09).
+            text = tr("first_run_model_download", model=name, size=size)
+            self._first_run_status.setToolTip(tr("first_run_models_folder", path=folder))
             try:
                 free = shutil.disk_usage(folder).free
             except OSError:
@@ -388,6 +406,12 @@ class StartView(QWidget):
             ffmpeg="✓" if self._ffmpeg_found else "✕" if self._ffmpeg_found is False else "…",
             speakers="✓" if self._diarize_installed else "✕" if self._diarize_installed is False else "…",
         )
+        # A ✕ says how to fix it (audit 2026-11-04 W21).
+        if self._ffmpeg_found is False:
+            from core.external_tools import ffmpeg_install_hint
+            text += "\n" + tr("first_run_ffmpeg_missing", hint=ffmpeg_install_hint())
+        if self._diarize_installed is False:
+            text += "\n" + tr("first_run_speakers_missing")
         return text
 
     def _on_profile_chosen(self, _index: int) -> None:
@@ -395,6 +419,8 @@ class StartView(QWidget):
         Shown exact settings stay editable in the recipe editor."""
         if self._populating_profiles:
             return
+        self._first_run_profile_picked = True
+        self._apply_first_run_compact()
         from domain.asr_profile import PROFILES_BY_KEY
 
         profile = PROFILES_BY_KEY.get(self._profile_combo.currentData())
