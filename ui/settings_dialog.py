@@ -6,7 +6,7 @@ Unified settings window (Ctrl+,).
 import os
 import subprocess
 import sys
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QStackedWidget, QWidget,
@@ -32,6 +32,10 @@ from core.worker_registry import WorkerRegistry
 from core.logger import get_logger
 from core.i18n import on_language_changed, set_locale, tr
 from domain.recording_settle import default_recording_folder
+
+
+if TYPE_CHECKING:
+    from ui.call_worker import CallWorker
 
 logger = get_logger(__name__)
 
@@ -343,6 +347,15 @@ class SettingsDialog(QDialog):
         self._tt(self._reindex_btn, "library_reindex_materials")
         self._reindex_btn.clicked.connect(self._reindex_materials)
         layout.addRow(self._reindex_btn)
+
+        # Files of deleted records: deleting a record (or clearing the
+        # history) keeps them; this finds and trashes them on request
+        # (audit 2026-11-04 AR3).
+        self._orphans_btn = QPushButton()
+        self._tt(self._orphans_btn, "settings_orphan_files")
+        self._orphans_btn.clicked.connect(self._find_orphan_files)
+        layout.addRow(self._orphans_btn)
+        self._orphans: "Optional[CallWorker]" = None
 
         # UI language
         self._lang_ui_combo = QComboBox()
@@ -1147,6 +1160,59 @@ class SettingsDialog(QDialog):
         self._reindex = None
         self._reindex_btn.setEnabled(True)
         self._reindex_btn.setText(tr("library_reindex_materials"))
+
+    def _find_orphan_files(self) -> None:
+        """Measure the folders of deleted records in the background, then
+        offer to move them to the Trash."""
+        if self._orphans is not None:
+            return
+        from application.records import orphan_folders
+        from ui.call_worker import CallWorker
+
+        self._orphans_btn.setEnabled(False)
+        self._orphans_btn.setText(tr("settings_orphan_files_scanning"))
+        worker = CallWorker(lambda cancelled: orphan_folders(is_cancelled=cancelled), parent=self)
+        worker.done.connect(self._on_orphans_found)
+        worker.failed.connect(self._on_orphans_failed)
+        self._orphans = worker
+        self._registry.register(worker, name="orphan_files")
+        worker.start()
+
+    def _end_orphans(self) -> None:
+        self._orphans = None
+        self._orphans_btn.setEnabled(True)
+        self._orphans_btn.setText(tr("settings_orphan_files"))
+
+    def _on_orphans_failed(self, message: str) -> None:
+        self._end_orphans()
+        QMessageBox.warning(self, tr("settings_orphan_files"), message)
+
+    def _on_orphans_found(self, found: object) -> None:
+        from PyQt6.QtCore import QFile
+
+        from ui.project_dialogs import human_size
+
+        self._end_orphans()
+        folders = list(found) if isinstance(found, list) else []
+        if not folders:
+            QMessageBox.information(self, tr("settings_orphan_files"), tr("settings_orphan_files_none"))
+            return
+        size = sum(item[1] for item in folders)
+        files = sum(item[2] for item in folders)
+        reply = QMessageBox.question(
+            self, tr("settings_orphan_files"),
+            tr("settings_orphan_files_confirm", count=len(folders), files=files, size=human_size(size)),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        failed = [str(path) for path, _size, _files in folders if not QFile.moveToTrash(str(path))]
+        if failed:
+            QMessageBox.warning(self, tr("settings_orphan_files"),
+                                tr("settings_orphan_files_failed", paths="\n".join(failed[:10])))
+        else:
+            QMessageBox.information(self, tr("settings_orphan_files"),
+                                    tr("settings_orphan_files_done", count=len(folders)))
 
     def _on_reindexed(self, count: object) -> None:
         self._end_reindex()

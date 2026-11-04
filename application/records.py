@@ -197,3 +197,34 @@ def finalize_live_record(record_id: int, result: Any) -> bool:
     except Exception as exc:  # noqa: BLE001 - the transcript stays open on screen
         logger.warning("Failed to finalize live transcript history: %s", exc)
         return False
+
+
+def orphan_folders(
+    root: Optional[Path] = None,
+    live_ids: Optional[Collection[int]] = None,
+    is_cancelled: Optional[Any] = None,
+) -> list[tuple[Path, int, int]]:
+    """Artifact folders of deleted records — (path, bytes, files) each.
+
+    Deleting a record keeps its files by default, and "Clear history" keeps
+    all of them, so output/ can fill with folders no record points to
+    (audit 2026-11-04 AR3). Only folders named ``<stem>-<id>`` whose id is
+    gone count; a folder without an id is never guessed to be an orphan,
+    and nothing is reported when the history cannot be read."""
+    from core.disk_usage import folder_usage
+    from core.paths import output_dir
+
+    live = live_record_ids() if live_ids is None else live_ids
+    if live is None:
+        return []
+    base = root if root is not None else output_dir()
+    found: list[tuple[Path, int, int]] = []
+    for folder in sorted(p for p in base.iterdir() if p.is_dir()):
+        if is_cancelled is not None and is_cancelled():
+            break
+        record_id = folder_record_id(folder)
+        if record_id is None or record_id in live:
+            continue
+        size, files = folder_usage(folder)
+        found.append((folder, size, files))
+    return found

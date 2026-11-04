@@ -242,3 +242,16 @@ def test_cli_skips_a_deleted_record(cli, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(records, "live_record_ids", lambda: set())
     assert cli.main([]) == 0
     assert "Nothing is queued" in capsys.readouterr().out
+
+
+def test_orphan_folders_are_only_those_of_deleted_records(tmp_path):
+    """Audit 2026-11-04 AR3."""
+    from application import records
+
+    root = tmp_path / "output"
+    for name in ("kept-1", "gone-2", "legacy"):
+        (root / name).mkdir(parents=True)
+        (root / name / "clean.md").write_text("x" * 10, encoding="utf-8")
+    found = records.orphan_folders(root, live_ids={1})
+    assert [(p.name, size, files) for p, size, files in found] == [("gone-2", 10, 1)]
+    assert records.orphan_folders(root, live_ids=None) is not None

@@ -391,3 +391,33 @@ def test_latest_from_source_folder_says_why_it_is_disabled(env, process_events):
     config.get_config().source_folder = str(env[1])
     selector.refresh_source_folder()
     assert selector.latest_btn.isEnabled() and selector.latest_btn.toolTip() == ""
+
+
+def test_settings_trash_the_files_of_deleted_records(env, monkeypatch, tmp_path, process_events):
+    """Audit 2026-11-04 AR3: deleting a record keeps its folder by default."""
+    import time
+
+    from PyQt6.QtCore import QFile
+    from PyQt6.QtWidgets import QMessageBox
+
+    from application import records
+    from ui.settings_dialog import SettingsDialog
+
+    orphan = tmp_path / "out" / "gone-9"
+    orphan.mkdir(parents=True)
+    (orphan / "clean.md").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(records, "orphan_folders",
+                        lambda is_cancelled=None: [(orphan, 1, 1)])
+    trashed = []
+    monkeypatch.setattr(QFile, "moveToTrash", lambda path: trashed.append(path) or True)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    told = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: told.append(a[-1]))
+    dialog = SettingsDialog()
+    dialog._find_orphan_files()
+    deadline = time.monotonic() + 5
+    while dialog._orphans is not None and time.monotonic() < deadline:
+        process_events()
+    assert trashed == [str(orphan)] and told
+    dialog.close()
+    process_events()
