@@ -382,6 +382,10 @@ class SettingsDialog(QDialog):
         self._recording_offer_chk = QCheckBox()
         self._tt(self._recording_offer_chk, "settings_recording_offer_enabled")
         layout.addRow(self._recording_offer_chk)
+        # Turning it on fills in Zoom's folder visibly: the watch never
+        # reaches into ~/Documents on its own (macOS asks for that folder's
+        # permission; audit 2026-11-04 W25).
+        self._recording_offer_chk.toggled.connect(self._on_recording_offer_toggled)
 
         source_row = QHBoxLayout()
         self._source_folder_edit = QLineEdit()
@@ -412,6 +416,10 @@ class SettingsDialog(QDialog):
         )
         if folder:
             self._watch_folder_edit.setText(folder)
+
+    def _on_recording_offer_toggled(self, checked: bool) -> None:
+        if checked and not self._source_folder_edit.text().strip():
+            self._source_folder_edit.setText(default_recording_folder())
 
     def _browse_source_folder(self) -> None:
         start = self._source_folder_edit.text() or default_recording_folder()

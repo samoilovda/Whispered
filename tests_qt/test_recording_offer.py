@@ -155,3 +155,27 @@ def test_queueing_from_the_offer_leaves_the_start_screen_recipe_alone(window, mo
     assert seen == ["podcast_article"]
     assert window.start_view.current_recipe_key() == before
     assert queue_store  # the snapshot path is the real one
+
+
+def test_no_folder_means_nothing_is_watched(window, monkeypatch):
+    """Audit 2026-11-04 W25: ~/Documents/Zoom is never read unasked."""
+    import config
+
+    monkeypatch.setattr(config, "_config", config.Config(recording_offer_enabled=True, source_folder=""))
+    window._apply_recording_offer_config()
+    assert window._recording_watch.folder == ""
+
+
+def test_switching_the_offer_on_fills_in_zoom_s_folder(process_events, monkeypatch, tmp_path):
+    import config
+    from domain.recording_settle import default_recording_folder
+    from ui.settings_dialog import SettingsDialog
+
+    monkeypatch.setattr(config, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "config.json")
+    monkeypatch.setattr(config, "_config", config.Config())
+    dialog = SettingsDialog()
+    dialog._recording_offer_chk.setChecked(True)
+    assert dialog._source_folder_edit.text() == default_recording_folder()
+    dialog.close()
+    process_events()

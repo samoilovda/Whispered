@@ -1822,15 +1822,14 @@ class MainWindow(QMainWindow):
         self.status_bar.show_queue(True)
 
     def _apply_recording_offer_config(self) -> None:
-        """Watch Config.source_folder (Zoom's default folder when unset)
-        for finished recordings while the offer is enabled, else stop —
-        called at startup and again after Settings is applied."""
-        from domain.recording_settle import default_recording_folder
-
+        """Watch Config.source_folder for finished recordings while the
+        offer is enabled, else stop — called at startup and again after
+        Settings is applied. No folder chosen means nothing is watched:
+        reaching into ~/Documents/Zoom unasked makes macOS ask for the
+        Documents permission out of the blue (audit 2026-11-04 W25);
+        Settings fills Zoom's folder in when the offer is switched on."""
         cfg = get_config()
-        folder = ""
-        if getattr(cfg, "recording_offer_enabled", False):
-            folder = getattr(cfg, "source_folder", "") or default_recording_folder()
+        folder = cfg.source_folder if cfg.recording_offer_enabled else ""
         self._recording_watch.set_folder(folder)
 
     def _recording_choices(self) -> "list[tuple[str, Recipe]]":
