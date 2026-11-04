@@ -278,8 +278,9 @@ full release soak gate.
 
 ### API-key storage
 
-When the optional `keyring` package and a working OS backend are available,
-cloud-provider API keys and the Hugging Face token are stored in macOS
+`keyring` is a dependency on macOS and Windows (on Linux install it yourself
+when a Secret Service works). With it, cloud-provider API keys, the YouTube
+OAuth client and login are stored in macOS
 Keychain, Windows Credential Manager, or a Linux Secret Service. Otherwise
 Whispered falls back to its owner-only local configuration file. Use a
 dedicated, least-privilege key and protect the user account accordingly.

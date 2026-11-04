@@ -18,7 +18,9 @@ read `docs/agents/llm.md`.
   `date_format.py` (see `docs/agents/i18n.md`).
 - `youtube_oauth.py`/`youtube_upload.py` are Qt-free clients and
   `youtube_upload_worker.py` the `BaseWorker` wrapper; network use only under
-  root rule 1. Tokens live in the OS keyring.
+  root rule 1. Tokens live in the OS keyring (`keyring`, required on
+  macOS/Windows); without one the login lasts only for the process and
+  Settings says so.
 - `recording_watch.py` watches `Config.source_folder` and emits each finished
   new recording; `MainWindow` then offers a recipe via
   `ui/recording_offer_dialog.py` (opt-in: `Config.recording_offer_enabled`).

@@ -37,13 +37,14 @@ urllib3>=2.8,<3
 # only speaker labels are skipped.
 sherpa-onnx>=1.12
 
-# Optional: store hf_token / yt_openai_api_key / yt_anthropic_api_key in the
-# OS keyring (macOS Keychain, Windows Credential Manager, a Linux Secret
-# Service) instead of plaintext in config.json — see core/secrets_store.py.
-# Not installed by default: some Linux desktop environments have no working
-# Secret Service, and this must never block the app from running. Falls back
-# to the existing plaintext-file storage automatically when absent.
-# keyring>=25.0
+# OS keyring for secrets and the YouTube login (core/secrets_store.py):
+# macOS Keychain and Windows Credential Manager are always there, so it is
+# required on those two — without it the YouTube login lasts only until the
+# app quits and tools/youtube_autoupload.py never sees it (audit 2026-11-04
+# W05). On Linux a working Secret Service is not guaranteed: install
+# keyring yourself when you have one; the app falls back to config.json and
+# Settings says the login is not saved.
+keyring>=25.0; sys_platform == "darwin" or sys_platform == "win32"
 
 # Video mode system dependencies (not pip-installable — must be on PATH):
 #   ffmpeg + ffprobe   macOS: brew install ffmpeg

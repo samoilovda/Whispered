@@ -263,8 +263,9 @@ Swift-helper, а также разрешения Screen Recording. Live оста
 
 ### Хранение API-ключей
 
-Если установлен необязательный пакет `keyring` и доступен рабочий backend ОС,
-API-ключи облачных провайдеров и токен Hugging Face сохраняются в macOS
+Пакет `keyring` входит в зависимости на macOS и Windows (на Linux его ставят
+вручную при работающем Secret Service). С ним API-ключи облачных провайдеров,
+OAuth-клиент и вход YouTube сохраняются в macOS
 Keychain, Windows Credential Manager или Linux Secret Service. Иначе
 Whispered использует локальный конфигурационный файл с доступом только для
 владельца. Используйте отдельный ключ с минимально необходимыми правами.

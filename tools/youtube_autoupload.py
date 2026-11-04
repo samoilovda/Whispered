@@ -86,6 +86,11 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         if not youtube_oauth.is_connected():
             print(f"YouTube is not connected: nobody is signed in — {where} → \"Connect account\".")
+            from core import secrets_store
+
+            if secrets_store._keyring_module() is None:
+                print("No system keyring is installed (pip install keyring): a login made in the "
+                      "app is kept only until it quits, so this script can never see it.")
             return 2
         uploader = UploadClient(youtube_oauth.TokenProvider(
             cfg.yt_oauth_client_id, cfg.yt_oauth_client_secret))

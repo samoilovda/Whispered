@@ -1198,6 +1198,7 @@
   "settings_yt_not_connected": "Клиент импортирован. Подключите аккаунт, чтобы загружать видео.",
   "settings_yt_connecting": "Завершите вход в браузере…",
   "settings_yt_connected": "Подключено: {channel}",
+  "settings_yt_login_session_only": "Вход не сохранён: нет системной связки ключей (pip install keyring). Он закончится при выходе из Whispered, и tools/youtube_autoupload.py его не увидит.",
   "settings_yt_connect_failed": "Не удалось подключить аккаунт: {detail}",
   "yt_publish_unverified_hint": "Видео, загруженные через API проектом Google, который не прошёл аудит, остаются приватными до его прохождения. Публиковать их вы будете сами в YouTube Studio.",
   "yt_publish_privacy": "Видимость",

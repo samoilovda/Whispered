@@ -1195,6 +1195,7 @@
   "settings_yt_not_connected": "Client imported. Connect your account to upload videos.",
   "settings_yt_connecting": "Waiting for you to finish signing in in the browser…",
   "settings_yt_connected": "Connected: {channel}",
+  "settings_yt_login_session_only": "The login is not saved: there is no system keyring (pip install keyring). It ends when Whispered quits, and tools/youtube_autoupload.py cannot use it.",
   "settings_yt_connect_failed": "Could not connect the account: {detail}",
   "yt_publish_unverified_hint": "Videos uploaded through the API by a Google project that has not passed Google's audit stay private until it does. You publish them yourself in YouTube Studio.",
   "yt_publish_privacy": "Visibility",

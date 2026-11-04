@@ -917,6 +917,10 @@ class SettingsDialog(QDialog):
             text, role = tr("settings_yt_connecting"), "muted"
         elif connected:
             text, role = tr("settings_yt_connected", channel=cfg.yt_channel_title or "\u2014"), "success-text"
+            if not youtube_oauth.login_is_persistent():
+                # Without a keyring the login is gone at quit, and the
+                # upload CLI never sees it (audit 2026-11-04 W05).
+                text, role = f"{text}\n{tr('settings_yt_login_session_only')}", "warning-text"
         elif configured:
             text, role = tr("settings_yt_not_connected"), "muted"
         else:
