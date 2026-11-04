@@ -16,6 +16,19 @@ class Operation:
     label: str                     # what the user calls it
     cancel: Callable[[], None]     # stops this operation only
     ai: bool = False               # reported as "AI processing cancelled"
+    # What it holds exclusively: "asr" — a whisper.cpp model in memory (the
+    # single-file transcriber, the queue, Live, Course Capture). Two of them
+    # at once load two models and fight over Metal/CPU.
+    resources: frozenset[str] = frozenset()
+
+
+ASR = "asr"
+
+
+def holder(operations: Sequence[Operation], resource: str) -> Operation | None:
+    """The operation that holds *resource*, if any — a new start that needs
+    it must queue or wait instead of running beside it."""
+    return next((op for op in operations if resource in op.resources), None)
 
 
 def cancel_one(operations: Sequence[Operation], key: str) -> Operation | None:

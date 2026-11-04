@@ -12,6 +12,7 @@ download, descramble, or otherwise touch the source site.
 from __future__ import annotations
 
 import re
+from typing import Callable
 from pathlib import Path
 
 from PyQt6.QtCore import pyqtSignal
@@ -118,6 +119,8 @@ class CourseCapturePanel(QWidget):
         super().__init__(parent)
         self.queue = CaptureQueue(course_title=get_config().course_capture_course_name)
         self._runtime = LiveRuntime(self)
+        # Who else has a whisper model loaded ("" = nobody); set by MainWindow.
+        self.asr_busy: Callable[[], str] = lambda: ""
         self._active_item_id: str | None = None
         self._i18n = Retranslator()
         self._setup_ui()
@@ -356,12 +359,22 @@ class CourseCapturePanel(QWidget):
 
     # ----------------------------------------------------------- capture
 
+    def is_capturing(self) -> bool:
+        """A lesson is being captured (its whisper model is loaded)."""
+        return self._runtime.is_running()
+
     def _toggle_capture(self) -> None:
         if self._active_item_id is not None:
             self._runtime.stop()
             return
         item = self.queue.next_pending()
         if item is None:
+            return
+        busy = self.asr_busy()
+        if busy:
+            # Another transcription has a whisper model loaded (audit
+            # 2026-11-04 W01); MainWindow sets this hook.
+            show_toast(self, tr("asr_busy", name=busy), kind="warning")
             return
         use_mic, _ = self.setup.selected_sources()
         target = self.setup.selected_target()

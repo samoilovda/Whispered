@@ -12,6 +12,8 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any, Optional
 
+from core.i18n import tr
+
 from config import get_config
 from core.live.contracts import SegmentState
 from core.live.preflight import default_helper_path
@@ -115,6 +117,12 @@ class LiveSessionController:
         discovered = view.selected_target()
         if use_system and discovered is None:
             view.invalidate_preflight()
+            return
+        busy = host.operations.asr_holder()
+        if busy is not None:
+            # One whisper model at a time (audit 2026-11-04 W01).
+            from ui.toast import show_toast
+            show_toast(host, tr("asr_busy", name=busy.label), kind="warning")
             return
         # A missing model downloads here, verified, before the session
         # starts — not unverified inside the live worker process.

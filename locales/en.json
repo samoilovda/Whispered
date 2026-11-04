@@ -1532,6 +1532,8 @@
   "subs_import_not_utf8": "The file is not UTF-8 text.",
   "subs_import_no_cues": "No subtitle cues were found in this file.",
   "operation_queue": "Queue",
+  "asr_busy": "{name} is transcribing — wait for it to finish or cancel it first.",
+  "asr_busy_queued": "{name} is transcribing — the file was added to the queue.",
   "cancel_operation_named": "Cancel “{name}”",
   "cancel_operation_all": "Cancel everything",
   "cancel_operation_tip": "Running: {names}. Click to choose what to cancel."

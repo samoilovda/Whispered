@@ -23,3 +23,13 @@ def test_cancel_all_and_description():
     cancel_all(ops)
     assert log == ["clean", "book", "project"]
     assert describe(ops) == "Clean · Book · Project"
+
+
+def test_holder_names_who_has_the_whisper_model():
+    """Audit 2026-11-04 W01."""
+    from application.operations import ASR, Operation, holder
+
+    clean = Operation("clean", "Clean", lambda: None)
+    queue = Operation("batch", "Queue", lambda: None, resources=frozenset({ASR}))
+    assert holder([clean], ASR) is None
+    assert holder([clean, queue], ASR) is queue

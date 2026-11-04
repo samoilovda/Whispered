@@ -819,6 +819,7 @@ class MainWindow(QMainWindow):
         # one at a time via the Live system-audio pipeline instead of files.
         self.course_capture_panel = CourseCapturePanel()
         self.course_capture_panel.lesson_saved.connect(self._on_course_lesson_saved)
+        self.course_capture_panel.asr_busy = self._asr_busy_label
         self._shutdownables.append(self.course_capture_panel)
 
         # Book Pipeline Panel — created here (not mode-gated) so its
@@ -1876,7 +1877,7 @@ class MainWindow(QMainWindow):
         cfg.recording_offer_recipe = recipe_key
         save_config()
         self.start_view.select_recipe(recipe_key)
-        if self.recipe_run.is_running() or self.transcriber.is_busy():
+        if self.recipe_run.is_running() or self.operations.asr_holder() is not None:
             # The queue snapshots the recipe just selected; Start stays
             # the user's decision there, as for any queued file.
             self.batch_panel.add_files([path])
@@ -2447,6 +2448,17 @@ class MainWindow(QMainWindow):
             return
         if self.transcriber.is_busy():
             return
+        # One whisper model at a time (audit 2026-11-04 W01): the queue,
+        # Live and Course Capture each load their own.
+        busy = self.operations.asr_holder()
+        if busy is not None:
+            if busy.key == "batch":
+                self.batch_panel.add_files([filepath])
+                self.status_bar.show_queue(True)
+                show_toast(self, tr("asr_busy_queued", name=busy.label), kind="info")
+            else:
+                show_toast(self, tr("asr_busy", name=busy.label), kind="warning")
+            return
         # Starting replaces the open record's panels: commit or refuse a
         # pending edit first, as every other navigation does.
         if not self._prepare_leave():
@@ -2542,8 +2554,20 @@ class MainWindow(QMainWindow):
         dialog.exec()
         return dialog.download_successful and Transcriber.prepare_models(model)
 
+    def _asr_busy_label(self) -> str:
+        """Who holds the whisper model, "" when nobody (OperationController)."""
+        busy = self.operations.asr_holder()
+        return busy.label if busy is not None else ""
+
     def _start_batch_processing(self):
         """Start batch processing with current settings."""
+        busy = self.operations.asr_holder()
+        if busy is not None and busy.key != "batch":
+            # The single-file transcriber, Live or Course Capture already
+            # has a model loaded (audit 2026-11-04 W01).
+            self.batch_panel._on_batch_finished()
+            show_toast(self, tr("asr_busy", name=busy.label), kind="warning")
+            return
         model = self.model_combo.currentData()
         language = self.language_combo.currentData()
         translate = self.translate_checkbox.isChecked()

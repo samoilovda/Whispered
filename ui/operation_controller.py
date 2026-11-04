@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Optional
 from PyQt6.QtCore import QEvent, QObject
 from PyQt6.QtWidgets import QMenu, QWidget
 
-from application.operations import Operation, cancel_all, cancel_one, describe
+from application.operations import ASR, Operation, cancel_all, cancel_one, describe, holder
 from core.i18n import tr
 from ui.qt_util import must
 
@@ -55,7 +55,8 @@ class OperationController:
         host = self._host
         ops: list[Operation] = []
         if host.transcriber.is_busy():
-            ops.append(Operation("transcribe", tr("step_transcribe"), host.transcriber.cancel))
+            ops.append(Operation("transcribe", tr("step_transcribe"), host.transcriber.cancel,
+                                 resources=frozenset({ASR})))
         if host.recipe_run.is_running():
             ops.append(Operation("recipe", tr("record_run_running"), host.recipe_run.cancel))
         for key, job, cancel in (
@@ -73,8 +74,26 @@ class OperationController:
             def cancel_batch() -> None:
                 host.batch_panel.cancel_processing()
                 host.queue_controller.cancel()
-            ops.append(Operation("batch", tr("operation_queue"), cancel_batch))
+            ops.append(Operation(
+                "batch", tr("operation_queue"), cancel_batch,
+                resources=frozenset({ASR}) if host.batch_panel.processor.is_processing else frozenset()))
         return ops
+
+    def asr_holder(self) -> Optional[Operation]:
+        """Who has a whisper model loaded right now: the transcriber, the
+        queue, a Live session or a Course Capture lesson (audit 2026-11-04
+        W01). Every start of a transcription asks this first."""
+        found = holder(self.running(), ASR)
+        if found is not None:
+            return found
+        host = self._host
+        if host.live_runtime.is_running():
+            return Operation("live", tr("live_title"), host.live_session.stop,
+                             resources=frozenset({ASR}))
+        if host.course_capture_panel.is_capturing():
+            return Operation("course", tr("course_capture_title"), lambda: None,
+                             resources=frozenset({ASR}))
+        return None
 
     def others_running(self) -> bool:
         """A single-step job, a project export/import or the batch queue is
