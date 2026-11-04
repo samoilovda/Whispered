@@ -106,7 +106,7 @@ def test_reading_a_subtitle_file_for_import(tmp_path):
     vtt = tmp_path / "a.vtt"
     vtt.write_text("WEBVTT\n\n00:01.000 --> 00:02.000\nHello\n", encoding="utf-8")
     assert store.read_subtitle_file(str(vtt))[0].start == 1.0
-    for name, data, why in (("empty.srt", b"nothing here", "no_cues"), ("bin.srt", b"\xff\xfe\x00bad", "not_utf8"),
+    for name, data, why in (("empty.srt", b"nothing here", "no_cues"), ("bin.srt", b"\x00\x01\x02\xffbad", "not_utf8"),
                             ("big.srt", b"x" * (store.MAX_IMPORT_BYTES + 1), "too_large")):
         path = tmp_path / name
         path.write_bytes(data)
@@ -116,3 +116,23 @@ def test_reading_a_subtitle_file_for_import(tmp_path):
     assert store.combine_cues(a, b, "replace") == b
     assert [c.text for c in store.combine_cues(b, a, "add")] == ["a", "b"]
     assert s.SubtitleTrack.from_dict(s.SubtitleTrack(a, origin="x.srt").to_dict()).origin == "x.srt"
+
+
+def test_russian_subtitles_in_windows_1251_and_utf16_import(tmp_path):
+    """Audit 2026-11-04 W20: only UTF-8 was accepted."""
+    import pytest
+
+    from application import subtitle_store as store
+
+    body = "1\n00:00:01,000 --> 00:00:02,000\nПривет, мир\n"
+    for name, data, encoding in (("a.srt", body.encode("cp1251"), "cp1251"),
+                                 ("b.srt", body.encode("utf-16"), "utf-16"),
+                                 ("c.srt", body.encode("utf-8"), "utf-8")):
+        path = tmp_path / name
+        path.write_bytes(data)
+        cues, used = store.read_subtitle_file_detailed(str(path))
+        assert used == encoding and cues[0].text == "Привет, мир"
+    latin = tmp_path / "latin.srt"
+    latin.write_bytes("1\n00:00:01,000 --> 00:00:02,000\ncaf\xe9\n".encode("latin-1"))
+    with pytest.raises(store.SubtitleImportError, match="not_utf8"):
+        store.read_subtitle_file(str(latin))    # no Cyrillic: not guessed as cp1251

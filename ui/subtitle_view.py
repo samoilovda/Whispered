@@ -41,6 +41,7 @@ from ui.qt_util import must
 
 logger = get_logger(__name__)
 
+_ENCODING_NAMES = {"cp1251": "Windows-1251", "utf-16": "UTF-16"}
 _COL_TIME_IN, _COL_TIME_OUT, _COL_TEXT, _COL_ISSUES = 0, 1, 2, 3
 
 
@@ -321,7 +322,7 @@ class SubtitleView(QWidget):
         if not path:
             return
         try:
-            cues = subtitle_store.read_subtitle_file(path)
+            cues, encoding = subtitle_store.read_subtitle_file_detailed(path)
         except subtitle_store.SubtitleImportError as exc:
             reason = str(exc)
             known = {"too_large", "not_utf8", "no_cues"}
@@ -336,8 +337,13 @@ class SubtitleView(QWidget):
         box.setText(tr("subs_import_summary", name=name, count=len(cues),
                        start=stamp(cues[0].start), end=stamp(max(c.end for c in cues)),
                        issues=len(problems)))
+        notes = []
+        if encoding != "utf-8":
+            notes.append(tr("subs_import_encoding", encoding=_ENCODING_NAMES.get(encoding, encoding)))
         if self._track.cues:
-            box.setInformativeText(tr("subs_import_existing", count=len(self._track.cues)))
+            notes.append(tr("subs_import_existing", count=len(self._track.cues)))
+        if notes:
+            box.setInformativeText("\n".join(notes))
         replace_btn = box.addButton(tr("subs_import_replace"), QMessageBox.ButtonRole.DestructiveRole)
         add_btn = box.addButton(tr("subs_import_add"), QMessageBox.ButtonRole.AcceptRole) \
             if self._track.cues else None
