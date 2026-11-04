@@ -70,7 +70,7 @@ class OperationController:
                 ops.append(Operation(key, tr(f"step_{key}"), cancel, ai=True))
         if host.project.is_busy():
             ops.append(Operation("project", tr("project_title"), host.project.cancel))
-        if host.batch_panel._is_processing() or host.queue_controller.is_busy():
+        if host.batch_panel.is_processing() or host.queue_controller.is_busy():
             def cancel_batch() -> None:
                 host.batch_panel.cancel_processing()
                 host.queue_controller.cancel()
@@ -103,7 +103,7 @@ class OperationController:
                 host._youtube_job, host._book_job)
         return (any(job is not None and job.isRunning() for job in jobs)
                 or host.project.is_busy() or host.queue_controller.is_busy()
-                or host.batch_panel._is_processing())
+                or host.batch_panel.is_processing())
 
     def cancel(self, key: Optional[str] = None) -> None:
         """Cancel one named operation; without a *key*, the only running one,

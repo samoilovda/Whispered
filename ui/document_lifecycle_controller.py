@@ -67,7 +67,7 @@ class DocumentLifecycleController:
             return
         # The record is going: an open edit or draft has nothing to save to.
         if host.transcript_view.is_editing():
-            host.transcript_view._exit_edit_mode(save=False)
+            host.transcript_view.exit_edit_mode(save=False)
         try:
             from application.records import delete_record
 
@@ -129,7 +129,7 @@ class DocumentLifecycleController:
         if not gone:
             return
         if host.transcript_view.is_editing():
-            host.transcript_view._exit_edit_mode(save=False)
+            host.transcript_view.exit_edit_mode(save=False)
         self.close_open_record()
 
     def delete_blocked(self, record_id: int | None) -> bool:

@@ -337,6 +337,12 @@ class StartView(QWidget):
         compact = self.height() < self._first_run_compact_below or self._first_run_profile_picked
         self._first_run_body.setVisible(not compact)
 
+    def set_source_enabled(self, key: str, enabled: bool) -> None:
+        """Enable or disable one source chip ("file", "recorder", "live", …)."""
+        button = self._source_buttons.get(key)
+        if button is not None:
+            button.setEnabled(enabled)
+
     def should_show_first_run(self, record_count: int) -> bool:
         return not get_config().first_run_done and record_count == 0
 

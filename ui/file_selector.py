@@ -301,6 +301,14 @@ class FileSelector(QWidget):
         self.source_label.setText(folder)
         return True
 
+    def set_file(self, filepath: str) -> None:
+        """Select *filepath* as the source, as a drop or Browse would."""
+        self._set_file(filepath)
+
+    def clear_selection(self) -> None:
+        """Forget the selected file."""
+        self._clear_selection()
+
     def _set_file(self, filepath: str):
         """Set the selected file."""
         # Verify file exists

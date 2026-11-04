@@ -421,6 +421,10 @@ class StatusBar(QFrame):
         if self._overlay is not None:
             self._overlay.set_course_available(available)
 
+    def toggle_queue(self) -> None:
+        """Show or hide the queue panel."""
+        self._toggle_queue()
+
     def _toggle_queue(self) -> None:
         self.show_queue(self._overlay is None or not self._overlay.isVisible())
         self.queue_requested.emit()

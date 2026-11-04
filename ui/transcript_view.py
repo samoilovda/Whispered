@@ -1238,6 +1238,14 @@ class TranscriptView(QWidget):
         self.text_edit.setReadOnly(False)
         doc.contentsChanged.connect(self.edit_buffer_changed.emit)
 
+    def exit_edit_mode(self, save: bool = True) -> None:
+        """Leave edit mode, saving the edits or throwing them away."""
+        self._exit_edit_mode(save=save)
+
+    def open_find(self) -> None:
+        """Show the find/replace bar."""
+        self._open_find()
+
     def _exit_edit_mode(self, save: bool = True):
         """Leave the editor: *save* commits (staying put on an invalid
         buffer, see commit_pending_edit), otherwise the buffer is dropped."""

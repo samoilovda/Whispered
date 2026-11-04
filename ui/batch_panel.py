@@ -377,6 +377,14 @@ class BatchPanel(QWidget):
         self.job_kind_combo.setEnabled(count == 0 and not self._is_processing())
         self.queue_changed.emit(count)
 
+    def is_processing(self) -> bool:
+        """The queue (or a book batch) is running."""
+        return self._is_processing()
+
+    def finish_batch(self) -> None:
+        """Put the panel back in its idle state (a start was refused)."""
+        self._on_batch_finished()
+
     def _is_processing(self) -> bool:
         return self.processor.is_processing or bool(
             self._book_worker and self._book_worker.isRunning()

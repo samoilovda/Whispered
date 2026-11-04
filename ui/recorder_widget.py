@@ -182,6 +182,10 @@ class RecorderWidget(QWidget):
             self._recorder.error_occurred.connect(self._on_error)
         return self._recorder
 
+    def toggle_recording(self) -> None:
+        """Start or stop recording, as the record button does."""
+        self._toggle_recording()
+
     def _toggle_recording(self):
         rec = self._get_recorder()
         if rec.is_recording():

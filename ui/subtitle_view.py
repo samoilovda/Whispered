@@ -188,6 +188,10 @@ class SubtitleView(QWidget):
         self._render()
         self.content_changed.emit()
 
+    def cues(self) -> list:
+        """The cues of the track being edited."""
+        return list(self._track.cues)
+
     def has_content(self) -> bool:
         return bool(self._track.cues)
 

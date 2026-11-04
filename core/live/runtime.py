@@ -206,6 +206,11 @@ class LiveRuntime(QObject):
         if self._worker is not None:
             self._worker.cancel()
 
+    @property
+    def started_at(self) -> float:
+        """time.monotonic() when the session started, 0.0 before."""
+        return self._started_at
+
     def is_running(self) -> bool:
         return bool(self._states) and any(
             state in {SourceState.STARTING, SourceState.RUNNING, SourceState.PAUSED}

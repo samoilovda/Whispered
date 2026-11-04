@@ -710,7 +710,7 @@ class MainWindow(QMainWindow):
     def _menu_toggle_recording(self) -> None:
         self._stack.setCurrentIndex(self._start_index)
         self.start_view.set_source("recorder")
-        self.recorder_widget._toggle_recording()
+        self.recorder_widget.toggle_recording()
 
     def _trigger_undo(self) -> None:
         """Trigger undo on the currently focused widget if supported."""
@@ -726,7 +726,7 @@ class MainWindow(QMainWindow):
             and hasattr(self, "_stack")
             and self._stack.currentIndex() == self._record_index
         ):
-            self.transcript_view._open_find()
+            self.transcript_view.open_find()
 
     def _trigger_export_edl(self) -> None:
         if hasattr(self, "cut_view"):
@@ -948,7 +948,7 @@ class MainWindow(QMainWindow):
         self.transcript_view.passage_changed.connect(self.clips_view.update_passage_availability)
         self.clips_view.source = lambda: self._source_filepath or self.file_selector.get_file() or ""
         self.clips_view.kept = lambda: self.cut_view.get_kept_segments()
-        self.clips_view.cues = lambda: list(self.subtitle_view._track.cues)
+        self.clips_view.cues = self.subtitle_view.cues
         self.main_tabs.addTab(self.clips_view, tr("tab_clips"))
         self.main_tabs.addTab(self.cut_view, tr("tab_cut"))
         self.main_tabs.addTab(self.chat_panel, tr("tab_chat"))
@@ -979,7 +979,7 @@ class MainWindow(QMainWindow):
         folder_layout.addWidget(folder_hint)
         self._folder_hint_label = folder_hint
         queue_button = AnimatedButton(tr("draft_open_queue"))
-        queue_button.clicked.connect(lambda: self.status_bar._toggle_queue())
+        queue_button.clicked.connect(lambda: self.status_bar.toggle_queue())
         self._draft_queue_button = queue_button
         folder_layout.addWidget(queue_button)
         folder_layout.addStretch()
@@ -1030,7 +1030,7 @@ class MainWindow(QMainWindow):
         self.workspace_shell = WorkspaceShell(self.library_view, self._stack)
         self.workspace_shell.new_requested.connect(self._show_new_draft)
         self.workspace_shell.palette_requested.connect(lambda: self.command_palette.open_palette())
-        self.workspace_shell.queue_requested.connect(lambda: self.status_bar._toggle_queue())
+        self.workspace_shell.queue_requested.connect(lambda: self.status_bar.toggle_queue())
         self._workspace_layout.addWidget(self.workspace_shell, stretch=1)
 
         self.status_bar = StatusBar()
@@ -1533,11 +1533,11 @@ class MainWindow(QMainWindow):
                 self._show_tab(getattr(self, tab))
 
     def _on_live_finished(self, result: TranscriptionResult, source_path: str):
-        self.live_view._timer.stop()
+        self.live_view.stop_clock()
         self._source_filepath = source_path or None
         self._record_source_path = None
         self._source_kind = "live"
-        self._transcription_start = self.live_runtime._started_at
+        self._transcription_start = self.live_runtime.started_at
         record_id = self.live_session.checkpoint.history_record_id
         if record_id is not None:
             if finalize_live_record(record_id, result):
@@ -1791,9 +1791,7 @@ class MainWindow(QMainWindow):
         self.transcript_view.apply_display_settings()
         cfg = get_config()
         self.recorder_widget.set_device(cfg.mic_device_index)
-        self.start_view._source_buttons["live"].setEnabled(
-            cfg.live_transcription_enabled
-        )
+        self.start_view.set_source_enabled("live", cfg.live_transcription_enabled)
         self.status_bar.set_course_available(cfg.live_transcription_enabled)
         self.live_session.apply_presentation_flag()
         self._apply_watch_folder_config()
@@ -1928,7 +1926,7 @@ class MainWindow(QMainWindow):
             self.start_view.select_recipe(recipe_key)
             self._stack.setCurrentIndex(self._start_index)
             self.start_view.set_source("file")
-            self.file_selector._set_file(path)
+            self.file_selector.set_file(path)
             self._source_kind = "file"
             self._start_transcription()
         cfg.recording_offer_recipe = recipe_key
@@ -2031,7 +2029,7 @@ class MainWindow(QMainWindow):
                 # used to leave the user looking at that record, with
                 # nothing on screen having changed.
                 self._show_new_draft()
-                self.file_selector._set_file(batch.files[0])
+                self.file_selector.set_file(batch.files[0])
             else:
                 # The queue overlay opens on the list itself, with its count.
                 self.batch_panel.add_files(batch.files)
@@ -2173,7 +2171,7 @@ class MainWindow(QMainWindow):
 
     def _on_recording_ready(self, filepath: str):
         """Load a freshly-recorded WAV into the file selector."""
-        self.file_selector._set_file(filepath)
+        self.file_selector.set_file(filepath)
         self._source_kind = "recorder"
 
     def _on_recording_error(self, msg: str):
@@ -2609,7 +2607,7 @@ class MainWindow(QMainWindow):
         if busy is not None and busy.key != "batch":
             # The single-file transcriber, Live or Course Capture already
             # has a model loaded (audit 2026-11-04 W01).
-            self.batch_panel._on_batch_finished()
+            self.batch_panel.finish_batch()
             show_toast(self, tr("asr_busy", name=busy.label), kind="warning")
             return
         model = self.model_combo.currentData()
@@ -2628,7 +2626,7 @@ class MainWindow(QMainWindow):
             if not self._ensure_whisper_model(needed) or not Transcriber.prepare_models(
                 needed, enable_diarization
             ):
-                self.batch_panel._on_batch_finished()
+                self.batch_panel.finish_batch()
                 self.status_label.setText(tr("status_cancelled"))
                 return
 
@@ -2973,10 +2971,10 @@ class MainWindow(QMainWindow):
             media_path = record.get("media_path") or source_path
             has_media = bool(media_path and Path(media_path).is_file())
             if has_media:
-                self.file_selector._set_file(media_path)
+                self.file_selector.set_file(media_path)
                 # _set_file emits file_selected and updates the player.
             else:
-                self.file_selector._clear_selection()
+                self.file_selector.clear_selection()
                 self.player.load("")
             self._record_media = {
                 "fingerprint": record.get("media_fingerprint") or "",
@@ -3708,7 +3706,7 @@ class MainWindow(QMainWindow):
             from datetime import datetime, timezone
 
             self._record_media["changed_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        self.file_selector._set_file(info["path"])
+        self.file_selector.set_file(info["path"])
         self.cut_view.video_panel.set_has_transcript(True)
         self.record_view.set_missing_source("")
         self._refresh_tab_markers()
