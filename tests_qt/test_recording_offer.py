@@ -179,3 +179,37 @@ def test_switching_the_offer_on_fills_in_zoom_s_folder(process_events, monkeypat
     assert dialog._source_folder_edit.text() == default_recording_folder()
     dialog.close()
     process_events()
+
+
+def test_watch_folder_files_take_the_watch_folder_recipe(window, monkeypatch, tmp_path):
+    """Audit 2026-11-04 W26: not whatever the start screen shows then."""
+    import config
+
+    config.get_config().watch_folder_recipe = "meeting_notes"
+    window.start_view.select_recipe("podcast_article")
+    seen = []
+    real = window.batch_panel.snapshot_provider
+    window.batch_panel.snapshot_provider = lambda key=None: seen.append(key) or real(key)
+    media = tmp_path / "new.mp3"
+    media.write_bytes(b"\0" * 64)
+
+    window._on_watch_folder_file_found(str(media))
+
+    assert seen == ["meeting_notes"]
+
+
+def test_settings_store_the_watch_folder_recipe(process_events, monkeypatch, tmp_path):
+    import config
+    from ui.settings_dialog import SettingsDialog
+
+    monkeypatch.setattr(config, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "config.json")
+    monkeypatch.setattr(config, "_config", config.Config())
+    dialog = SettingsDialog()
+    combo = dialog._watch_recipe_combo
+    assert combo.currentData() == "transcript_only"
+    combo.setCurrentIndex(combo.findData("book"))
+    dialog._save_values()
+    assert config.get_config().watch_folder_recipe == "book"
+    dialog.close()
+    process_events()

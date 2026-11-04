@@ -1817,8 +1817,9 @@ class MainWindow(QMainWindow):
 
     def _on_watch_folder_file_found(self, path: str) -> None:
         """WatchFolderService.file_found (B5b): joins the same queue a
-        multi-file drop does (B5a)."""
-        self.batch_panel.add_files([path])
+        multi-file drop does (B5a), with the watch folder's own recipe
+        (Config.watch_folder_recipe, audit 2026-11-04 W26)."""
+        self.batch_panel.add_files([path], recipe_key=get_config().watch_folder_recipe or None)
         self.status_bar.show_queue(True)
 
     def _apply_recording_offer_config(self) -> None:

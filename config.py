@@ -146,6 +146,10 @@ class Config:
     # flood of filesystem events the debounce alone can't absorb.
     watch_folder: str = ""
     watch_folder_enabled: bool = False
+    # The recipe new watch-folder files are queued with (a recipe key, see
+    # domain/recipe.recipe_key) — not whatever the start screen shows when
+    # a file appears (audit 2026-11-04 W26).
+    watch_folder_recipe: str = "transcript_only"
 
     # Recurring source folder (e.g. where Zoom saves recordings): the
     # start screen's "Latest" button picks the most recently modified

@@ -231,6 +231,7 @@
   "settings_watch_folder_placeholder": "No folder selected",
   "settings_watch_folder_browse": "Browse…",
   "settings_watch_folder_hint": "New supported files dropped into this folder are queued automatically. Use a local folder — a network or cloud-synced one can produce a flood of change events.",
+  "settings_watch_folder_recipe": "Recipe for new files:",
   "settings_recording_offer_enabled": "Offer a recipe when a new Zoom recording is ready",
   "settings_recording_offer_folder": "Recordings folder:",
   "settings_recording_offer_hint": "When Zoom finishes converting a meeting recording into this folder (or any new recording lands there), Whispered asks which recipe to run it through and starts it when you press Run. Recordings already in the folder are not offered. The folder is filled in (Zoom's default) when you switch this on; without one nothing is watched. It is also the folder of the start screen's \"Latest from source folder\" button. Whispered must be running.",

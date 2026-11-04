@@ -124,6 +124,7 @@ class SettingsDialog(QDialog):
         try:
             self.setWindowTitle(tr("settings_title"))
             self._categories.setAccessibleName(tr("settings_title"))
+            self._fill_watch_recipes()
             for widget, setter, key in self._i18n_texts:
                 try:
                     getattr(widget, setter)(tr(key))
@@ -369,6 +370,12 @@ class SettingsDialog(QDialog):
         watch_container.setLayout(watch_row)
         self._row(layout, "settings_watch_folder", watch_container)
 
+        # Its own recipe: files found later must not take whatever recipe
+        # the start screen happens to show then (audit 2026-11-04 W26).
+        self._watch_recipe_combo = QComboBox()
+        self._fill_watch_recipes()
+        self._row(layout, "settings_watch_folder_recipe", self._watch_recipe_combo)
+
         watch_hint = QLabel()
         self._tt(watch_hint, "settings_watch_folder_hint")
         watch_hint.setProperty("role", "muted")
@@ -409,6 +416,20 @@ class SettingsDialog(QDialog):
         tab_layout.addWidget(card)
         tab_layout.addStretch()
         return tab
+
+    def _fill_watch_recipes(self) -> None:
+        from domain.recipe import recipe_choices
+        from ui.option_labels import recipe_label
+
+        combo = self._watch_recipe_combo
+        current = combo.currentData() or self._cfg.watch_folder_recipe
+        combo.blockSignals(True)
+        combo.clear()
+        for key, recipe in recipe_choices(self._cfg.recipes):
+            combo.addItem(recipe_label(recipe), key)
+        index = combo.findData(current)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+        combo.blockSignals(False)
 
     def _browse_watch_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(
@@ -720,6 +741,8 @@ class SettingsDialog(QDialog):
         self._lang_ui_combo.setCurrentIndex(idx if idx >= 0 else 0)
         self._watch_enabled_chk.setChecked(getattr(cfg, "watch_folder_enabled", False))
         self._watch_folder_edit.setText(getattr(cfg, "watch_folder", ""))
+        index = self._watch_recipe_combo.findData(cfg.watch_folder_recipe)
+        self._watch_recipe_combo.setCurrentIndex(index if index >= 0 else 0)
         self._recording_offer_chk.setChecked(getattr(cfg, "recording_offer_enabled", False))
         self._source_folder_edit.setText(getattr(cfg, "source_folder", ""))
 
@@ -793,6 +816,7 @@ class SettingsDialog(QDialog):
         cfg.ui_language = self._lang_ui_combo.currentData() or "auto"
         cfg.watch_folder_enabled = self._watch_enabled_chk.isChecked()
         cfg.watch_folder = self._watch_folder_edit.text().strip()
+        cfg.watch_folder_recipe = self._watch_recipe_combo.currentData() or "transcript_only"
         cfg.recording_offer_enabled = self._recording_offer_chk.isChecked()
         cfg.source_folder = self._source_folder_edit.text().strip()
 
