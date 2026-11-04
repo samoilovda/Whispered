@@ -490,6 +490,14 @@ def _payload_to_dict(payload: str) -> dict:
         return {}
 
 
+def _like_pattern(text: str) -> str:
+    """``%text%`` for ``LIKE ? ESCAPE '\\'`` with the user's own ``%``, ``_``
+    and ``\\`` taken literally (audit 2026-11-04 W27: "_" matched every
+    title)."""
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
 def _fts_query(text: str) -> str:
     """Build a safe FTS5 query from user input.
 
@@ -1030,21 +1038,21 @@ class HistoryStore:
             SELECT id, created_at, source_path, source_name, source_kind, duration, language, model,
                    artifacts, title, substr(json_payload, 1, 300) AS preview
             FROM transcripts
-            WHERE title != '' AND title LIKE ?
+            WHERE title != '' AND title LIKE ? ESCAPE '\\'
             ORDER BY created_at DESC, id DESC
             LIMIT ?
         """
         with self._connect() as conn:
-            rows = conn.execute(sql, (f"%{text}%", limit)).fetchall()
+            rows = conn.execute(sql, (_like_pattern(text), limit)).fetchall()
         return [HistoryRecord(r) for r in rows]
 
     def _search_like(self, text: str, limit: int) -> List[HistoryRecord]:
-        pattern = f"%{text}%"
+        pattern = _like_pattern(text)
         sql = """
             SELECT id, created_at, source_path, source_name, source_kind, duration, language, model,
                    artifacts, title, substr(json_payload, 1, 300) AS preview
             FROM transcripts
-            WHERE search_text LIKE ? OR source_name LIKE ? OR title LIKE ?
+            WHERE search_text LIKE ? ESCAPE '\\' OR source_name LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\'
             ORDER BY created_at DESC, id DESC
             LIMIT ?
         """
@@ -1104,7 +1112,7 @@ class HistoryStore:
             sql_from = """FROM (
                     SELECT id, MIN(ord) AS ord FROM (
                         SELECT id, -1e12 AS ord
-                        FROM transcripts WHERE title != '' AND title LIKE ?
+                        FROM transcripts WHERE title != '' AND title LIKE ? ESCAPE '\\'
                         UNION ALL
                         SELECT rowid AS id, rank AS ord
                         FROM transcripts_fts WHERE transcripts_fts MATCH ?
@@ -1112,13 +1120,13 @@ class HistoryStore:
                 ) hits JOIN transcripts t ON t.id = hits.id"""
             preview = "substr(t.json_payload, 1, 300) AS preview, hits.ord AS ord"
             order = "hits.ord, t.created_at DESC, t.id DESC"
-            base_params = [f"%{text}%", fts_query]
+            base_params = [_like_pattern(text), fts_query]
         else:
             sql_from = "FROM transcripts t"
             preview = "substr(t.json_payload, 1, 300) AS preview"
             order = "t.created_at DESC, t.id DESC"
-            pattern = f"%{text}%"
-            where.insert(0, "(t.search_text LIKE ? OR t.source_name LIKE ? OR t.title LIKE ?)")
+            pattern = _like_pattern(text)
+            where.insert(0, "(t.search_text LIKE ? ESCAPE '\\' OR t.source_name LIKE ? ESCAPE '\\' OR t.title LIKE ? ESCAPE '\\')")
             params[:0] = [pattern, pattern, pattern]
             base_params = []
 
@@ -1224,14 +1232,14 @@ class HistoryStore:
             return self._search_artifacts_like(text, limit)
 
     def _search_artifacts_like(self, text: str, limit: int) -> List["ArtifactSearchResult"]:
-        pattern = f"%{text}%"
+        pattern = _like_pattern(text)
         sql = """
             SELECT a.record_id, a.type, a.path,
                    COALESCE(NULLIF(t.title, ''), t.source_name) AS source_name, t.source_kind,
                    substr(a.text, 1, 300) AS snippet
             FROM artifact_texts a
             JOIN transcripts t ON t.id = a.record_id
-            WHERE a.text LIKE ?
+            WHERE a.text LIKE ? ESCAPE '\\'
             ORDER BY a.updated_at DESC
             LIMIT ?
         """
@@ -1730,10 +1738,10 @@ class HistoryStore:
                 """SELECT b.id, b.record_id, b.at_seconds, b.note, b.created_at,
                           COALESCE(NULLIF(t.title, ''), t.source_name) AS record_name
                    FROM bookmarks b JOIN transcripts t ON t.id = b.record_id
-                   WHERE b.note LIKE ?
+                   WHERE b.note LIKE ? ESCAPE '\\'
                    ORDER BY b.created_at DESC, b.id DESC
                    LIMIT ?""",
-                (f"%{text.strip()}%", limit),
+                (_like_pattern(text.strip()), limit),
             ).fetchall()
         return [Bookmark(r) for r in rows]
 

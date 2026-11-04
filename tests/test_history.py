@@ -766,3 +766,18 @@ def test_v16_database_gets_a_plain_text_index(tmp_path):
     assert [r.source_name for r in store.search("разговор")] == ["a.wav"]
     assert [r.source_name for r in store.search("Анна")] == ["a.wav"]   # speaker names too
     assert store.search("segments") == []
+
+
+@pytest.mark.parametrize("query", ["_", "%", "\\"])
+def test_like_wildcards_in_a_query_are_literal(tmp_path, query):
+    """Audit 2026-11-04 W27: "_" matched every titled record."""
+    from domain.transcription import Segment, TranscriptionResult
+
+    store = HistoryStore(tmp_path / "h.sqlite3")
+    rid = store.add(TranscriptionResult(segments=[Segment(0.0, 1.0, "слово", None)],
+                                        language="ru", duration=1.0), "/x/a.wav")
+    store.set_title(rid, "Интервью")
+    assert store.search(query) == []
+    store._fts_available = False   # the LIKE fallback too
+    assert store.search(query) == []
+    assert [r.id for r in store.search("Интер")] == [rid]
