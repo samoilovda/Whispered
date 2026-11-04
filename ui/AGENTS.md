@@ -26,3 +26,10 @@ user-visible string read `docs/agents/i18n.md`.
 - `tray.py` mirrors the window in the menu bar; `shortcuts_dialog.py` lists keys
   from the menu itself — add shortcuts to the menu, not to the dialog.
 - Imports: from concrete modules only (`ui/__init__.py` has no re-exports).
+- Call panels through public methods, never `panel._private` from another
+  module (`tests/test_panel_privacy.py`).
+- An `except Exception` in a slot that follows a user action (delete, clear,
+  save, export) ends in something the user sees — a message box or toast —
+  not only a log line.
+- Starting anything that loads a whisper model asks
+  `OperationController.asr_holder()` first: one model at a time.
