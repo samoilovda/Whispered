@@ -91,7 +91,7 @@ from ui.job_runner import JobRunner
 from core.logger import get_logger
 from core.i18n import tr, on_language_changed
 from core.worker_registry import WorkerRegistry
-from transcriber import _build_initial_prompt
+from transcriber import LANGUAGE_FALLBACK_MESSAGE, _build_initial_prompt
 from timeline_export import write_edl
 from video_edit import mark_pauses
 from video_cut import assemble_draft
@@ -337,6 +337,7 @@ class MainWindow(QMainWindow):
         self._gpu_type, self._gpu_name = self.transcriber.gpu_type, self.transcriber.gpu_name
         # ETA tracking
         self._transcription_start: float = 0.0
+        self._language_fell_back = False
         self._last_record_id: int | None = None
         self._versions_dialog = None  # B8: TranscriptVersionsDialog, lazily created
         self.live_session = LiveSessionController(self)
@@ -2508,6 +2509,7 @@ class MainWindow(QMainWindow):
         self._last_record_id = None
 
         self._transcription_start = time.monotonic()
+        self._language_fell_back = False
         # Build initial prompt from custom vocabulary
         vocab = getattr(get_config(), "custom_vocabulary", []) or []
         prompt = _build_initial_prompt(vocab) if vocab else None
@@ -2616,6 +2618,8 @@ class MainWindow(QMainWindow):
 
     def _on_progress(self, percentage: int, message: str):
         """Handle progress updates with ETA calculation."""
+        if message == LANGUAGE_FALLBACK_MESSAGE:
+            self._language_fell_back = True
         self.progress_bar.setValue(percentage)
         stage, local_fill = timeline_stage_for_progress(percentage, message)
         self.progress_timeline.set_stage(stage, local_fill)
@@ -2643,6 +2647,12 @@ class MainWindow(QMainWindow):
         word_count = len(result.full_text.split())
         self.status_label.setText(tr("status_complete", words=word_count, seconds=int(elapsed)))
         show_toast(self, tr("toast_complete", words=word_count), kind="success")
+        if self._language_fell_back:
+            # Audit 2026-11-04 W13: auto-detection failed and English was
+            # used — say so rather than leave a garbled transcript unexplained.
+            self._language_fell_back = False
+            # A toast, not a modal box: a recipe run continues from here.
+            show_toast(self, tr("transcribe_language_fallback_warning"), kind="warning")
 
         # Auto-save to history
         if save_history:

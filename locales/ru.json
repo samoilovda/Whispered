@@ -1565,5 +1565,14 @@
   "llm_progress_article_finalizing": "Завершаю статью…",
   "llm_progress_article_done": "Статья готова",
   "llm_progress_articles_start": "Начинаю генерацию статей…",
-  "llm_progress_articles_done": "Готово статей: {count} за {seconds} с"
+  "llm_progress_articles_done": "Готово статей: {count} за {seconds} с",
+  "transcribe_error_not_found": "Файл не найден: {path}",
+  "transcribe_error_no_ffmpeg": "Не удаётся обработать файлы {ext}: FFmpeg не установлен.\n\nУстановите его командой:\n  {hint}\n\nЗатем перезапустите приложение.",
+  "transcribe_error_convert": "Не удалось конвертировать файл {ext}: {error}",
+  "transcribe_error_memory": "Не хватает памяти, чтобы загрузить модель «{model}».\n\nВыберите модель поменьше (например, base или small).",
+  "transcribe_error_model": "Не удалось загрузить модель «{model}»: {error}",
+  "transcribe_error_no_speech": "В записи не найдено речи.",
+  "transcribe_error_cuda": "{error}\n\nСовет: попробуйте режим CPU в настройках.",
+  "progress_language_fallback": "Язык не определился — расшифровываю как английский",
+  "transcribe_language_fallback_warning": "Язык записи не определился, поэтому она расшифрована как английская. Если язык другой, выберите его явно и запустите расшифровку снова."
 }

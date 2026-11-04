@@ -1561,5 +1561,14 @@
   "llm_progress_article_finalizing": "Finalizing the article…",
   "llm_progress_article_done": "Article complete",
   "llm_progress_articles_start": "Starting article generation…",
-  "llm_progress_articles_done": "Generated {count} articles in {seconds} s"
+  "llm_progress_articles_done": "Generated {count} articles in {seconds} s",
+  "transcribe_error_not_found": "File not found: {path}",
+  "transcribe_error_no_ffmpeg": "Cannot process {ext} files: FFmpeg is not installed.\n\nInstall it with:\n  {hint}\n\nThen restart the application.",
+  "transcribe_error_convert": "Cannot convert {ext} media: {error}",
+  "transcribe_error_memory": "Not enough memory to load the model '{model}'.\n\nChoose a smaller model (e.g. 'base' or 'small').",
+  "transcribe_error_model": "Failed to load the model '{model}': {error}",
+  "transcribe_error_no_speech": "No speech detected in the audio file.",
+  "transcribe_error_cuda": "{error}\n\nTip: try CPU mode in Settings.",
+  "progress_language_fallback": "Language detection failed — transcribing as English",
+  "transcribe_language_fallback_warning": "The language could not be detected, so the recording was transcribed as English. If it is in another language, choose it explicitly and transcribe again."
 }
