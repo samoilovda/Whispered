@@ -293,7 +293,7 @@ class ChatPanel(QWidget):
         from config import get_config
         from core.chat_worker import _CONTEXT_CHARS
 
-        return int(getattr(get_config(), "chat_context_chars", _CONTEXT_CHARS) or _CONTEXT_CHARS)
+        return int(get_config().chat_context_chars or _CONTEXT_CHARS)
 
     def _refresh_context(self) -> None:
         """Rebuild the context the next question will carry, and say what
@@ -388,16 +388,17 @@ class ChatPanel(QWidget):
         if messages and last_revision != self._revision:
             self._add_divider()
 
-    def _save_message(self, role: str, content: str, status: str) -> dict:
+    def _save_message(self, role: str, content: str, status: str, model: str = "") -> dict:
         message = {"role": role, "content": content, "status": status,
                    "revision": self._revision, "id": None}
         if self._persist:
             try:
-                from config import get_config
-
+                # The model that answered, as LM Studio reported it — the
+                # Config field read here before never existed, so every
+                # message was stored without one (audit 2026-11-04 AR4).
                 message["id"] = self._store().add_chat_message(
                     self._record_id, role, content, revision=self._revision,
-                    status=status, model=getattr(get_config(), "lm_studio_model", "") or "",
+                    status=status, model=model,
                 )
             except Exception as exc:
                 logger.warning("Failed to keep a chat message: %s", exc)
@@ -577,13 +578,17 @@ class ChatPanel(QWidget):
                 self._token_buf.append(delta)
                 self._current_bubble.setText("".join(self._token_buf))
 
+    def _answer_model(self) -> str:
+        worker = self._worker
+        return getattr(worker, "model_name", "") if worker is not None else ""
+
     def _on_finished(self, full_text: str):
         if self._scroll_timer:
             self._scroll_timer.stop()
         self._token_buf = []
         if self._current_bubble:
             self._current_bubble.setText(full_text)
-        self._save_message("assistant", full_text, "complete")
+        self._save_message("assistant", full_text, "complete", model=self._answer_model())
         self._current_bubble = None
         self._scroll_to_bottom()
         self._reset_input()
@@ -611,7 +616,7 @@ class ChatPanel(QWidget):
             text = self._current_bubble.text()
             if text and text != "…":
                 # A partial answer is kept, labelled as incomplete.
-                self._save_message("assistant", text, "cancelled")
+                self._save_message("assistant", text, "cancelled", model=self._answer_model())
                 self._current_bubble.setText(_shown_text(
                     {"content": text, "status": "cancelled", "role": "assistant"}))
             else:

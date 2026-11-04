@@ -92,6 +92,9 @@ class ChatWorker(BaseWorker):
         self._messages = messages
         self._lm_url = lm_url
         self._max_context_chars = max_context_chars
+        # The model LM Studio had loaded for this turn ("" when unknown);
+        # read by the panel when it keeps the answer.
+        self.model_name = ""
 
     def _on_error(self, msg: str) -> None:
         self.error_occurred.emit(msg)
@@ -103,6 +106,10 @@ class ChatWorker(BaseWorker):
         def on_token(delta: str):
             self.token_received.emit(delta)
 
+        try:
+            self.model_name = client.get_loaded_model(timeout=2) or ""
+        except Exception as exc:  # noqa: BLE001 - only a label for the kept answer
+            logger.debug("Could not read the loaded model: %s", exc)
         result = client.chat_completion_stream(
             messages=self._messages,
             on_token=on_token,
