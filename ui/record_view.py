@@ -279,7 +279,7 @@ class RecordView(QWidget):
 
     def _build_export_menu(self) -> None:
         cfg = get_config()
-        selected = set(getattr(cfg, "export_formats", None) or ["txt"])
+        selected = set(cfg.export_formats or ["txt"])
 
         menu = KeepOpenMenu(self.export_btn)
 
@@ -310,7 +310,7 @@ class RecordView(QWidget):
 
     def _on_format_toggled(self, key: str, checked: bool) -> None:
         cfg = get_config()
-        formats = list(getattr(cfg, "export_formats", None) or [])
+        formats = list(cfg.export_formats or [])
         if checked and key not in formats:
             formats.append(key)
         elif not checked and key in formats:
@@ -438,5 +438,5 @@ class RecordView(QWidget):
 
     def get_export_formats(self) -> list[str]:
         """Currently-checked formats, falling back to ['txt'] if none."""
-        formats = getattr(get_config(), "export_formats", None) or []
+        formats = get_config().export_formats or []
         return formats if formats else ["txt"]

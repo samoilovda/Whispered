@@ -59,13 +59,13 @@ class LiveSessionController:
 
     def apply_presentation_flag(self) -> None:
         """Show the button only while the experimental flag is on."""
-        enabled = bool(getattr(get_config(), "live_presentation_enabled", False))
+        enabled = bool(get_config().live_presentation_enabled)
         self._host.live_view.present_btn.setVisible(enabled)
         if not enabled and self.presentation is not None:
             self.presentation.close()
 
     def open_presentation(self) -> None:
-        if not getattr(get_config(), "live_presentation_enabled", False):
+        if not get_config().live_presentation_enabled:
             return
         if self.presentation is None:
             from ui.live_presentation_window import LivePresentationWindow
@@ -177,7 +177,7 @@ class LiveSessionController:
 
     def _checkpoint_history(self) -> None:
         """Persist finalized text during a meeting without writing audio."""
-        if not getattr(get_config(), "history_enabled", True):
+        if not get_config().history_enabled:
             return
         host = self._host
         try:

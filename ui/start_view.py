@@ -647,11 +647,11 @@ class StartView(QWidget):
             # Models are not checked: diarizer.py downloads them on first use.
             from diarizer import is_installed
             self._diarize_installed = is_installed()
-        provider = getattr(cfg, "yt_provider", "lmstudio") or "lmstudio"
+        provider = cfg.yt_provider or "lmstudio"
         key_field = {"openai": "yt_openai_api_key", "anthropic": "yt_anthropic_api_key"}.get(provider)
         model_label, downloaded = self._selected_model()
-        book_url = (getattr(cfg, "book_lm_url", "") or "").rstrip("/")
-        main_url = (getattr(cfg, "lm_studio_url", "") or "").rstrip("/")
+        book_url = (cfg.book_lm_url or "").rstrip("/")
+        main_url = (cfg.lm_studio_url or "").rstrip("/")
         return ReadinessFacts(
             model_label=model_label,
             model_downloaded=downloaded,

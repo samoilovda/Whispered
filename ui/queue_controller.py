@@ -157,7 +157,7 @@ class QueueController(QObject):
             model=own.get("model_name") or "",
             speaker_names=getattr(result, "speaker_names", {}) or {},
             source_kind="file",
-        ) if getattr(cfg, "history_enabled", True) else None
+        ) if cfg.history_enabled else None
 
     # ------------------------------------------------------------ steps side
 

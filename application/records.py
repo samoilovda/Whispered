@@ -106,7 +106,7 @@ def save_new_record(
     from core.history import get_history_store
 
     cfg = get_config()
-    if not getattr(cfg, "history_enabled", True):
+    if not cfg.history_enabled:
         return None
     try:
         store = get_history_store()

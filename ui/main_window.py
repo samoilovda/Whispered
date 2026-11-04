@@ -381,7 +381,7 @@ class MainWindow(QMainWindow):
         self.setAcceptDrops(True)
         # Apply saved mic device
         cfg = get_config()
-        self.recorder_widget.set_device(getattr(cfg, "mic_device_index", None))
+        self.recorder_widget.set_device(cfg.mic_device_index)
         self._apply_tray_config()
         self._maybe_show_first_run()
         # Show what a previous session left in the queue (nothing starts).
@@ -450,7 +450,7 @@ class MainWindow(QMainWindow):
         """Show or hide the menu-bar / tray icon per Config.tray_icon_enabled."""
         from ui.tray import TrayController
 
-        wanted = bool(getattr(get_config(), "tray_icon_enabled", False))
+        wanted = bool(get_config().tray_icon_enabled)
         if os.environ.get("WHISPERED_UI_GALLERY") == "1" or not TrayController.available():
             wanted = False
         if wanted and self._tray is None:
@@ -482,7 +482,7 @@ class MainWindow(QMainWindow):
         save_config()
 
     def _restore_window_geometry(self) -> None:
-        saved = getattr(get_config(), "window_geometry", "") or ""
+        saved = get_config().window_geometry or ""
         if not saved or os.environ.get("WHISPERED_UI_GALLERY") == "1":
             return
         try:
@@ -684,7 +684,7 @@ class MainWindow(QMainWindow):
         self.file_selector.browse_btn.click()
 
     def _menu_focus_library(self) -> None:
-        if getattr(get_config(), "library_collapsed", False):
+        if get_config().library_collapsed:
             self.workspace_shell.set_library_collapsed(False)
         # A window too narrow for the Library keeps it hidden by force;
         # the command still has to show it, or focus lands nowhere.
@@ -752,7 +752,7 @@ class MainWindow(QMainWindow):
             apply_theme(app, new_theme)
 
     def _toggle_library_sidebar(self) -> None:
-        collapsed = not getattr(get_config(), "library_collapsed", False)
+        collapsed = not get_config().library_collapsed
         self.workspace_shell.set_library_collapsed(collapsed)
 
     def _open_help_docs(self) -> None:
@@ -1790,7 +1790,7 @@ class MainWindow(QMainWindow):
         self._apply_config_defaults()
         self.transcript_view.apply_display_settings()
         cfg = get_config()
-        self.recorder_widget.set_device(getattr(cfg, "mic_device_index", None))
+        self.recorder_widget.set_device(cfg.mic_device_index)
         self.start_view._source_buttons["live"].setEnabled(
             cfg.live_transcription_enabled
         )
@@ -1821,9 +1821,7 @@ class MainWindow(QMainWindow):
         entirely when disabled or unset — called at startup and again
         after Settings is applied (B5b)."""
         cfg = get_config()
-        folder = getattr(cfg, "watch_folder", "") if getattr(
-            cfg, "watch_folder_enabled", False
-        ) else ""
+        folder = cfg.watch_folder if cfg.watch_folder_enabled else ""
         self._watch_folder_service.set_folder(folder)
 
     def _on_watch_folder_file_found(self, path: str) -> None:
@@ -1890,7 +1888,7 @@ class MainWindow(QMainWindow):
         path = self._recording_offers.pop(0)
         cfg = get_config()
         selected = (
-            getattr(cfg, "recording_offer_recipe", "") or cfg.last_recipe
+            cfg.recording_offer_recipe or cfg.last_recipe
             or TRANSCRIPT_ONLY.builtin_key
         )
         dialog = RecordingOfferDialog(path, self._recording_choices(), selected, self)
@@ -1942,8 +1940,7 @@ class MainWindow(QMainWindow):
         """The skippable first-launch card: only for an empty library."""
         try:
             from core.history import get_history_store
-            count = get_history_store().count() if getattr(
-                get_config(), "history_enabled", True) else 0
+            count = get_history_store().count() if get_config().history_enabled else 0
         except Exception as exc:
             logger.warning("First-run check skipped: %s", exc)
             return
@@ -2160,7 +2157,7 @@ class MainWindow(QMainWindow):
         record_id = self._last_record_id
         result = self.transcript_view.get_result()
         if (record_id is None or result is None or getattr(self, "_review_readonly", False)
-                or not getattr(get_config(), "history_enabled", True)):
+                or not get_config().history_enabled):
             return
         try:
             from core.history import get_history_store
@@ -2226,7 +2223,7 @@ class MainWindow(QMainWindow):
         the library; a failure is shown on the record ("✕ Not saved") and
         _prepare_leave() retries it before letting the user leave."""
         result = self.transcript_view.get_result()
-        if result is None or not getattr(get_config(), "history_enabled", True):
+        if result is None or not get_config().history_enabled:
             self._last_persist_ok = True
             return True
         try:
@@ -2329,7 +2326,7 @@ class MainWindow(QMainWindow):
             return
         if not self.transcript_view.has_pending_edit():
             return
-        if not getattr(get_config(), "history_enabled", True):
+        if not get_config().history_enabled:
             return
         try:
             from core.history import get_history_store
@@ -2556,7 +2553,7 @@ class MainWindow(QMainWindow):
         self._transcription_start = time.monotonic()
         self._language_fell_back = False
         # Build initial prompt from custom vocabulary
-        vocab = getattr(get_config(), "custom_vocabulary", []) or []
+        vocab = get_config().custom_vocabulary or []
         prompt = _build_initial_prompt(vocab) if vocab else None
         # Start transcription
         self.transcriber.transcribe(
@@ -3641,7 +3638,7 @@ class MainWindow(QMainWindow):
         )
         self.chat_panel.set_record_context(
             self._last_record_id, revision, result.full_text, result.segments,
-            persist=bool(getattr(get_config(), "history_enabled", True)),
+            persist=bool(get_config().history_enabled),
         )
 
     # ── Relinking a record's moved media (UX-09) ─────────────────────
@@ -3750,7 +3747,7 @@ class MainWindow(QMainWindow):
         result = self._current_result
         if record_id is None or result is None or getattr(self, "_cut_plan_readonly", False):
             return
-        if not getattr(get_config(), "history_enabled", True):
+        if not get_config().history_enabled:
             return
         try:
             from core.history import get_history_store

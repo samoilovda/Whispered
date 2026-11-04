@@ -19,7 +19,7 @@ from domain.ai_profile import (
 def user_profiles(cfg: Any) -> list[LmProfile]:
     """The profiles saved in settings; an invalid entry is skipped."""
     found = []
-    for entry in getattr(cfg, "lm_profiles", None) or []:
+    for entry in cfg.lm_profiles or []:
         try:
             found.append(profile_from_dict(entry))
         except ProfileError:
@@ -35,7 +35,7 @@ def all_profiles(cfg: Any) -> list[LmProfile]:
 def active_profile(cfg: Any) -> LmProfile:
     """The profile in use; the default when none is chosen or the chosen
     one was removed."""
-    wanted = getattr(cfg, "lm_profile_active", "") or ""
+    wanted = cfg.lm_profile_active or ""
     return next((p for p in all_profiles(cfg) if p.name == wanted), default_profile(cfg))
 
 
@@ -58,11 +58,11 @@ def save_profile(cfg: Any, profile: LmProfile, replace: Optional[str] = None) ->
     """Add *profile* (or replace the one named *replace*) in the settings."""
     kept = [p for p in user_profiles(cfg) if p.name not in (profile.name, replace)]
     cfg.lm_profiles = [p.to_dict() for p in [*kept, profile]]
-    if replace and getattr(cfg, "lm_profile_active", "") == replace:
+    if replace and cfg.lm_profile_active == replace:
         cfg.lm_profile_active = profile.name
 
 
 def delete_profile(cfg: Any, name: str) -> None:
     cfg.lm_profiles = [p.to_dict() for p in user_profiles(cfg) if p.name != name]
-    if getattr(cfg, "lm_profile_active", "") == name:
+    if cfg.lm_profile_active == name:
         cfg.lm_profile_active = ""

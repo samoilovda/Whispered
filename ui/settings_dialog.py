@@ -731,31 +731,31 @@ class SettingsDialog(QDialog):
         # General
         idx = self._theme_combo.findData(cfg.theme)
         self._theme_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        scale_idx = self._scale_combo.findData(getattr(cfg, "text_scale", 100))
+        scale_idx = self._scale_combo.findData(cfg.text_scale)
         self._scale_combo.setCurrentIndex(scale_idx if scale_idx >= 0 else 0)
         self._history_chk.setChecked(cfg.history_enabled)
-        self._tray_chk.setChecked(getattr(cfg, "tray_icon_enabled", False))
-        self._live_chk.setChecked(getattr(cfg, "live_transcription_enabled", False))
-        self._live_present_chk.setChecked(getattr(cfg, "live_presentation_enabled", False))
-        idx = self._lang_ui_combo.findData(getattr(cfg, "ui_language", "auto"))
+        self._tray_chk.setChecked(cfg.tray_icon_enabled)
+        self._live_chk.setChecked(cfg.live_transcription_enabled)
+        self._live_present_chk.setChecked(cfg.live_presentation_enabled)
+        idx = self._lang_ui_combo.findData(cfg.ui_language)
         self._lang_ui_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        self._watch_enabled_chk.setChecked(getattr(cfg, "watch_folder_enabled", False))
-        self._watch_folder_edit.setText(getattr(cfg, "watch_folder", ""))
+        self._watch_enabled_chk.setChecked(cfg.watch_folder_enabled)
+        self._watch_folder_edit.setText(cfg.watch_folder)
         index = self._watch_recipe_combo.findData(cfg.watch_folder_recipe)
         self._watch_recipe_combo.setCurrentIndex(index if index >= 0 else 0)
-        self._recording_offer_chk.setChecked(getattr(cfg, "recording_offer_enabled", False))
-        self._source_folder_edit.setText(getattr(cfg, "source_folder", ""))
+        self._recording_offer_chk.setChecked(cfg.recording_offer_enabled)
+        self._source_folder_edit.setText(cfg.source_folder)
 
         # Transcription
-        idx = self._model_combo.findData(getattr(cfg, "default_model", "large-v3-turbo"))
+        idx = self._model_combo.findData(cfg.default_model)
         self._model_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        idx = self._lang_combo.findData(getattr(cfg, "default_language", "auto"))
+        idx = self._lang_combo.findData(cfg.default_language)
         self._lang_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        idx = self._perf_combo.findData(getattr(cfg, "performance_mode", "balanced"))
+        idx = self._perf_combo.findData(cfg.performance_mode)
         self._perf_combo.setCurrentIndex(idx if idx >= 0 else 1)
-        vocab = getattr(cfg, "custom_vocabulary", []) or []
+        vocab = cfg.custom_vocabulary or []
         self._vocab_edit.setPlainText("\n".join(vocab))
-        saved_mic = getattr(cfg, "mic_device_index", None)
+        saved_mic = cfg.mic_device_index
         idx = self._mic_combo.findData(saved_mic)
         self._mic_combo.setCurrentIndex(idx if idx >= 0 else 0)
 
@@ -804,7 +804,7 @@ class SettingsDialog(QDialog):
         """Write widget values back to config; False when the file could
         not be written (the dialog then stays open and unapplied)."""
         cfg = self._cfg
-        prev_lang = getattr(cfg, "ui_language", "auto")
+        prev_lang = cfg.ui_language
 
         # General
         cfg.theme = self._theme_combo.currentData() or "dark"
@@ -917,7 +917,7 @@ class SettingsDialog(QDialog):
         open widget registered with ``core.i18n.on_language_changed``,
         including this dialog (see ``retranslate``)."""
         if self._lang_changed:
-            set_locale(getattr(self._cfg, "ui_language", "auto"))
+            set_locale(self._cfg.ui_language)
 
     def _on_apply(self):
         self._lang_changed = False
@@ -1048,7 +1048,7 @@ class SettingsDialog(QDialog):
             from PyQt6.QtWidgets import QApplication
             app = QApplication.instance()
             if app:
-                apply_theme(app, self._cfg.theme, getattr(self._cfg, "text_scale", 100))
+                apply_theme(app, self._cfg.theme, self._cfg.text_scale)
         super().reject()
 
     def _open_ai_profiles(self) -> None:
