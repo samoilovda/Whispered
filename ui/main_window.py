@@ -63,7 +63,7 @@ from utils import (
 )
 from application.document_session import DocumentSession
 from application.job_engine import JobRun
-from application.launch_params import resolve_transcription
+from application.launch_params import batch_models, resolve_transcription
 from application.records import finalize_live_record, save_new_record
 from ui.speaker_detection_controller import SpeakerDetectionController
 from ui.youtube_publish_controller import YouTubePublishController
@@ -2578,22 +2578,14 @@ class MainWindow(QMainWindow):
         enable_diarization = self.diarization_checkbox.isChecked()
 
         # Downloader dialogs belong to the GUI thread.  BatchWorker only
-        # transcribes already prepared models.
-        if not self._ensure_whisper_model(model) or not Transcriber.prepare_models(
-            model, enable_diarization
-        ):
-            self.batch_panel._on_batch_finished()
-            self.status_label.setText(tr("status_cancelled"))
-            return
-
-        # Items queued with another model than the controls show (UX-14:
-        # each keeps the settings it was queued with) need theirs ready too.
-        for other in sorted({
-            i.transcription["model_name"] for i in self.batch_panel.processor.items
-            if i.transcription and i.status.value == "pending"
-            and i.transcription.get("model_name") not in (None, model)
-        }):
-            if not self._ensure_whisper_model(other):
+        # transcribes already prepared models — exactly the ones the waiting
+        # files use (UX-14: each keeps the settings it was queued with; a
+        # file without a snapshot takes the controls'). The controls' model
+        # alone is not asked for when no file needs it (audit 2026-11-04 W14).
+        for needed in batch_models(self.batch_panel.processor.items, model):
+            if not self._ensure_whisper_model(needed) or not Transcriber.prepare_models(
+                needed, enable_diarization
+            ):
                 self.batch_panel._on_batch_finished()
                 self.status_label.setText(tr("status_cancelled"))
                 return

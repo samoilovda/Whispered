@@ -4,7 +4,7 @@ so a queued file behaves like the same file started by hand."""
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 
 def resolve_transcription(
@@ -30,3 +30,19 @@ def resolve_transcription(
             else "diarize" in recipe_steps or bool(widget_values["diarization"])
         ),
     }
+
+
+def batch_models(items: Iterable[Any], default_model: str) -> list[str]:
+    """The whisper models the queue's waiting files need, in a stable order:
+    each file's own snapshot model, *default_model* for a file queued
+    without one. Failed and cancelled files count: starting the queue
+    retries them (BatchProcessor.start). Empty when nothing waits — no download is offered for a
+    model no file uses (audit 2026-11-04 W14)."""
+    needed: set[str] = set()
+    for item in items:
+        status = getattr(getattr(item, "status", None), "value", None)
+        if status not in ("pending", "error", "cancelled"):
+            continue
+        snapshot = getattr(item, "transcription", None) or {}
+        needed.add(snapshot.get("model_name") or default_model)
+    return sorted(needed)
