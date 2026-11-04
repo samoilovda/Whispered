@@ -14,6 +14,14 @@ from core.worker_registry import WorkerRegistry
 from ui.youtube_publish_controller import YouTubePublishController
 
 
+@pytest.fixture(autouse=True)
+def _no_history(monkeypatch):
+    """These records live only on disk: nothing is known to be deleted."""
+    from application import records
+
+    monkeypatch.setattr(records, "live_record_ids", lambda: None)
+
+
 class _Library:
     def refresh(self) -> None:
         pass
