@@ -221,3 +221,30 @@ def test_a_long_record_title_ends_in_an_ellipsis(process_events):
     assert title in edit.toolTip()
     edit.grab()   # paints without error
     host.close()
+
+
+def test_the_transcript_header_goes_icon_only_before_it_wraps(process_events):
+    """Audit 2026-11-04 W18: at 900×550 the Russian labels wrapped "Копировать"
+    onto a second row while the width threshold still said "fits"."""
+    from core.i18n import load_locale
+    from transcriber import Segment, TranscriptionResult
+    from ui.transcript_view import TranscriptView
+
+    load_locale("ru")
+    view = TranscriptView()
+    view.set_result(TranscriptionResult(
+        segments=[Segment(0.0, 1.0, "привет", "SPEAKER_00"), Segment(1.0, 2.0, "мир", "SPEAKER_01")],
+        language="ru", duration=2.0))
+    view.resize(780, 400)   # above the old fixed threshold (760)
+    view.show()
+    process_events()
+    view._update_header_compact()
+    if view._full_header_width() > view.contentsRect().width() - 8:
+        assert view._header_compact and view.copy_btn.text() == ""
+    view.resize(1400, 400)
+    process_events()
+    view._update_header_compact()
+    assert not view._header_compact and view.copy_btn.text() != ""
+    assert view.timestamps_btn.property("role") == "view-toggle"
+    view.close()
+    load_locale("en")

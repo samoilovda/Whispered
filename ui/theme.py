@@ -407,12 +407,21 @@ def build_stylesheet(t: Theme) -> str:
         background-color: rgba(99, 102, 241, 0.1);
     }}
 
-    QPushButton[role="checkable-success"]:checkable:checked {{
-        border-color: {t.success};
-        color: {t.success_text};
+    QPushButton[role="view-toggle"] {{
+        background-color: transparent;
+        border: 1px solid {t.border};
+        border-radius: 14px;
+        padding: 5px 12px;
+        color: {t.text_secondary};
     }}
-    QPushButton[role="checkable-success"]:checkable:hover {{
-        background-color: {rgba(t.success, 0.1)};
+    QPushButton[role="view-toggle"]:hover {{
+        background-color: {t.bg_pressed};
+        color: {t.text_primary};
+    }}
+    QPushButton[role="view-toggle"]:checked {{
+        background-color: {rgba(t.accent, 0.15)};
+        border-color: {t.accent};
+        color: {t.accent_text};
     }}
 
     /* ── Sidebar nav buttons (QToolButton) ── */
