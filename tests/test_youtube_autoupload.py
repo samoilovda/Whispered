@@ -121,6 +121,10 @@ def cli(tmp_path, monkeypatch):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     monkeypatch.setattr(module, "output_dir", lambda: tmp_path / "output")
+    from application import records
+
+    # No history here: nothing is known to be deleted (None filters nothing).
+    monkeypatch.setattr(records, "live_record_ids", lambda: None)
     return module
 
 
@@ -206,3 +210,48 @@ def test_cancelling_keeps_the_rest_for_the_next_run(tmp_path):
                          is_cancelled=lambda: bool(cancelled))
     assert len(uploader.calls) == 1
     assert [o.status for o in outcomes] == ["cancelled", "cancelled"]
+
+
+def test_uploads_of_deleted_records_are_left_out(tmp_path):
+    """Audit 2026-11-04 W02: deleting a record withdraws its approval."""
+    _queue(tmp_path, "kept", 1)
+    _queue(tmp_path, "gone", 2)
+    root = tmp_path / "output"
+    assert [i.record_id for i in find_queued(root, live_ids={1})] == [1]
+    assert len(find_queued(root, live_ids=None)) == 2   # history unreadable: no filter
+
+
+def test_withdraw_uploads_renames_the_approval(tmp_path):
+    from application import records
+    from application.youtube_autoupload import WITHDRAWN_FILE
+
+    kept = _queue(tmp_path, "kept", 1)
+    gone = _queue(tmp_path, "gone", 2)
+    root = tmp_path / "output"
+    assert records.withdraw_uploads({2}, root=root) == 1
+    assert (kept / QUEUE_FILE).exists()
+    assert not (gone / QUEUE_FILE).exists() and (gone / WITHDRAWN_FILE).exists()
+    assert records.withdraw_uploads(None, root=root) == 1
+    assert find_queued(root) == []
+
+
+def test_cli_skips_a_deleted_record(cli, tmp_path, monkeypatch, capsys):
+    from application import records
+
+    _queue(tmp_path, "gone", 5)
+    monkeypatch.setattr(records, "live_record_ids", lambda: set())
+    assert cli.main([]) == 0
+    assert "Nothing is queued" in capsys.readouterr().out
+
+
+def test_orphan_folders_are_only_those_of_deleted_records(tmp_path):
+    """Audit 2026-11-04 AR3."""
+    from application import records
+
+    root = tmp_path / "output"
+    for name in ("kept-1", "gone-2", "legacy"):
+        (root / name).mkdir(parents=True)
+        (root / name / "clean.md").write_text("x" * 10, encoding="utf-8")
+    found = records.orphan_folders(root, live_ids={1})
+    assert [(p.name, size, files) for p, size, files in found] == [("gone-2", 10, 1)]
+    assert records.orphan_folders(root, live_ids=None) is not None

@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional, Callable
 
+from core.i18n import tr
 from core.glossary import glossary_block
 from core.lm_client import LMStudioClient, DEFAULT_LM_STUDIO_URL
 from core.llm_text import split_into_chunks
@@ -193,14 +194,14 @@ class TextCleaner:
             CleanedText with original and cleaned versions
         """
         if on_progress:
-            on_progress(0, "Starting text cleaning...")
+            on_progress(0, tr("llm_progress_clean_start"))
 
         # Check if AI is available and requested
         if use_ai and self.lm_client.check_connection():
             cleaned = self._clean_with_ai(text, on_progress)
         else:
             if on_progress:
-                on_progress(10, "LM Studio unavailable, using basic cleaning...")
+                on_progress(10, tr("llm_progress_clean_basic"))
             cleaned = self._quick_clean(text)
 
         # Calculate statistics
@@ -215,7 +216,7 @@ class TextCleaner:
         paragraphs_created = cleaned.count('\n\n') + 1
 
         if on_progress:
-            on_progress(100, "Text cleaning complete")
+            on_progress(100, tr("llm_progress_clean_done"))
 
         return CleanedText(
             original=text,
@@ -235,7 +236,7 @@ class TextCleaner:
         # For short texts, process in one go
         if len(text) <= TEXT_CHUNK_SIZE:
             if on_progress:
-                on_progress(20, "Processing with AI...")
+                on_progress(20, tr("llm_progress_ai"))
 
             system, template = self._prompts()
             result = self.lm_client.chat_completion(
@@ -258,7 +259,7 @@ class TextCleaner:
         for i, chunk in enumerate(chunks):
             progress = int(20 + (70 * i / len(chunks)))
             if on_progress:
-                on_progress(progress, f"Processing chunk {i+1}/{len(chunks)}...")
+                on_progress(progress, tr("llm_progress_chunk", current=i + 1, total=len(chunks)))
 
             result = self.lm_client.chat_completion(
                 prompt=_cleaning_prompt(chunk, template),
@@ -385,7 +386,7 @@ class CoherenceProcessor:
             CoherentText with structured paragraphs
         """
         if on_progress:
-            on_progress(0, "Analyzing text structure...")
+            on_progress(0, tr("llm_progress_structure"))
 
         if use_ai and self.lm_client.check_connection():
             processed = self._process_with_ai(text, on_progress)
@@ -408,7 +409,7 @@ class CoherenceProcessor:
                 paragraphs[i] = para.replace('[TOPIC SHIFT]', '').strip()
 
         if on_progress:
-            on_progress(100, "Structure analysis complete")
+            on_progress(100, tr("llm_progress_structure_done"))
 
         return CoherentText(
             text='\n\n'.join(paragraphs),
@@ -441,7 +442,7 @@ class CoherenceProcessor:
             if on_progress:
                 on_progress(
                     int(30 + 60 * index / len(chunks)),
-                    f"Organizing paragraphs with AI ({index + 1}/{len(chunks)})...",
+                    tr("llm_progress_paragraphs", current=index + 1, total=len(chunks)),
                 )
             result = self.lm_client.chat_completion(
                 prompt=COHERENCE_PROMPT_TEMPLATE.format(text=chunk),
@@ -526,14 +527,14 @@ class TextProcessor:
         # Stage 1: Clean text
         def clean_progress(pct, msg):
             if on_progress:
-                on_progress(int(pct * 0.5), f"Cleaning: {msg}")
+                on_progress(int(pct * 0.5), tr("llm_progress_cleaning_stage", message=msg))
 
         cleaned = self.cleaner.clean(raw_text, use_ai=use_ai, on_progress=clean_progress)
 
         # Stage 2: Coherence processing
         def coherence_progress(pct, msg):
             if on_progress:
-                on_progress(50 + int(pct * 0.5), f"Structuring: {msg}")
+                on_progress(50 + int(pct * 0.5), tr("llm_progress_structuring_stage", message=msg))
 
         coherent = self.coherence.process(
             cleaned.cleaned,
@@ -544,7 +545,7 @@ class TextProcessor:
         processing_time = time.time() - start_time
 
         if on_progress:
-            on_progress(100, f"Processing complete in {processing_time:.1f}s")
+            on_progress(100, tr("llm_progress_processing_done", seconds=f"{processing_time:.1f}"))
 
         return ProcessingResult(
             original=raw_text,

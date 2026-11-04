@@ -6,7 +6,7 @@ Unified settings window (Ctrl+,).
 import os
 import subprocess
 import sys
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QStackedWidget, QWidget,
@@ -32,6 +32,10 @@ from core.worker_registry import WorkerRegistry
 from core.logger import get_logger
 from core.i18n import on_language_changed, set_locale, tr
 from domain.recording_settle import default_recording_folder
+
+
+if TYPE_CHECKING:
+    from ui.call_worker import CallWorker
 
 logger = get_logger(__name__)
 
@@ -124,6 +128,7 @@ class SettingsDialog(QDialog):
         try:
             self.setWindowTitle(tr("settings_title"))
             self._categories.setAccessibleName(tr("settings_title"))
+            self._fill_watch_recipes()
             for widget, setter, key in self._i18n_texts:
                 try:
                     getattr(widget, setter)(tr(key))
@@ -343,6 +348,15 @@ class SettingsDialog(QDialog):
         self._reindex_btn.clicked.connect(self._reindex_materials)
         layout.addRow(self._reindex_btn)
 
+        # Files of deleted records: deleting a record (or clearing the
+        # history) keeps them; this finds and trashes them on request
+        # (audit 2026-11-04 AR3).
+        self._orphans_btn = QPushButton()
+        self._tt(self._orphans_btn, "settings_orphan_files")
+        self._orphans_btn.clicked.connect(self._find_orphan_files)
+        layout.addRow(self._orphans_btn)
+        self._orphans: "Optional[CallWorker]" = None
+
         # UI language
         self._lang_ui_combo = QComboBox()
         self._lang_ui_combo.addItem("Auto", "auto")
@@ -369,6 +383,12 @@ class SettingsDialog(QDialog):
         watch_container.setLayout(watch_row)
         self._row(layout, "settings_watch_folder", watch_container)
 
+        # Its own recipe: files found later must not take whatever recipe
+        # the start screen happens to show then (audit 2026-11-04 W26).
+        self._watch_recipe_combo = QComboBox()
+        self._fill_watch_recipes()
+        self._row(layout, "settings_watch_folder_recipe", self._watch_recipe_combo)
+
         watch_hint = QLabel()
         self._tt(watch_hint, "settings_watch_folder_hint")
         watch_hint.setProperty("role", "muted")
@@ -382,6 +402,10 @@ class SettingsDialog(QDialog):
         self._recording_offer_chk = QCheckBox()
         self._tt(self._recording_offer_chk, "settings_recording_offer_enabled")
         layout.addRow(self._recording_offer_chk)
+        # Turning it on fills in Zoom's folder visibly: the watch never
+        # reaches into ~/Documents on its own (macOS asks for that folder's
+        # permission; audit 2026-11-04 W25).
+        self._recording_offer_chk.toggled.connect(self._on_recording_offer_toggled)
 
         source_row = QHBoxLayout()
         self._source_folder_edit = QLineEdit()
@@ -406,12 +430,30 @@ class SettingsDialog(QDialog):
         tab_layout.addStretch()
         return tab
 
+    def _fill_watch_recipes(self) -> None:
+        from domain.recipe import recipe_choices
+        from ui.option_labels import recipe_label
+
+        combo = self._watch_recipe_combo
+        current = combo.currentData() or self._cfg.watch_folder_recipe
+        combo.blockSignals(True)
+        combo.clear()
+        for key, recipe in recipe_choices(self._cfg.recipes):
+            combo.addItem(recipe_label(recipe), key)
+        index = combo.findData(current)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+        combo.blockSignals(False)
+
     def _browse_watch_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(
             self, tr("settings_watch_folder"), self._watch_folder_edit.text()
         )
         if folder:
             self._watch_folder_edit.setText(folder)
+
+    def _on_recording_offer_toggled(self, checked: bool) -> None:
+        if checked and not self._source_folder_edit.text().strip():
+            self._source_folder_edit.setText(default_recording_folder())
 
     def _browse_source_folder(self) -> None:
         start = self._source_folder_edit.text() or default_recording_folder()
@@ -702,29 +744,31 @@ class SettingsDialog(QDialog):
         # General
         idx = self._theme_combo.findData(cfg.theme)
         self._theme_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        scale_idx = self._scale_combo.findData(getattr(cfg, "text_scale", 100))
+        scale_idx = self._scale_combo.findData(cfg.text_scale)
         self._scale_combo.setCurrentIndex(scale_idx if scale_idx >= 0 else 0)
         self._history_chk.setChecked(cfg.history_enabled)
-        self._tray_chk.setChecked(getattr(cfg, "tray_icon_enabled", False))
-        self._live_chk.setChecked(getattr(cfg, "live_transcription_enabled", False))
-        self._live_present_chk.setChecked(getattr(cfg, "live_presentation_enabled", False))
-        idx = self._lang_ui_combo.findData(getattr(cfg, "ui_language", "auto"))
+        self._tray_chk.setChecked(cfg.tray_icon_enabled)
+        self._live_chk.setChecked(cfg.live_transcription_enabled)
+        self._live_present_chk.setChecked(cfg.live_presentation_enabled)
+        idx = self._lang_ui_combo.findData(cfg.ui_language)
         self._lang_ui_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        self._watch_enabled_chk.setChecked(getattr(cfg, "watch_folder_enabled", False))
-        self._watch_folder_edit.setText(getattr(cfg, "watch_folder", ""))
-        self._recording_offer_chk.setChecked(getattr(cfg, "recording_offer_enabled", False))
-        self._source_folder_edit.setText(getattr(cfg, "source_folder", ""))
+        self._watch_enabled_chk.setChecked(cfg.watch_folder_enabled)
+        self._watch_folder_edit.setText(cfg.watch_folder)
+        index = self._watch_recipe_combo.findData(cfg.watch_folder_recipe)
+        self._watch_recipe_combo.setCurrentIndex(index if index >= 0 else 0)
+        self._recording_offer_chk.setChecked(cfg.recording_offer_enabled)
+        self._source_folder_edit.setText(cfg.source_folder)
 
         # Transcription
-        idx = self._model_combo.findData(getattr(cfg, "default_model", "large-v3-turbo"))
+        idx = self._model_combo.findData(cfg.default_model)
         self._model_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        idx = self._lang_combo.findData(getattr(cfg, "default_language", "auto"))
+        idx = self._lang_combo.findData(cfg.default_language)
         self._lang_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        idx = self._perf_combo.findData(getattr(cfg, "performance_mode", "balanced"))
+        idx = self._perf_combo.findData(cfg.performance_mode)
         self._perf_combo.setCurrentIndex(idx if idx >= 0 else 1)
-        vocab = getattr(cfg, "custom_vocabulary", []) or []
+        vocab = cfg.custom_vocabulary or []
         self._vocab_edit.setPlainText("\n".join(vocab))
-        saved_mic = getattr(cfg, "mic_device_index", None)
+        saved_mic = cfg.mic_device_index
         idx = self._mic_combo.findData(saved_mic)
         self._mic_combo.setCurrentIndex(idx if idx >= 0 else 0)
 
@@ -773,7 +817,7 @@ class SettingsDialog(QDialog):
         """Write widget values back to config; False when the file could
         not be written (the dialog then stays open and unapplied)."""
         cfg = self._cfg
-        prev_lang = getattr(cfg, "ui_language", "auto")
+        prev_lang = cfg.ui_language
 
         # General
         cfg.theme = self._theme_combo.currentData() or "dark"
@@ -785,6 +829,7 @@ class SettingsDialog(QDialog):
         cfg.ui_language = self._lang_ui_combo.currentData() or "auto"
         cfg.watch_folder_enabled = self._watch_enabled_chk.isChecked()
         cfg.watch_folder = self._watch_folder_edit.text().strip()
+        cfg.watch_folder_recipe = self._watch_recipe_combo.currentData() or "transcript_only"
         cfg.recording_offer_enabled = self._recording_offer_chk.isChecked()
         cfg.source_folder = self._source_folder_edit.text().strip()
 
@@ -885,7 +930,7 @@ class SettingsDialog(QDialog):
         open widget registered with ``core.i18n.on_language_changed``,
         including this dialog (see ``retranslate``)."""
         if self._lang_changed:
-            set_locale(getattr(self._cfg, "ui_language", "auto"))
+            set_locale(self._cfg.ui_language)
 
     def _on_apply(self):
         self._lang_changed = False
@@ -917,6 +962,10 @@ class SettingsDialog(QDialog):
             text, role = tr("settings_yt_connecting"), "muted"
         elif connected:
             text, role = tr("settings_yt_connected", channel=cfg.yt_channel_title or "\u2014"), "success-text"
+            if not youtube_oauth.login_is_persistent():
+                # Without a keyring the login is gone at quit, and the
+                # upload CLI never sees it (audit 2026-11-04 W05).
+                text, role = f"{text}\n{tr('settings_yt_login_session_only')}", "warning-text"
         elif configured:
             text, role = tr("settings_yt_not_connected"), "muted"
         else:
@@ -1012,7 +1061,7 @@ class SettingsDialog(QDialog):
             from PyQt6.QtWidgets import QApplication
             app = QApplication.instance()
             if app:
-                apply_theme(app, self._cfg.theme, getattr(self._cfg, "text_scale", 100))
+                apply_theme(app, self._cfg.theme, self._cfg.text_scale)
         super().reject()
 
     def _open_ai_profiles(self) -> None:
@@ -1079,12 +1128,16 @@ class SettingsDialog(QDialog):
         if reply != QMessageBox.StandardButton.Yes:
             return
         try:
-            from core.history import get_history_store
-            n = get_history_store().clear()
+            from application.records import clear_records
+
+            n = clear_records()
             logger.info("History cleared from settings: %d records", n)
             self.history_cleared.emit()
         except Exception as e:
             logger.warning("History clear failed: %s", e)
+            # Audit 2026-11-04 W11: say it, don't just log it.
+            QMessageBox.warning(self, tr("history_clear_title"),
+                                tr("history_clear_failed", error=str(e)))
 
     def _reindex_materials(self):
         """Rebuild the materials index in the background; the button shows
@@ -1107,6 +1160,59 @@ class SettingsDialog(QDialog):
         self._reindex = None
         self._reindex_btn.setEnabled(True)
         self._reindex_btn.setText(tr("library_reindex_materials"))
+
+    def _find_orphan_files(self) -> None:
+        """Measure the folders of deleted records in the background, then
+        offer to move them to the Trash."""
+        if self._orphans is not None:
+            return
+        from application.records import orphan_folders
+        from ui.call_worker import CallWorker
+
+        self._orphans_btn.setEnabled(False)
+        self._orphans_btn.setText(tr("settings_orphan_files_scanning"))
+        worker = CallWorker(lambda cancelled: orphan_folders(is_cancelled=cancelled), parent=self)
+        worker.done.connect(self._on_orphans_found)
+        worker.failed.connect(self._on_orphans_failed)
+        self._orphans = worker
+        self._registry.register(worker, name="orphan_files")
+        worker.start()
+
+    def _end_orphans(self) -> None:
+        self._orphans = None
+        self._orphans_btn.setEnabled(True)
+        self._orphans_btn.setText(tr("settings_orphan_files"))
+
+    def _on_orphans_failed(self, message: str) -> None:
+        self._end_orphans()
+        QMessageBox.warning(self, tr("settings_orphan_files"), message)
+
+    def _on_orphans_found(self, found: object) -> None:
+        from PyQt6.QtCore import QFile
+
+        from ui.project_dialogs import human_size
+
+        self._end_orphans()
+        folders = list(found) if isinstance(found, list) else []
+        if not folders:
+            QMessageBox.information(self, tr("settings_orphan_files"), tr("settings_orphan_files_none"))
+            return
+        size = sum(item[1] for item in folders)
+        files = sum(item[2] for item in folders)
+        reply = QMessageBox.question(
+            self, tr("settings_orphan_files"),
+            tr("settings_orphan_files_confirm", count=len(folders), files=files, size=human_size(size)),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        failed = [str(path) for path, _size, _files in folders if not QFile.moveToTrash(str(path))]
+        if failed:
+            QMessageBox.warning(self, tr("settings_orphan_files"),
+                                tr("settings_orphan_files_failed", paths="\n".join(failed[:10])))
+        else:
+            QMessageBox.information(self, tr("settings_orphan_files"),
+                                    tr("settings_orphan_files_done", count=len(folders)))
 
     def _on_reindexed(self, count: object) -> None:
         self._end_reindex()

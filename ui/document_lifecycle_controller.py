@@ -67,12 +67,15 @@ class DocumentLifecycleController:
             return
         # The record is going: an open edit or draft has nothing to save to.
         if host.transcript_view.is_editing():
-            host.transcript_view._exit_edit_mode(save=False)
+            host.transcript_view.exit_edit_mode(save=False)
         try:
-            from core.history import get_history_store
-            get_history_store().delete(record_id)
+            from application.records import delete_record
+
+            delete_record(record_id)
         except Exception as exc:
             logger.warning("Failed to delete record %s: %s", record_id, exc)
+            QMessageBox.warning(host, tr("history_delete_title"),
+                                tr("history_delete_failed", error=str(exc)))
             return
         if choice is with_files and with_files is not None:
             from PyQt6.QtCore import QFile
@@ -126,7 +129,7 @@ class DocumentLifecycleController:
         if not gone:
             return
         if host.transcript_view.is_editing():
-            host.transcript_view._exit_edit_mode(save=False)
+            host.transcript_view.exit_edit_mode(save=False)
         self.close_open_record()
 
     def delete_blocked(self, record_id: int | None) -> bool:

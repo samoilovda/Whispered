@@ -125,7 +125,7 @@ QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests_qt/ -q
 - Current: `README.md`, `ROADMAP.md`, `TESTING.md`, `docs/HERMES_PUSH.md`,
   `docs/YOUTUBE_UPLOAD.ru.md`, `docs/SYSTEM_CAPTURE_IPC.ru.md`,
   `docs/LIVE_COMPATIBILITY_MATRIX.ru.md`, `docs/release-notes/`.
-- In force: `docs/LLM_RESEARCH.ru.md` (see triggers); `docs/AUDIT_2026-10-27.ru.md`
+- In force: `docs/LLM_RESEARCH.ru.md` (see triggers); `docs/AUDIT_2026-11-04.ru.md`
   (open defects); open plans — read when the task touches their area:
   `docs/LIVE_TRANSCRIPTION_PLAN.ru.md`, `docs/WINDOWS_SUPPORT_PLAN.ru.md`,
   `docs/MULTITRACK_ZOOM_PLAN.ru.md`, `docs/WHISPER_ECOSYSTEM_PLAN_2026-10.ru.md`,

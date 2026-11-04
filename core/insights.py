@@ -333,9 +333,7 @@ def generate_insight(
 
     if max_transcript_chars is None:
         from config import get_config
-        max_transcript_chars = getattr(
-            get_config(), "insights_context_chars", _TRANSCRIPT_MAX_CHARS
-        )
+        max_transcript_chars = get_config().insights_context_chars
 
     prompt = _build_prompt_text(
         insight_type, segments, max_transcript_chars=max_transcript_chars, language=language,

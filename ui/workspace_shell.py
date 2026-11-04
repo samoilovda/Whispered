@@ -51,7 +51,7 @@ class WorkspaceShell(QWidget):
         self.center = center
         self._forced_compact = False
         # The Library's width as the user dragged it (Config.library_width).
-        saved = int(getattr(get_config(), "library_width", 0) or 0)
+        saved = int(get_config().library_width or 0)
         self._library_width = saved if 220 <= saved <= 420 else LIBRARY_WIDTH
         self._i18n = Retranslator()
         self._setup_ui()
@@ -149,7 +149,7 @@ class WorkspaceShell(QWidget):
     def _apply_responsiveness(self) -> None:
         forced = self.width() < FORCE_COMPACT_WIDTH
         cfg = get_config()
-        compact_library = forced or getattr(cfg, "library_collapsed", False)
+        compact_library = forced or cfg.library_collapsed
         self._forced_compact = forced
         self._compact_library = compact_library
         self.library.setVisible(not compact_library)

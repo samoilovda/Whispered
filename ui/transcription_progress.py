@@ -34,6 +34,7 @@ def localized_progress(message: str) -> str:
         "Comparing speaker voices...": "progress_comparing_speaker_voices",
         "Complete!": "progress_complete",
         "Cancelling...": "progress_cancelling",
+        "Language detection failed, using English": "progress_language_fallback",
     }
     if message in exact:
         return tr(exact[message])

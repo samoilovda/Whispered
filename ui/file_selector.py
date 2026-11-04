@@ -259,6 +259,8 @@ class FileSelector(QWidget):
         folder = get_config().source_folder
         self.latest_btn.setText(tr("source_folder_latest"))
         self.latest_btn.setEnabled(bool(folder))
+        # A disabled button says what enables it (audit 2026-11-04 W22).
+        self.latest_btn.setToolTip("" if folder else tr("source_folder_latest_disabled_tip"))
         self.source_label.setText(folder or tr("source_folder_unset"))
 
     def _choose_source_folder(self) -> None:
@@ -298,6 +300,14 @@ class FileSelector(QWidget):
         self._set_file(str(latest))
         self.source_label.setText(folder)
         return True
+
+    def set_file(self, filepath: str) -> None:
+        """Select *filepath* as the source, as a drop or Browse would."""
+        self._set_file(filepath)
+
+    def clear_selection(self) -> None:
+        """Forget the selected file."""
+        self._clear_selection()
 
     def _set_file(self, filepath: str):
         """Set the selected file."""

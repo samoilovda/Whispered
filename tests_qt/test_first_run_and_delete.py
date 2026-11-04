@@ -310,3 +310,114 @@ def test_cancel_is_addressed_to_a_named_operation(env, monkeypatch, process_even
     assert "project" in stopped
     window.close()
     process_events()
+
+
+def test_a_failed_history_clear_is_reported(env, monkeypatch, process_events):
+    """Audit 2026-11-04 W11: Settings → Clear history only logged a failure."""
+    from PyQt6.QtWidgets import QMessageBox
+
+    from ui.settings_dialog import SettingsDialog
+
+    store, _ = env
+
+    def broken():
+        raise OSError("disk I/O error")
+
+    monkeypatch.setattr(store, "clear", broken)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    warned = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warned.append(a[-1]))
+    dialog = SettingsDialog()
+    cleared = []
+    dialog.history_cleared.connect(lambda: cleared.append(True))
+    dialog._clear_history()
+    assert warned and "disk I/O error" in warned[0] and cleared == []
+    dialog.close()
+    process_events()
+
+
+def test_a_failed_library_delete_is_reported(env, monkeypatch, process_events):
+    from PyQt6.QtWidgets import QMessageBox
+
+    store, _ = env
+    rid = store.add(_result(), source_path="", source_name="a.mp3")
+    window = _window(process_events)
+
+    def broken(_rid):
+        raise OSError("database is locked")
+
+    monkeypatch.setattr(store, "delete", broken)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    warned = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warned.append(a[-1]))
+    window.library_view._delete_record(rid)
+    assert warned and "database is locked" in warned[0]
+    window.close()
+    process_events()
+
+
+def test_the_first_run_card_stays_compact_at_the_minimum_size(env, process_events):
+    """Audit 2026-11-04 W09/W21: the card took half the start screen at
+    900×550 (intro text, a full models path); a ✕ gave no way out."""
+    from core.paths import models_dir
+
+    window = _window(process_events)
+    view = window.start_view
+    view._diarize_installed = False
+    window.resize(900, 550)
+    view.show_first_run()
+    process_events()
+    assert view._first_run_card.isVisible()
+    assert not view._first_run_body.isVisible()                 # intro hidden when short
+    assert str(models_dir()) not in view._first_run_status.text()
+    assert "sherpa-onnx" in view._first_run_status.text()
+    window.resize(1440, 900)
+    process_events()
+    if view.height() >= view._first_run_compact_below:
+        assert view._first_run_body.isVisible()
+    window.close()
+    process_events()
+
+
+def test_latest_from_source_folder_says_why_it_is_disabled(env, process_events):
+    """Audit 2026-11-04 W22."""
+    from core.i18n import tr
+    from ui.file_selector import FileSelector
+
+    config.get_config().source_folder = ""
+    selector = FileSelector()
+    assert not selector.latest_btn.isEnabled()
+    assert selector.latest_btn.toolTip() == tr("source_folder_latest_disabled_tip")
+    config.get_config().source_folder = str(env[1])
+    selector.refresh_source_folder()
+    assert selector.latest_btn.isEnabled() and selector.latest_btn.toolTip() == ""
+
+
+def test_settings_trash_the_files_of_deleted_records(env, monkeypatch, tmp_path, process_events):
+    """Audit 2026-11-04 AR3: deleting a record keeps its folder by default."""
+    import time
+
+    from PyQt6.QtCore import QFile
+    from PyQt6.QtWidgets import QMessageBox
+
+    from application import records
+    from ui.settings_dialog import SettingsDialog
+
+    orphan = tmp_path / "out" / "gone-9"
+    orphan.mkdir(parents=True)
+    (orphan / "clean.md").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(records, "orphan_folders",
+                        lambda is_cancelled=None: [(orphan, 1, 1)])
+    trashed = []
+    monkeypatch.setattr(QFile, "moveToTrash", lambda path: trashed.append(path) or True)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    told = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: told.append(a[-1]))
+    dialog = SettingsDialog()
+    dialog._find_orphan_files()
+    deadline = time.monotonic() + 5
+    while dialog._orphans is not None and time.monotonic() < deadline:
+        process_events()
+    assert trashed == [str(orphan)] and told
+    dialog.close()
+    process_events()

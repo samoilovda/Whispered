@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
+from core.i18n import tr
 from core.lm_client import LMStudioClient
 from core.llm_text import split_into_chunks
 from core.prompts import load_prompt
@@ -144,16 +145,23 @@ def _call_lm(
 
         if on_progress:
             pct = int((i / total) * 100)
-            on_progress(pct, f"Обработка блока {i + 1}/{total}…")
+            on_progress(pct, tr("llm_progress_block", current=i + 1, total=total))
 
-        result = client.chat_completion(
-            prompt=chunk,
-            system_prompt=system_prompt,
-            temperature=temperature,
-            max_tokens=8192,
-        )
+        result = None
+        # One retry: a dropped connection or a timeout on one chunk must not
+        # throw away every chunk already done (audit 2026-11-04 W06).
+        for attempt in (1, 2):
+            result = client.chat_completion(
+                prompt=chunk,
+                system_prompt=system_prompt,
+                temperature=temperature,
+                max_tokens=8192,
+            )
+            if result is not None or (is_cancelled and is_cancelled()):
+                break
+            logger.warning("LM Studio returned None for chunk %d/%d (attempt %d)",
+                           i + 1, total, attempt)
         if result is None:
-            logger.warning("LM Studio returned None for chunk %d/%d", i + 1, total)
             return None
         results.append(result.strip())
 
@@ -242,7 +250,7 @@ class BookPipeline:
         # ---- Stage 1: Speech unwrapping (расшивка) ----
         if do_unwrap:
             if on_progress:
-                on_progress(0, "Расшивка: отправляю в LM Studio…")
+                on_progress(0, tr("llm_progress_unwrap_sending"))
 
             system_prompt = load_prompt(
                 "расшивка",
@@ -295,7 +303,7 @@ class BookPipeline:
         # ---- Stage 2: Custom user prompt ----
         if do_custom and custom_prompt_path:
             if on_progress:
-                on_progress(0, "Пользовательский промпт: отправляю…")
+                on_progress(0, tr("llm_progress_custom_sending"))
 
             try:
                 custom_system = Path(custom_prompt_path).read_text(encoding="utf-8").strip()
@@ -343,6 +351,6 @@ class BookPipeline:
                 ))
 
         if on_progress:
-            on_progress(100, "Готово")
+            on_progress(100, tr("llm_progress_done"))
 
         return result

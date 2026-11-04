@@ -20,13 +20,14 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Collection, Optional, Sequence
 
 CLEAN_MD = "clean.md"
 UPLOAD_JSON = "youtube_upload.json"   # the video id: the video is on YouTube
@@ -44,6 +45,12 @@ MARKER_FILE = "hermes_push.json"
 READY_FILE = "ready.json"
 _SSH_OPTS = ("-o", "BatchMode=yes", "-o", "ConnectTimeout=10")
 _SENT_MODE = 0o640
+# What a remote path may contain. ssh hands its command to the server's
+# shell, and scp/rsync (macOS ships rsync 2.6.9, which does not protect its
+# arguments) do the same with the destination, so a space, quote or $(...)
+# in a folder name would split the path or run on the server.
+_UNSAFE_REMOTE = re.compile(r"[^\w.\-]")
+_SAFE_REMOTE_DIR = re.compile(r"^[\w./~\-]+$")
 
 Runner = Callable[[Sequence[str]], "subprocess.CompletedProcess[str]"]
 # Rewrites the staged copies in the given folder (never the record's own
@@ -132,12 +139,20 @@ def write_timed_transcripts(
     return written
 
 
-def find_pending(root: Path, *, force: bool = False, salt: str = "") -> list[PushItem]:
+def find_pending(
+    root: Path, *, force: bool = False, salt: str = "",
+    live_ids: Optional[Collection[int]] = None,
+) -> list[PushItem]:
     """Artifact folders under *root* with something new to send. *salt*
     goes into the digest: when it changes (a new voice profile), every
-    folder is sent again."""
+    folder is sent again. With *live_ids* (``records.live_record_ids()``),
+    folders of deleted records are left out."""
+    from application.records import folder_record_id, is_live
+
     items = []
     for folder in sorted(p for p in root.iterdir() if p.is_dir()):
+        if not is_live(folder_record_id(folder), live_ids):
+            continue
         item = _item_for(folder, salt)
         if item and (force or _pushed_digest(folder) != item.digest):
             items.append(item)
@@ -145,11 +160,22 @@ def find_pending(root: Path, *, force: bool = False, salt: str = "") -> list[Pus
 
 
 def split_target(target: str) -> tuple[str, str]:
-    """``user@host:/path`` → (``user@host``, ``/path``). Raises ValueError."""
+    """``user@host:/path`` → (``user@host``, ``/path``). Raises ValueError,
+    also for a remote dir with characters a remote shell would interpret."""
     host, sep, path = target.partition(":")
     if not sep or not host or not path or "/" in host:
         raise ValueError(f"Expected user@host:/remote/dir, got {target!r}")
+    if not _SAFE_REMOTE_DIR.match(path) or host.startswith("-"):
+        raise ValueError(
+            f"The remote dir may only contain letters, digits and . _ - / ~, got {path!r}")
     return host, path.rstrip("/") or "/"
+
+
+def remote_folder_name(folder: Path) -> str:
+    """The folder's name on the server: its local name with every character
+    a shell could interpret (spaces, quotes, ``$``, ``;``…) replaced by ``_``.
+    Names without such characters stay as they are."""
+    return _UNSAFE_REMOTE.sub("_", folder.name).strip(".") or "record"
 
 
 def _run(cmd: Sequence[str]) -> "subprocess.CompletedProcess[str]":
@@ -168,7 +194,8 @@ def _transfer(
 ) -> tuple[str, dict[str, Any]]:
     """Copy one folder's files, ``ready.json`` last. Returns ('' or an
     error, what *annotate* added)."""
-    dest = f"{remote_dir}/{item.artifact_dir.name}"
+    remote_name = remote_folder_name(item.artifact_dir)
+    dest = f"{remote_dir}/{remote_name}"
     with tempfile.TemporaryDirectory(prefix="hermes-push-") as tmp:
         stage = Path(tmp)
         files = []
@@ -182,13 +209,14 @@ def _transfer(
         info = annotate(item, stage) if annotate else {}
         ready = stage / READY_FILE
         ready.write_text(json.dumps({
-            "folder": item.artifact_dir.name,
+            "folder": remote_name,
+            "local_folder": item.artifact_dir.name,
             "digest": item.digest,
             "files": [p.name for p in files],
             "sent_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             **info,
         }, ensure_ascii=False, indent=2), encoding="utf-8")
-        mk = runner(["ssh", *_SSH_OPTS, host, "mkdir", "-p", dest])
+        mk = runner(["ssh", *_SSH_OPTS, host, "mkdir", "-p", "--", shlex.quote(dest)])
         if mk.returncode != 0:
             return _error(mk), info
         # Data first, then the completion marker.

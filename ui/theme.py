@@ -303,6 +303,8 @@ def build_stylesheet(t: Theme) -> str:
     # after the app's widgets/icons are already importable).
     from ui.icons import get_icon_file
     check_icon = get_icon_file("check", "#ffffff", 10)
+    # 2x the drawn size, so the arrow stays sharp on a Retina display.
+    combo_arrow = get_icon_file("chevron_down", t.text_secondary, 24)
     return f"""
     /* ── Base ── */
     QWidget {{
@@ -405,12 +407,21 @@ def build_stylesheet(t: Theme) -> str:
         background-color: rgba(99, 102, 241, 0.1);
     }}
 
-    QPushButton[role="checkable-success"]:checkable:checked {{
-        border-color: {t.success};
-        color: {t.success_text};
+    QPushButton[role="view-toggle"] {{
+        background-color: transparent;
+        border: 1px solid {t.border};
+        border-radius: 14px;
+        padding: 5px 12px;
+        color: {t.text_secondary};
     }}
-    QPushButton[role="checkable-success"]:checkable:hover {{
-        background-color: {rgba(t.success, 0.1)};
+    QPushButton[role="view-toggle"]:hover {{
+        background-color: {t.bg_pressed};
+        color: {t.text_primary};
+    }}
+    QPushButton[role="view-toggle"]:checked {{
+        background-color: {rgba(t.accent, 0.15)};
+        border-color: {t.accent};
+        color: {t.accent_text};
     }}
 
     /* ── Sidebar nav buttons (QToolButton) ── */
@@ -450,11 +461,9 @@ def build_stylesheet(t: Theme) -> str:
         background: transparent;
     }}
     QComboBox::down-arrow {{
-        width: 0;
-        height: 0;
-        border-left: 4px solid transparent;
-        border-right: 4px solid transparent;
-        border-top: 4px solid {t.text_secondary};
+        image: url({combo_arrow});
+        width: 10px;
+        height: 10px;
     }}
     QComboBox QAbstractItemView {{
         background-color: {t.bg_surface};

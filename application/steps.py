@@ -1316,10 +1316,10 @@ def llm_params(
     cloud provider (``None`` for LM Studio), and the shared insights cache."""
     params: dict = {
         "lm_url": cfg.lm_studio_url,
-        "book_lm_url": getattr(cfg, "book_lm_url", "http://localhost:1234/v1"),
-        "book_model": getattr(cfg, "book_model_name", ""),
-        "book_temperature": getattr(cfg, "book_temperature", 0.3),
-        "insights_context_chars": getattr(cfg, "insights_context_chars", 48000),
+        "book_lm_url": cfg.book_lm_url,
+        "book_model": cfg.book_model_name,
+        "book_temperature": cfg.book_temperature,
+        "insights_context_chars": cfg.insights_context_chars,
     }
     # The local AI profile (N05): "active" = the one chosen in settings; a
     # queued file passes the profile it was queued with (or None for the
@@ -1333,7 +1333,7 @@ def llm_params(
         params["language"] = language_name_for_code(result.language)
     if provider is not None:
         params["yt_language"] = cfg.yt_language
-        params["yt_style_examples"] = getattr(cfg, "yt_style_examples", True)
+        params["yt_style_examples"] = cfg.yt_style_examples
         params["provider"] = None if provider.kind == "lmstudio" else provider
     if insights_cache is not None:
         params["insights_cache"] = insights_cache

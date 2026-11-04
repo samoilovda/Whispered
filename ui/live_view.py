@@ -268,6 +268,10 @@ class LiveView(QWidget):
         self.start_btn.setEnabled(enabled)
         self.start_btn.setToolTip("" if enabled else tr("tooltip_live_start_disabled"))
 
+    def stop_clock(self) -> None:
+        """Stop the session clock (the session has finished)."""
+        self._timer.stop()
+
     def invalidate_preflight(self) -> None:
         self._preflight_valid = False
         self._set_start_enabled(False)

@@ -127,3 +127,24 @@ BUILTIN_RECIPES: "tuple[Recipe, ...]" = (
     TRANSCRIPT_ONLY, YOUTUBE_VIDEO, PODCAST_ARTICLE, MEETING_NOTES, BOOK,
 )
 BUILTIN_RECIPES_BY_KEY = {recipe.builtin_key: recipe for recipe in BUILTIN_RECIPES}
+
+
+def recipe_key(recipe: Recipe) -> str:
+    """How the start screen, the recipe offer and Config.last_recipe name a
+    recipe: a built-in's key, a user recipe's name."""
+    return recipe.builtin_key or recipe.name
+
+
+def recipe_choices(entries: "list[dict]") -> "list[tuple[str, Recipe]]":
+    """Every built-in recipe, then the user's (``Config.recipes``), keyed by
+    :func:`recipe_key`. A user recipe whose key is already taken (a name
+    equal to a built-in's key, or a hand-edited duplicate) is left out —
+    the same key must not select two recipes (audit 2026-11-04 W24)."""
+    choices: "list[tuple[str, Recipe]]" = []
+    seen: "set[str]" = set()
+    for recipe in [*BUILTIN_RECIPES, *(Recipe.from_dict(entry) for entry in entries)]:
+        key = recipe_key(recipe)
+        if key and key not in seen:
+            seen.add(key)
+            choices.append((key, recipe))
+    return choices

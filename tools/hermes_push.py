@@ -129,7 +129,10 @@ def main(argv: list[str] | None = None) -> int:
 
             # Records without a speaker transcript still get timecodes to quote.
             write_timed_transcripts(output_dir(), HistoryStore().get)
-        items = find_pending(output_dir(), force=args.force, salt=salt)
+        from application.records import live_record_ids
+
+        items = find_pending(output_dir(), force=args.force, salt=salt,
+                             live_ids=live_record_ids())
         voice = _Voice() if items and not args.dry_run else None
         annotate = hs.annotator(profile, name, voice.model, voice.embedder) if voice else None
         outcomes = run_push(items, target, dry_run=args.dry_run, annotate=annotate)

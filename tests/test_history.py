@@ -700,3 +700,84 @@ class TestBookmarks:
         store.add_bookmark(rid, 5.0, "x")
         store.delete(rid)
         assert store.list_bookmarks(rid) == []
+
+
+def test_record_ids_lists_live_records(tmp_path):
+    from core.history import HistoryStore
+    from domain.transcription import Segment, TranscriptionResult
+
+    store = HistoryStore(tmp_path / "h.sqlite3")
+    result = TranscriptionResult(segments=[Segment(0.0, 1.0, "x", None)], language="ru", duration=1.0)
+    a = store.add(result, "/x/a.wav")
+    b = store.add(result, "/x/b.wav")
+    store.delete(a)
+    assert store.record_ids() == {b}
+
+
+_OLD_FTS_SQL = """
+CREATE VIRTUAL TABLE transcripts_fts USING fts5(
+    source_name, json_payload, content=transcripts, content_rowid=id, tokenize="unicode61");
+CREATE TRIGGER transcripts_fts_ai AFTER INSERT ON transcripts BEGIN
+    INSERT INTO transcripts_fts(rowid, source_name, json_payload)
+    VALUES (new.id, new.source_name, new.json_payload);
+END;
+"""
+
+
+def _segment_payload(text: str) -> str:
+    import json as _json
+
+    return _json.dumps({"segments": [{"start": 0.0, "end": 1.0, "text": text, "speaker": None}],
+                        "speaker_names": {"SPEAKER_00": "Анна"}}, ensure_ascii=False)
+
+
+def test_search_matches_speech_not_json_keys(tmp_path):
+    """Audit 2026-11-04 W04: the index covered the raw JSON, so "text",
+    "start", "speaker" or a model name matched every record."""
+    from domain.transcription import Segment, TranscriptionResult
+
+    store = HistoryStore(tmp_path / "h.sqlite3")
+    for words in ("привет мир", "hello world"):
+        store.add(TranscriptionResult(segments=[Segment(0.0, 1.0, words, None)],
+                                      language="ru", duration=1.0), f"/x/{words}.wav", model="tiny")
+    for key in ("text", "start", "end", "speaker", "segments", "tiny", "null"):
+        assert store.search(key) == [], key
+    (hit,) = store.search("привет")
+    assert "**привет**" in hit.preview and "{" not in hit.preview
+
+
+def test_v16_database_gets_a_plain_text_index(tmp_path):
+    import sqlite3
+
+    db_path = tmp_path / "old.sqlite3"
+    conn = sqlite3.connect(db_path)
+    for migrate in _MIGRATIONS[:16]:
+        migrate(conn)
+    conn.executescript(_OLD_FTS_SQL)
+    conn.execute(
+        "INSERT INTO transcripts (created_at, source_path, source_name, source_kind, duration, "
+        "language, model, json_payload) VALUES ('2026-01-01', '/x/a.wav', 'a.wav', 'file', 1, "
+        "'ru', 'tiny', ?)", (_segment_payload("старый разговор"),))
+    conn.execute("PRAGMA user_version = 16")
+    conn.commit()
+    conn.close()
+
+    store = HistoryStore(db_path)
+    assert [r.source_name for r in store.search("разговор")] == ["a.wav"]
+    assert [r.source_name for r in store.search("Анна")] == ["a.wav"]   # speaker names too
+    assert store.search("segments") == []
+
+
+@pytest.mark.parametrize("query", ["_", "%", "\\"])
+def test_like_wildcards_in_a_query_are_literal(tmp_path, query):
+    """Audit 2026-11-04 W27: "_" matched every titled record."""
+    from domain.transcription import Segment, TranscriptionResult
+
+    store = HistoryStore(tmp_path / "h.sqlite3")
+    rid = store.add(TranscriptionResult(segments=[Segment(0.0, 1.0, "слово", None)],
+                                        language="ru", duration=1.0), "/x/a.wav")
+    store.set_title(rid, "Интервью")
+    assert store.search(query) == []
+    store._fts_available = False   # the LIKE fallback too
+    assert store.search(query) == []
+    assert [r.id for r in store.search("Интер")] == [rid]

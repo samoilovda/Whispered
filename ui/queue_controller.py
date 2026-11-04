@@ -69,12 +69,13 @@ class QueueController(QObject):
         proc.item_error.connect(self._on_item_error)
         proc.batch_finished.connect(self._on_batch_finished)
 
-    def snapshot_now(self) -> q.QueueSnapshot:
-        """The recipe and transcription settings in force right now."""
+    def snapshot_now(self, recipe_key: Optional[str] = None) -> q.QueueSnapshot:
+        """The recipe and transcription settings in force right now —
+        *recipe_key*'s recipe when given, else the start screen's."""
         from utils import get_thread_count
 
         host = self._host
-        recipe = host._resolve_recipe(host.start_view.current_recipe_key())
+        recipe = host._resolve_recipe(recipe_key or host.start_view.current_recipe_key())
         chosen = resolve_transcription(recipe.params, recipe.steps, host._header_transcription_values())
         transcription = {
             "model_name": chosen["model"],
@@ -156,7 +157,7 @@ class QueueController(QObject):
             model=own.get("model_name") or "",
             speaker_names=getattr(result, "speaker_names", {}) or {},
             source_kind="file",
-        ) if getattr(cfg, "history_enabled", True) else None
+        ) if cfg.history_enabled else None
 
     # ------------------------------------------------------------ steps side
 

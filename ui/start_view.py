@@ -35,11 +35,12 @@ from application.readiness import (
 from config import get_config, save_config
 from core.i18n import tr
 from ui.i18n_helpers import Retranslator
-from domain.recipe import BUILTIN_RECIPES, Recipe, TRANSCRIPT_ONLY
+from domain.recipe import Recipe, TRANSCRIPT_ONLY, recipe_choices
 from ui.animated_button import AnimatedButton
 from ui.components import FlowLayout
 from ui.option_labels import (
-    recipe_label, whisper_model_options, whisper_model_options_with_state,
+    recipe_label, size_label, whisper_model_name, whisper_model_options,
+    whisper_model_options_with_state,
 )
 
 _CHECK_GLYPHS = {OK: "✓", WARN: "◌", MISSING: "✕", CHECKING: "…"}
@@ -319,8 +320,28 @@ class StartView(QWidget):
         layout.addWidget(self._first_run_done_btn)
         self._first_run_card = card
         card.setVisible(False)
+        # Below this height the card's intro text is hidden, so the source
+        # chips and Launch stay in view (audit 2026-11-04 W09).
+        self._first_run_compact_below = 720
+        self._first_run_profile_picked = False
         root.addWidget(card)
         self._populating_profiles = False
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(event)
+        self._apply_first_run_compact()
+
+    def _apply_first_run_compact(self) -> None:
+        """Hide the intro text on a short window or once a profile was
+        picked: the card then is one status line and its dismiss button."""
+        compact = self.height() < self._first_run_compact_below or self._first_run_profile_picked
+        self._first_run_body.setVisible(not compact)
+
+    def set_source_enabled(self, key: str, enabled: bool) -> None:
+        """Enable or disable one source chip ("file", "recorder", "live", …)."""
+        button = self._source_buttons.get(key)
+        if button is not None:
+            button.setEnabled(enabled)
 
     def should_show_first_run(self, record_count: int) -> bool:
         return not get_config().first_run_done and record_count == 0
@@ -353,6 +374,7 @@ class StartView(QWidget):
         self._profile_combo.setCurrentIndex(self._profile_combo.findData(current))
         self._populating_profiles = False
         self._first_run_status.setText(self._first_run_status_text())
+        self._apply_first_run_compact()
 
     def _first_run_status_text(self) -> str:
         import shutil
@@ -361,25 +383,41 @@ class StartView(QWidget):
         from core.paths import models_dir
 
         cfg = get_config()
-        label, downloaded = self._selected_model()
-        entry = whisper_entry(cfg.default_model)
-        size_mb = int(entry.size_bytes / 1_000_000) if entry is not None else 0
+        _label, downloaded = self._selected_model()
+        opts = self._transcribe_options
+        key = (opts.model_combo.currentData() if hasattr(opts, "model_combo") else None) \
+            or cfg.default_model
+        # The model's name and the manifest's size, in one unit (audit
+        # 2026-11-04 W10): the label's own size and description don't
+        # belong inside this sentence.
+        name = whisper_model_name(key)
+        entry = whisper_entry(key)
         folder = str(models_dir())
         if downloaded:
-            text = tr("first_run_model_ready", model=label)
+            text = tr("first_run_model_ready", model=name)
         else:
-            text = tr("first_run_model_download", model=label, size=size_mb, path=folder)
+            size = size_label(entry.size_bytes) if entry is not None and entry.size_bytes else "?"
+            # The folder goes to the tooltip: a full path filled two lines of
+            # the card at the minimum window size (audit 2026-11-04 W09).
+            text = tr("first_run_model_download", model=name, size=size)
+            self._first_run_status.setToolTip(tr("first_run_models_folder", path=folder))
             try:
                 free = shutil.disk_usage(folder).free
             except OSError:
                 free = None
             if free is not None and entry is not None and free < entry.size_bytes * 2:
-                text += "\n" + tr("first_run_low_space", free=int(free / 1_000_000))
+                text += "\n" + tr("first_run_low_space", free=size_label(free))
         text += "\n" + tr(
             "first_run_components",
             ffmpeg="✓" if self._ffmpeg_found else "✕" if self._ffmpeg_found is False else "…",
             speakers="✓" if self._diarize_installed else "✕" if self._diarize_installed is False else "…",
         )
+        # A ✕ says how to fix it (audit 2026-11-04 W21).
+        if self._ffmpeg_found is False:
+            from core.external_tools import ffmpeg_install_hint
+            text += "\n" + tr("first_run_ffmpeg_missing", hint=ffmpeg_install_hint())
+        if self._diarize_installed is False:
+            text += "\n" + tr("first_run_speakers_missing")
         return text
 
     def _on_profile_chosen(self, _index: int) -> None:
@@ -387,6 +425,8 @@ class StartView(QWidget):
         Shown exact settings stay editable in the recipe editor."""
         if self._populating_profiles:
             return
+        self._first_run_profile_picked = True
+        self._apply_first_run_compact()
         from domain.asr_profile import PROFILES_BY_KEY
 
         profile = PROFILES_BY_KEY.get(self._profile_combo.currentData())
@@ -512,12 +552,8 @@ class StartView(QWidget):
                 self._recipe_group.removeButton(widget)
                 widget.deleteLater()
         self._recipe_buttons = {}
-        recipes = list(BUILTIN_RECIPES) + [
-            Recipe.from_dict(entry) for entry in get_config().recipes
-        ]
         self._recipes = {}
-        for recipe in recipes:
-            key = recipe.builtin_key or recipe.name
+        for key, recipe in recipe_choices(get_config().recipes):
             self._recipes[key] = recipe
             button = QPushButton(recipe_label(recipe))
             button.setCheckable(True)
@@ -617,11 +653,11 @@ class StartView(QWidget):
             # Models are not checked: diarizer.py downloads them on first use.
             from diarizer import is_installed
             self._diarize_installed = is_installed()
-        provider = getattr(cfg, "yt_provider", "lmstudio") or "lmstudio"
+        provider = cfg.yt_provider or "lmstudio"
         key_field = {"openai": "yt_openai_api_key", "anthropic": "yt_anthropic_api_key"}.get(provider)
         model_label, downloaded = self._selected_model()
-        book_url = (getattr(cfg, "book_lm_url", "") or "").rstrip("/")
-        main_url = (getattr(cfg, "lm_studio_url", "") or "").rstrip("/")
+        book_url = (cfg.book_lm_url or "").rstrip("/")
+        main_url = (cfg.lm_studio_url or "").rstrip("/")
         return ReadinessFacts(
             model_label=model_label,
             model_downloaded=downloaded,

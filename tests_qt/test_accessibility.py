@@ -173,3 +173,78 @@ def test_playback_keys_do_not_steal_typing(monkeypatch, process_events):
     window.transcript_view._exit_edit_mode(save=False)
     window.close()
     process_events()
+
+
+def test_combo_arrows_are_an_image_not_a_border_triangle():
+    """Audit 2026-11-04 W15: Qt's QSS has no CSS border-triangle, so the
+    arrow rendered as a bar."""
+    from pathlib import Path
+    import re
+
+    from ui.theme import DARK, build_stylesheet
+
+    sheet = build_stylesheet(DARK)
+    rule = re.search(r"QComboBox::down-arrow \{([^}]*)\}", sheet).group(1)
+    url = re.search(r"image: url\(([^)]*)\)", rule).group(1)
+    assert Path(url).is_file() and "border-top" not in rule
+
+
+def test_the_export_button_has_one_arrow():
+    """Audit 2026-11-04 W16: "Export ▾" plus the menu's own indicator."""
+    from core.i18n import load_locale, tr
+
+    for lang in ("en", "ru"):
+        load_locale(lang)
+        assert "▾" not in tr("record_export_menu")
+    load_locale("en")
+
+
+def test_a_long_record_title_ends_in_an_ellipsis(process_events):
+    """Audit 2026-11-04 W17: it was cut mid-word."""
+    from PyQt6.QtWidgets import QLineEdit, QVBoxLayout, QWidget
+
+    from ui.record_view import _TitleEdit
+
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    edit = _TitleEdit()
+    other = QLineEdit()   # holds the focus, as the transcript does in the app
+    layout.addWidget(edit)
+    layout.addWidget(other)
+    host.resize(200, 80)
+    title = "Interview with the editor-in-chief on local transcription, privacy and preparing"
+    edit.set_shown_text(title)
+    host.show()
+    other.setFocus()
+    process_events()
+    assert edit.is_elided() and edit.text() == title   # text() untouched
+    assert title in edit.toolTip()
+    edit.grab()   # paints without error
+    host.close()
+
+
+def test_the_transcript_header_goes_icon_only_before_it_wraps(process_events):
+    """Audit 2026-11-04 W18: at 900×550 the Russian labels wrapped "Копировать"
+    onto a second row while the width threshold still said "fits"."""
+    from core.i18n import load_locale
+    from transcriber import Segment, TranscriptionResult
+    from ui.transcript_view import TranscriptView
+
+    load_locale("ru")
+    view = TranscriptView()
+    view.set_result(TranscriptionResult(
+        segments=[Segment(0.0, 1.0, "привет", "SPEAKER_00"), Segment(1.0, 2.0, "мир", "SPEAKER_01")],
+        language="ru", duration=2.0))
+    view.resize(780, 400)   # above the old fixed threshold (760)
+    view.show()
+    process_events()
+    view._update_header_compact()
+    if view._full_header_width() > view.contentsRect().width() - 8:
+        assert view._header_compact and view.copy_btn.text() == ""
+    view.resize(1400, 400)
+    process_events()
+    view._update_header_compact()
+    assert not view._header_compact and view.copy_btn.text() != ""
+    assert view.timestamps_btn.property("role") == "view-toggle"
+    view.close()
+    load_locale("en")

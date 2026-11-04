@@ -42,3 +42,25 @@ def test_convert_to_wav_distinguishes_missing_ffmpeg():
     with patch("core.external_tools.resolve_tool", return_value=None), \
          pytest.raises(FFmpegUnavailableError, match="not installed"):
         _convert_to_wav("meeting.mp4")
+
+
+def test_child_errors_are_translated_in_the_app_process(monkeypatch):
+    """Audit 2026-11-04 W13: the child's errors were English in every UI."""
+    import transcriber
+    from core import i18n
+
+    monkeypatch.setattr(i18n, "tr", lambda key, **kw: f"{key}:{sorted(kw.items())}")
+    assert transcriber._error_text(("error", "transcribe_error_memory", {"model": "tiny"})) \
+        == "transcribe_error_memory:[('model', 'tiny')]"
+    assert transcriber._error_text(("error", "raw engine text")) == "raw engine text"
+
+
+def test_language_fallback_progress_is_localized_and_does_not_step_back():
+    from pathlib import Path
+
+    from ui.transcription_progress import localized_progress
+    import transcriber
+
+    assert localized_progress(transcriber.LANGUAGE_FALLBACK_MESSAGE) != transcriber.LANGUAGE_FALLBACK_MESSAGE
+    source = Path(transcriber.__file__).read_text(encoding="utf-8")
+    assert "('progress', 12," not in source   # detection used to report 12 % after 15 %

@@ -199,8 +199,15 @@ def test_refresh_token_falls_back_to_memory_without_a_keyring(monkeypatch):
     monkeypatch.setattr(oauth.secrets_store, "get_secret", lambda n: None)
     assert oauth.store_refresh_token("rt") is False
     assert oauth.load_refresh_token() == "rt" and oauth.is_connected()
+    assert not oauth.login_is_persistent()   # Settings warns (audit 2026-11-04 W05)
     oauth.clear_refresh_token()
     assert not oauth.is_connected()
+
+
+def test_a_keyring_login_is_persistent(monkeypatch):
+    monkeypatch.setattr(oauth.secrets_store, "set_secret", lambda n, v: True)
+    assert oauth.store_refresh_token("rt") is True
+    assert oauth.login_is_persistent()
 
 
 def test_channel_title_and_failures():

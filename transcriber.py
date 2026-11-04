@@ -48,6 +48,20 @@ _BATCH_MERGE_MAX_WORDS = 35
 _SENTENCE_END_RE = re.compile(r"[.!?…][\"'”’»)]*$")
 
 
+# Sent as progress when auto-detection fails and English is used instead.
+LANGUAGE_FALLBACK_MESSAGE = "Language detection failed, using English"
+
+
+def _error_text(msg: tuple) -> str:
+    """A child-process error in the UI language: ``('error', key, kwargs)``
+    is translated here, in the app process (audit 2026-11-04 W13);
+    ``('error', text)`` is an engine message shown as is."""
+    if len(msg) >= 3:
+        from core.i18n import tr
+        return tr(msg[1], **msg[2])
+    return str(msg[1])
+
+
 def _confidence(value) -> Optional[float]:
     """pywhispercpp's segment probability as a confidence, or None when
     it wasn't computed (NaN) or is out of range."""
@@ -190,7 +204,7 @@ def _run_transcription_process(
     try:
         # Check if file exists
         if not os.path.isfile(filepath):
-            q.put(('error', f"File not found: {filepath}"))
+            q.put(('error', "transcribe_error_not_found", {"path": filepath}))
             return
 
         # Check if we need to convert the file
@@ -205,17 +219,10 @@ def _run_transcription_process(
             except FFmpegUnavailableError:
                 from core.external_tools import ffmpeg_install_hint
                 hint = ffmpeg_install_hint()
-                q.put(('error',
-                    f"Cannot process {file_ext} files: FFmpeg is not installed.\n\n"
-                    f"Install it with:\n  {hint}\n\n"
-                    "Then restart the application."
-                ))
+                q.put(('error', "transcribe_error_no_ffmpeg", {"ext": file_ext, "hint": hint}))
                 return
             except MediaConversionError as exc:
-                q.put((
-                    'error',
-                    f"Cannot convert {file_ext} media: {exc}",
-                ))
+                q.put(('error', "transcribe_error_convert", {"ext": file_ext, "error": str(exc)}))
                 return
 
         q.put(('progress', 10, "Loading model (downloading if needed)..."))
@@ -231,14 +238,10 @@ def _run_transcription_process(
                 context_params={"use_gpu": use_gpu},
             )
         except MemoryError:
-            q.put(('error',
-                f"Not enough memory to load model '{model_name}'.\n\n"
-                "Try selecting a smaller model (e.g. 'base' or 'small') "
-                "in the Model dropdown."
-            ))
+            q.put(('error', "transcribe_error_memory", {"model": model_name}))
             return
         except Exception as e:
-            q.put(('error', f"Failed to load model '{model_name}': {str(e)}"))
+            q.put(('error', "transcribe_error_model", {"model": model_name, "error": str(e)}))
             return
 
         q.put(('progress', 15, "Preparing transcription..."))
@@ -258,7 +261,8 @@ def _run_transcription_process(
         if language != 'auto':
             params['language'] = language
         else:
-            q.put(('progress', 12, "Detecting language..."))
+            # After "Preparing" (15 %): the bar must not step back.
+            q.put(('progress', 16, "Detecting language..."))
             try:
                 (detected_lang, confidence), _ = model.auto_detect_language(audio_path)
                 logger.info("Auto-detected language: %s (p=%.3f)", detected_lang, confidence)
@@ -266,6 +270,9 @@ def _run_transcription_process(
             except Exception as e:
                 logger.warning("Language auto-detection failed, falling back to English: %s", e)
                 params['language'] = 'en'
+                # Said out loud: a Russian recording decoded as English is
+                # garbage (audit 2026-11-04 W13); MainWindow warns at the end.
+                q.put(('progress', 16, LANGUAGE_FALLBACK_MESSAGE))
 
         # Enable translation if requested
         if translate:
@@ -365,7 +372,7 @@ def _run_transcription_process(
             segments = _coalesce_batch_segments(segments)
 
         if not segments:
-            q.put(('error', "No speech detected in the audio file."))
+            q.put(('error', "transcribe_error_no_speech", {}))
             return
 
         # Calculate total duration
@@ -384,8 +391,9 @@ def _run_transcription_process(
     except Exception as e:
         error_msg = str(e)
         if 'CUDA' in error_msg or 'cuda' in error_msg:
-            error_msg += "\n\nTip: Try selecting CPU mode in settings."
-        q.put(('error', error_msg))
+            q.put(('error', "transcribe_error_cuda", {"error": error_msg}))
+        else:
+            q.put(('error', error_msg))
     finally:
         # Clean up temporary WAV file
         if temp_wav_path and os.path.exists(temp_wav_path):
@@ -499,7 +507,7 @@ class TranscriptionWorker(BaseWorker):
                         self.finished.emit(msg[1])
                         return
                     elif msg[0] == 'error':
-                        self.error.emit(msg[1])
+                        self.error.emit(_error_text(msg))
                         return
                 except queue.Empty:
                     continue
@@ -518,7 +526,7 @@ class TranscriptionWorker(BaseWorker):
                         self.finished.emit(msg[1])
                         return
                     elif msg[0] == 'error':
-                        self.error.emit(msg[1])
+                        self.error.emit(_error_text(msg))
                         return
                     elif msg[0] == 'terminal':
                         break

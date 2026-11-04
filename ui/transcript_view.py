@@ -279,7 +279,9 @@ class TranscriptView(QWidget):
         # its buttons squeezed to "ереименовать." — the row wraps instead
         # (UI/UX audit 2026-10-18, UX-01).
         header = QWidget()
+        self._header = header
         header_layout = FlowLayout(header, spacing=6)
+        self._header_layout = header_layout
         header_layout.setContentsMargins(0, 0, 0, 0)
 
         # Stats on the left of the toolbar: what used to be a separate
@@ -294,6 +296,9 @@ class TranscriptView(QWidget):
         self.timestamps_btn.setIcon(get_icon('clock', IconColors.default(), 14))
         self.timestamps_btn.setToolTip(tr("btn_timestamps"))
         self.timestamps_btn.setCheckable(True)
+        # View toggles look unlike the action buttons next to them
+        # (audit 2026-11-04 W19): a pill that fills in when on.
+        self.timestamps_btn.setProperty("role", "view-toggle")
         self.timestamps_btn.setChecked(self._show_timestamps)
         self.timestamps_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.timestamps_btn.clicked.connect(self._toggle_timestamps)
@@ -305,7 +310,7 @@ class TranscriptView(QWidget):
         self.speakers_btn.setToolTip(tr("btn_speakers"))
         self.speakers_btn.setCheckable(True)
         self.speakers_btn.setChecked(self._show_speakers)
-        self.speakers_btn.setProperty("role", "checkable-success")
+        self.speakers_btn.setProperty("role", "view-toggle")
         self.speakers_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.speakers_btn.clicked.connect(self._toggle_speakers)
         self.speakers_btn.setVisible(False)
@@ -692,8 +697,27 @@ class TranscriptView(QWidget):
         self._place_follow_button()
         self._margin_timer.start()
 
+    def _full_header_width(self) -> int:
+        """The header row's width with every button showing its label."""
+        widths = []
+        for index in range(self._header_layout.count()):
+            item = self._header_layout.itemAt(index)
+            widget = item.widget() if item is not None else None
+            if widget is None or widget.isHidden():
+                continue
+            width = widget.sizeHint().width()
+            if self._header_compact and widget in self._button_labels:
+                width += widget.fontMetrics().horizontalAdvance(self._button_labels[widget]) + 6
+            widths.append(width)
+        return sum(widths) + self._header_layout.horizontalSpacing() * max(0, len(widths) - 1)
+
     def _update_header_compact(self) -> None:
-        compact = self.width() < self._HEADER_COMPACT_WIDTH
+        # Icons only when the labelled row would wrap — Russian labels
+        # wrapped "Копировать" onto a second row at 900×550 while the fixed
+        # width threshold still said "fits" (audit 2026-11-04 W18).
+        available = self.contentsRect().width() - 8
+        compact = (self.width() < self._HEADER_COMPACT_WIDTH
+                   or self._full_header_width() > available)
         if compact == self._header_compact:
             return
         self._header_compact = compact
@@ -1213,6 +1237,14 @@ class TranscriptView(QWidget):
         self.text_edit.setDocument(doc)
         self.text_edit.setReadOnly(False)
         doc.contentsChanged.connect(self.edit_buffer_changed.emit)
+
+    def exit_edit_mode(self, save: bool = True) -> None:
+        """Leave edit mode, saving the edits or throwing them away."""
+        self._exit_edit_mode(save=save)
+
+    def open_find(self) -> None:
+        """Show the find/replace bar."""
+        self._open_find()
 
     def _exit_edit_mode(self, save: bool = True):
         """Leave the editor: *save* commits (staying put on an invalid

@@ -7,11 +7,85 @@ itself; single reads and edits (a title, a bookmark) stay direct calls.
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Optional
+import re
+from pathlib import Path
+from typing import Any, Collection, Iterable, Optional
 
 from core.logger import get_logger
 
 logger = get_logger(__name__)
+
+# An artifact folder is ``<stem>-<record id>`` (core.paths.artifact_dir).
+_FOLDER_ID_RE = re.compile(r"-(\d+)$")
+
+
+def folder_record_id(folder: Path) -> Optional[int]:
+    """The history record id an artifact folder belongs to, ``None`` for a
+    folder from before ids were part of the name."""
+    match = _FOLDER_ID_RE.search(folder.name)
+    return int(match.group(1)) if match else None
+
+
+def live_record_ids() -> Optional[set[int]]:
+    """Ids of the records that still exist, ``None`` when the history can't
+    be read (callers then filter nothing rather than everything)."""
+    from core.history import get_history_store
+
+    try:
+        return get_history_store().record_ids()
+    except Exception as exc:  # noqa: BLE001 - a broken store must not stop the CLI tools
+        logger.warning("Could not read the history's record ids: %s", exc)
+        return None
+
+
+def is_live(record_id: Optional[int], live_ids: Optional[Collection[int]]) -> bool:
+    """False only for a record known to be deleted: *record_id* is set,
+    the live ids could be read, and it is not among them."""
+    return record_id is None or live_ids is None or record_id in live_ids
+
+
+def withdraw_uploads(record_ids: Optional[Collection[int]], root: Optional[Path] = None) -> int:
+    """Withdraw the approved YouTube uploads of *record_ids* (all records
+    when ``None``): each ``youtube_upload.queued.json`` is renamed to
+    ``youtube_upload.withdrawn.json``, so no queue run, CLI or scheduled
+    job publishes a deleted record. Returns how many were withdrawn."""
+    from application.youtube_autoupload import QUEUE_FILE, WITHDRAWN_FILE, load_queued
+    from core.paths import output_dir
+
+    base = root if root is not None else output_dir()
+    withdrawn = 0
+    for path in sorted(base.glob(f"*/{QUEUE_FILE}")):
+        item = load_queued(path)
+        record_id = item.record_id if item is not None and item.record_id is not None \
+            else folder_record_id(path.parent)
+        if record_ids is not None and record_id not in record_ids:
+            continue
+        try:
+            path.replace(path.with_name(WITHDRAWN_FILE))
+            withdrawn += 1
+        except OSError as exc:
+            logger.warning("Could not withdraw the queued upload %s: %s", path, exc)
+    return withdrawn
+
+
+def delete_record(record_id: int) -> bool:
+    """Delete one history record and withdraw its approved upload. Raises
+    what the store raises; returns whether the row existed."""
+    from core.history import get_history_store
+
+    existed = get_history_store().delete(record_id)
+    withdraw_uploads({record_id})
+    return existed
+
+
+def clear_records() -> int:
+    """Delete every history record and withdraw every approved upload.
+    Raises what the store raises; returns the number of records removed."""
+    from core.history import get_history_store
+
+    removed = get_history_store().clear()
+    withdraw_uploads(None)
+    return removed
 
 
 def save_new_record(
@@ -32,7 +106,7 @@ def save_new_record(
     from core.history import get_history_store
 
     cfg = get_config()
-    if not getattr(cfg, "history_enabled", True):
+    if not cfg.history_enabled:
         return None
     try:
         store = get_history_store()
@@ -123,3 +197,34 @@ def finalize_live_record(record_id: int, result: Any) -> bool:
     except Exception as exc:  # noqa: BLE001 - the transcript stays open on screen
         logger.warning("Failed to finalize live transcript history: %s", exc)
         return False
+
+
+def orphan_folders(
+    root: Optional[Path] = None,
+    live_ids: Optional[Collection[int]] = None,
+    is_cancelled: Optional[Any] = None,
+) -> list[tuple[Path, int, int]]:
+    """Artifact folders of deleted records — (path, bytes, files) each.
+
+    Deleting a record keeps its files by default, and "Clear history" keeps
+    all of them, so output/ can fill with folders no record points to
+    (audit 2026-11-04 AR3). Only folders named ``<stem>-<id>`` whose id is
+    gone count; a folder without an id is never guessed to be an orphan,
+    and nothing is reported when the history cannot be read."""
+    from core.disk_usage import folder_usage
+    from core.paths import output_dir
+
+    live = live_record_ids() if live_ids is None else live_ids
+    if live is None:
+        return []
+    base = root if root is not None else output_dir()
+    found: list[tuple[Path, int, int]] = []
+    for folder in sorted(p for p in base.iterdir() if p.is_dir()):
+        if is_cancelled is not None and is_cancelled():
+            break
+        record_id = folder_record_id(folder)
+        if record_id is None or record_id in live:
+            continue
+        size, files = folder_usage(folder)
+        found.append((folder, size, files))
+    return found

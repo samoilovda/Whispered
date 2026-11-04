@@ -61,7 +61,9 @@ def main(argv: list[str] | None = None) -> int:
              "to their YouTube videos (no video or cover is uploaded)")
     args = parser.parse_args(argv)
 
-    items = find_queued(output_dir())
+    from application.records import live_record_ids
+
+    items = find_queued(output_dir(), live_record_ids())
     if args.record is not None:
         items = [item for item in items if item.record_id == args.record]
     if not items:
@@ -84,6 +86,11 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         if not youtube_oauth.is_connected():
             print(f"YouTube is not connected: nobody is signed in — {where} → \"Connect account\".")
+            from core import secrets_store
+
+            if secrets_store._keyring_module() is None:
+                print("No system keyring is installed (pip install keyring): a login made in the "
+                      "app is kept only until it quits, so this script can never see it.")
             return 2
         uploader = UploadClient(youtube_oauth.TokenProvider(
             cfg.yt_oauth_client_id, cfg.yt_oauth_client_secret))

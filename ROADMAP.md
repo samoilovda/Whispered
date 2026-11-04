@@ -60,47 +60,42 @@ The original long-form development plan (2026-07) is preserved in
   this?" choice of Zoom gallery tiles, and per-speaker photo variants framed
   by the face. ONNX face restoration and the ComfyUI adapter exist but are
   not yet connected to UI.
+- **Record materials and automation** — subtitles (edit, SRT/VTT export
+  and import), clips (edit, preview, MP4 render), tasks with CSV export; a
+  watch folder with its own recipe, an opt-in "new Zoom recording" offer,
+  the YouTube upload queue (in the app and `tools/youtube_autoupload.py`)
+  and the SSH push to the user's server (`tools/hermes_push.py`); deleting
+  a record withdraws its upload and push.
 - **Quality** — a unit suite with fully stubbed Qt plus a separate
   offscreen real-Qt smoke suite (`tests_qt/`), ruff-clean codebase, blocking
   mypy on `core/`/engines, headless UI smoke checks in the pre-commit gate.
 
 ## Current focus
 
-*Last audit: 2026-08-13, execution tracked in
-[docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md](docs/archive/AUDIT_EXECUTION_PLAN_2026-08.ru.md).
-P0 (worker lifecycle, model integrity, Recorder backpressure, system-audio
-IPC auth, output-path collisions) and P2 (Config validation, Cover template
-path containment, structured export/batch errors, FTS rebuild policy) are
-closed as of 2026-08-18. P1 structural work is partial: `DocumentSession`
-and an `export_controller` are extracted from `main_window.py`; the Job/
-Pipeline engine is now the actual launch path (docs/UI_REDESIGN_PLAN_2026-09.ru.md,
-Track B — see "Workspace shell redesign" above), superseding the old
-preset chain this paragraph originally tracked; the `Artifact` provenance
-model is now wired into every generator that writes a file — Cover,
-article, YouTube, book, and Insights (which gained a "Save to file"
-button — one .txt per section — since it previously had no export
-action at all to attach provenance to). The LLM steps fill
-`provider`/`model`/`prompt_version`, so a changed prompt or model
-invalidates the cached artifact; user edits to a generated result are kept
-apart from it (`application/user_edits.py`). Release metadata
-(`pyproject.toml`/`version.py` as the single version source) is in
-place; the resource-manifest/CI parts of that work need a real build
-environment to validate and are not attempted from here.*
+*Last audit: 2026-11-04 — [docs/AUDIT_2026-11-04.ru.md](docs/AUDIT_2026-11-04.ru.md)
+is the register of open defects; its §11 says which item each commit closed.
+The 2026-10-27 audit (A01–A34) is closed and archived
+([docs/archive/AUDIT_2026-10-27.ru.md](docs/archive/AUDIT_2026-10-27.ru.md)),
+as are the 2026-08 audits before it. Real hardware gates (transcription
+with weights, LM Studio, YouTube upload, Hermes push to a real server,
+signed macOS/Windows builds, Live soak) are still checked by hand.*
 
 - **Local-LLM robustness** — local completions are serialized process-wide;
   network cancellation is now interruptible (LM Studio streaming reads poll
-  instead of blocking on a single long socket timeout). Remaining:
+  instead of blocking on a single long socket timeout), and the book,
+  cleaning and article steps read their answers as a stream too. Remaining:
   Anthropic's client is still a single non-streaming request with no
   mid-flight abort, simplify YouTube worker orchestration, and prevent
   failed generations from being saved as results.
 - **Structural cleanup** — Qt-free domain types (`domain/transcription.py`,
   `domain/artifact.py`, `domain/job.py`) are split out of `transcriber.py`;
-  `main_window.py` (2300+ lines — Track B's real, tested `JobRunner`/recipe
-  wiring grew it past the pre-Track-B line count, not shrank it) has
-  `DocumentSession`/`export_controller` extracted but transcription/
-  pipeline orchestration is intentionally still inline — it turned out to
-  be mostly direct widget calls with no further logic worth pulling into
-  a separate file.
+  record lifecycle, export flows and operations/Cancel have their own
+  controllers (`ui/document_lifecycle_controller.py`,
+  `ui/export_flow_controller.py`, `ui/operation_controller.py`), panels are
+  driven through public methods only, and one whisper model runs at a time
+  (`OperationController.asr_holder()`). Still open (audit 2026-11-04 AR1):
+  `main_window.py` is ~3 960 lines and the controllers reach into it
+  through `host._*` — narrow per-controller host protocols are next.
 
 ## Next
 
@@ -144,6 +139,7 @@ artifact through its `load_artifact`.*
 
 ## Ideas parked for later
 
-Global dictation hotkey, user prompt library, watch-folder/CLI mode, and
-word-level karaoke highlighting. These are documented in the archived plan;
+Global dictation hotkey, user prompt library and word-level karaoke
+highlighting (the watch folder and the CLI tools — `tools/youtube_autoupload.py`,
+`tools/hermes_push.py` — have shipped since). These are documented in the archived plan;
 none are scheduled.

@@ -20,6 +20,7 @@ def _isolated_config(tmp_path, monkeypatch):
     monkeypatch.setattr(config_module, "CONFIG_DIR", tmp_path)
     monkeypatch.setattr(config_module, "CONFIG_FILE", tmp_path / "config.json")
     monkeypatch.setattr(config_module, "_config", None)
+    monkeypatch.setattr(config_module, "_keyring_state", {})
     monkeypatch.setattr(config_module.secrets_store, "set_secret", lambda name, value: False)
     monkeypatch.setattr(config_module.secrets_store, "get_secret", lambda name: None)
     monkeypatch.setattr(config_module.secrets_store, "delete_secret", lambda name: None)
@@ -451,3 +452,38 @@ class TestPublishMode:
     @pytest.mark.parametrize("mode", ["off", "handoff", "api"])
     def test_known_modes_are_valid(self, mode):
         assert not any("yt_publish_mode" in w for w in Config(yt_publish_mode=mode).validate())
+
+
+
+class TestKeyringWritesOnlyOnChange:
+    """Audit 2026-11-04 W23: every save() wrote (or deleted) every secret in
+    the keyring — a Keychain call per auto-persisted combo-box change."""
+
+    def test_an_unchanged_secret_is_not_written_again(self, fake_keyring, monkeypatch):
+        calls = []
+        real = fake_keyring.set_secret
+        monkeypatch.setattr(config_module.secrets_store, "set_secret",
+                            lambda n, v: calls.append(n) or real(n, v))
+        deletes = []
+        monkeypatch.setattr(config_module.secrets_store, "delete_secret", deletes.append)
+        cfg = Config(yt_openai_api_key="sk-1")
+        cfg.save()
+        cfg.save()
+        cfg.theme = "light"
+        cfg.save()
+        assert calls == ["yt_openai_api_key"]
+        assert sorted(set(deletes)) == sorted(deletes)   # each empty field cleared once
+        cfg.yt_openai_api_key = "sk-2"
+        cfg.save()
+        assert calls == ["yt_openai_api_key", "yt_openai_api_key"]
+
+    def test_the_sentinel_is_never_written_into_the_keyring(self, fake_keyring, monkeypatch):
+        from core.secrets_store import KEYRING_SENTINEL
+
+        written = []
+        monkeypatch.setattr(config_module.secrets_store, "set_secret",
+                            lambda n, v: written.append(v) or True)
+        Config(yt_openai_api_key=KEYRING_SENTINEL).save()
+        assert KEYRING_SENTINEL not in written
+        data = json.loads(config_module.CONFIG_FILE.read_text(encoding="utf-8"))
+        assert data["yt_openai_api_key"] == KEYRING_SENTINEL

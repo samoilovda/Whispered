@@ -20,7 +20,7 @@ import tempfile
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Optional, Protocol
+from typing import Callable, Collection, Optional, Protocol
 
 from application.youtube_publish import validate_package
 from domain.youtube_publish import PublishPackage, UploadRecord
@@ -28,6 +28,8 @@ from domain.youtube_publish import PublishPackage, UploadRecord
 QUEUE_FILE = "youtube_upload.queued.json"
 RECORD_FILE = "youtube_upload.json"
 PENDING_FILE = "youtube_upload.pending.json"
+# An approval withdrawn because its record was deleted (application/records.py).
+WITHDRAWN_FILE = "youtube_upload.withdrawn.json"
 # YouTube Data API: 10,000 quota units a day, videos.insert costs 1,600
 # and thumbnails.set 50 — six uploads with covers fit in one day.
 UPLOADS_PER_DAY = 6
@@ -117,11 +119,19 @@ def load_queued(path: Path) -> Optional[QueuedUpload]:
         return None
 
 
-def find_queued(root: Path) -> list[QueuedUpload]:
+def find_queued(root: Path, live_ids: Optional[Collection[int]] = None) -> list[QueuedUpload]:
     """Every queued upload under *root* (the app's output folder), oldest
-    first."""
+    first. With *live_ids* (``records.live_record_ids()``), uploads of a
+    deleted record are left out: deleting a record withdraws its approval."""
+    from application.records import folder_record_id, is_live
+
     items = [load_queued(path) for path in sorted(root.glob(f"*/{QUEUE_FILE}"))]
-    return sorted((item for item in items if item is not None), key=lambda item: item.queued_at)
+    kept = [
+        item for item in items if item is not None and is_live(
+            item.record_id if item.record_id is not None else folder_record_id(item.artifact_dir),
+            live_ids)
+    ]
+    return sorted(kept, key=lambda item: item.queued_at)
 
 
 def uploaded_record(item: QueuedUpload) -> Optional[UploadRecord]:

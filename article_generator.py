@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Callable
 from enum import Enum
 
+from core.i18n import tr
 from core.lm_client import LMStudioClient
 from core.llm_text import split_into_chunks
 from core.prompts import load_prompt
@@ -335,7 +336,7 @@ class ArticleGenerator:
             TopicAnalysis with extracted information
         """
         if on_progress:
-            on_progress(10, "Extracting topics...")
+            on_progress(10, tr("llm_progress_topics"))
 
         chunks = _split_into_chunks(text, self._TOPIC_CHUNK_SIZE)
 
@@ -346,11 +347,11 @@ class ArticleGenerator:
         for i, chunk in enumerate(chunks):
             if on_progress:
                 pct = 10 + int(20 * i / len(chunks))
-                on_progress(pct, f"Analyzing part {i + 1}/{len(chunks)}...")
+                on_progress(pct, tr("llm_progress_analyzing_part", current=i + 1, total=len(chunks)))
             analyses.append(self._extract_topics_single(chunk))
 
         if on_progress:
-            on_progress(30, "Merging analysis...")
+            on_progress(30, tr("llm_progress_merging"))
 
         return _merge_topic_analyses(analyses)
 
@@ -419,7 +420,7 @@ class ArticleGenerator:
             Generated Article
         """
         if on_progress:
-            on_progress(0, f"Generating {format.value} article...")
+            on_progress(0, tr("llm_progress_article_start", format=format.value))
 
         # Extract topics if not provided
         if topics is None:
@@ -429,7 +430,7 @@ class ArticleGenerator:
         prompt = self._get_format_prompt(text, format, topics)
 
         if on_progress:
-            on_progress(40, f"Writing {format.value} content...")
+            on_progress(40, tr("llm_progress_article_writing", format=format.value))
 
         response = self.lm_client.chat_completion(
             prompt=prompt,
@@ -448,7 +449,7 @@ class ArticleGenerator:
         title = self._extract_title(response, topics)
 
         if on_progress:
-            on_progress(90, "Finalizing article...")
+            on_progress(90, tr("llm_progress_article_finalizing"))
 
         article = Article(
             title=title,
@@ -458,7 +459,7 @@ class ArticleGenerator:
         )
 
         if on_progress:
-            on_progress(100, "Article complete")
+            on_progress(100, tr("llm_progress_article_done"))
 
         return article
 
@@ -486,7 +487,7 @@ class ArticleGenerator:
             formats = list(ArticleFormat)
 
         if on_progress:
-            on_progress(0, "Starting article generation...")
+            on_progress(0, tr("llm_progress_articles_start"))
 
         # Extract topics once for all articles
         topics = self.extract_topics(text, on_progress)
@@ -508,7 +509,7 @@ class ArticleGenerator:
         generation_time = time.time() - start_time
 
         if on_progress:
-            on_progress(100, f"Generated {len(articles)} articles in {generation_time:.1f}s")
+            on_progress(100, tr("llm_progress_articles_done", count=len(articles), seconds=f"{generation_time:.1f}"))
 
         return GenerationResult(
             source_text=text,

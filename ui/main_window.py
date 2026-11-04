@@ -63,7 +63,7 @@ from utils import (
 )
 from application.document_session import DocumentSession
 from application.job_engine import JobRun
-from application.launch_params import resolve_transcription
+from application.launch_params import batch_models, resolve_transcription
 from application.records import finalize_live_record, save_new_record
 from ui.speaker_detection_controller import SpeakerDetectionController
 from ui.youtube_publish_controller import YouTubePublishController
@@ -83,7 +83,7 @@ from application.steps import (
     step_outcome_result,
 )
 from domain.job import StepStatus
-from domain.recipe import BUILTIN_RECIPES, BUILTIN_RECIPES_BY_KEY, Recipe, TRANSCRIPT_ONLY
+from domain.recipe import BUILTIN_RECIPES_BY_KEY, Recipe, TRANSCRIPT_ONLY, recipe_choices
 from config import get_config, save_config
 from core.insights_cache import InsightsCache
 from core.base_worker import BaseWorker
@@ -91,7 +91,7 @@ from ui.job_runner import JobRunner
 from core.logger import get_logger
 from core.i18n import tr, on_language_changed
 from core.worker_registry import WorkerRegistry
-from transcriber import _build_initial_prompt
+from transcriber import LANGUAGE_FALLBACK_MESSAGE, _build_initial_prompt
 from timeline_export import write_edl
 from video_edit import mark_pauses
 from video_cut import assemble_draft
@@ -107,6 +107,9 @@ from ui.operation_controller import OperationController
 from ui.qt_util import must
 
 logger = get_logger(__name__)
+
+# How soon an offer put off with "Later" comes back (audit 2026-11-04 W07).
+_RECORDING_OFFER_RETRY_MS = 60 * 60 * 1000
 
 # ============================================================================
 # MAIN WINDOW
@@ -337,6 +340,7 @@ class MainWindow(QMainWindow):
         self._gpu_type, self._gpu_name = self.transcriber.gpu_type, self.transcriber.gpu_name
         # ETA tracking
         self._transcription_start: float = 0.0
+        self._language_fell_back = False
         self._last_record_id: int | None = None
         self._versions_dialog = None  # B8: TranscriptVersionsDialog, lazily created
         self.live_session = LiveSessionController(self)
@@ -377,7 +381,7 @@ class MainWindow(QMainWindow):
         self.setAcceptDrops(True)
         # Apply saved mic device
         cfg = get_config()
-        self.recorder_widget.set_device(getattr(cfg, "mic_device_index", None))
+        self.recorder_widget.set_device(cfg.mic_device_index)
         self._apply_tray_config()
         self._maybe_show_first_run()
         # Show what a previous session left in the queue (nothing starts).
@@ -446,7 +450,7 @@ class MainWindow(QMainWindow):
         """Show or hide the menu-bar / tray icon per Config.tray_icon_enabled."""
         from ui.tray import TrayController
 
-        wanted = bool(getattr(get_config(), "tray_icon_enabled", False))
+        wanted = bool(get_config().tray_icon_enabled)
         if os.environ.get("WHISPERED_UI_GALLERY") == "1" or not TrayController.available():
             wanted = False
         if wanted and self._tray is None:
@@ -478,7 +482,7 @@ class MainWindow(QMainWindow):
         save_config()
 
     def _restore_window_geometry(self) -> None:
-        saved = getattr(get_config(), "window_geometry", "") or ""
+        saved = get_config().window_geometry or ""
         if not saved or os.environ.get("WHISPERED_UI_GALLERY") == "1":
             return
         try:
@@ -517,7 +521,7 @@ class MainWindow(QMainWindow):
             self._refresh_tab_markers()
             self._refresh_tab_visibility()
         if hasattr(self, "_folder_hint_label"):
-            self._folder_hint_label.setText(tr("draft_folder_hint"))
+            self._refresh_folder_hint()
         if hasattr(self, "_draft_queue_button"):
             self._draft_queue_button.setText(tr("draft_open_queue"))
         if hasattr(self, "progress_timeline"):
@@ -680,7 +684,7 @@ class MainWindow(QMainWindow):
         self.file_selector.browse_btn.click()
 
     def _menu_focus_library(self) -> None:
-        if getattr(get_config(), "library_collapsed", False):
+        if get_config().library_collapsed:
             self.workspace_shell.set_library_collapsed(False)
         # A window too narrow for the Library keeps it hidden by force;
         # the command still has to show it, or focus lands nowhere.
@@ -706,7 +710,7 @@ class MainWindow(QMainWindow):
     def _menu_toggle_recording(self) -> None:
         self._stack.setCurrentIndex(self._start_index)
         self.start_view.set_source("recorder")
-        self.recorder_widget._toggle_recording()
+        self.recorder_widget.toggle_recording()
 
     def _trigger_undo(self) -> None:
         """Trigger undo on the currently focused widget if supported."""
@@ -722,7 +726,7 @@ class MainWindow(QMainWindow):
             and hasattr(self, "_stack")
             and self._stack.currentIndex() == self._record_index
         ):
-            self.transcript_view._open_find()
+            self.transcript_view.open_find()
 
     def _trigger_export_edl(self) -> None:
         if hasattr(self, "cut_view"):
@@ -748,7 +752,7 @@ class MainWindow(QMainWindow):
             apply_theme(app, new_theme)
 
     def _toggle_library_sidebar(self) -> None:
-        collapsed = not getattr(get_config(), "library_collapsed", False)
+        collapsed = not get_config().library_collapsed
         self.workspace_shell.set_library_collapsed(collapsed)
 
     def _open_help_docs(self) -> None:
@@ -813,12 +817,15 @@ class MainWindow(QMainWindow):
         self._recording_offers: "list[str]" = []
         self._recording_offer_dialog: RecordingOfferDialog | None = None
         self._apply_recording_offer_config()
+        # Offers left unanswered or put off last time come back now.
+        QTimer.singleShot(1500, self._reoffer_waiting_recordings)
 
         # Course Capture Panel — same "persistent status surface" placement
         # as Batch (see _build_queue_section): a queue of lessons captured
         # one at a time via the Live system-audio pipeline instead of files.
         self.course_capture_panel = CourseCapturePanel()
         self.course_capture_panel.lesson_saved.connect(self._on_course_lesson_saved)
+        self.course_capture_panel.asr_busy = self._asr_busy_label
         self._shutdownables.append(self.course_capture_panel)
 
         # Book Pipeline Panel — created here (not mode-gated) so its
@@ -941,7 +948,7 @@ class MainWindow(QMainWindow):
         self.transcript_view.passage_changed.connect(self.clips_view.update_passage_availability)
         self.clips_view.source = lambda: self._source_filepath or self.file_selector.get_file() or ""
         self.clips_view.kept = lambda: self.cut_view.get_kept_segments()
-        self.clips_view.cues = lambda: list(self.subtitle_view._track.cues)
+        self.clips_view.cues = self.subtitle_view.cues
         self.main_tabs.addTab(self.clips_view, tr("tab_clips"))
         self.main_tabs.addTab(self.cut_view, tr("tab_cut"))
         self.main_tabs.addTab(self.chat_panel, tr("tab_chat"))
@@ -966,13 +973,13 @@ class MainWindow(QMainWindow):
         folder_source = QWidget()
         folder_layout = QVBoxLayout(folder_source)
         folder_layout.setContentsMargins(0, 0, 0, 0)
-        folder_hint = QLabel(tr("draft_folder_hint"))
+        folder_hint = QLabel()
         folder_hint.setProperty("role", "muted")
         folder_hint.setWordWrap(True)
         folder_layout.addWidget(folder_hint)
         self._folder_hint_label = folder_hint
         queue_button = AnimatedButton(tr("draft_open_queue"))
-        queue_button.clicked.connect(lambda: self.status_bar._toggle_queue())
+        queue_button.clicked.connect(lambda: self.status_bar.toggle_queue())
         self._draft_queue_button = queue_button
         folder_layout.addWidget(queue_button)
         folder_layout.addStretch()
@@ -988,6 +995,8 @@ class MainWindow(QMainWindow):
         self.start_view.configure_recipe_requested.connect(self._open_recipe_editor)
         self.start_view.fix_requested.connect(self._on_readiness_fix)
         self.start_view.profile_applied.connect(self._on_asr_profile_applied)
+        self.start_view.recipe_changed.connect(lambda _key: self._refresh_folder_hint())
+        self._refresh_folder_hint()
         self._start_index = self._stack.addWidget(self.start_view)
         self._record_index = self._stack.addWidget(self.record_view)
         self.cover_view = CoverView(insights_cache=self._insights_cache)
@@ -1021,7 +1030,7 @@ class MainWindow(QMainWindow):
         self.workspace_shell = WorkspaceShell(self.library_view, self._stack)
         self.workspace_shell.new_requested.connect(self._show_new_draft)
         self.workspace_shell.palette_requested.connect(lambda: self.command_palette.open_palette())
-        self.workspace_shell.queue_requested.connect(lambda: self.status_bar._toggle_queue())
+        self.workspace_shell.queue_requested.connect(lambda: self.status_bar.toggle_queue())
         self._workspace_layout.addWidget(self.workspace_shell, stretch=1)
 
         self.status_bar = StatusBar()
@@ -1524,11 +1533,11 @@ class MainWindow(QMainWindow):
                 self._show_tab(getattr(self, tab))
 
     def _on_live_finished(self, result: TranscriptionResult, source_path: str):
-        self.live_view._timer.stop()
+        self.live_view.stop_clock()
         self._source_filepath = source_path or None
         self._record_source_path = None
         self._source_kind = "live"
-        self._transcription_start = self.live_runtime._started_at
+        self._transcription_start = self.live_runtime.started_at
         record_id = self.live_session.checkpoint.history_record_id
         if record_id is not None:
             if finalize_live_record(record_id, result):
@@ -1781,10 +1790,8 @@ class MainWindow(QMainWindow):
         self._apply_config_defaults()
         self.transcript_view.apply_display_settings()
         cfg = get_config()
-        self.recorder_widget.set_device(getattr(cfg, "mic_device_index", None))
-        self.start_view._source_buttons["live"].setEnabled(
-            cfg.live_transcription_enabled
-        )
+        self.recorder_widget.set_device(cfg.mic_device_index)
+        self.start_view.set_source_enabled("live", cfg.live_transcription_enabled)
         self.status_bar.set_course_available(cfg.live_transcription_enabled)
         self.live_session.apply_presentation_flag()
         self._apply_watch_folder_config()
@@ -1798,40 +1805,66 @@ class MainWindow(QMainWindow):
         self.start_view.refresh_readiness()
         self._apply_tray_config()
 
+    def _refresh_folder_hint(self) -> None:
+        """The Folder source says what the queue really does: each file goes
+        through the selected recipe (audit 2026-11-04 W08 — it used to say
+        recipe steps were not applied in the queue)."""
+        from ui.option_labels import recipe_label
+
+        recipe = self._resolve_recipe(self.start_view.current_recipe_key())
+        self._folder_hint_label.setText(tr("draft_folder_hint", recipe=recipe_label(recipe)))
+
     def _apply_watch_folder_config(self) -> None:
         """Point _watch_folder_service at Config.watch_folder, or stop it
         entirely when disabled or unset — called at startup and again
         after Settings is applied (B5b)."""
         cfg = get_config()
-        folder = getattr(cfg, "watch_folder", "") if getattr(
-            cfg, "watch_folder_enabled", False
-        ) else ""
+        folder = cfg.watch_folder if cfg.watch_folder_enabled else ""
         self._watch_folder_service.set_folder(folder)
 
     def _on_watch_folder_file_found(self, path: str) -> None:
         """WatchFolderService.file_found (B5b): joins the same queue a
-        multi-file drop does (B5a)."""
-        self.batch_panel.add_files([path])
+        multi-file drop does (B5a), with the watch folder's own recipe
+        (Config.watch_folder_recipe, audit 2026-11-04 W26)."""
+        self.batch_panel.add_files([path], recipe_key=get_config().watch_folder_recipe or None)
         self.status_bar.show_queue(True)
 
     def _apply_recording_offer_config(self) -> None:
-        """Watch Config.source_folder (Zoom's default folder when unset)
-        for finished recordings while the offer is enabled, else stop —
-        called at startup and again after Settings is applied."""
-        from domain.recording_settle import default_recording_folder
-
+        """Watch Config.source_folder for finished recordings while the
+        offer is enabled, else stop — called at startup and again after
+        Settings is applied. No folder chosen means nothing is watched:
+        reaching into ~/Documents/Zoom unasked makes macOS ask for the
+        Documents permission out of the blue (audit 2026-11-04 W25);
+        Settings fills Zoom's folder in when the offer is switched on."""
         cfg = get_config()
-        folder = ""
-        if getattr(cfg, "recording_offer_enabled", False):
-            folder = getattr(cfg, "source_folder", "") or default_recording_folder()
+        folder = cfg.source_folder if cfg.recording_offer_enabled else ""
         self._recording_watch.set_folder(folder)
 
     def _recording_choices(self) -> "list[tuple[str, Recipe]]":
         """Every recipe the start screen offers, keyed the same way."""
-        recipes = list(BUILTIN_RECIPES) + [
-            Recipe.from_dict(entry) for entry in get_config().recipes
-        ]
-        return [(recipe.builtin_key or recipe.name, recipe) for recipe in recipes]
+        return recipe_choices(get_config().recipes)
+
+    def _set_offer_waiting(self, path: str, waiting: bool) -> None:
+        """Keep Config.recording_offers_waiting in step: a recording stays
+        there until it is run, queued or dismissed (audit 2026-11-04 W07)."""
+        cfg = get_config()
+        paths = [p for p in cfg.recording_offers_waiting if p != path]
+        if waiting:
+            paths.append(path)
+        if paths != cfg.recording_offers_waiting:
+            cfg.recording_offers_waiting = paths
+            save_config()
+
+    def _reoffer_waiting_recordings(self) -> None:
+        """Offer again what was left unanswered or put off with "Later";
+        recordings whose file is gone are dropped."""
+        if not get_config().recording_offer_enabled:
+            return
+        for path in list(get_config().recording_offers_waiting):
+            if os.path.isfile(path):
+                self._on_new_recording_ready(path)
+            else:
+                self._set_offer_waiting(path, False)
 
     def _on_new_recording_ready(self, path: str) -> None:
         """RecordingWatchService.recording_ready: offer the recording, one
@@ -1839,6 +1872,7 @@ class MainWindow(QMainWindow):
         shown = self._recording_offer_dialog
         if path in self._recording_offers or (shown is not None and shown.path == path):
             return
+        self._set_offer_waiting(path, True)
         self._recording_offers.append(path)
         self._show_next_recording_offer()
         if not self.isActiveWindow():
@@ -1852,51 +1886,59 @@ class MainWindow(QMainWindow):
         path = self._recording_offers.pop(0)
         cfg = get_config()
         selected = (
-            getattr(cfg, "recording_offer_recipe", "") or cfg.last_recipe
+            cfg.recording_offer_recipe or cfg.last_recipe
             or TRANSCRIPT_ONLY.builtin_key
         )
         dialog = RecordingOfferDialog(path, self._recording_choices(), selected, self)
         dialog.run_requested.connect(self._run_recording_offer)
+        dialog.dismissed.connect(lambda p: self._set_offer_waiting(p, False))
         dialog.finished.connect(self._on_recording_offer_closed)
         self._recording_offer_dialog = dialog
         dialog.show()
         dialog.raise_()
 
     def _on_recording_offer_closed(self, _result: int) -> None:
+        dialog = self._recording_offer_dialog
         self._recording_offer_dialog = None
+        if dialog is not None and dialog.path in get_config().recording_offers_waiting:
+            # "Later" (or the window closed): ask again in an hour.
+            QTimer.singleShot(_RECORDING_OFFER_RETRY_MS, self._reoffer_waiting_recordings)
         QTimer.singleShot(0, self._show_next_recording_offer)
 
     def _run_recording_offer(self, path: str, recipe_key: str) -> None:
         """The offer's "Run": launch *recipe_key* on *path* the way the
         start screen does, or queue it when something is already running."""
         if not os.path.isfile(path):
+            self._set_offer_waiting(path, False)
             show_toast(self, tr("recording_offer_missing"), kind="warning")
             return
         cfg = get_config()
-        cfg.recording_offer_recipe = recipe_key
-        save_config()
-        self.start_view.select_recipe(recipe_key)
-        if self.recipe_run.is_running() or self.transcriber.is_busy():
-            # The queue snapshots the recipe just selected; Start stays
-            # the user's decision there, as for any queued file.
-            self.batch_panel.add_files([path])
+        if self.recipe_run.is_running() or self.operations.asr_holder() is not None:
+            # The queue snapshots this recipe explicitly — the start
+            # screen's choice is left alone (audit 2026-11-04 W07). Start
+            # stays the user's decision there, as for any queued file.
+            self.batch_panel.add_files([path], recipe_key=recipe_key)
             self.status_bar.show_queue(True)
             show_toast(self, tr("recording_offer_queued"), kind="info")
-            return
-        if not self._prepare_leave():
-            return
-        self._stack.setCurrentIndex(self._start_index)
-        self.start_view.set_source("file")
-        self.file_selector._set_file(path)
-        self._source_kind = "file"
-        self._start_transcription()
+        else:
+            if not self._prepare_leave():
+                return   # still waiting: offered again later
+            self.start_view.select_recipe(recipe_key)
+            self._stack.setCurrentIndex(self._start_index)
+            self.start_view.set_source("file")
+            self.file_selector.set_file(path)
+            self._source_kind = "file"
+            self._start_transcription()
+        cfg.recording_offer_recipe = recipe_key
+        save_config()
+        self._set_offer_waiting(path, False)
+
 
     def _maybe_show_first_run(self) -> None:
         """The skippable first-launch card: only for an empty library."""
         try:
             from core.history import get_history_store
-            count = get_history_store().count() if getattr(
-                get_config(), "history_enabled", True) else 0
+            count = get_history_store().count() if get_config().history_enabled else 0
         except Exception as exc:
             logger.warning("First-run check skipped: %s", exc)
             return
@@ -1987,7 +2029,7 @@ class MainWindow(QMainWindow):
                 # used to leave the user looking at that record, with
                 # nothing on screen having changed.
                 self._show_new_draft()
-                self.file_selector._set_file(batch.files[0])
+                self.file_selector.set_file(batch.files[0])
             else:
                 # The queue overlay opens on the list itself, with its count.
                 self.batch_panel.add_files(batch.files)
@@ -2113,7 +2155,7 @@ class MainWindow(QMainWindow):
         record_id = self._last_record_id
         result = self.transcript_view.get_result()
         if (record_id is None or result is None or getattr(self, "_review_readonly", False)
-                or not getattr(get_config(), "history_enabled", True)):
+                or not get_config().history_enabled):
             return
         try:
             from core.history import get_history_store
@@ -2129,7 +2171,7 @@ class MainWindow(QMainWindow):
 
     def _on_recording_ready(self, filepath: str):
         """Load a freshly-recorded WAV into the file selector."""
-        self.file_selector._set_file(filepath)
+        self.file_selector.set_file(filepath)
         self._source_kind = "recorder"
 
     def _on_recording_error(self, msg: str):
@@ -2179,7 +2221,7 @@ class MainWindow(QMainWindow):
         the library; a failure is shown on the record ("✕ Not saved") and
         _prepare_leave() retries it before letting the user leave."""
         result = self.transcript_view.get_result()
-        if result is None or not getattr(get_config(), "history_enabled", True):
+        if result is None or not get_config().history_enabled:
             self._last_persist_ok = True
             return True
         try:
@@ -2282,7 +2324,7 @@ class MainWindow(QMainWindow):
             return
         if not self.transcript_view.has_pending_edit():
             return
-        if not getattr(get_config(), "history_enabled", True):
+        if not get_config().history_enabled:
             return
         try:
             from core.history import get_history_store
@@ -2447,6 +2489,17 @@ class MainWindow(QMainWindow):
             return
         if self.transcriber.is_busy():
             return
+        # One whisper model at a time (audit 2026-11-04 W01): the queue,
+        # Live and Course Capture each load their own.
+        busy = self.operations.asr_holder()
+        if busy is not None:
+            if busy.key == "batch":
+                self.batch_panel.add_files([filepath])
+                self.status_bar.show_queue(True)
+                show_toast(self, tr("asr_busy_queued", name=busy.label), kind="info")
+            else:
+                show_toast(self, tr("asr_busy", name=busy.label), kind="warning")
+            return
         # Starting replaces the open record's panels: commit or refuse a
         # pending edit first, as every other navigation does.
         if not self._prepare_leave():
@@ -2496,8 +2549,9 @@ class MainWindow(QMainWindow):
         self._last_record_id = None
 
         self._transcription_start = time.monotonic()
+        self._language_fell_back = False
         # Build initial prompt from custom vocabulary
-        vocab = getattr(get_config(), "custom_vocabulary", []) or []
+        vocab = get_config().custom_vocabulary or []
         prompt = _build_initial_prompt(vocab) if vocab else None
         # Start transcription
         self.transcriber.transcribe(
@@ -2542,8 +2596,20 @@ class MainWindow(QMainWindow):
         dialog.exec()
         return dialog.download_successful and Transcriber.prepare_models(model)
 
+    def _asr_busy_label(self) -> str:
+        """Who holds the whisper model, "" when nobody (OperationController)."""
+        busy = self.operations.asr_holder()
+        return busy.label if busy is not None else ""
+
     def _start_batch_processing(self):
         """Start batch processing with current settings."""
+        busy = self.operations.asr_holder()
+        if busy is not None and busy.key != "batch":
+            # The single-file transcriber, Live or Course Capture already
+            # has a model loaded (audit 2026-11-04 W01).
+            self.batch_panel.finish_batch()
+            show_toast(self, tr("asr_busy", name=busy.label), kind="warning")
+            return
         model = self.model_combo.currentData()
         language = self.language_combo.currentData()
         translate = self.translate_checkbox.isChecked()
@@ -2552,23 +2618,15 @@ class MainWindow(QMainWindow):
         enable_diarization = self.diarization_checkbox.isChecked()
 
         # Downloader dialogs belong to the GUI thread.  BatchWorker only
-        # transcribes already prepared models.
-        if not self._ensure_whisper_model(model) or not Transcriber.prepare_models(
-            model, enable_diarization
-        ):
-            self.batch_panel._on_batch_finished()
-            self.status_label.setText(tr("status_cancelled"))
-            return
-
-        # Items queued with another model than the controls show (UX-14:
-        # each keeps the settings it was queued with) need theirs ready too.
-        for other in sorted({
-            i.transcription["model_name"] for i in self.batch_panel.processor.items
-            if i.transcription and i.status.value == "pending"
-            and i.transcription.get("model_name") not in (None, model)
-        }):
-            if not self._ensure_whisper_model(other):
-                self.batch_panel._on_batch_finished()
+        # transcribes already prepared models — exactly the ones the waiting
+        # files use (UX-14: each keeps the settings it was queued with; a
+        # file without a snapshot takes the controls'). The controls' model
+        # alone is not asked for when no file needs it (audit 2026-11-04 W14).
+        for needed in batch_models(self.batch_panel.processor.items, model):
+            if not self._ensure_whisper_model(needed) or not Transcriber.prepare_models(
+                needed, enable_diarization
+            ):
+                self.batch_panel.finish_batch()
                 self.status_label.setText(tr("status_cancelled"))
                 return
 
@@ -2592,6 +2650,8 @@ class MainWindow(QMainWindow):
 
     def _on_progress(self, percentage: int, message: str):
         """Handle progress updates with ETA calculation."""
+        if message == LANGUAGE_FALLBACK_MESSAGE:
+            self._language_fell_back = True
         self.progress_bar.setValue(percentage)
         stage, local_fill = timeline_stage_for_progress(percentage, message)
         self.progress_timeline.set_stage(stage, local_fill)
@@ -2619,6 +2679,12 @@ class MainWindow(QMainWindow):
         word_count = len(result.full_text.split())
         self.status_label.setText(tr("status_complete", words=word_count, seconds=int(elapsed)))
         show_toast(self, tr("toast_complete", words=word_count), kind="success")
+        if self._language_fell_back:
+            # Audit 2026-11-04 W13: auto-detection failed and English was
+            # used — say so rather than leave a garbled transcript unexplained.
+            self._language_fell_back = False
+            # A toast, not a modal box: a recipe run continues from here.
+            show_toast(self, tr("transcribe_language_fallback_warning"), kind="warning")
 
         # Auto-save to history
         if save_history:
@@ -2743,7 +2809,9 @@ class MainWindow(QMainWindow):
         original_key = self.start_view.current_recipe_key()
         recipe = self._resolve_recipe(original_key)
         cfg = get_config()
-        existing_names = {entry.get("name", "") for entry in cfg.recipes}
+        # Built-in keys are taken too: a user recipe named "book" would be
+        # shadowed by the built-in (audit 2026-11-04 W24).
+        existing_names = {entry.get("name", "") for entry in cfg.recipes} | set(BUILTIN_RECIPES_BY_KEY)
         dialog = RecipeEditorDialog(recipe, existing_names, self)
         accepted = dialog.exec() == QDialog.DialogCode.Accepted
         action = dialog.result_action if accepted else None
@@ -2761,7 +2829,8 @@ class MainWindow(QMainWindow):
                 self.start_view.set_recipe(original_key)
         elif action in ("save", "save_as_new") and name is not None and steps is not None:
             final_name = (
-                name if action == "save" else self._unique_recipe_name(name, existing_names)
+                name if action == "save" and name not in BUILTIN_RECIPES_BY_KEY
+                else self._unique_recipe_name(name, existing_names)
             )
             edited = Recipe(name=final_name, steps=steps, builtin_key="", params=params or {})
             if self._commit_recipes(
@@ -2902,10 +2971,10 @@ class MainWindow(QMainWindow):
             media_path = record.get("media_path") or source_path
             has_media = bool(media_path and Path(media_path).is_file())
             if has_media:
-                self.file_selector._set_file(media_path)
+                self.file_selector.set_file(media_path)
                 # _set_file emits file_selected and updates the player.
             else:
-                self.file_selector._clear_selection()
+                self.file_selector.clear_selection()
                 self.player.load("")
             self._record_media = {
                 "fingerprint": record.get("media_fingerprint") or "",
@@ -3567,7 +3636,7 @@ class MainWindow(QMainWindow):
         )
         self.chat_panel.set_record_context(
             self._last_record_id, revision, result.full_text, result.segments,
-            persist=bool(getattr(get_config(), "history_enabled", True)),
+            persist=bool(get_config().history_enabled),
         )
 
     # ── Relinking a record's moved media (UX-09) ─────────────────────
@@ -3637,7 +3706,7 @@ class MainWindow(QMainWindow):
             from datetime import datetime, timezone
 
             self._record_media["changed_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        self.file_selector._set_file(info["path"])
+        self.file_selector.set_file(info["path"])
         self.cut_view.video_panel.set_has_transcript(True)
         self.record_view.set_missing_source("")
         self._refresh_tab_markers()
@@ -3676,7 +3745,7 @@ class MainWindow(QMainWindow):
         result = self._current_result
         if record_id is None or result is None or getattr(self, "_cut_plan_readonly", False):
             return
-        if not getattr(get_config(), "history_enabled", True):
+        if not get_config().history_enabled:
             return
         try:
             from core.history import get_history_store

@@ -98,7 +98,7 @@ def active_for(prompt_name: str) -> Optional[PromptTemplate]:
     """The template standing in for built-in *prompt_name*, or ``None``."""
     from config import get_config
 
-    chosen = (getattr(get_config(), "prompt_template_active", None) or {}).get(prompt_name)
+    chosen = (get_config().prompt_template_active or {}).get(prompt_name)
     if not chosen:
         return None
     template = load(chosen)

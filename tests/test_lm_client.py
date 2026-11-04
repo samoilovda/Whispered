@@ -436,3 +436,68 @@ class TestStreamErrors:
 
         assert result == "partial"
         assert mock_open.call_count == 1
+
+
+class TestLegacyChatCompletionStreams:
+    """Audit 2026-11-04 W06: book, cleaning and article use
+    chat_completion(), which waited out the whole generation (no Cancel)
+    under a fixed 300 s timeout."""
+
+    def test_it_reads_a_stream_and_returns_the_whole_answer(self):
+        client = LMStudioClient("http://localhost:1234/v1")
+        chunks = [{"choices": [{"delta": {"content": part}, "finish_reason": None}]}
+                  for part in ("Глава ", "первая")]
+        with patch("urllib.request.urlopen") as mock_open, patch("urllib.request.Request") as req:
+            mock_open.return_value = _fake_sse_response(chunks)
+            assert client.chat_completion("text", max_tokens=8192) == "Глава первая"
+        payload = json.loads(req.call_args.kwargs["data"].decode("utf-8"))
+        assert payload["stream"] is True
+        # The socket timeout grows with max_tokens (8192 at ~8 tok/s).
+        assert mock_open.call_args.kwargs["timeout"] >= 8192 // 8
+
+    def test_cancel_stops_it_mid_generation(self):
+        client = LMStudioClient("http://localhost:1234/v1")
+        block = threading.Event()
+        resp = MagicMock()
+        resp.__iter__.return_value = _StalledIterator(block)
+        resp.__enter__.return_value = resp
+        resp.__exit__.return_value = False
+        resp.close.side_effect = lambda: block.set()
+        calls = {"n": 0}
+
+        def is_cancelled():
+            calls["n"] += 1
+            return calls["n"] >= 3
+
+        client.is_cancelled = is_cancelled
+        with patch("urllib.request.urlopen", return_value=resp), patch("urllib.request.Request"):
+            started = time.monotonic()
+            assert client.chat_completion("text") is None
+        block.set()
+        assert time.monotonic() - started < 10
+
+    def test_a_cut_off_answer_is_none_not_half_a_text(self):
+        client = LMStudioClient("http://localhost:1234/v1")
+        lines = [b'data: {"choices": [{"delta": {"content": "half"}}]}']
+
+        def broken():
+            yield from lines
+            raise OSError("connection reset")
+
+        resp = MagicMock()
+        resp.__iter__.side_effect = lambda: broken()
+        resp.__enter__.return_value = resp
+        resp.__exit__.return_value = False
+        with patch("urllib.request.urlopen", return_value=resp), patch("urllib.request.Request"):
+            assert client.chat_completion("text") is None
+            # The streaming API keeps its partial result for live views.
+            resp.__iter__.side_effect = lambda: broken()
+            assert client.chat_completion_stream([{"role": "user", "content": "x"}]) == "half"
+
+
+def test_generation_timeout_never_shrinks_the_callers():
+    # Other suites may swap sys.modules["core.lm_client"]: use this module's.
+    generation_timeout = LMStudioClient.chat_completion.__globals__["generation_timeout"]
+
+    assert generation_timeout(100, 300) == 300
+    assert generation_timeout(8192, 300) > 1000

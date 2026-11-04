@@ -135,3 +135,17 @@ def test_to_job_spec_passes_name_and_steps_to_the_builder():
     result = recipe.to_job_spec(fake_build_job_spec)
     assert result == "sentinel-spec"
     assert calls == [("custom", ("transcribe", "clean"))]
+
+
+def test_recipe_choices_never_give_one_key_two_recipes():
+    """Audit 2026-11-04 W24."""
+    from domain.recipe import BUILTIN_RECIPES, recipe_choices
+
+    entries = [
+        {"name": "Мой", "steps": ["transcribe"]},
+        {"name": "Мой", "steps": ["transcribe", "clean"]},   # hand-edited duplicate
+        {"name": BUILTIN_RECIPES[0].builtin_key, "steps": ["transcribe"]},
+    ]
+    keys = [key for key, _ in recipe_choices(entries)]
+    assert len(keys) == len(set(keys)) == len(BUILTIN_RECIPES) + 1
+    assert dict(recipe_choices(entries))["Мой"].steps == ("transcribe",)

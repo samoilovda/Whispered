@@ -161,6 +161,14 @@ def is_connected() -> bool:
     return load_refresh_token() is not None
 
 
+def login_is_persistent() -> bool:
+    """True when the login is in the OS keyring (it survives a restart and
+    the CLI tools see it); False while it only lives in this process —
+    no usable keyring (audit 2026-11-04 W05)."""
+    with _memory_lock:
+        return _memory_refresh_token is None
+
+
 # ------------------------------------------------------------ loopback flow
 
 _PAGE = (

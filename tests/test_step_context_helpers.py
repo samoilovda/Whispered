@@ -24,7 +24,9 @@ def test_artifact_types_ignore_untracked_steps():
 
 
 def test_llm_params_lmstudio_provider_is_none():
-    cfg = SimpleNamespace(lm_studio_url="http://x/v1", yt_language="en")
+    from config import Config
+
+    cfg = Config(lm_studio_url="http://x/v1", yt_language="en")
     params = llm_params(
         cfg, _result(), provider=SimpleNamespace(kind="lmstudio"), insights_cache="c", k=1
     )
@@ -37,7 +39,9 @@ def test_llm_params_lmstudio_provider_is_none():
 
 
 def test_llm_params_minimal():
-    cfg = SimpleNamespace(lm_studio_url="u", yt_language="")
+    from config import Config
+
+    cfg = Config(lm_studio_url="u", yt_language="")
     assert llm_params(cfg) == {
         "lm_url": "u", "book_lm_url": "http://localhost:1234/v1", "book_model": "",
         "book_temperature": 0.3, "insights_context_chars": 48000,
