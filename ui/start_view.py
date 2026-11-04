@@ -35,7 +35,7 @@ from application.readiness import (
 from config import get_config, save_config
 from core.i18n import tr
 from ui.i18n_helpers import Retranslator
-from domain.recipe import BUILTIN_RECIPES, Recipe, TRANSCRIPT_ONLY
+from domain.recipe import Recipe, TRANSCRIPT_ONLY, recipe_choices
 from ui.animated_button import AnimatedButton
 from ui.components import FlowLayout
 from ui.option_labels import (
@@ -512,12 +512,8 @@ class StartView(QWidget):
                 self._recipe_group.removeButton(widget)
                 widget.deleteLater()
         self._recipe_buttons = {}
-        recipes = list(BUILTIN_RECIPES) + [
-            Recipe.from_dict(entry) for entry in get_config().recipes
-        ]
         self._recipes = {}
-        for recipe in recipes:
-            key = recipe.builtin_key or recipe.name
+        for key, recipe in recipe_choices(get_config().recipes):
             self._recipes[key] = recipe
             button = QPushButton(recipe_label(recipe))
             button.setCheckable(True)

@@ -83,7 +83,7 @@ from application.steps import (
     step_outcome_result,
 )
 from domain.job import StepStatus
-from domain.recipe import BUILTIN_RECIPES, BUILTIN_RECIPES_BY_KEY, Recipe, TRANSCRIPT_ONLY
+from domain.recipe import BUILTIN_RECIPES_BY_KEY, Recipe, TRANSCRIPT_ONLY, recipe_choices
 from config import get_config, save_config
 from core.insights_cache import InsightsCache
 from core.base_worker import BaseWorker
@@ -1835,10 +1835,7 @@ class MainWindow(QMainWindow):
 
     def _recording_choices(self) -> "list[tuple[str, Recipe]]":
         """Every recipe the start screen offers, keyed the same way."""
-        recipes = list(BUILTIN_RECIPES) + [
-            Recipe.from_dict(entry) for entry in get_config().recipes
-        ]
-        return [(recipe.builtin_key or recipe.name, recipe) for recipe in recipes]
+        return recipe_choices(get_config().recipes)
 
     def _set_offer_waiting(self, path: str, waiting: bool) -> None:
         """Keep Config.recording_offers_waiting in step: a recording stays
@@ -2806,7 +2803,9 @@ class MainWindow(QMainWindow):
         original_key = self.start_view.current_recipe_key()
         recipe = self._resolve_recipe(original_key)
         cfg = get_config()
-        existing_names = {entry.get("name", "") for entry in cfg.recipes}
+        # Built-in keys are taken too: a user recipe named "book" would be
+        # shadowed by the built-in (audit 2026-11-04 W24).
+        existing_names = {entry.get("name", "") for entry in cfg.recipes} | set(BUILTIN_RECIPES_BY_KEY)
         dialog = RecipeEditorDialog(recipe, existing_names, self)
         accepted = dialog.exec() == QDialog.DialogCode.Accepted
         action = dialog.result_action if accepted else None
@@ -2824,7 +2823,8 @@ class MainWindow(QMainWindow):
                 self.start_view.set_recipe(original_key)
         elif action in ("save", "save_as_new") and name is not None and steps is not None:
             final_name = (
-                name if action == "save" else self._unique_recipe_name(name, existing_names)
+                name if action == "save" and name not in BUILTIN_RECIPES_BY_KEY
+                else self._unique_recipe_name(name, existing_names)
             )
             edited = Recipe(name=final_name, steps=steps, builtin_key="", params=params or {})
             if self._commit_recipes(
