@@ -27,6 +27,19 @@ DEFAULT_MAX_TOKENS = 4096
 DEFAULT_TEMPERATURE = 0.7
 DEFAULT_TIMEOUT = 300  # 5 minutes for long texts
 
+# Generation speed the legacy chat_completion() timeout is sized for: gemma-4-12b
+# on the 24 GB Mac writes ~16 tok/s (docs/LLM_RESEARCH.ru.md §1); half of that
+# leaves room for prefill and hidden reasoning sharing the max_tokens budget.
+_SLOW_TOKENS_PER_S = 8
+
+
+def generation_timeout(max_tokens: int, timeout: int = DEFAULT_TIMEOUT) -> int:
+    """At least *timeout*, and long enough for *max_tokens* at the slow rate
+    — a fixed 300 s cut an 8192-token book chunk off midway (audit
+    2026-11-04 W06)."""
+    return max(timeout, 120 + max_tokens // _SLOW_TOKENS_PER_S)
+
+
 # How long the SSE consumer waits on the reader queue before rechecking
 # is_cancelled() and the overall deadline. The socket itself keeps the
 # caller's full timeout (a short socket timeout poisons CPython's buffered
@@ -181,6 +194,7 @@ class LMStudioClient:
         max_tokens: int = DEFAULT_MAX_TOKENS,
         timeout: int = DEFAULT_TIMEOUT,
         reasoning_effort: Optional[str] = None,
+        partial_ok: bool = True,
     ) -> Optional[str]:
         """Unified chat completion.
 
@@ -200,6 +214,8 @@ class LMStudioClient:
                       mechanical tasks (rewrite, split) it otherwise spends
                       the whole ``max_tokens`` thinking and answers nothing.
                       Leave it ``None`` for providers that reject it.
+        partial_ok:   Streaming only: on a dropped connection or timeout,
+                      return the text received so far (True) or ``None``.
         """
         if stream:
             return self.chat_completion_stream(
@@ -210,6 +226,7 @@ class LMStudioClient:
                 on_token=on_token,
                 is_cancelled=is_cancelled,
                 reasoning_effort=reasoning_effort,
+                partial_ok=partial_ok,
             )
         # Non-streaming path — no ThreadPoolExecutor needed; cancellation is
         # checked before sending since urllib has no mid-request abort.
@@ -256,11 +273,17 @@ class LMStudioClient:
         timeout: int = DEFAULT_TIMEOUT,
         reasoning_effort: Optional[str] = None,
     ) -> Optional[str]:
-        """Non-streaming chat completion (legacy interface).
+        """Whole-answer chat completion (legacy interface).
 
         Prefer ``complete()`` for new code.  Cancellation via the
         ``self.is_cancelled`` attribute is supported for backwards
         compatibility with callers that set it externally.
+
+        Read as a stream so Cancel stops the request within
+        ``_STREAM_POLL_S`` instead of waiting out the whole generation (up
+        to minutes for a book chunk); a cut-off answer is ``None``, never
+        half a text, and the timeout grows with *max_tokens* (audit
+        2026-11-04 W06).
         """
         messages: list[dict] = []
         if system_prompt:
@@ -268,12 +291,13 @@ class LMStudioClient:
         messages.append({"role": "user", "content": prompt})
         return self.complete(
             messages,
-            stream=False,
+            stream=True,
             is_cancelled=self.is_cancelled,
             temperature=temperature,
             max_tokens=max_tokens,
-            timeout=timeout,
+            timeout=generation_timeout(max_tokens, timeout),
             reasoning_effort=reasoning_effort,
+            partial_ok=False,
         )
 
 
@@ -287,10 +311,13 @@ class LMStudioClient:
         on_token: Optional[Callable[[str], None]] = None,
         is_cancelled: Optional[Callable[[], bool]] = None,
         reasoning_effort: Optional[str] = None,
+        partial_ok: bool = True,
     ) -> Optional[str]:
         """Send a streaming chat completion; call on_token for each delta.
 
-        Returns the full accumulated response, or None on error/cancel.
+        Returns the full accumulated response, or None on error/cancel. On a
+        dropped connection or timeout it returns the text received so far
+        when *partial_ok*, else None.
         Uses SSE parsing (``data: {...}`` lines) as emitted by LM Studio.
 
         The socket is read by a helper thread that hands lines to this one
@@ -356,7 +383,7 @@ class LMStudioClient:
                     logger.warning(
                         "LM Studio stream exceeded overall timeout of %ds", timeout
                     )
-                    return "".join(full_text) if full_text else None
+                    return "".join(full_text) if full_text and partial_ok else None
                 try:
                     item = lines.get(timeout=_STREAM_POLL_S)
                 except queue.Empty:
@@ -368,10 +395,10 @@ class LMStudioClient:
                     return "".join(full_text)
                 if isinstance(item, urllib.error.URLError):
                     logger.debug("LM Studio stream error: %s", item)
-                    return "".join(full_text) if full_text else None
+                    return "".join(full_text) if full_text and partial_ok else None
                 if isinstance(item, BaseException):
                     logger.warning("LM Studio stream API error: %s", item)
-                    return "".join(full_text) if full_text else None
+                    return "".join(full_text) if full_text and partial_ok else None
                 line = item.decode("utf-8").strip()
                 if not line.startswith("data:"):
                     continue

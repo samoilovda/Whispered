@@ -146,14 +146,21 @@ def _call_lm(
             pct = int((i / total) * 100)
             on_progress(pct, f"Обработка блока {i + 1}/{total}…")
 
-        result = client.chat_completion(
-            prompt=chunk,
-            system_prompt=system_prompt,
-            temperature=temperature,
-            max_tokens=8192,
-        )
+        result = None
+        # One retry: a dropped connection or a timeout on one chunk must not
+        # throw away every chunk already done (audit 2026-11-04 W06).
+        for attempt in (1, 2):
+            result = client.chat_completion(
+                prompt=chunk,
+                system_prompt=system_prompt,
+                temperature=temperature,
+                max_tokens=8192,
+            )
+            if result is not None or (is_cancelled and is_cancelled()):
+                break
+            logger.warning("LM Studio returned None for chunk %d/%d (attempt %d)",
+                           i + 1, total, attempt)
         if result is None:
-            logger.warning("LM Studio returned None for chunk %d/%d", i + 1, total)
             return None
         results.append(result.strip())
 
