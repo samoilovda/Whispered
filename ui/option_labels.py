@@ -1,6 +1,6 @@
 """Localized display labels for transcription option constants."""
 
-from core.i18n import tr
+from core.i18n import current_lang, tr
 from utils import PERFORMANCE_MODES, WHISPER_LANGUAGES, WHISPER_MODELS
 
 
@@ -20,8 +20,50 @@ COVER_VARIANT_CHOICES: list[tuple[str, str]] = [
 ]
 
 
+# The models' own names; the same in every language.
+_MODEL_NAMES = {
+    "tiny": "Tiny", "base": "Base", "small": "Small", "medium": "Medium",
+    "large-v3": "Large v3", "large-v3-turbo": "Turbo",
+    "large-v3-turbo-q5_0": "Turbo Q5", "large-v3-turbo-q8_0": "Turbo Q8",
+}
+
+
+def size_label(size_bytes: int) -> str:
+    """A download size in decimal MB/GB with the UI language's decimal mark
+    — the one unit every model label and download note uses (audit
+    2026-11-04 W10: one model was "~547 MB" in its label, MiB, and "~574 MB"
+    in the same sentence, from the manifest)."""
+    if size_bytes >= 1_000_000_000:
+        value = f"{size_bytes / 1_000_000_000:.1f}"
+        key = "size_gigabytes"
+    else:
+        value = str(round(size_bytes / 1_000_000))
+        key = "size_megabytes"
+    if current_lang() == "ru":
+        value = value.replace(".", ",")
+    return tr(key, value=value)
+
+
+def whisper_model_name(key: str) -> str:
+    """Just the model's name, for use inside a sentence."""
+    return _MODEL_NAMES.get(key, key)
+
+
+def whisper_model_label(key: str) -> str:
+    """"Turbo Q5 (~574 MB) — the most compact Turbo": the size comes from
+    the download manifest, so it is the size that will actually download."""
+    from core.model_manifest import whisper_entry
+
+    entry = whisper_entry(key)
+    description = tr(f"whisper_model_desc_{key.replace('-', '_')}")
+    if entry is None or not entry.size_bytes:
+        return f"{whisper_model_name(key)} — {description}"
+    return tr("whisper_model_label", name=whisper_model_name(key),
+              size=size_label(entry.size_bytes), description=description)
+
+
 def whisper_model_options() -> list[tuple[str, str]]:
-    return [(key, tr(f"whisper_model_{key.replace('-', '_')}")) for key, _ in WHISPER_MODELS]
+    return [(key, whisper_model_label(key)) for key, _ in WHISPER_MODELS]
 
 
 def whisper_model_options_with_state() -> list[tuple[str, str, bool]]:
@@ -45,7 +87,7 @@ def whisper_model_options_with_state() -> list[tuple[str, str, bool]]:
     models_dir = Path(get_models_dir())
     result = []
     for key, _ in WHISPER_MODELS:
-        label = tr(f"whisper_model_{key.replace('-', '_')}")
+        label = whisper_model_label(key)
         target = models_dir / f"ggml-{key}.bin"
         entry = whisper_entry(key)
         expected_size = entry.size_bytes if entry is not None and entry.size_bytes else None

@@ -78,3 +78,20 @@ def test_model_state_suffix_is_a_distinct_text_for_each_state():
     assert downloaded != not_downloaded
     assert downloaded == tr("model_state_downloaded")
     assert not_downloaded == tr("model_state_not_downloaded")
+
+
+def test_model_labels_take_one_size_from_the_manifest():
+    """Audit 2026-11-04 W10: "Turbo Q5 (~547 MB) … (~574 MB)"."""
+    from core.model_manifest import whisper_entry
+    from ui.option_labels import size_label, whisper_model_label
+
+    load_locale("en")
+    entry = whisper_entry("large-v3-turbo-q5_0")
+    assert size_label(entry.size_bytes) == "574 MB"
+    label = whisper_model_label("large-v3-turbo-q5_0")
+    assert label.startswith("Turbo Q5 (~574 MB)") and "Smallest" not in label
+    assert size_label(3_095_033_483) == "3.1 GB"
+    load_locale("ru")
+    assert size_label(3_095_033_483) == "3,1 ГБ"
+    assert "547" not in whisper_model_label("large-v3-turbo-q5_0")
+    load_locale("en")

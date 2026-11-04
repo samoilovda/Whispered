@@ -39,7 +39,8 @@ from domain.recipe import Recipe, TRANSCRIPT_ONLY, recipe_choices
 from ui.animated_button import AnimatedButton
 from ui.components import FlowLayout
 from ui.option_labels import (
-    recipe_label, whisper_model_options, whisper_model_options_with_state,
+    recipe_label, size_label, whisper_model_name, whisper_model_options,
+    whisper_model_options_with_state,
 )
 
 _CHECK_GLYPHS = {OK: "✓", WARN: "◌", MISSING: "✕", CHECKING: "…"}
@@ -361,20 +362,27 @@ class StartView(QWidget):
         from core.paths import models_dir
 
         cfg = get_config()
-        label, downloaded = self._selected_model()
-        entry = whisper_entry(cfg.default_model)
-        size_mb = int(entry.size_bytes / 1_000_000) if entry is not None else 0
+        _label, downloaded = self._selected_model()
+        opts = self._transcribe_options
+        key = (opts.model_combo.currentData() if hasattr(opts, "model_combo") else None) \
+            or cfg.default_model
+        # The model's name and the manifest's size, in one unit (audit
+        # 2026-11-04 W10): the label's own size and description don't
+        # belong inside this sentence.
+        name = whisper_model_name(key)
+        entry = whisper_entry(key)
         folder = str(models_dir())
         if downloaded:
-            text = tr("first_run_model_ready", model=label)
+            text = tr("first_run_model_ready", model=name)
         else:
-            text = tr("first_run_model_download", model=label, size=size_mb, path=folder)
+            size = size_label(entry.size_bytes) if entry is not None and entry.size_bytes else "?"
+            text = tr("first_run_model_download", model=name, size=size, path=folder)
             try:
                 free = shutil.disk_usage(folder).free
             except OSError:
                 free = None
             if free is not None and entry is not None and free < entry.size_bytes * 2:
-                text += "\n" + tr("first_run_low_space", free=int(free / 1_000_000))
+                text += "\n" + tr("first_run_low_space", free=size_label(free))
         text += "\n" + tr(
             "first_run_components",
             ffmpeg="✓" if self._ffmpeg_found else "✕" if self._ffmpeg_found is False else "…",
