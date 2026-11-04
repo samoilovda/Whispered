@@ -27,7 +27,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Collection, Optional, Sequence
 
 CLEAN_MD = "clean.md"
 UPLOAD_JSON = "youtube_upload.json"   # the video id: the video is on YouTube
@@ -139,12 +139,20 @@ def write_timed_transcripts(
     return written
 
 
-def find_pending(root: Path, *, force: bool = False, salt: str = "") -> list[PushItem]:
+def find_pending(
+    root: Path, *, force: bool = False, salt: str = "",
+    live_ids: Optional[Collection[int]] = None,
+) -> list[PushItem]:
     """Artifact folders under *root* with something new to send. *salt*
     goes into the digest: when it changes (a new voice profile), every
-    folder is sent again."""
+    folder is sent again. With *live_ids* (``records.live_record_ids()``),
+    folders of deleted records are left out."""
+    from application.records import folder_record_id, is_live
+
     items = []
     for folder in sorted(p for p in root.iterdir() if p.is_dir()):
+        if not is_live(folder_record_id(folder), live_ids):
+            continue
         item = _item_for(folder, salt)
         if item and (force or _pushed_digest(folder) != item.digest):
             items.append(item)

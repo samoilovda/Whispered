@@ -6,10 +6,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from application.youtube_autoupload import Outcome, find_queued, queue_upload
 from core.youtube_upload import save_upload_record
 from domain.youtube_publish import PublishPackage, UploadRecord
 from ui.youtube_queue_dialog import YouTubeQueueDialog
+
+
+@pytest.fixture(autouse=True)
+def _no_history(monkeypatch):
+    """These records live only on disk: nothing is known to be deleted."""
+    from application import records
+
+    monkeypatch.setattr(records, "live_record_ids", lambda: None)
 
 
 def _queue(tmp_path: Path, name: str, record_id: int) -> Path:
@@ -37,6 +47,17 @@ def test_lists_waiting_and_uploaded_records(tmp_path):
     assert dialog.waiting_count() == 1
     assert dialog._upload_btn.isEnabled() and dialog._update_btn.isEnabled()
     assert dialog._settings_btn.isHidden()
+
+
+def test_a_deleted_record_is_not_listed(tmp_path, monkeypatch):
+    """Audit 2026-11-04 W02: its approval went with the record."""
+    from application import records
+
+    _queue(tmp_path, "kept", 1)
+    _queue(tmp_path, "gone", 2)
+    monkeypatch.setattr(records, "live_record_ids", lambda: {1})
+    dialog = YouTubeQueueDialog(tmp_path / "output", connected=True)
+    assert dialog._tree.topLevelItemCount() == 1
 
 
 def test_not_connected_points_to_settings(tmp_path):

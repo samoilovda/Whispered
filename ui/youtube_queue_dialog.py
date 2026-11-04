@@ -113,7 +113,9 @@ class YouTubeQueueDialog(QDialog):
         """Re-read the queue from disk and show where each record stands."""
         self._tree.clear()
         self._rows.clear()
-        self._items = find_queued(self._root)
+        from application.records import live_record_ids
+
+        self._items = find_queued(self._root, live_record_ids())
         for item in self._items:
             row = QTreeWidgetItem([item.package.title, _privacy_label(item.package.privacy), ""])
             row.setToolTip(_COL_TITLE, str(item.package.video_path))

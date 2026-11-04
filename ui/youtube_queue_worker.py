@@ -56,7 +56,9 @@ class YouTubeQueueWorker(BaseWorker):
     def _execute(self) -> None:
         client = youtube_upload.UploadClient(
             youtube_oauth.TokenProvider(self._client_id, self._client_secret))
-        items = find_queued(self._root)
+        from application.records import live_record_ids
+
+        items = find_queued(self._root, live_record_ids())
         if self._update:
             outcomes = run_updates(items, client)
         else:

@@ -223,3 +223,12 @@ def test_ready_json_names_both_folders(tmp_path):
 def test_a_remote_dir_a_shell_would_interpret_is_refused(bad):
     with pytest.raises(ValueError):
         hp.split_target(bad)
+
+
+def test_folders_of_deleted_records_are_not_pushed(tmp_path):
+    """Audit 2026-11-04 W02."""
+    _folder(tmp_path, "kept-1")
+    _folder(tmp_path, "gone-2")
+    _folder(tmp_path, "legacy")   # no id in the name: kept
+    names = [i.artifact_dir.name for i in hp.find_pending(tmp_path, live_ids={1})]
+    assert names == ["kept-1", "legacy"]

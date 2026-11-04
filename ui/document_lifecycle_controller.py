@@ -69,8 +69,9 @@ class DocumentLifecycleController:
         if host.transcript_view.is_editing():
             host.transcript_view._exit_edit_mode(save=False)
         try:
-            from core.history import get_history_store
-            get_history_store().delete(record_id)
+            from application.records import delete_record
+
+            delete_record(record_id)
         except Exception as exc:
             logger.warning("Failed to delete record %s: %s", record_id, exc)
             return

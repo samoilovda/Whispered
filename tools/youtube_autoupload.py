@@ -61,7 +61,9 @@ def main(argv: list[str] | None = None) -> int:
              "to their YouTube videos (no video or cover is uploaded)")
     args = parser.parse_args(argv)
 
-    items = find_queued(output_dir())
+    from application.records import live_record_ids
+
+    items = find_queued(output_dir(), live_record_ids())
     if args.record is not None:
         items = [item for item in items if item.record_id == args.record]
     if not items:

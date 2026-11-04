@@ -1129,7 +1129,10 @@ class LibraryView(QWidget):
         if reply != QMessageBox.StandardButton.Yes:
             return
         try:
+            from application.records import withdraw_uploads
+
             self._get_store().delete(record_id)
+            withdraw_uploads({record_id})
         except Exception as e:
             logger.warning("Library delete failed: %s", e)
         self.refresh()
@@ -1154,7 +1157,10 @@ class LibraryView(QWidget):
         if reply != QMessageBox.StandardButton.Yes:
             return
         try:
+            from application.records import withdraw_uploads
+
             n = self._get_store().clear()
+            withdraw_uploads(None)
             logger.info("Library cleared: %d records deleted", n)
         except Exception as e:
             logger.warning("Library clear failed: %s", e)

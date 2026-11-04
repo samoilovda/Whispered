@@ -700,3 +700,15 @@ class TestBookmarks:
         store.add_bookmark(rid, 5.0, "x")
         store.delete(rid)
         assert store.list_bookmarks(rid) == []
+
+
+def test_record_ids_lists_live_records(tmp_path):
+    from core.history import HistoryStore
+    from domain.transcription import Segment, TranscriptionResult
+
+    store = HistoryStore(tmp_path / "h.sqlite3")
+    result = TranscriptionResult(segments=[Segment(0.0, 1.0, "x", None)], language="ru", duration=1.0)
+    a = store.add(result, "/x/a.wav")
+    b = store.add(result, "/x/b.wav")
+    store.delete(a)
+    assert store.record_ids() == {b}

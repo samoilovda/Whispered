@@ -914,6 +914,11 @@ class HistoryStore:
             cur = conn.execute("DELETE FROM transcripts WHERE id = ?", (record_id,))
             return cur.rowcount > 0
 
+    def record_ids(self) -> set[int]:
+        """The ids of every record in the history."""
+        with self._connect() as conn:
+            return {int(row[0]) for row in conn.execute("SELECT id FROM transcripts")}
+
     def clear(self) -> int:
         """Delete all records. Returns the number of rows removed."""
         with self._connect() as conn:

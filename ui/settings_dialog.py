@@ -1079,8 +1079,9 @@ class SettingsDialog(QDialog):
         if reply != QMessageBox.StandardButton.Yes:
             return
         try:
-            from core.history import get_history_store
-            n = get_history_store().clear()
+            from application.records import clear_records
+
+            n = clear_records()
             logger.info("History cleared from settings: %d records", n)
             self.history_cleared.emit()
         except Exception as e:
