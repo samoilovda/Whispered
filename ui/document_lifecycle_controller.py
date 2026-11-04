@@ -74,6 +74,8 @@ class DocumentLifecycleController:
             delete_record(record_id)
         except Exception as exc:
             logger.warning("Failed to delete record %s: %s", record_id, exc)
+            QMessageBox.warning(host, tr("history_delete_title"),
+                                tr("history_delete_failed", error=str(exc)))
             return
         if choice is with_files and with_files is not None:
             from PyQt6.QtCore import QFile

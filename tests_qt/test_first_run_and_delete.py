@@ -310,3 +310,47 @@ def test_cancel_is_addressed_to_a_named_operation(env, monkeypatch, process_even
     assert "project" in stopped
     window.close()
     process_events()
+
+
+def test_a_failed_history_clear_is_reported(env, monkeypatch, process_events):
+    """Audit 2026-11-04 W11: Settings → Clear history only logged a failure."""
+    from PyQt6.QtWidgets import QMessageBox
+
+    from ui.settings_dialog import SettingsDialog
+
+    store, _ = env
+
+    def broken():
+        raise OSError("disk I/O error")
+
+    monkeypatch.setattr(store, "clear", broken)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    warned = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warned.append(a[-1]))
+    dialog = SettingsDialog()
+    cleared = []
+    dialog.history_cleared.connect(lambda: cleared.append(True))
+    dialog._clear_history()
+    assert warned and "disk I/O error" in warned[0] and cleared == []
+    dialog.close()
+    process_events()
+
+
+def test_a_failed_library_delete_is_reported(env, monkeypatch, process_events):
+    from PyQt6.QtWidgets import QMessageBox
+
+    store, _ = env
+    rid = store.add(_result(), source_path="", source_name="a.mp3")
+    window = _window(process_events)
+
+    def broken(_rid):
+        raise OSError("database is locked")
+
+    monkeypatch.setattr(store, "delete", broken)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    warned = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warned.append(a[-1]))
+    window.library_view._delete_record(rid)
+    assert warned and "database is locked" in warned[0]
+    window.close()
+    process_events()

@@ -1135,6 +1135,10 @@ class LibraryView(QWidget):
             withdraw_uploads({record_id})
         except Exception as e:
             logger.warning("Library delete failed: %s", e)
+            # Audit 2026-11-04 W11: a confirmed, irreversible action must
+            # not fail silently.
+            QMessageBox.warning(self, tr("history_delete_title"),
+                                tr("history_delete_failed", error=str(e)))
         self.refresh()
         self.records_deleted.emit([record_id])
 
@@ -1164,6 +1168,8 @@ class LibraryView(QWidget):
             logger.info("Library cleared: %d records deleted", n)
         except Exception as e:
             logger.warning("Library clear failed: %s", e)
+            QMessageBox.warning(self, tr("history_clear_title"),
+                                tr("history_clear_failed", error=str(e)))
         self.refresh()
         self.records_deleted.emit([])
 

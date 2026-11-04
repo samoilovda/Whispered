@@ -1090,6 +1090,9 @@ class SettingsDialog(QDialog):
             self.history_cleared.emit()
         except Exception as e:
             logger.warning("History clear failed: %s", e)
+            # Audit 2026-11-04 W11: say it, don't just log it.
+            QMessageBox.warning(self, tr("history_clear_title"),
+                                tr("history_clear_failed", error=str(e)))
 
     def _reindex_materials(self):
         """Rebuild the materials index in the background; the button shows
