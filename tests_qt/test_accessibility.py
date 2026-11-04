@@ -173,3 +173,17 @@ def test_playback_keys_do_not_steal_typing(monkeypatch, process_events):
     window.transcript_view._exit_edit_mode(save=False)
     window.close()
     process_events()
+
+
+def test_combo_arrows_are_an_image_not_a_border_triangle():
+    """Audit 2026-11-04 W15: Qt's QSS has no CSS border-triangle, so the
+    arrow rendered as a bar."""
+    from pathlib import Path
+    import re
+
+    from ui.theme import DARK, build_stylesheet
+
+    sheet = build_stylesheet(DARK)
+    rule = re.search(r"QComboBox::down-arrow \{([^}]*)\}", sheet).group(1)
+    url = re.search(r"image: url\(([^)]*)\)", rule).group(1)
+    assert Path(url).is_file() and "border-top" not in rule

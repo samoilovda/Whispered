@@ -55,6 +55,12 @@ ICONS = {
     </svg>''',
 
     # Close/X
+    # The combo-box arrow (ui/theme.py): QSS has no CSS border-triangle
+    # trick, so the arrow needs a real image (audit 2026-11-04 W15).
+    'chevron_down': '''<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M6 9L12 15L18 9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>''',
+
     'close': '''<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>''',

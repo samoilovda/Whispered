@@ -303,6 +303,8 @@ def build_stylesheet(t: Theme) -> str:
     # after the app's widgets/icons are already importable).
     from ui.icons import get_icon_file
     check_icon = get_icon_file("check", "#ffffff", 10)
+    # 2x the drawn size, so the arrow stays sharp on a Retina display.
+    combo_arrow = get_icon_file("chevron_down", t.text_secondary, 24)
     return f"""
     /* ── Base ── */
     QWidget {{
@@ -450,11 +452,9 @@ def build_stylesheet(t: Theme) -> str:
         background: transparent;
     }}
     QComboBox::down-arrow {{
-        width: 0;
-        height: 0;
-        border-left: 4px solid transparent;
-        border-right: 4px solid transparent;
-        border-top: 4px solid {t.text_secondary};
+        image: url({combo_arrow});
+        width: 10px;
+        height: 10px;
     }}
     QComboBox QAbstractItemView {{
         background-color: {t.bg_surface};
