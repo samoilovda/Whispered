@@ -65,7 +65,7 @@ def env(monkeypatch, tmp_path, process_events):
         window.show()
         process_events()
         recipe = Recipe(name="Notes", steps=("transcribe", "insights"))
-        window.batch_panel.snapshot_provider = lambda m=model: queue_store.make_snapshot(
+        window.batch_panel.snapshot_provider = lambda _key=None, m=model: queue_store.make_snapshot(
             recipe, {"model_name": m, "language": "auto", "translate": False,
                      "n_threads": 4, "enable_diarization": False, "use_gpu": True})
         windows.append(window)

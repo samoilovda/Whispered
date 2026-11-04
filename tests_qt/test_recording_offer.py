@@ -108,3 +108,50 @@ def test_run_while_busy_queues_the_recording(window, monkeypatch, tmp_path):
     window._run_recording_offer(str(media), "transcript_only")
 
     assert [item.filepath for item in window.batch_panel.processor.items] == [str(media)]
+
+
+def test_later_keeps_the_recording_and_offers_it_again(window, monkeypatch, tmp_path):
+    """Audit 2026-11-04 W07: "Later" used to mean "never"."""
+    import config
+
+    config.get_config().recording_offer_enabled = True
+    media = _finished_meeting(tmp_path)
+    window._on_new_recording_ready(str(media))
+    assert config.get_config().recording_offers_waiting == [str(media)]
+
+    window._recording_offer_dialog.later_btn.click()
+    assert window._recording_offer_dialog is None
+    assert config.get_config().recording_offers_waiting == [str(media)]
+
+    window._reoffer_waiting_recordings()   # next start / an hour later
+    assert window._recording_offer_dialog is not None
+    assert window._recording_offer_dialog.path == str(media)
+    window._recording_offer_dialog.dismiss_btn.click()
+    assert config.get_config().recording_offers_waiting == []
+
+
+def test_a_missing_waiting_recording_is_dropped(window, tmp_path):
+    import config
+
+    cfg = config.get_config()
+    cfg.recording_offer_enabled = True
+    cfg.recording_offers_waiting = [str(tmp_path / "gone.m4a")]
+    window._reoffer_waiting_recordings()
+    assert cfg.recording_offers_waiting == [] and window._recording_offer_dialog is None
+
+
+def test_queueing_from_the_offer_leaves_the_start_screen_recipe_alone(window, monkeypatch, tmp_path):
+    from application import queue_store
+
+    monkeypatch.setattr(window.transcriber, "is_busy", lambda: True)
+    before = window.start_view.current_recipe_key()
+    media = _finished_meeting(tmp_path)
+    seen = []
+    real = window.batch_panel.snapshot_provider
+    window.batch_panel.snapshot_provider = lambda key=None: seen.append(key) or real(key)
+
+    window._run_recording_offer(str(media), "podcast_article")
+
+    assert seen == ["podcast_article"]
+    assert window.start_view.current_recipe_key() == before
+    assert queue_store  # the snapshot path is the real one

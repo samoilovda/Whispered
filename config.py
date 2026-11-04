@@ -159,6 +159,10 @@ class Config:
     # chosen there, preselected next time ("" = Config.last_recipe).
     recording_offer_enabled: bool = False
     recording_offer_recipe: str = ""
+    # Recordings offered but not answered yet, or put off with "Later":
+    # offered again at the next start and an hour later (audit 2026-11-04
+    # W07 — "Later" used to mean "never").
+    recording_offers_waiting: list = field(default_factory=list)
 
     # Export formats last selected in the Record view's Export menu
     # (see ui/record_view.py). Persisted so the choice survives restarts.

@@ -157,7 +157,8 @@ class BatchPanel(QWidget):
         # Called when files are added: returns the QueueSnapshot to freeze
         # for them (None = no persistence, e.g. in tests/book jobs). Set by
         # MainWindow's QueueController.
-        self.snapshot_provider: Optional[Callable[[], QueueSnapshot]] = None
+        # Called with a recipe key, or None for the start screen's recipe.
+        self.snapshot_provider: Optional[Callable[[Optional[str]], QueueSnapshot]] = None
         self._book_worker: BookBatchWorker | None = None
         self._registry = WorkerRegistry(parent=self)
         self._i18n = Retranslator()
@@ -266,14 +267,14 @@ class BatchPanel(QWidget):
         self._add_paths(filepaths)
         self._refresh_list()
 
-    def _add_paths(self, paths: "list[str]") -> int:
+    def _add_paths(self, paths: "list[str]", recipe_key: Optional[str] = None) -> int:
         """Add *paths*, persisting each with a snapshot of the recipe and
         transcription settings chosen *now* (UX-14). A file already waiting
         in the stored queue is not added twice."""
         import os
 
         snapshot = (
-            self.snapshot_provider()
+            self.snapshot_provider(recipe_key)
             if self.snapshot_provider is not None
             and self.job_kind_combo.currentData() != "book" else None
         )
@@ -326,13 +327,13 @@ class BatchPanel(QWidget):
         self._refresh_list()
         return restored
 
-    def add_files(self, filepaths: "list[str]") -> int:
+    def add_files(self, filepaths: "list[str]", recipe_key: Optional[str] = None) -> int:
         """Add already-resolved paths to the queue — what a multi-file
         drop (B5a) or a watch folder (B5b) calls instead of opening the
         file dialog _add_files() does; both need the same refresh
         afterward. Returns the count actually added (skips duplicates
         already in the queue, same as _add_files())."""
-        count = self._add_paths(filepaths)
+        count = self._add_paths(filepaths, recipe_key)
         self._refresh_list()
         return count
 

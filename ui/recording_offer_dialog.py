@@ -29,9 +29,12 @@ def _recording_name(path: str) -> str:
 
 
 class RecordingOfferDialog(QDialog):
-    """Emits ``run_requested(path, recipe_key)`` when the user accepts."""
+    """Emits ``run_requested(path, recipe_key)`` when the user accepts,
+    ``dismissed(path)`` for "Don't offer"; closing it otherwise ("Later",
+    the window's X, Esc) means "ask again later"."""
 
     run_requested = pyqtSignal(str, str)
+    dismissed = pyqtSignal(str)
 
     def __init__(
         self,
@@ -71,16 +74,27 @@ class RecordingOfferDialog(QDialog):
 
         buttons = QDialogButtonBox()
         run_btn = buttons.addButton(tr("recording_offer_run"), QDialogButtonBox.ButtonRole.AcceptRole)
-        buttons.addButton(tr("recording_offer_later"), QDialogButtonBox.ButtonRole.RejectRole)
+        self.later_btn = buttons.addButton(tr("recording_offer_later"),
+                                           QDialogButtonBox.ButtonRole.RejectRole)
+        self.dismiss_btn = buttons.addButton(tr("recording_offer_dismiss"),
+                                             QDialogButtonBox.ButtonRole.DestructiveRole)
         if run_btn is not None:
             run_btn.setDefault(True)
+        if self.later_btn is not None:
+            self.later_btn.setToolTip(tr("recording_offer_later_tip"))
         buttons.accepted.connect(self._on_run)
         buttons.rejected.connect(self.reject)
+        if self.dismiss_btn is not None:
+            self.dismiss_btn.clicked.connect(self._on_dismiss)
         layout.addWidget(buttons)
 
     @property
     def path(self) -> str:
         return self._path
+
+    def _on_dismiss(self) -> None:
+        self.dismissed.emit(self._path)
+        self.reject()
 
     def _on_run(self) -> None:
         key = self.recipe_combo.currentData()

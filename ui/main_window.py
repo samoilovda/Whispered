@@ -108,6 +108,9 @@ from ui.qt_util import must
 
 logger = get_logger(__name__)
 
+# How soon an offer put off with "Later" comes back (audit 2026-11-04 W07).
+_RECORDING_OFFER_RETRY_MS = 60 * 60 * 1000
+
 # ============================================================================
 # MAIN WINDOW
 # ============================================================================
@@ -814,6 +817,8 @@ class MainWindow(QMainWindow):
         self._recording_offers: "list[str]" = []
         self._recording_offer_dialog: RecordingOfferDialog | None = None
         self._apply_recording_offer_config()
+        # Offers left unanswered or put off last time come back now.
+        QTimer.singleShot(1500, self._reoffer_waiting_recordings)
 
         # Course Capture Panel — same "persistent status surface" placement
         # as Batch (see _build_queue_section): a queue of lessons captured
@@ -1835,12 +1840,35 @@ class MainWindow(QMainWindow):
         ]
         return [(recipe.builtin_key or recipe.name, recipe) for recipe in recipes]
 
+    def _set_offer_waiting(self, path: str, waiting: bool) -> None:
+        """Keep Config.recording_offers_waiting in step: a recording stays
+        there until it is run, queued or dismissed (audit 2026-11-04 W07)."""
+        cfg = get_config()
+        paths = [p for p in cfg.recording_offers_waiting if p != path]
+        if waiting:
+            paths.append(path)
+        if paths != cfg.recording_offers_waiting:
+            cfg.recording_offers_waiting = paths
+            save_config()
+
+    def _reoffer_waiting_recordings(self) -> None:
+        """Offer again what was left unanswered or put off with "Later";
+        recordings whose file is gone are dropped."""
+        if not get_config().recording_offer_enabled:
+            return
+        for path in list(get_config().recording_offers_waiting):
+            if os.path.isfile(path):
+                self._on_new_recording_ready(path)
+            else:
+                self._set_offer_waiting(path, False)
+
     def _on_new_recording_ready(self, path: str) -> None:
         """RecordingWatchService.recording_ready: offer the recording, one
         dialog at a time; draw attention when the window is in the back."""
         shown = self._recording_offer_dialog
         if path in self._recording_offers or (shown is not None and shown.path == path):
             return
+        self._set_offer_waiting(path, True)
         self._recording_offers.append(path)
         self._show_next_recording_offer()
         if not self.isActiveWindow():
@@ -1859,39 +1887,48 @@ class MainWindow(QMainWindow):
         )
         dialog = RecordingOfferDialog(path, self._recording_choices(), selected, self)
         dialog.run_requested.connect(self._run_recording_offer)
+        dialog.dismissed.connect(lambda p: self._set_offer_waiting(p, False))
         dialog.finished.connect(self._on_recording_offer_closed)
         self._recording_offer_dialog = dialog
         dialog.show()
         dialog.raise_()
 
     def _on_recording_offer_closed(self, _result: int) -> None:
+        dialog = self._recording_offer_dialog
         self._recording_offer_dialog = None
+        if dialog is not None and dialog.path in get_config().recording_offers_waiting:
+            # "Later" (or the window closed): ask again in an hour.
+            QTimer.singleShot(_RECORDING_OFFER_RETRY_MS, self._reoffer_waiting_recordings)
         QTimer.singleShot(0, self._show_next_recording_offer)
 
     def _run_recording_offer(self, path: str, recipe_key: str) -> None:
         """The offer's "Run": launch *recipe_key* on *path* the way the
         start screen does, or queue it when something is already running."""
         if not os.path.isfile(path):
+            self._set_offer_waiting(path, False)
             show_toast(self, tr("recording_offer_missing"), kind="warning")
             return
         cfg = get_config()
-        cfg.recording_offer_recipe = recipe_key
-        save_config()
-        self.start_view.select_recipe(recipe_key)
         if self.recipe_run.is_running() or self.operations.asr_holder() is not None:
-            # The queue snapshots the recipe just selected; Start stays
-            # the user's decision there, as for any queued file.
-            self.batch_panel.add_files([path])
+            # The queue snapshots this recipe explicitly — the start
+            # screen's choice is left alone (audit 2026-11-04 W07). Start
+            # stays the user's decision there, as for any queued file.
+            self.batch_panel.add_files([path], recipe_key=recipe_key)
             self.status_bar.show_queue(True)
             show_toast(self, tr("recording_offer_queued"), kind="info")
-            return
-        if not self._prepare_leave():
-            return
-        self._stack.setCurrentIndex(self._start_index)
-        self.start_view.set_source("file")
-        self.file_selector._set_file(path)
-        self._source_kind = "file"
-        self._start_transcription()
+        else:
+            if not self._prepare_leave():
+                return   # still waiting: offered again later
+            self.start_view.select_recipe(recipe_key)
+            self._stack.setCurrentIndex(self._start_index)
+            self.start_view.set_source("file")
+            self.file_selector._set_file(path)
+            self._source_kind = "file"
+            self._start_transcription()
+        cfg.recording_offer_recipe = recipe_key
+        save_config()
+        self._set_offer_waiting(path, False)
+
 
     def _maybe_show_first_run(self) -> None:
         """The skippable first-launch card: only for an empty library."""
