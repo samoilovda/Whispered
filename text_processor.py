@@ -55,6 +55,8 @@ class CleanedText:
     removed_fillers: int
     sentences_fixed: int
     paragraphs_created: int
+    fallback_chunks: int = 0
+    ai_chunks: int = 0
 
 
 @dataclass
@@ -64,6 +66,8 @@ class CoherentText:
     paragraphs: list[str] = field(default_factory=list)
     topic_shifts: list[int] = field(default_factory=list)  # Paragraph indices where topic changes
     speaker_changes: list[int] = field(default_factory=list)  # Paragraph indices with speaker change
+    fallback_chunks: int = 0
+    ai_chunks: int = 0
 
 
 @dataclass
@@ -134,6 +138,22 @@ CLEANING_PROMPT_TEMPLATE_RU = """Расшифровка:
 Выведи только очищенный текст:"""
 
 
+ChunkCheckpoint = Callable[[str, Callable[[], Optional[str]]], Optional[str]]
+
+
+def _rewrite_chunk(
+    client: LMStudioClient, source: str, prompt: str, system: str,
+    checkpoint: Optional[ChunkCheckpoint],
+) -> Optional[str]:
+    def generate() -> Optional[str]:
+        reply = client.chat_completion(
+            prompt=prompt, system_prompt=system, temperature=0.3, reasoning_effort=_NO_REASONING,
+        )
+        return reply if _usable(reply, source) else None
+
+    return checkpoint(f"{system}\0{prompt}", generate) if checkpoint else generate()
+
+
 class TextCleaner:
     """Clean raw transcription text using LM Studio."""
 
@@ -141,6 +161,9 @@ class TextCleaner:
         self.lm_client = lm_client or LMStudioClient()
         # The transcript's language code ("ru", "en", ...); picks the prompt.
         self.language = language
+        self.checkpoint: Optional[ChunkCheckpoint] = None
+        self.ai_chunks = 0
+        self.fallback_chunks = 0
 
     def _prompts(self) -> tuple[str, str]:
         """(system prompt, request template) for the transcript's language."""
@@ -196,6 +219,7 @@ class TextCleaner:
         if on_progress:
             on_progress(0, tr("llm_progress_clean_start"))
 
+        self.ai_chunks = self.fallback_chunks = 0
         # Check if AI is available and requested
         if use_ai and self.lm_client.check_connection():
             cleaned = self._clean_with_ai(text, on_progress)
@@ -203,6 +227,7 @@ class TextCleaner:
             if on_progress:
                 on_progress(10, tr("llm_progress_clean_basic"))
             cleaned = self._quick_clean(text)
+            self.fallback_chunks = int(bool(text.strip()))
 
         # Calculate statistics
         removed_fillers = self._count_removed_fillers(text, cleaned)
@@ -223,7 +248,9 @@ class TextCleaner:
             cleaned=cleaned,
             removed_fillers=removed_fillers,
             sentences_fixed=sentences_fixed,
-            paragraphs_created=paragraphs_created
+            paragraphs_created=paragraphs_created,
+            fallback_chunks=self.fallback_chunks,
+            ai_chunks=self.ai_chunks,
         )
 
     def _clean_with_ai(
@@ -233,49 +260,27 @@ class TextCleaner:
     ) -> str:
         """Clean text using LM Studio AI."""
 
-        # For short texts, process in one go
-        if len(text) <= TEXT_CHUNK_SIZE:
-            if on_progress:
-                on_progress(20, tr("llm_progress_ai"))
-
-            system, template = self._prompts()
-            result = self.lm_client.chat_completion(
-                prompt=_cleaning_prompt(text, template),
-                system_prompt=system,
-                temperature=0.3,  # Lower temperature for more consistent cleaning
-                reasoning_effort=_NO_REASONING,
-            )
-
-            if _usable(result, text):
-                return result
-            logger.warning("AI cleaning returned no usable text; using the rule-based clean")
-            return self._quick_clean(text)
-
-        # For long texts, process in chunks
-        chunks = self._split_into_chunks(text)
+        chunks = [text] if len(text) <= TEXT_CHUNK_SIZE else self._split_into_chunks(text)
         cleaned_chunks = []
         system, template = self._prompts()
 
         for i, chunk in enumerate(chunks):
-            progress = int(20 + (70 * i / len(chunks)))
             if on_progress:
-                on_progress(progress, tr("llm_progress_chunk", current=i + 1, total=len(chunks)))
+                if len(chunks) == 1:
+                    on_progress(20, tr("llm_progress_ai"))
+                else:
+                    progress = int(20 + (70 * i / len(chunks)))
+                    on_progress(progress, tr("llm_progress_chunk", current=i + 1, total=len(chunks)))
 
-            result = self.lm_client.chat_completion(
-                prompt=_cleaning_prompt(chunk, template),
-                system_prompt=system,
-                temperature=0.3,
-                reasoning_effort=_NO_REASONING,
+            result = _rewrite_chunk(
+                self.lm_client, chunk, _cleaning_prompt(chunk, template), system, self.checkpoint,
             )
-
-            if _usable(result, chunk):
+            if result is not None:
+                self.ai_chunks += 1
                 cleaned_chunks.append(result)
             else:
-                logger.warning(
-                    "AI cleaning %s for chunk %d/%d; using the rule-based clean",
-                    "returned nothing" if not result else "was cut short",
-                    i + 1, len(chunks),
-                )
+                self.fallback_chunks += 1
+                logger.warning("AI cleaning failed for chunk %d/%d; using rules", i + 1, len(chunks))
                 cleaned_chunks.append(self._quick_clean(chunk))
 
         return "\n\n".join(cleaned_chunks)
@@ -367,6 +372,9 @@ class CoherenceProcessor:
 
     def __init__(self, lm_client: Optional[LMStudioClient] = None):
         self.lm_client = lm_client or LMStudioClient()
+        self.checkpoint: Optional[ChunkCheckpoint] = None
+        self.ai_chunks = 0
+        self.fallback_chunks = 0
 
     def process(
         self,
@@ -388,11 +396,13 @@ class CoherenceProcessor:
         if on_progress:
             on_progress(0, tr("llm_progress_structure"))
 
+        self.ai_chunks = self.fallback_chunks = 0
         if use_ai and self.lm_client.check_connection():
             processed = self._process_with_ai(text, on_progress)
         else:
             # Basic paragraph splitting
             processed = self._basic_paragraph_split(text)
+            self.fallback_chunks = int(bool(text.strip()))
 
         # Parse the result into paragraphs
         paragraphs = [p.strip() for p in processed.split('\n\n') if p.strip()]
@@ -415,7 +425,9 @@ class CoherenceProcessor:
             text='\n\n'.join(paragraphs),
             paragraphs=paragraphs,
             topic_shifts=topic_shifts,
-            speaker_changes=[]  # Could be enhanced with speaker diarization
+            speaker_changes=[],  # Could be enhanced with speaker diarization
+            fallback_chunks=self.fallback_chunks,
+            ai_chunks=self.ai_chunks,
         )
 
     def _process_with_ai(
@@ -444,18 +456,17 @@ class CoherenceProcessor:
                     int(30 + 60 * index / len(chunks)),
                     tr("llm_progress_paragraphs", current=index + 1, total=len(chunks)),
                 )
-            result = self.lm_client.chat_completion(
-                prompt=COHERENCE_PROMPT_TEMPLATE.format(text=chunk),
-                system_prompt=COHERENCE_SYSTEM_PROMPT,
-                temperature=0.3,
-                reasoning_effort=_NO_REASONING,
+            result = _rewrite_chunk(
+                self.lm_client, chunk, COHERENCE_PROMPT_TEMPLATE.format(text=chunk),
+                COHERENCE_SYSTEM_PROMPT, self.checkpoint,
             )
-            if _usable(result, chunk):
+            if result is not None:
+                self.ai_chunks += 1
                 organized.append(result.strip())
             else:
+                self.fallback_chunks += 1
                 logger.warning(
-                    "Coherence pass %s for chunk %d/%d; keeping a basic paragraph split",
-                    "returned nothing" if not result else "was cut short",
+                    "Coherence response missing or cut short for chunk %d/%d; using rules",
                     index + 1, len(chunks),
                 )
                 organized.append(self._basic_paragraph_split(chunk))
@@ -495,6 +506,7 @@ class TextProcessor:
         self.lm_client = LMStudioClient(lm_studio_url)
         self.cleaner = TextCleaner(self.lm_client, language=language)
         self.coherence = CoherenceProcessor(self.lm_client)
+        self.checkpoint: Optional[ChunkCheckpoint] = None
 
     def is_available(self) -> bool:
         """Check if LM Studio is available for processing."""
@@ -523,6 +535,8 @@ class TextProcessor:
         """
         import time
         start_time = time.time()
+
+        self.cleaner.checkpoint = self.coherence.checkpoint = self.checkpoint
 
         # Stage 1: Clean text
         def clean_progress(pct, msg):

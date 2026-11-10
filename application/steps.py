@@ -36,7 +36,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional
 
@@ -167,7 +167,8 @@ def _model_label(context: StepContext, step: str = "youtube_package") -> str:
 
 def _bind_model(context: StepContext, step: str) -> None:
     """Resolve auto-selected models on a worker, then pin that run to it."""
-    if step == "cover" or _provider_label(context, step) != "lmstudio":
+    if (step == "cover" or _provider_label(context, step) != "lmstudio"
+            or (step == "clean" and not context.params.get("use_ai", True))):
         return
     models = context.params.setdefault("_bound_models", {})
     if step in models:
@@ -447,6 +448,7 @@ def _diarize_load(context: StepContext) -> Optional[Any]:
 def _clean_runner(context: StepContext) -> StepRunner:
     def run():
         from text_processor import TextProcessor
+        from infrastructure.persistence import artifact_store
 
         check_cancelled(context.is_cancelled)
         artifact = _clean_artifact(context)
@@ -458,13 +460,60 @@ def _clean_runner(context: StepContext) -> StepRunner:
         processor.lm_client.is_cancelled = context.is_cancelled
         processor.lm_client._model = _model_label(context, "clean")
         use_ai = bool(context.params.get("use_ai", True))
+        checkpoints: set[Path] = set()
+        if use_ai and artifact.model:
+            # An explicit regeneration of a complete artifact starts afresh.
+            if not artifact_store.is_cache_valid(artifact.path, artifact):
+                processor.checkpoint = _clean_checkpoint(context, artifact, checkpoints)
         result = processor.process(
             context.result.full_text, use_ai=use_ai, on_progress=context.on_progress,
         )
+        fallback_chunks = result.cleaned.fallback_chunks + result.coherent.fallback_chunks
+        ai_chunks = result.cleaned.ai_chunks + result.coherent.ai_chunks
+        if fallback_chunks:
+            artifact = replace(
+                artifact,
+                provider="mixed" if ai_chunks else "rules",
+                model=artifact.model if ai_chunks else "",
+                extra={"fallback_chunks": fallback_chunks, "cacheable": not use_ai},
+            )
         _commit_text(context, artifact, result.coherent.text)
+        if not fallback_chunks and checkpoints:
+            for path in checkpoints:
+                try:
+                    artifact_store.manifest_path_for(path).unlink(missing_ok=True)
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    logger.debug("Could not remove a completed cleaning checkpoint")
         return result
 
     return run
+
+
+def _clean_checkpoint(
+    context: StepContext, artifact: Artifact, checkpoints: set[Path],
+) -> Callable[[str, Callable[[], Optional[str]]], Optional[str]]:
+    from infrastructure.persistence import artifact_store
+
+    scope = json.dumps(artifact.cache_key(), ensure_ascii=False)
+
+    def checkpoint(prompt: str, generate: Callable[[], Optional[str]]) -> Optional[str]:
+        check_cancelled(context.is_cancelled)
+        key = hashlib.sha256(f"{scope}\0{prompt}".encode("utf-8")).hexdigest()
+        path = context.artifact_dir / ".clean-chunks" / f"{key}.md"
+        chunk = replace(artifact, path=str(path), type="cleaned_chunk", prompt_version=key)
+        if artifact_store.is_cache_valid(path, chunk):
+            saved = _read_text(path)
+            if saved is not None:
+                checkpoints.add(path)
+                return saved
+        text = generate()
+        if text is not None:
+            _commit_text(context, chunk, text)
+            checkpoints.add(path)
+        return text
+
+    return checkpoint
 
 
 # Bumped when text_processor changes what the same prompts produce, so a
@@ -473,10 +522,11 @@ def _clean_runner(context: StepContext) -> StepRunner:
 # v3: the AI clean answers instead of thinking until max_tokens, and
 # paragraphs it already wrote are kept rather than rewritten; v4: 4000-
 # character chunks and a Russian prompt for Russian speech).
-_CLEAN_PIPELINE_VERSION = 4
+_CLEAN_PIPELINE_VERSION = 5
 
 
 def _clean_artifact(context: StepContext) -> Artifact:
+    use_ai = bool(context.params.get("use_ai", True))
     return Artifact(
         record_id=context.record_id_str(),
         source_hash=context.source_hash(),
@@ -484,8 +534,8 @@ def _clean_artifact(context: StepContext) -> Artifact:
         transcript_revision=context.revision(),
         type="cleaned_text",
         path=str(context.artifact_dir / "clean.md"),
-        provider=_provider_label(context, "clean"),
-        model=_model_label(context, "clean"),
+        provider=_provider_label(context, "clean") if use_ai else "rules",
+        model=_model_label(context, "clean") if use_ai else "",
         prompt_version=_generation_key(context, "clean", f"{_composite_prompt_version('cleaning', 'cleaning_ru', 'coherence', 'glossary')}+{_CLEAN_PIPELINE_VERSION}"),
     )
 
@@ -641,13 +691,18 @@ def _insights_runner(context: StepContext) -> StepRunner:
         for index, insight_type in enumerate(_INSIGHTS_TYPES):
             check_cancelled(context.is_cancelled)
             _report_part(context, index, len(_INSIGHTS_TYPES), insight_type)
-            payload[insight_type] = generate_insight(
+            items = generate_insight(
                 insight_type, context.result.segments,
                 lm_url=lm_url, language=language, cache=cache,
                 model=_model_label(context, "insights"),
                 max_transcript_chars=context.params.get("insights_context_chars"),
                 is_cancelled=context.is_cancelled, notes=notes,
             )
+            if not isinstance(items, list):
+                from core.i18n import tr
+
+                raise RuntimeError(tr("llm_invalid_structured_response"))
+            payload[insight_type] = items
         insights_path = context.artifact_dir / "insights.json"
         _commit_json(context, artifact, payload)
         _index_artifact_text(context, "insights", insights_path, _flatten_insight_strings(payload))
@@ -738,13 +793,18 @@ def _youtube_package_runner(context: StepContext) -> StepRunner:
         for index, insight_type in enumerate(_YOUTUBE_TYPES):
             check_cancelled(context.is_cancelled)
             _report_part(context, index, len(_YOUTUBE_TYPES), insight_type)
-            payload[insight_type] = generate_insight(
+            items = generate_insight(
                 insight_type, context.result.segments,
                 lm_url=lm_url, language=language, provider=provider, cache=cache,
                 model=_model_label(context, "youtube_package"),
                 max_transcript_chars=context.params.get("insights_context_chars"),
                 is_cancelled=context.is_cancelled, style_examples=examples,
             )
+            if not isinstance(items, list):
+                from core.i18n import tr
+
+                raise RuntimeError(tr("llm_invalid_structured_response"))
+            payload[insight_type] = items
         youtube_path = context.artifact_dir / "youtube_package.json"
         _commit_json(context, artifact, payload)
         _index_artifact_text(context, "youtube", youtube_path, _flatten_insight_strings(payload))
@@ -1218,9 +1278,9 @@ def build_cache_checks(context: StepContext, step_names: "tuple[str, ...] | list
             _bind_model(context, name)
             # The server may be unavailable or unable to name its model.
             # Unidentified auto models must never reuse another model's work.
-            if name != "cover" and not _model_label(context, name):
-                return False
             expected = STEP_REGISTRY[name].make_artifact(context)
+            if expected is not None and name != "cover" and expected.provider != "rules" and not expected.model:
+                return False
             return expected is not None and artifact_store.is_cache_valid(expected.path, expected)
 
         checks[name] = check

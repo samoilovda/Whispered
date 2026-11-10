@@ -127,7 +127,7 @@ def _as_list(value) -> Optional[list]:
     return None
 
 
-def _parse_json_response(raw: str, retry_hint: str = "") -> Optional[list]:
+def _parse_json_response(raw: str, retry_hint: str = "", *, salvage: bool = True) -> Optional[list]:
     """Try to parse a JSON array from a raw LLM response.
 
     If parsing fails once, a second attempt is made with the retry_hint
@@ -149,7 +149,7 @@ def _parse_json_response(raw: str, retry_hint: str = "") -> Optional[list]:
         except json.JSONDecodeError:
             pass
 
-    salvaged = _salvage_truncated_array(raw)
+    salvaged = _salvage_truncated_array(raw) if salvage else None
     if salvaged is not None:
         logger.warning(
             "Insights JSON was cut off; salvaged %d complete item(s)",
@@ -157,8 +157,35 @@ def _parse_json_response(raw: str, retry_hint: str = "") -> Optional[list]:
         )
         return salvaged
 
-    logger.warning("Failed to parse insights JSON: %.80s", raw)
+    logger.warning("Failed to parse insights JSON (%d characters)", len(raw))
     return None
+
+
+def _transcript_blocks(segments) -> list[tuple[int, str, str]]:
+    """Coalesce consecutive same-speaker segments into roughly 25-second blocks."""
+    blocks: list[tuple[int, str, str]] = []
+    block_start: int | None = None
+    block_speaker = ""
+    block_texts: list[str] = []
+
+    def flush() -> None:
+        if block_start is not None and block_texts:
+            blocks.append((block_start, block_speaker, " ".join(block_texts)))
+
+    for seg in segments:
+        start_s = int(seg.get("start", 0) if isinstance(seg, dict) else seg.start)
+        text = (seg.get("text", "") if isinstance(seg, dict) else seg.text).strip()
+        speaker = (seg.get("speaker") if isinstance(seg, dict) else seg.speaker) or ""
+        if not text:
+            continue
+        if (block_start is None or speaker != block_speaker
+                or start_s - block_start >= 25):
+            flush()
+            block_start, block_speaker, block_texts = start_s, speaker, [text]
+        else:
+            block_texts.append(text)
+    flush()
+    return blocks
 
 
 def _build_prompt_text(
@@ -188,37 +215,11 @@ def _build_prompt_text(
     a ``<type>_review`` uses the examples of ``<type>``.
     """
     system_prompt = load_prompt(insight_type, fallback="")
-    lines = []
-    # Coalesce consecutive same-speaker segments into ~25s blocks: whisper
-    # emits thousands of sub-second segments, and one "[Ns] " prefix per
-    # segment bloats the prompt (slow prefill) and drowns a reasoning
-    # model in timestamps. One marker per block keeps every word of the
-    # transcript while cutting the line count from thousands to ~150; 25s
-    # resolution is far finer than any chapter/insight needs.
-    block_start: int | None = None
-    block_speaker = ""
-    block_texts: list[str] = []
-
-    def _flush():
-        if block_texts:
-            prefix = f"[{block_start}s] "
-            if block_speaker:
-                prefix += f"{block_speaker}: "
-            lines.append(prefix + " ".join(block_texts))
-
-    for seg in segments:
-        start_s = int(seg.get("start", 0) if isinstance(seg, dict) else seg.start)
-        text = (seg.get("text", "") if isinstance(seg, dict) else seg.text).strip()
-        speaker = (seg.get("speaker") if isinstance(seg, dict) else seg.speaker) or ""
-        if not text:
-            continue
-        if (block_start is None or speaker != block_speaker
-                or start_s - block_start >= 25):
-            _flush()
-            block_start, block_speaker, block_texts = start_s, speaker, [text]
-        else:
-            block_texts.append(text)
-    _flush()
+    lines = [
+        f"[{start}s] " + (f"[B{index}] " if insight_type == "action_items" else "")
+        + (f"{speaker}: " if speaker else "") + (" ".join(text.split()) if insight_type == "action_items" else text)
+        for index, (start, speaker, text) in enumerate(_transcript_blocks(segments), 1)
+    ]
     transcript = sample_lines_evenly(lines, max_transcript_chars)
     lang_directive = f"Write all output in {language}.\n" if language else ""
     # Terms the transcript uses (core/glossary.py): they depend only on
@@ -296,6 +297,8 @@ def generate_insight(
     max_transcript_chars: Optional[int] = None,
     notes: str = "",
     style_examples: Optional[Mapping[str, Sequence[str]]] = None,
+    _chapter_window: Optional[tuple[int, Optional[int]]] = None,
+    _response_tokens: int = _RESPONSE_MAX_TOKENS,
 ):
     """Generate one insight type from a transcript, synchronously.
 
@@ -335,11 +338,6 @@ def generate_insight(
         from config import get_config
         max_transcript_chars = get_config().insights_context_chars
 
-    prompt = _build_prompt_text(
-        insight_type, segments, max_transcript_chars=max_transcript_chars, language=language,
-        notes=notes, style_examples=style_examples,
-    )
-
     if provider:
         from core.ai_provider import create_client
         client = create_client(provider)
@@ -354,12 +352,64 @@ def generate_insight(
     selected_model = selected_model if isinstance(selected_model, str) else ""
     if selected_model:
         client._model = selected_model
+
+    if insight_type == "chapters" and _chapter_window is None and (
+        provider is None or provider.kind == "lmstudio"
+    ):
+        probe_context = getattr(client, "loaded_context_length", None)
+        capacity = probe_context(selected_model) if callable(probe_context) else None
+        if isinstance(capacity, int):
+            capacity = min(capacity, 50_000)
+            _response_tokens = min(_RESPONSE_MAX_TOKENS, max(512, capacity // 3))
+            # Measured Russian prose uses ~3.5 characters per token. Use a
+            # smaller estimate and reserve space for instructions and terms.
+            room = capacity - _response_tokens - 1_536 - len(notes.encode("utf-8"))
+            if room > 256:
+                budget = int(room * 2.7)
+                if max_transcript_chars != _TRANSCRIPT_MAX_CHARS:
+                    budget = min(max_transcript_chars, budget)
+                max_transcript_chars = budget
+                windows = _chapter_windows(_transcript_blocks(segments), budget)
+                if len(windows) > 1:
+                    from domain.timestamps import item_start
+
+                    chapters: list[dict] = []
+                    for index, window in enumerate(windows):
+                        if is_cancelled():
+                            return []
+                        start = window[0]["start"] if index else 0
+                        end = windows[index + 1][0]["start"] if index + 1 < len(windows) else None
+                        items = generate_insight(
+                            "chapters", window, lm_url=lm_url, language=language, provider=provider,
+                            model=selected_model, cache=cache, is_cancelled=is_cancelled,
+                            max_transcript_chars=budget, notes=notes, style_examples=style_examples,
+                            _chapter_window=(start, end), _response_tokens=_response_tokens,
+                        )
+                        if not isinstance(items, list):
+                            return items
+                        for item in items:
+                            stamp = item_start(item) if isinstance(item, dict) else None
+                            if stamp is not None and stamp >= start and (end is None or stamp < end):
+                                chapters.append(item)
+                    distinct = {item_start(item): item for item in chapters}
+                    return sorted(distinct.values(), key=lambda item: item_start(item) or 0)
+
+    prompt = _build_prompt_text(
+        insight_type, segments, max_transcript_chars=max_transcript_chars, language=language,
+        notes=notes, style_examples=style_examples,
+    )
+    if _chapter_window is not None:
+        prompt += (
+            f"Generate chapters only for this excerpt. The first chapter starts at "
+            f"{_chapter_window[0]} seconds. Use the original absolute timestamps."
+        )
     from core.prompts import prompt_version
 
     identity = json.dumps({
         "provider": provider.kind if provider else "lmstudio",
         "endpoint": (getattr(provider, "base_url", "") if provider else lm_url).rstrip("/"),
         "model": selected_model,
+        "max_tokens": _response_tokens,
         "review": prompt_version(f"{insight_type}_review") if insight_type in _REVIEWED_TYPES else "",
     }, sort_keys=True)
     cache_key = cache.key(insight_type, prompt, identity) if cache and selected_model else None
@@ -376,13 +426,17 @@ def generate_insight(
     # Only LM Studio understands reasoning_effort="none"; the Anthropic
     # client doesn't take the argument at all.
     effort = None if provider else _LOCAL_REASONING_EFFORT.get(insight_type)
-    extra = {"reasoning_effort": effort} if effort is not None else {}
+    extra: dict = {"reasoning_effort": effort} if effort is not None else {}
+    if provider is None or provider.kind != "anthropic":
+        extra["partial_ok"] = False
+    if insight_type == "action_items" and (provider is None or provider.kind == "lmstudio"):
+        extra["response_format"] = _ACTION_FORMAT
 
     raw = client.chat_completion_stream(
         messages=messages,
         is_cancelled=is_cancelled,
         temperature=_TEMPERATURE.get(insight_type, _DEFAULT_TEMPERATURE),
-        max_tokens=_RESPONSE_MAX_TOKENS,
+        max_tokens=_response_tokens,
         timeout=_STREAM_TIMEOUT_S,
         **extra,
     )
@@ -399,30 +453,33 @@ def generate_insight(
             cache.put(cache_key, suggestions)
         return suggestions
 
-    result = _parse_json_response(raw)
+    result = _parse_json_response(raw, salvage=False)
     if result is None:
         # One retry with explicit JSON instruction
         retry_msg = messages + [
-            {"role": "assistant", "content": raw},
-            {"role": "user", "content": "Return ONLY the JSON array, no other text."},
+            {"role": "user", "content": (
+                'Return only the JSON object with the "items" array.' if insight_type == "action_items"
+                else "Return ONLY the JSON array, no other text."
+            )},
         ]
         raw2 = client.chat_completion_stream(
             messages=retry_msg,
             is_cancelled=is_cancelled,
             temperature=0.1,
-            max_tokens=_RESPONSE_MAX_TOKENS,
+            max_tokens=_response_tokens,
             timeout=_STREAM_TIMEOUT_S,
             **extra,
         )
         if is_cancelled():
             return []
         if raw2:
-            result = _parse_json_response(raw2)
+            result = _parse_json_response(raw2, salvage=False)
         if result is None:
             # Fall back: return the raw text for the caller to display as-is
-            if cache is not None and cache_key is not None:
-                cache.put(cache_key, raw)
             return raw
+
+    if insight_type == "action_items":
+        result = _ground_actions(result, _transcript_blocks(segments), prompt)
 
     if insight_type in _REVIEWED_TYPES and result:
         result = _review(
@@ -438,6 +495,91 @@ def generate_insight(
     if cache is not None and cache_key is not None:
         cache.put(cache_key, result)
     return result
+
+
+def _chapter_windows(blocks: list[tuple[int, str, str]], budget: int) -> list[list[dict]]:
+    """Partition full timed blocks without changing the recording's clock."""
+    windows: list[list[dict]] = []
+    window: list[dict] = []
+    used = 0
+    for start, speaker, text in blocks:
+        length = len(f"[{start}s] ") + (len(speaker) + 2 if speaker else 0) + len(text) + 1
+        if window and window[-1]["start"] != start and used + length > budget:
+            windows.append(window)
+            window = []
+            used = 0
+        window.append({"start": start, "speaker": speaker, "text": text})
+        used += length
+    if window:
+        windows.append(window)
+    return windows
+
+
+_ACTION_FIELDS = {
+    "task": {"type": "string"},
+    "block_id": {"type": "string"},
+    "quote": {"type": "string"},
+    "owner": {"type": ["string", "null"]},
+    "deadline": {"type": ["string", "null"]},
+}
+_ACTION_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "action_items",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {"items": {"type": "array", "items": {
+                "type": "object",
+                "properties": _ACTION_FIELDS,
+                "required": list(_ACTION_FIELDS),
+                "additionalProperties": False,
+            }}},
+            "required": ["items"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
+def _ground_actions(
+    items: list, blocks: list[tuple[int, str, str]], prompt: str,
+) -> list[dict]:
+    """Keep actions with a verbatim quote from an included block."""
+    grounded = []
+    shown_lines = set(prompt.splitlines())
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        block_id = item.get("block_id")
+        if not isinstance(block_id, str) or not re.fullmatch(r"B[1-9][0-9]{0,8}", block_id):
+            continue
+        index = int(block_id[1:]) - 1
+        if index >= len(blocks):
+            continue
+        start, speaker, text = blocks[index]
+        # Test membership in the exact prompt, including the quote. A sampled
+        # or clipped block cannot support an action the model did not see.
+        text = " ".join(text.split())
+        line = f"[{start}s] [{block_id}] " + (f"{speaker}: " if speaker else "") + text
+        if line not in shown_lines:
+            continue
+        quote, task = item.get("quote"), item.get("task")
+        if not isinstance(quote, str) or not isinstance(task, str) or not task.strip():
+            continue
+        quote = " ".join(quote.split())
+        if not quote or quote not in text:
+            continue
+        result = {"task": task.strip(), "start": start, "quote": quote}
+        for field in ("owner", "deadline"):
+            value = item.get(field)
+            value = " ".join(value.split()) if isinstance(value, str) else ""
+            # Match entire words so an invented name cannot match a prefix.
+            result[field] = value if value and re.search(
+                rf"(?<!\w){re.escape(value)}(?!\w)", quote, re.IGNORECASE,
+            ) else None
+        grounded.append(result)
+    return grounded
 
 
 def _review(
@@ -474,7 +616,7 @@ def _review(
         timeout=_STREAM_TIMEOUT_S,
         **extra,
     )
-    reviewed = _parse_json_response(raw) if raw and not is_cancelled() else None
+    reviewed = _parse_json_response(raw, salvage=False) if raw and not is_cancelled() else None
     if not reviewed or not all(isinstance(item, str) and item.strip() for item in reviewed):
         logger.warning("%s review gave no usable answer; keeping the draft", insight_type)
         return draft

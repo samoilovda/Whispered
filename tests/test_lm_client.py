@@ -494,6 +494,15 @@ class TestLegacyChatCompletionStreams:
             resp.__iter__.side_effect = lambda: broken()
             assert client.chat_completion_stream([{"role": "user", "content": "x"}]) == "half"
 
+    def test_whole_answer_rejects_finish_reason_length_even_with_done(self):
+        client = LMStudioClient()
+        response = _fake_sse_response([
+            {"choices": [{"delta": {"content": "A long but incomplete answer"}, "finish_reason": "length"}]},
+        ])
+        with patch("urllib.request.urlopen", return_value=response):
+            assert client.chat_completion("test") is None
+        assert client.finish_reason == "length"
+
 
 def test_generation_timeout_never_shrinks_the_callers():
     # Other suites may swap sys.modules["core.lm_client"]: use this module's.

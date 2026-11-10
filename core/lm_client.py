@@ -127,9 +127,29 @@ class LMStudioClient:
         self._model = model
         self._cached_model: Optional[str] = None
         self.is_cancelled: Optional[Callable[[], bool]] = None
+        self.finish_reason: Optional[str] = None
 
     def _auth_headers(self) -> dict:
         return {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
+
+    def loaded_context_length(self, model: str, timeout: float = 2) -> Optional[int]:
+        """Report the active LM Studio instance's context, when available."""
+        if not model or not self.base_url.endswith("/v1"):
+            return None
+        try:
+            req = urllib.request.Request(
+                f"{self.base_url[:-3]}/api/v1/models", headers=self._auth_headers(),
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                models = json.loads(response.read())["models"]
+            for entry in models:
+                for instance in entry.get("loaded_instances", []):
+                    if instance.get("id") == model:
+                        length = instance["config"]["context_length"]
+                        return length if isinstance(length, int) and length > 0 else None
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            logger.debug("LM Studio loaded context metadata unavailable")
+        return None
 
     def check_connection(self, timeout: float = 5) -> bool:
         """Check if LM Studio server is running and accessible."""
@@ -255,6 +275,8 @@ class LMStudioClient:
                     "completion", result.get("usage"), started,
                     finish_reason=choice.get("finish_reason"),
                 )
+                if not partial_ok and choice.get("finish_reason") not in (None, "stop"):
+                    return None
                 return choice["message"]["content"]
         except urllib.error.URLError as exc:
             logger.debug("LM Studio connection error: %s", exc)
@@ -312,6 +334,7 @@ class LMStudioClient:
         is_cancelled: Optional[Callable[[], bool]] = None,
         reasoning_effort: Optional[str] = None,
         partial_ok: bool = True,
+        response_format: Optional[dict] = None,
     ) -> Optional[str]:
         """Send a streaming chat completion; call on_token for each delta.
 
@@ -329,6 +352,7 @@ class LMStudioClient:
         model hits routinely by thinking silently through its whole prefill
         before the first SSE byte.
         """
+        self.finish_reason = None
         endpoint = f"{self.base_url}/chat/completions"
         payload = {
             "messages": messages,
@@ -340,6 +364,8 @@ class LMStudioClient:
         }
         if reasoning_effort is not None:
             payload["reasoning_effort"] = reasoning_effort
+        if response_format is not None:
+            payload["response_format"] = response_format
         if self._model:
             payload["model"] = self._model
         data = json.dumps(payload).encode("utf-8")
@@ -378,8 +404,10 @@ class LMStudioClient:
         try:
             while True:
                 if is_cancelled and is_cancelled():
+                    self.finish_reason = "cancelled"
                     return None
                 if time.monotonic() > deadline:
+                    self.finish_reason = "timeout"
                     logger.warning(
                         "LM Studio stream exceeded overall timeout of %ds", timeout
                     )
@@ -391,12 +419,15 @@ class LMStudioClient:
                     # cancellation/deadline, not an error.
                     continue
                 if item is _STREAM_EOF:
+                    self.finish_reason = finish_reason or "eof"
                     _log_usage("stream", usage, started, first_token_at, finish_reason)
-                    return "".join(full_text)
+                    return "".join(full_text) if partial_ok or finish_reason == "stop" else None
                 if isinstance(item, urllib.error.URLError):
+                    self.finish_reason = "error"
                     logger.debug("LM Studio stream error: %s", item)
                     return "".join(full_text) if full_text and partial_ok else None
                 if isinstance(item, BaseException):
+                    self.finish_reason = "error"
                     logger.warning("LM Studio stream API error: %s", item)
                     return "".join(full_text) if full_text and partial_ok else None
                 line = item.decode("utf-8").strip()
@@ -404,8 +435,9 @@ class LMStudioClient:
                     continue
                 chunk = line[5:].strip()
                 if chunk == "[DONE]":
+                    self.finish_reason = finish_reason or "stop"
                     _log_usage("stream", usage, started, first_token_at, finish_reason)
-                    return "".join(full_text)
+                    return "".join(full_text) if partial_ok or finish_reason in (None, "stop") else None
                 try:
                     obj = json.loads(chunk)
                     if obj.get("usage"):

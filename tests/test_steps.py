@@ -167,6 +167,44 @@ def test_make_artifact_path_is_independent_of_generated_content(tmp_path):
 
 # ------------------------------------------------------------------ runners (mocked engines)
 
+def test_clean_retry_reuses_completed_chunks_and_records_actual_processing(tmp_path, monkeypatch):
+    from infrastructure.persistence import artifact_store
+    from text_processor import CleanedText, CoherentText, ProcessingResult
+
+    generated = []
+    complete = False
+
+    class Processor:
+        def __init__(self, *args, **kwargs):
+            self.lm_client = types.SimpleNamespace()
+
+        def process(self, raw, **kwargs):
+            def generate(key):
+                generated.append(key)
+                return key if key == "first" or complete else None
+
+            first = self.checkpoint("first", lambda: generate("first"))
+            second = self.checkpoint("second", lambda: generate("second"))
+            cleaned = CleanedText(raw, first or "", 0, 0, 0, int(second is None), 1)
+            return ProcessingResult(raw, cleaned, CoherentText(first + (second or "")))
+
+    monkeypatch.setattr("text_processor.TextProcessor", Processor)
+    context = _context(tmp_path, model="test-model")
+    run = STEP_REGISTRY["clean"].make_runner(context)
+    run()
+    path = context.artifact_dir / "clean.md"
+    saved = artifact_store.load(path)
+    assert saved.provider == "mixed"
+    assert saved.extra["fallback_chunks"] == 1
+    assert not build_cache_checks(context, ["clean"])["clean"]()
+
+    complete = True
+    run()
+    assert generated == ["first", "second", "second"]
+    assert build_cache_checks(context, ["clean"])["clean"]()
+    assert not list((context.artifact_dir / ".clean-chunks").glob("*.md"))
+
+
 def test_clean_runner_calls_text_processor_and_writes_output(tmp_path, monkeypatch):
     from text_processor import CleanedText, CoherentText, ProcessingResult
 

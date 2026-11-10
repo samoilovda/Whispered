@@ -119,20 +119,21 @@ def merge(
             continue
         seen.add(card_id)
         start = item_start(item)
+        quote = str(item.get("quote") or "").strip() or verify_source(segments, start)
         saved = stored_by_id.get(card_id)
         if saved is not None:
             saved.in_result = True
             if saved.start is None and start is not None:
                 saved.start = start
             if not saved.quote:
-                saved.quote = verify_source(segments, saved.start)
+                saved.quote = quote if saved.start == start else verify_source(segments, saved.start)
             cards.append(saved)
             continue
         cards.append(TaskCard(
             id=card_id, task=task,
             owner=(str(item["owner"]).strip() or None) if item.get("owner") else None,
             deadline=(str(item["deadline"]).strip() or None) if item.get("deadline") else None,
-            start=start, quote=verify_source(segments, start),
+            start=start, quote=quote,
         ))
     for card in stored:
         if card.id in seen:

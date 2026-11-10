@@ -16,8 +16,10 @@ from transcriber import Segment, TranscriptionResult
 
 
 class _FakeWorker(QObject):
+    context_ready = pyqtSignal(object)
     token_received = pyqtSignal(str)
     turn_finished = pyqtSignal(str)
+    turn_partial = pyqtSignal(str)
     error_occurred = pyqtSignal(str)
     finished = pyqtSignal()
     instances: list["_FakeWorker"] = []
@@ -148,6 +150,19 @@ def test_failed_turn_is_marked_failed(setup, process_events):
     worker = _ask(window, "will fail")
     worker.error_occurred.emit("LM Studio is not responding")
     assert store.list_chat_messages(a)[0]["status"] == "failed"
+
+
+def test_truncated_turn_is_saved_as_partial_and_excluded_from_context(setup, process_events):
+    make, store, a, _b = setup
+    window = make()
+    window._open_record_view(a)
+    worker = _ask(window, "long one")
+    worker._running = False
+    worker.turn_partial.emit("partial answer")
+
+    assert store.list_chat_messages(a)[-1]["status"] == "partial"
+    nxt = _ask(window, "next")
+    assert all(m.get("content") != "partial answer" for m in nxt.messages)
 
 
 def test_transcript_edit_keeps_the_conversation_and_marks_the_change(setup, process_events):

@@ -82,6 +82,10 @@ class _Bubble(QLabel):
     def text(self) -> str:  # noqa: D102 - the message as written, not as linked
         return self._raw
 
+    def set_citation_verifier(self, verify) -> None:
+        self._verify = verify
+        self.setText(self._raw)
+
 
 class _ChatRow(QWidget):
     """Horizontal wrapper row that aligns a bubble to the left or right."""
@@ -267,6 +271,9 @@ class ChatPanel(QWidget):
 
             self._context_lines = timestamped_blocks(segments)
             self._duration = max((float(seg.end) for seg in segments), default=0.0)
+        else:
+            self._context_lines = None
+            self._duration = 0.0
         same_record = record_id is not None and record_id == self._record_id
         self._transcript = text
         self._refresh_context()
@@ -312,7 +319,9 @@ class ChatPanel(QWidget):
         if context is None:
             self._scope_label.setVisible(False)
             return
-        if context.total_blocks and context.sampled:
+        if context.retrieved:
+            text = tr("chat_scope_retrieved", used=len(context.kept_blocks), total=context.total_blocks)
+        elif context.total_blocks and context.sampled:
             text = tr("chat_scope_sampled", used=len(context.kept_blocks),
                       total=context.total_blocks)
         elif context.total_blocks:
@@ -327,25 +336,32 @@ class ChatPanel(QWidget):
     def verify_citation(self, seconds: float) -> bool:
         """Whether *seconds* falls inside a block the model was shown —
         and inside the recording at all (UX-13)."""
-        context = getattr(self, "_context", None)
-        lines = self._context_lines or []
-        if context is None or not lines:
-            return False
-        duration = getattr(self, "_duration", 0.0)
-        if seconds < 0 or (duration and seconds > duration + 1):
-            return False
+        return self._citation_verifier(getattr(self, "_context", None))(seconds)
+
+    def _citation_verifier(self, context):
         from core.llm_text import block_start_seconds
 
-        starts = [block_start_seconds(line) for line in lines]
-        for index in context.kept_blocks:
-            start = starts[index] if index < len(starts) else None
-            if start is None:
-                continue
-            following = next((s for s in starts[index + 1:] if s is not None), None)
-            end = following if following is not None else (duration or start) + 1
-            if start <= seconds < max(end, start + 1):
-                return True
-        return False
+        starts = [block_start_seconds(line) for line in (self._context_lines or [])]
+        duration = self._duration
+        spans = []
+        if context is not None:
+            for index in context.kept_blocks:
+                start = starts[index] if index < len(starts) else None
+                if start is None:
+                    continue
+                following = starts[index + 1] if index + 1 < len(starts) else None
+                end = following if following is not None else (duration or start) + 1
+                spans.append((start, max(end, start + 1)))
+        return lambda seconds: (
+            (not duration or seconds <= duration + 1)
+            and any(start <= seconds < end for start, end in spans)
+        )
+
+    def _apply_turn_context(self, context) -> None:
+        self._context = context
+        self._render_scope()
+        if self._current_bubble is not None:
+            self._current_bubble.set_citation_verifier(self._citation_verifier(context))
 
     def _switch_conversation(self, record_id: int | None, revision: str, *, persist: bool) -> None:
         self._generation += 1
@@ -383,6 +399,11 @@ class ChatPanel(QWidget):
             last_revision = message["revision"]
             self._history.append(message)
             bubble = self._add_bubble(_shown_text(message), message["role"])
+            if message["role"] == "assistant":
+                context = self._context
+                if context is None or context.sampled or message["revision"] != self._revision:
+                    context = None
+                bubble.set_citation_verifier(self._citation_verifier(context))
             if message["status"] == "failed":
                 set_role(bubble, "chat-bubble-error")
         if messages and last_revision != self._revision:
@@ -514,9 +535,9 @@ class ChatPanel(QWidget):
         from config import get_config
         cfg = get_config()
 
-        if self._context is None:
-            self._refresh_context()
+        self._refresh_context()
         sys_prompt = self._context.prompt if self._context is not None else ""
+        self._current_bubble.set_citation_verifier(self._citation_verifier(self._context))
 
         # Build message list: system + complete turns + new user turn
         messages: list[dict] = [{"role": "system", "content": sys_prompt}]
@@ -531,13 +552,24 @@ class ChatPanel(QWidget):
             messages=messages,
             lm_url=cfg.lm_studio_url,
             parent=self,
+            max_context_chars=self._context_chars(),
+            transcript=self._transcript,
+            context_lines=self._context_lines,
         )
         self._token_buf = []
         generation = self._generation
+
+        def context_ready(context):
+            if generation == self._generation:
+                self._apply_turn_context(context)
+
+        self._worker.context_ready.connect(context_ready)
         self._worker.token_received.connect(
             lambda delta, g=generation: g == self._generation and self._on_token(delta))
         self._worker.turn_finished.connect(
             lambda full, g=generation: g == self._generation and self._on_finished(full))
+        self._worker.turn_partial.connect(
+            lambda text, g=generation: g == self._generation and self._on_finished(text, status="partial"))
         self._worker.error_occurred.connect(
             lambda msg, g=generation: g == self._generation and self._on_error(msg))
         self._registry.register(self._worker, name="chat")
@@ -582,13 +614,13 @@ class ChatPanel(QWidget):
         worker = self._worker
         return getattr(worker, "model_name", "") if worker is not None else ""
 
-    def _on_finished(self, full_text: str):
+    def _on_finished(self, full_text: str, *, status: str = "complete"):
         if self._scroll_timer:
             self._scroll_timer.stop()
         self._token_buf = []
+        message = self._save_message("assistant", full_text, status, model=self._answer_model())
         if self._current_bubble:
-            self._current_bubble.setText(full_text)
-        self._save_message("assistant", full_text, "complete", model=self._answer_model())
+            self._current_bubble.setText(_shown_text(message))
         self._current_bubble = None
         self._scroll_to_bottom()
         self._reset_input()
@@ -684,6 +716,8 @@ def _shown_text(message: dict) -> str:
     """A stored message as its bubble shows it — incomplete answers say so."""
     if message.get("role") == "assistant" and message.get("status") == "cancelled":
         return message["content"] + "\n\n_" + tr("chat_incomplete") + "_"
+    if message.get("role") == "assistant" and message.get("status") == "partial":
+        return message["content"] + "\n\n_" + tr("chat_partial_answer") + "_"
     if message.get("role") == "user" and message.get("status") == "failed":
         return message["content"] + "\n\n_" + tr("chat_failed_turn") + "_"
     return message["content"]

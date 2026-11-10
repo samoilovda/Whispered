@@ -100,6 +100,60 @@ def _segments():
     return [{"start": 0, "text": "hello world", "speaker": None}]
 
 
+def test_chapters_fill_loaded_context_or_keep_absolute_times_in_windows(monkeypatch):
+    import json
+    import re
+
+    from core.insights import generate_insight
+
+    prompts = []
+    capacity = 48000
+
+    def answer(self, **kwargs):
+        prompt = kwargs["messages"][0]["content"]
+        prompts.append(prompt)
+        starts = re.findall(r"^\[(\d+)s\]", prompt, re.MULTILINE)
+        return json.dumps([{"start": int(stamp), "title": "Chapter"} for stamp in starts])
+
+    monkeypatch.setattr(_CountingLMStudioClient, "loaded_context_length", lambda *_: capacity, raising=False)
+    monkeypatch.setattr(_CountingLMStudioClient, "chat_completion_stream", answer)
+    segments = [{"start": i * 30, "text": "Example text " * 460} for i in range(10)]
+    result = generate_insight("chapters", segments, lm_url="http://localhost:1234/v1")
+    assert len(prompts) == 1
+    assert len(result) == 10
+
+    prompts.clear()
+    capacity = 10_000
+    result = generate_insight("chapters", segments, lm_url="http://localhost:1234/v1")
+    assert len(prompts) > 1
+    assert [chapter["start"] for chapter in result] == [i * 30 for i in range(10)]
+
+
+def test_action_item_uses_verified_quote_and_ignores_model_time(monkeypatch):
+    import json
+
+    from core.insights import generate_insight
+
+    def answer(self, **kwargs):
+        assert kwargs["response_format"]["type"] == "json_schema"
+        assert "[95s] [B1]" in kwargs["messages"][0]["content"]
+        return json.dumps({"items": [
+            {"block_id": "B1", "task": "Send it", "start": 0,
+             "quote": "Alice will send the draft by Friday.", "owner": "Alice", "deadline": "Monday"},
+            {"block_id": "B2", "task": "Fabricated", "quote": "Does not exist"},
+        ]})
+
+    monkeypatch.setattr(_CountingLMStudioClient, "chat_completion_stream", answer)
+    items = generate_insight(
+        "action_items", [{"start": 95, "text": "Alice will send the draft by Friday."}],
+        lm_url="http://localhost:1234/v1",
+    )
+    assert items == [{
+        "task": "Send it", "start": 95, "quote": "Alice will send the draft by Friday.",
+        "owner": "Alice", "deadline": None,
+    }]
+
+
 def test_second_worker_reuses_first_workers_result_via_shared_cache():
     """The exact bug: YouTubePanel and InsightsPanel each build their own
     InsightsWorker for "chapters" from the same segments. Sharing one

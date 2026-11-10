@@ -7,6 +7,8 @@ as system context and streams tokens back to the UI.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
+import sqlite3
 
 from PyQt6.QtCore import pyqtSignal
 
@@ -29,10 +31,12 @@ class ChatContext:
     total_blocks: int
     kept_blocks: tuple[int, ...]   # indices into the timestamped blocks
     max_chars: int
+    retrieved: bool = False
 
 
 def chat_context(
     transcript: str, max_chars: int = _CONTEXT_CHARS, lines: list[str] | None = None,
+    *, question: str = "",
 ) -> ChatContext:
     """Build the chat's context. With *lines* (core.llm_text.
     timestamped_blocks) the model sees "[MM:SS]" blocks sampled evenly
@@ -41,16 +45,48 @@ def chat_context(
     if lines:
         from core.llm_text import sample_lines_evenly, sampled_line_indices
 
-        body = sample_lines_evenly(lines, max_chars)
-        kept = tuple(sampled_line_indices(lines, max_chars))
-        sampled = len("\n".join(lines)) > max_chars
+        sampled = sum(len(line) + 1 for line in lines) - 1 > max_chars
+        ranked = _matching_blocks(lines, question, max_chars) if question and sampled else ()
+        body = "\n".join(lines[index] for index in ranked) if ranked else sample_lines_evenly(lines, max_chars)
+        kept = ranked or tuple(sampled_line_indices(lines, max_chars))
         suffix = "\n\n" + tr("chat_transcript_truncated") if sampled else ""
         return ChatContext(
             tr("chat_system_prompt_timed", transcript=body) + suffix,
-            sampled, len(lines), kept, max_chars,
+            sampled, len(lines), kept, max_chars, bool(ranked),
         )
     sampled = len(transcript) > max_chars
     return ChatContext(_build_system_prompt(transcript, max_chars), sampled, 0, (), max_chars)
+
+
+def _matching_blocks(lines: list[str], question: str, budget: int) -> tuple[int, ...]:
+    """Rank exact terms across the record, then add context around hits."""
+    terms = list(dict.fromkeys(re.findall(r"[^\W_]{3,}", question.casefold())))[:24]
+    if not terms:
+        return ()
+    query = " OR ".join(f'"{term}"' for term in terms)
+    connection = sqlite3.connect(":memory:")
+    try:
+        connection.execute("CREATE VIRTUAL TABLE blocks USING fts5(text)")
+        connection.executemany(
+            "INSERT INTO blocks(rowid, text) VALUES (?, ?)", enumerate(lines, 1),
+        )
+        matches = connection.execute(
+            "SELECT rowid FROM blocks WHERE blocks MATCH ? ORDER BY rank, rowid LIMIT 32", (query,),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return ()
+    finally:
+        connection.close()
+    indices = [rowid - 1 for rowid, in matches]
+    neighbours = [near for index in indices for near in (index - 1, index + 1)]
+    selected: set[int] = set()
+    for index in indices + neighbours:
+        if index not in selected and 0 <= index < len(lines):
+            cost = len(lines[index]) + int(bool(selected))
+            if cost <= budget:
+                selected.add(index)
+                budget -= cost
+    return tuple(sorted(selected))
 
 
 def _build_system_prompt(
@@ -79,7 +115,9 @@ class ChatWorker(BaseWorker):
 
     token_received = pyqtSignal(str)
     turn_finished = pyqtSignal(str)
+    turn_partial = pyqtSignal(str)
     error_occurred = pyqtSignal(str)
+    context_ready = pyqtSignal(object)
 
     def __init__(
         self,
@@ -87,11 +125,16 @@ class ChatWorker(BaseWorker):
         lm_url: str,
         max_context_chars: int = _CONTEXT_CHARS,
         parent=None,
+        *,
+        transcript: str = "",
+        context_lines: list[str] | None = None,
     ):
         super().__init__(parent)
         self._messages = messages
         self._lm_url = lm_url
         self._max_context_chars = max_context_chars
+        self._transcript = transcript
+        self._context_lines = context_lines
         # The model LM Studio had loaded for this turn ("" when unknown);
         # read by the panel when it keeps the answer.
         self.model_name = ""
@@ -102,6 +145,15 @@ class ChatWorker(BaseWorker):
     def _execute(self) -> None:
         from core.lm_client import LMStudioClient
         client = LMStudioClient(self._lm_url)
+        if self._context_lines and self._messages:
+            context = chat_context(
+                self._transcript, self._max_context_chars, self._context_lines,
+                question=self._messages[-1]["content"],
+            )
+            if self.is_cancelled():
+                return
+            self._messages[0] = {"role": "system", "content": context.prompt}
+            self.context_ready.emit(context)
 
         def on_token(delta: str):
             self.token_received.emit(delta)
@@ -119,11 +171,13 @@ class ChatWorker(BaseWorker):
         if self._cancelled.is_set():
             return
 
-        if result is None:
+        if not result:
             self.error_occurred.emit(
                 "LM Studio is not responding.\n\n"
                 "Make sure LM Studio is running and a model is loaded.\n"
                 f"URL: {self._lm_url}"
             )
+        elif getattr(client, "finish_reason", None) not in (None, "stop"):
+            self.turn_partial.emit(result)
         else:
             self.turn_finished.emit(result)

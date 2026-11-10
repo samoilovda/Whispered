@@ -4,7 +4,7 @@ Chapter density (IMPORTANT):
 - Create a chapter roughly every 3–6 minutes of runtime.
 - HARD RULE: the gap between two consecutive chapter start times must NEVER exceed 450 seconds (7.5 minutes). Scan the transcript to the very last timestamp and keep adding chapters until the whole runtime is covered.
 - For a ~60-minute video this means about 10–18 chapters. Fewer than that is a failure.
-- The first chapter must start at 0.
+- For a full recording, start the first chapter at 0. For an excerpt, follow the absolute start specified with the excerpt.
 
 Chapter titles:
 - Written for the viewer, not for an archive: each title should spark curiosity or promise a concrete takeaway (a sharp question, an unexpected claim, a specific story or example raised at that point).

@@ -138,6 +138,7 @@ def is_cache_valid(artifact_path: str | Path, expected: Artifact) -> bool:
             digest = data.get("content_sha256")
             return (
                 existing.cache_key() == expected.cache_key()
+                and existing.extra.get("cacheable", True)
                 and bool(digest)
                 and digest == _digest(Path(artifact_path))
             )

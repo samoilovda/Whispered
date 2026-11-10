@@ -60,3 +60,17 @@ def test_question_carries_the_context_the_label_describes(monkeypatch, process_e
     panel = _panel(monkeypatch, segs, context_chars=20_000)
     expected = chat_context(panel._transcript, 20_000, panel._context_lines)
     assert panel._context.prompt == expected.prompt
+
+
+def test_long_chat_question_selects_matching_block_and_neighbours(monkeypatch, process_events):
+    from core.chat_worker import chat_context
+
+    segments = _segments(400)
+    segments[183].text = "We scheduled the Zephyr migration."
+    panel = _panel(monkeypatch, segments, context_chars=20_000)
+    context = chat_context(
+        panel._transcript, 20_000, panel._context_lines, question="When is the Zephyr migration?",
+    )
+    assert context.retrieved
+    assert set(context.kept_blocks) == {182, 183, 184}
+    assert "We scheduled the Zephyr migration." in context.prompt
