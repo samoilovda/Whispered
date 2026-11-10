@@ -127,6 +127,39 @@ def silence_hallucination_words(
     return count
 
 
+def uncovered_reference_words(
+    ref_words: Sequence[TimedWord], spans: Sequence[TimedSpan],
+) -> int:
+    """Count reference words whose midpoint has no recognized segment."""
+    intervals = iter(sorted((span.start, span.end) for span in spans if span.text.strip()))
+    start, end = next(intervals, (math.inf, math.inf))
+    missing = 0
+    for midpoint in sorted((word.start + word.end) / 2 for word in ref_words):
+        while end < midpoint:
+            start, end = next(intervals, (math.inf, math.inf))
+        missing += int(midpoint < start)
+    return missing
+
+
+def term_counts(reference: str, hypothesis: str, terms: Sequence[str]) -> dict[str, dict[str, int]]:
+    """Compare occurrences of normalized, contiguous term spellings."""
+    reference_words = " ".join(normalize_words(reference))
+    hypothesis_words = " ".join(normalize_words(hypothesis))
+    counts: dict[str, dict[str, int]] = {}
+    for term in terms:
+        normalized = " ".join(normalize_words(term))
+        if not normalized:
+            continue
+        pattern = re.compile(rf"(?=(?<!\w){re.escape(normalized)}(?!\w))")
+        expected = sum(1 for _ in pattern.finditer(reference_words))
+        actual = sum(1 for _ in pattern.finditer(hypothesis_words))
+        counts[term] = {
+            "expected": expected, "actual": actual,
+            "missing": max(0, expected - actual), "extra": max(0, actual - expected),
+        }
+    return counts
+
+
 def repeated_words(words: Sequence[str]) -> int:
     """Words that are excess repeats of the same 1-4-word group.
 

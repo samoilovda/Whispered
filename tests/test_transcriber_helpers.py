@@ -64,3 +64,36 @@ def test_language_fallback_progress_is_localized_and_does_not_step_back():
     assert localized_progress(transcriber.LANGUAGE_FALLBACK_MESSAGE) != transcriber.LANGUAGE_FALLBACK_MESSAGE
     source = Path(transcriber.__file__).read_text(encoding="utf-8")
     assert "('progress', 12," not in source   # detection used to report 12 % after 15 %
+
+
+def test_asr_metrics_use_recording_duration_including_trailing_silence(tmp_path, monkeypatch):
+    import queue
+    import wave
+    from types import ModuleType, SimpleNamespace
+
+    from core.asr_metrics import TimedWord
+    from tools.bench_asr import score
+    from transcriber import _run_transcription_process
+
+    path = tmp_path / "synthetic.wav"
+    with wave.open(str(path), "wb") as wav:
+        wav.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
+        wav.writeframes(bytes(10 * 16000 * 2))
+    binding = ModuleType("pywhispercpp.model")
+    binding.Model = lambda *args, **kwargs: SimpleNamespace(
+        transcribe=lambda *args, **kwargs: [
+            SimpleNamespace(t0=100, t1=150, text="Тест."),
+            SimpleNamespace(t0=200, t1=250, text="Лишнее."),
+        ],
+    )
+    monkeypatch.setitem(sys.modules, "pywhispercpp.model", binding)
+    monkeypatch.setattr("utils.get_models_dir", lambda: str(tmp_path))
+
+    messages = queue.Queue()
+    _run_transcription_process(str(path), "fake", "ru", False, 1, False, None, messages)
+    result = next(msg[1] for msg in messages.queue if msg[0] == "result")
+    row = score(result, 1.0, "Тест.", [TimedWord(1.0, 1.5, "Тест.")])
+    assert result.duration == 10
+    assert row["rtf"] == 0.1
+    assert row["silence_words"] == 1
+    assert set(row["stage_seconds"]) == {"model_load", "decode"}

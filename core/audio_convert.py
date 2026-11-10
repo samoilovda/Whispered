@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
+import wave
 
 
 class MediaConversionError(RuntimeError):
@@ -69,3 +70,32 @@ def convert_to_wav(input_path: str) -> str:
         pass
 
     raise MediaConversionError(error)
+
+
+def wav_duration_seconds(path: str) -> float:
+    with wave.open(path, "rb") as wf:
+        return wf.getnframes() / float(wf.getframerate())
+
+
+def probe_media_duration(path: str) -> float:
+    """Duration in seconds of any ffprobe-readable media file (m4a, mp4, ...).
+
+    Lazily resolves ffprobe — keeps this module importable in test
+    processes where FFmpeg isn't necessarily on PATH and no track is
+    actually being probed.
+    """
+    import json
+    import subprocess
+
+    from core.external_tools import resolve_tool
+    ffprobe = resolve_tool("ffprobe")
+    if not ffprobe:
+        raise RuntimeError("ffprobe is not installed")
+    result = subprocess.run(
+        [ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "json", path],
+        capture_output=True, text=True, timeout=60,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"ffprobe failed for {path}: {(result.stderr or '').strip()[-400:]}")
+    data = json.loads(result.stdout)
+    return float(data["format"]["duration"])

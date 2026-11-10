@@ -4,8 +4,12 @@ Wrapper for pywhispercpp to handle transcription tasks
 """
 
 import os
+import math
 import re
+import sys
+from subprocess import SubprocessError
 import time
+import wave
 from typing import Any, Callable, Optional
 from PyQt6.QtCore import QObject, Qt, pyqtSignal
 
@@ -24,6 +28,8 @@ from core.audio_convert import (  # noqa: E402,F401
     FFmpegUnavailableError,
     MediaConversionError,
     convert_to_wav as _convert_to_wav,
+    probe_media_duration,
+    wav_duration_seconds,
 )
 
 
@@ -201,6 +207,7 @@ def _run_transcription_process(
 ):
     """Run transcription in a separate process to allow hard cancellation."""
     temp_wav_path = None
+    stage_seconds: dict[str, float] = {}
     try:
         # Check if file exists
         if not os.path.isfile(filepath):
@@ -213,6 +220,7 @@ def _run_transcription_process(
 
         if file_ext in FORMATS_NEEDING_CONVERSION:
             q.put(('progress', 5, "Converting audio format..."))
+            started = time.monotonic()
             try:
                 temp_wav_path = _convert_to_wav(filepath)
                 audio_path = temp_wav_path
@@ -224,6 +232,7 @@ def _run_transcription_process(
             except MediaConversionError as exc:
                 q.put(('error', "transcribe_error_convert", {"ext": file_ext, "error": str(exc)}))
                 return
+            stage_seconds["conversion"] = time.monotonic() - started
 
         q.put(('progress', 10, "Loading model (downloading if needed)..."))
 
@@ -232,11 +241,13 @@ def _run_transcription_process(
         models_dir = get_models_dir()
         try:
             from pywhispercpp.model import Model
+            started = time.monotonic()
             model = Model(
                 model_name,
                 models_dir=models_dir,
                 context_params={"use_gpu": use_gpu},
             )
+            stage_seconds["model_load"] = time.monotonic() - started
         except MemoryError:
             q.put(('error', "transcribe_error_memory", {"model": model_name}))
             return
@@ -263,6 +274,7 @@ def _run_transcription_process(
         else:
             # After "Preparing" (15 %): the bar must not step back.
             q.put(('progress', 16, "Detecting language..."))
+            started = time.monotonic()
             try:
                 (detected_lang, confidence), _ = model.auto_detect_language(audio_path)
                 logger.info("Auto-detected language: %s (p=%.3f)", detected_lang, confidence)
@@ -273,6 +285,7 @@ def _run_transcription_process(
                 # Said out loud: a Russian recording decoded as English is
                 # garbage (audit 2026-11-04 W13); MainWindow warns at the end.
                 q.put(('progress', 16, LANGUAGE_FALLBACK_MESSAGE))
+            stage_seconds["language_detection"] = time.monotonic() - started
 
         # Enable translation if requested
         if translate:
@@ -295,13 +308,16 @@ def _run_transcription_process(
             params['split_on_word'] = True
             params['max_len'] = 1
 
-        # Get duration for progress bar
+        # Converted PCM preserves the full audio timeline, including trailing silence.
         try:
-            import wave
-            with wave.open(audio_path, 'rb') as f:
-                duration = f.getnframes() / float(f.getframerate())
+            duration = wav_duration_seconds(audio_path)
         except (OSError, EOFError, wave.Error, ZeroDivisionError):
-            duration = 1.0  # progress only; whisper reads the file itself
+            try:
+                duration = probe_media_duration(audio_path)
+            except (OSError, RuntimeError, ValueError, KeyError, TypeError, SubprocessError):
+                duration = 0.0
+        if not math.isfinite(duration) or duration <= 0.0:
+            duration = 0.0
 
         def segment_cb(seg):
             if duration > 1.0:
@@ -316,9 +332,11 @@ def _run_transcription_process(
         q.put(('progress', 20, "Transcribing audio..."))
         # extract_probability adds whisper.cpp's per-segment confidence
         # (R6); measured: same text, no measurable slowdown.
+        started = time.monotonic()
         segments_raw = model.transcribe(
             audio_path, new_segment_callback=segment_cb, extract_probability=True, **params,
         )
+        stage_seconds["decode"] = time.monotonic() - started
 
         q.put(('progress', 65 if enable_diarization else 90, "Processing results..."))
 
@@ -340,6 +358,7 @@ def _run_transcription_process(
 
         # Run diarization if enabled
         if enable_diarization:
+            started = time.monotonic()
             q.put(('progress', 65, "Identifying speakers..."))
             try:
                 from diarizer import Diarizer
@@ -365,6 +384,8 @@ def _run_transcription_process(
                 # The transcript is still worth delivering without labels.
                 logger.exception("Diarization failed")
                 q.put(('progress', 99, f"Diarization error: {str(e)[:120]}"))
+            finally:
+                stage_seconds["diarization"] = time.monotonic() - started
 
         # Word-timestamp mode deliberately keeps its finer phrase grouping for
         # Cut.  The default offline path benefits from sentence-level cues.
@@ -375,14 +396,21 @@ def _run_transcription_process(
             q.put(('error', "transcribe_error_no_speech", {}))
             return
 
-        # Calculate total duration
-        duration = segments[-1].end
+        peak_rss = None
+        if sys.platform in ("darwin", "linux"):
+            import resource
+
+            rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            peak_rss = rss if sys.platform == "darwin" else rss * 1024
 
         # Create result
         result = TranscriptionResult(
             segments=segments,
             language=params['language'],
-            duration=duration
+            duration=duration or max(segment.end for segment in segments),
+            source_duration=duration or None,
+            stage_seconds=stage_seconds,
+            peak_rss_bytes=peak_rss,
         )
 
         q.put(('progress', 100, "Complete!"))

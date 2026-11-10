@@ -70,6 +70,10 @@ class TranscriptionResult:
     # Maps raw speaker id (e.g. "Speaker 1") to a user-assigned display name.
     # Empty by default; populated when the user renames speakers.
     speaker_names: Dict[str, str] = field(default_factory=dict)
+    # Runtime measurements for the file ASR benchmark.
+    source_duration: Optional[float] = None
+    stage_seconds: Dict[str, float] = field(default_factory=dict)
+    peak_rss_bytes: Optional[int] = None
 
     @property
     def full_text(self) -> str:

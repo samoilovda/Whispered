@@ -21,6 +21,8 @@ from typing import Iterator, List, Sequence, Tuple
 
 from domain.transcription import Segment
 
+from core.audio_convert import probe_media_duration as probe_media_duration
+from core.audio_convert import wav_duration_seconds as wav_duration_seconds
 from core.live.contracts import AudioFrame
 from core.live.vad import PerSourceVAD, VADConfig, pcm_rms
 from core.logger import get_logger
@@ -166,11 +168,6 @@ def speech_coverage_seconds(windows: List[SpeechWindow]) -> float:
     return sum(w.duration for w in windows)
 
 
-def wav_duration_seconds(path: str) -> float:
-    with wave.open(path, "rb") as wf:
-        return wf.getnframes() / float(wf.getframerate())
-
-
 @dataclass(frozen=True)
 class GatedTrack:
     """Speech windows of one track concatenated into a single WAV, with the
@@ -266,27 +263,3 @@ def remap_segment_to_track_time(seg: Segment, mapping: Sequence[Tuple[float, flo
     gated_start, _gated_end, original_start = mapping[i]
     shift = original_start - gated_start
     return replace(seg, start=seg.start + shift, end=seg.end + shift)
-
-
-def probe_media_duration(path: str) -> float:
-    """Duration in seconds of any ffprobe-readable media file (m4a, mp4, ...).
-
-    Lazily resolves ffprobe — keeps this module importable in test
-    processes where FFmpeg isn't necessarily on PATH and no track is
-    actually being probed.
-    """
-    import json
-    import subprocess
-
-    from core.external_tools import resolve_tool
-    ffprobe = resolve_tool("ffprobe")
-    if not ffprobe:
-        raise RuntimeError("ffprobe is not installed")
-    result = subprocess.run(
-        [ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "json", path],
-        capture_output=True, text=True, timeout=60,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"ffprobe failed for {path}: {(result.stderr or '').strip()[-400:]}")
-    data = json.loads(result.stdout)
-    return float(data["format"]["duration"])

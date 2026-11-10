@@ -13,6 +13,9 @@ written inside reference silences of >= 2 s, excess repeated words, and
 mean / p90 word-boundary error (needs words in the result and a
 ``.words.json`` reference).
 
+An optional <name>.terms.json list reports missing and extra occurrences
+of annotated names, numbers, or other terms against the text reference.
+
 Usage:
     .venv/bin/python tools/bench_asr.py input/talk.m4a [more files] \
         [--config baseline] [--refs output/bench/asr/refs] \
@@ -27,10 +30,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import platform
+import subprocess
 import sys
 import threading
 import time
 from datetime import datetime
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Optional
 
@@ -44,6 +50,7 @@ from domain.transcription import TranscriptionResult  # noqa: E402
 CONFIGS: dict[str, dict[str, Any]] = {
     "baseline": {},
     "words": {"word_timestamps": True},
+    "diarize": {"enable_diarization": True},
 }
 
 
@@ -69,7 +76,6 @@ def transcribe(path: Path, overrides: dict[str, Any], language: str, model: str)
     from transcriber import Transcriber
 
     app = QCoreApplication.instance() or QCoreApplication([])
-    del app
     done = threading.Event()
     box: dict[str, Any] = {}
 
@@ -93,6 +99,7 @@ def transcribe(path: Path, overrides: dict[str, Any], language: str, model: str)
     done.wait()
     elapsed = time.monotonic() - started
     transcriber.shutdown()
+    del app
     if "error" in box:
         raise RuntimeError(box["error"])
     return box["result"], elapsed
@@ -105,21 +112,29 @@ def _threads() -> int:
 
 
 def score(result: TranscriptionResult, seconds: float,
-          ref_text: Optional[str], ref_words: Optional[list[am.TimedWord]]) -> dict[str, Any]:
+          ref_text: Optional[str], ref_words: Optional[list[am.TimedWord]],
+          terms: tuple[str, ...] = ()) -> dict[str, Any]:
     spans = _spans(result)
+    duration = result.source_duration
     row: dict[str, Any] = {
-        "duration": result.duration,
+        "duration": duration,
         "seconds": seconds,
-        "rtf": seconds / result.duration if result.duration else None,
+        "stage_seconds": result.stage_seconds,
+        "peak_rss_bytes": result.peak_rss_bytes,
+        "rtf": seconds / duration if duration else None,
         "segments": len(spans),
         "repeats": am.repeat_count(spans),
     }
     if ref_text is not None:
         row["wer"] = am.wer(ref_text, result.full_text)
         row["cer"] = am.cer(ref_text, result.full_text)
+        if terms:
+            row["terms"] = am.term_counts(ref_text, result.full_text, terms)
     if ref_words is not None:
-        silences = am.silence_intervals(ref_words, result.duration)
-        row["silence_words"] = am.silence_hallucination_words(spans, silences)
+        if duration is not None:
+            silences = am.silence_intervals(ref_words, duration)
+            row["silence_words"] = am.silence_hallucination_words(spans, silences)
+        row["reference_words_outside_segments"] = am.uncovered_reference_words(ref_words, spans)
         hyp_words = [w for s in spans for w in s.words]
         if hyp_words:
             err = am.boundary_error(ref_words, hyp_words)
@@ -134,22 +149,37 @@ def _fmt(value: Any, spec: str = ".3f") -> str:
     return "—" if value is None else format(value, spec)
 
 
+def _run_metadata() -> dict:
+    try:
+        revision = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, stderr=subprocess.DEVNULL, text=True, timeout=2,
+        ).strip()
+    except (OSError, subprocess.SubprocessError):
+        revision = None
+    try:
+        binding = version("pywhispercpp")
+    except PackageNotFoundError:
+        binding = None
+    return {"commit": revision, "platform": platform.platform(), "threads": _threads(), "pywhispercpp": binding}
+
+
 def render_report(config: str, model: str, rows: dict[str, dict[str, Any]]) -> str:
     lines = [
         f"# ASR bench — config `{config}`, model `{model}`",
         "",
-        "| file | min | WER | CER | RTF | silence words | repeats | bnd mean | bnd p90 |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| file | min | WER | CER | RTF | silence words | repeats | bnd mean | bnd p90 | elapsed (s) |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for name, r in rows.items():
         if "error" in r:
             lines.append(f"| {name} | error: {r['error']} |||||||")
             continue
         lines.append(
-            f"| {name} | {r['duration'] / 60:.1f} | {_fmt(r.get('wer'))} | "
+            f"| {name} | {_fmt(r['duration'] / 60 if r['duration'] else None, '.1f')} | {_fmt(r.get('wer'))} | "
             f"{_fmt(r.get('cer'))} | {_fmt(r.get('rtf'), '.2f')} | "
             f"{_fmt(r.get('silence_words'), 'd')} | {r['repeats']} | "
-            f"{_fmt(r.get('boundary_mean'))} | {_fmt(r.get('boundary_p90'))} |"
+            f"{_fmt(r.get('boundary_mean'))} | {_fmt(r.get('boundary_p90'))} | "
+            f"{r['seconds']:.1f} |"
         )
     return "\n".join(lines) + "\n"
 
@@ -162,28 +192,34 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=ROOT / "output/bench/asr")
     parser.add_argument("--language", default=None, help="default: Config.default_language")
     parser.add_argument("--model", default=None, help="default: Config.default_model")
+    parser.add_argument("--cpu", action="store_true", help="disable GPU acceleration")
+    parser.add_argument("--cache-state", choices=("cold", "warm", "unknown"), default="unknown")
     args = parser.parse_args()
 
     cfg = get_config()
     language = args.language or cfg.default_language
     model = args.model or cfg.default_model
-    out = args.out / datetime.now().strftime("%Y%m%d-%H%M%S")
+    out = args.out / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     out.mkdir(parents=True, exist_ok=True)
 
     rows: dict[str, dict[str, Any]] = {}
     for path in args.files:
         ref_txt = args.refs / f"{path.stem}.txt"
         ref_words_path = args.refs / f"{path.stem}.words.json"
+        terms_path = args.refs / f"{path.stem}.terms.json"
         ref_text = ref_txt.read_text(encoding="utf-8") if ref_txt.is_file() else None
         ref_words = _load_ref_words(ref_words_path) if ref_words_path.is_file() else None
+        terms = tuple(json.loads(terms_path.read_text(encoding="utf-8"))) if terms_path.is_file() else ()
         print(f"{path.name}: {args.config} ...", flush=True)
         try:
-            result, seconds = transcribe(path, CONFIGS[args.config], language, model)
+            result, seconds = transcribe(
+                path, {**CONFIGS[args.config], "use_gpu": not args.cpu}, language, model,
+            )
         except RuntimeError as exc:
             rows[path.stem] = {"error": str(exc)}
             print(f"  error: {exc}")
             continue
-        rows[path.stem] = score(result, seconds, ref_text, ref_words)
+        rows[path.stem] = score(result, seconds, ref_text, ref_words, terms)
         (out / f"{path.stem}.txt").write_text(result.full_text, encoding="utf-8")
         print(f"  {rows[path.stem]}")
 
@@ -191,12 +227,14 @@ def main() -> int:
     (out / "report.md").write_text(report, encoding="utf-8")
     (out / "results.json").write_text(
         json.dumps({"config": args.config, "model": model, "language": language,
+                    **_run_metadata(),
+                    "cache_state": args.cache_state, "use_gpu": not args.cpu,
                     "files": rows}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     print(report)
     print(f"saved to {out}")
-    return 0
+    return int(any("error" in row for row in rows.values()))
 
 
 if __name__ == "__main__":
