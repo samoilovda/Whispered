@@ -37,12 +37,14 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
 )
 
 from application.steps import STEP_DEFINITIONS
 from core.i18n import tr
+from core.glossary import recipe_glossary_lines
 from domain.recipe import Recipe
 from ui.transcribe_options import TranscribeOptions
 
@@ -100,6 +102,12 @@ class RecipeEditorDialog(QDialog):
         # (see TranscribeOptions.apply_params).
         transcribe_options.apply_params(recipe.params)
         root.addWidget(transcribe_options)
+        self._vocabulary = QPlainTextEdit()
+        self._vocabulary.setPlaceholderText(tr("recipe_editor_vocabulary_hint"))
+        self._vocabulary.setAccessibleName(tr("recipe_editor_vocabulary_hint"))
+        self._vocabulary.setMaximumHeight(64)
+        self._vocabulary.setPlainText("\n".join(recipe_glossary_lines(recipe.params.get("vocabulary"))))
+        root.addWidget(self._vocabulary)
 
         steps_label = QLabel(tr("recipe_editor_steps_label"))
         steps_label.setProperty("role", "section-title")
@@ -210,6 +218,9 @@ class RecipeEditorDialog(QDialog):
         """The transcription options widget's current selections (B4) —
         what the caller saves into the edited recipe's Recipe.params."""
         params = self._transcribe_options.params()
+        vocabulary = recipe_glossary_lines(self._vocabulary.toPlainText().splitlines())
+        if vocabulary:
+            params["vocabulary"] = list(vocabulary)
         if self._checks["article"].isChecked():
             params["article_formats"] = [fmt for fmt, check in self._formats.items() if check.isChecked()]
         return params

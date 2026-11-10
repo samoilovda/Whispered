@@ -91,7 +91,7 @@ from ui.job_runner import JobRunner
 from core.logger import get_logger
 from core.i18n import tr, on_language_changed
 from core.worker_registry import WorkerRegistry
-from transcriber import LANGUAGE_FALLBACK_MESSAGE, _build_initial_prompt
+from transcriber import LANGUAGE_FALLBACK_MESSAGE, LANGUAGE_UNCERTAIN_MESSAGE, _build_initial_prompt
 from timeline_export import write_edl
 from video_edit import mark_pauses
 from video_cut import assemble_draft
@@ -2551,7 +2551,9 @@ class MainWindow(QMainWindow):
         self._transcription_start = time.monotonic()
         self._language_fell_back = False
         # Build initial prompt from custom vocabulary
-        vocab = get_config().custom_vocabulary or []
+        from core.glossary import recipe_whisper_terms
+
+        vocab = recipe_whisper_terms(recipe.params.get("vocabulary")) + (get_config().custom_vocabulary or [])
         prompt = _build_initial_prompt(vocab) if vocab else None
         # Start transcription
         self.transcriber.transcribe(
@@ -2652,6 +2654,8 @@ class MainWindow(QMainWindow):
         """Handle progress updates with ETA calculation."""
         if message == LANGUAGE_FALLBACK_MESSAGE:
             self._language_fell_back = True
+        elif message == LANGUAGE_UNCERTAIN_MESSAGE:
+            show_toast(self, tr("progress_language_uncertain"), kind="warning")
         self.progress_bar.setValue(percentage)
         stage, local_fill = timeline_stage_for_progress(percentage, message)
         self.progress_timeline.set_stage(stage, local_fill)

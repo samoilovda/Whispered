@@ -195,6 +195,7 @@ def _build_prompt_text(
     language: Optional[str] = None,
     notes: str = "",
     style_examples: Optional[Mapping[str, Sequence[str]]] = None,
+    recipe_terms: tuple[str, ...] = (),
 ) -> str:
     """Build the full prompt including the timestamped transcript.
 
@@ -224,7 +225,7 @@ def _build_prompt_text(
     lang_directive = f"Write all output in {language}.\n" if language else ""
     # Terms the transcript uses (core/glossary.py): they depend only on
     # the transcript, so the block keeps the shared per-record prefix.
-    glossary = glossary_block(transcript)
+    glossary = glossary_block(transcript, recipe_terms=recipe_terms)
     glossary_section = f"{glossary}\n\n" if glossary else ""
     notes_block = ""
     if notes.strip():
@@ -297,6 +298,7 @@ def generate_insight(
     max_transcript_chars: Optional[int] = None,
     notes: str = "",
     style_examples: Optional[Mapping[str, Sequence[str]]] = None,
+    recipe_terms: tuple[str, ...] = (),
     _chapter_window: Optional[tuple[int, Optional[int]]] = None,
     _response_tokens: int = _RESPONSE_MAX_TOKENS,
 ):
@@ -344,6 +346,8 @@ def generate_insight(
     else:
         from core.lm_client import LMStudioClient
         client = LMStudioClient(lm_url)
+    if provider is not None and provider.kind != "lmstudio":
+        recipe_terms = ()
 
     selected_model = getattr(provider, "model", "") if provider else model
     if not selected_model:
@@ -383,6 +387,7 @@ def generate_insight(
                             "chapters", window, lm_url=lm_url, language=language, provider=provider,
                             model=selected_model, cache=cache, is_cancelled=is_cancelled,
                             max_transcript_chars=budget, notes=notes, style_examples=style_examples,
+                            recipe_terms=recipe_terms,
                             _chapter_window=(start, end), _response_tokens=_response_tokens,
                         )
                         if not isinstance(items, list):
@@ -397,6 +402,7 @@ def generate_insight(
     prompt = _build_prompt_text(
         insight_type, segments, max_transcript_chars=max_transcript_chars, language=language,
         notes=notes, style_examples=style_examples,
+        recipe_terms=recipe_terms,
     )
     if _chapter_window is not None:
         prompt += (
@@ -486,6 +492,7 @@ def generate_insight(
             insight_type, result, segments, client=client, extra=extra,
             is_cancelled=is_cancelled, max_transcript_chars=max_transcript_chars,
             language=language, notes=notes, style_examples=style_examples,
+            recipe_terms=recipe_terms,
         )
     if insight_type == "yt_titles":
         result = _drop_unsaid_numbers(result, segments)
@@ -594,6 +601,7 @@ def _review(
     language: Optional[str],
     notes: str,
     style_examples: Optional[Mapping[str, Sequence[str]]] = None,
+    recipe_terms: tuple[str, ...] = (),
 ) -> list:
     """Second pass over *draft* with prompts/<insight_type>_review.md:
     the reviewed list, or *draft* itself when there is no review prompt or
@@ -607,6 +615,7 @@ def _review(
     prompt = _build_prompt_text(
         review_type, segments, max_transcript_chars=max_transcript_chars,
         language=language, notes=notes, style_examples=style_examples,
+        recipe_terms=recipe_terms,
     ).replace("{draft}", shown)
     raw = client.chat_completion_stream(
         messages=[{"role": "user", "content": prompt}],

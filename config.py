@@ -85,6 +85,8 @@ class Config:
     default_model: str = "large-v3-turbo-q5_0"
     default_language: str = "auto"
     performance_mode: str = "balanced"
+    batch_vad_enabled: bool = False
+    file_language_windows: bool = False
 
     # UI preferences
     # Text size in percent of the design size: 100 / 125 / 150 / 200.

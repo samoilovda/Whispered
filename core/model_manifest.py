@@ -54,7 +54,20 @@ class ModelEntry:
 # that check and emit a warning.
 # ---------------------------------------------------------------------------
 
+VAD_MODEL_KEY = "vad-silero"
+
 MANIFEST: dict[str, ModelEntry] = {
+    VAD_MODEL_KEY: ModelEntry(
+        key=VAD_MODEL_KEY,
+        url=(
+            "https://huggingface.co/ggml-org/whisper-vad/resolve/"
+            "e5614ed76a5dd4b03fad5068c89efcd2617a9d1e/ggml-silero-v5.1.2.bin"
+        ),
+        size_bytes=885_098,
+        sha256="29940d98d42b91fbd05ce489f3ecf7c72f0a42f027e4875919a28fb4c04ea2cf",
+        license="MIT",
+        filename="ggml-silero-v5.1.2.bin",
+    ),
     # Whisper GGML models served by ggerganov/whisper.cpp on Hugging Face.
     # Pinned to commit 5359861c (main on 2026-10-09); sizes and sha256 are
     # the LFS metadata of that commit (tiny, large-v3-turbo and its q5_0/q8_0 re-hashed locally).
@@ -224,4 +237,4 @@ def whisper_entry(model_name: str) -> "ModelEntry | None":
     """The manifest entry for whisper model *model_name* (``"tiny"``,
     ``"large-v3-turbo-q8_0"``…), matched by its ``ggml-<name>.bin`` file."""
     filename = f"ggml-{model_name}.bin"
-    return next((e for e in MANIFEST.values() if e.filename == filename), None)
+    return next((e for e in MANIFEST.values() if e.key.startswith("whisper-") and e.filename == filename), None)

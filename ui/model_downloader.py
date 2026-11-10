@@ -123,16 +123,20 @@ class DownloadWorker(BaseWorker):
 class ModelDownloaderDialog(QDialog):
     """Dialog showing download progress for missing models."""
 
-    def __init__(self, model_name: str, parent=None):
+    def __init__(self, model_name: str, parent=None, *, manifest_key: Optional[str] = None):
         super().__init__(parent)
+        from core.model_manifest import MANIFEST, whisper_entry
+
         self.model_name = model_name
         self.download_successful = False
+        entry = MANIFEST[manifest_key] if manifest_key else whisper_entry(model_name)
+        self._manifest_key = entry.key if entry else None
 
-        # Whisper details
-        self.target_filename = f"ggml-{model_name}.bin"
+        self.target_filename = entry.filename if entry else f"ggml-{model_name}.bin"
         self.target_path = os.path.join(get_models_dir(), self.target_filename)
-        # Using huggingface resolve URL for whisper.cpp models
-        self.url = f"https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{self.target_filename}"
+        self.url = entry.url if entry else (
+            f"https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{self.target_filename}"
+        )
 
         self.worker = None
         self._registry = WorkerRegistry(parent=self)
@@ -189,13 +193,9 @@ class ModelDownloaderDialog(QDialog):
         """Start the background download."""
         self.start_time = time.time()
 
-        # Whisper downloading
-        from core.model_manifest import whisper_entry
-
-        entry = whisper_entry(self.model_name)
         self.worker = DownloadWorker(
             self.url, self.target_path, parent=self,
-            manifest_key=entry.key if entry is not None else None,
+            manifest_key=self._manifest_key,
         )
         self.worker.progress.connect(self._on_progress)
         self.worker.finished.connect(self._on_download_finished)

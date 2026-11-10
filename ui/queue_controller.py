@@ -73,9 +73,12 @@ class QueueController(QObject):
         """The recipe and transcription settings in force right now —
         *recipe_key*'s recipe when given, else the start screen's."""
         from utils import get_thread_count
+        from core.glossary import recipe_whisper_terms
+        from transcriber import _build_initial_prompt
 
         host = self._host
         recipe = host._resolve_recipe(recipe_key or host.start_view.current_recipe_key())
+        cfg = get_config()
         chosen = resolve_transcription(recipe.params, recipe.steps, host._header_transcription_values())
         transcription = {
             "model_name": chosen["model"],
@@ -84,6 +87,11 @@ class QueueController(QObject):
             "n_threads": get_thread_count(chosen["performance_mode"]),
             "enable_diarization": chosen["diarization"],
             "use_gpu": host._use_gpu,
+            "batch_vad": cfg.batch_vad_enabled,
+            "language_windows": cfg.file_language_windows,
+            "initial_prompt": _build_initial_prompt(
+                recipe_whisper_terms(recipe.params.get("vocabulary")) + (cfg.custom_vocabulary or []),
+            ),
         }
         return queue_store.make_snapshot(recipe, transcription)
 

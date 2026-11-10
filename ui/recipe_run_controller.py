@@ -115,6 +115,7 @@ class RecipeRunController:
                 do_custom=host.book_panel.chk_custom.isChecked(),
                 custom_prompt_path=host.book_panel.custom_prompt_edit.text().strip(),
                 article_formats=recipe.params.get("article_formats"),
+                recipe_terms=recipe.params.get("vocabulary"),
                 # The "YouTube video" recipe includes the cover step, so it
                 # has to render what the Cover workspace is actually set to
                 # rather than _cover_runner's own fallback defaults.

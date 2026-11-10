@@ -51,6 +51,8 @@ CONFIGS: dict[str, dict[str, Any]] = {
     "baseline": {},
     "words": {"word_timestamps": True},
     "diarize": {"enable_diarization": True},
+    "vad": {"batch_vad": True},
+    "language-windows": {"language_windows": True},
 }
 
 
@@ -121,6 +123,7 @@ def score(result: TranscriptionResult, seconds: float,
         "seconds": seconds,
         "stage_seconds": result.stage_seconds,
         "peak_rss_bytes": result.peak_rss_bytes,
+        "vad_applied": result.vad_applied,
         "rtf": seconds / duration if duration else None,
         "segments": len(spans),
         "repeats": am.repeat_count(spans),
@@ -213,8 +216,12 @@ def main() -> int:
         print(f"{path.name}: {args.config} ...", flush=True)
         try:
             result, seconds = transcribe(
-                path, {**CONFIGS[args.config], "use_gpu": not args.cpu}, language, model,
+                path, {"batch_vad": False, "language_windows": False,
+                       **CONFIGS[args.config], "use_gpu": not args.cpu},
+                language, model,
             )
+            if args.config == "vad" and not result.vad_applied:
+                raise RuntimeError("VAD unavailable. Install Silero in Settings and check pywhispercpp.")
         except RuntimeError as exc:
             rows[path.stem] = {"error": str(exc)}
             print(f"  error: {exc}")

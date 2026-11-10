@@ -87,7 +87,7 @@ def test_cleaning_prompt_carries_found_terms_only(monkeypatch):
 
     monkeypatch.setattr(
         text_processor, "glossary_block",
-        lambda text: glossary_block(text, GLOSSARY),
+        lambda text, **kwargs: glossary_block(text, GLOSSARY, **kwargs),
     )
     plain = text_processor._cleaning_prompt("просто текст")
     assert plain == text_processor.CLEANING_PROMPT_TEMPLATE.format(text="просто текст", glossary="")
@@ -100,10 +100,19 @@ def test_cleaning_prompt_carries_found_terms_only(monkeypatch):
 def test_insight_prompt_puts_terms_after_transcript(monkeypatch):
     import core.insights as insights
 
-    monkeypatch.setattr(insights, "glossary_block", lambda text: glossary_block(text, GLOSSARY))
+    monkeypatch.setattr(insights, "glossary_block", lambda text, **kwargs: glossary_block(text, GLOSSARY, **kwargs))
     segs = [Segment(0.0, 5.0, "абьюзер снова звонил")]
     prompt = insights._build_prompt_text("action_items", segs, notes="позвонить юристу")
     assert prompt.index("абьюзер снова") < prompt.index("- абьюз")
     assert prompt.index("- абьюз") < prompt.index("позвонить юристу")
     plain = insights._build_prompt_text("action_items", [Segment(0.0, 5.0, "hello")])
     assert "Use these spellings." not in plain
+
+
+def test_recipe_terms_supply_canonical_asr_spelling_and_match_local_alias():
+    from core.glossary import glossary_block, recipe_glossary_lines, recipe_whisper_terms
+
+    terms = recipe_glossary_lines(["Zephyr | zefir", "Unmentioned | missing alias"])
+    assert recipe_whisper_terms(terms) == ["Zephyr", "Unmentioned"]
+    shown = glossary_block("Check zefir", "", recipe_terms=terms)
+    assert "Zephyr" in shown and "Unmentioned" not in shown

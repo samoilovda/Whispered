@@ -134,15 +134,35 @@ def select_terms(text: str, glossary_text: str, limit: int = MAX_TERMS) -> list[
     return found
 
 
-def glossary_block(text: str, glossary_text: str | None = None) -> str:
+def recipe_glossary_lines(value: object) -> tuple[str, ...]:
+    """Normalize the recipe's optional term and variant rows."""
+    if not isinstance(value, (list, tuple)):
+        return ()
+    return tuple(
+        row.strip()[:200] for row in value[:MAX_TERMS]
+        if isinstance(row, str) and row.strip() and "\n" not in row and "\r" not in row
+    )
+
+
+def recipe_whisper_terms(value: object) -> list[str]:
+    """Only the canonical spellings from a recipe belong in Whisper's prompt."""
+    _, entries = parse_glossary("\n".join(f"- {line}" for line in recipe_glossary_lines(value)))
+    return [entry.term for entry in entries]
+
+
+def glossary_block(
+    text: str, glossary_text: str | None = None, *, recipe_terms: tuple[str, ...] = (),
+) -> str:
     """The glossary instruction plus the entries that occur in *text*, or
     "" when none do (or the glossary is missing) — then the prompt stays
     exactly as it was without a glossary."""
     if glossary_text is None:
         glossary_text = load_prompt(GLOSSARY_PROMPT, fallback="")
-    if not glossary_text.strip():
-        return ""
-    entries = select_terms(text, glossary_text)
+    scoped = select_terms(text, "\n".join(f"- {line}" for line in recipe_terms)) if recipe_terms else []
+    canonical = {entry.term.casefold() for entry in scoped}
+    entries = (scoped + [
+        entry for entry in select_terms(text, glossary_text) if entry.term.casefold() not in canonical
+    ])[:MAX_TERMS]
     if not entries:
         return ""
     intro = _compile(glossary_text).intro or "GLOSSARY of terms that may occur in the text:"

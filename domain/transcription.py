@@ -74,6 +74,7 @@ class TranscriptionResult:
     source_duration: Optional[float] = None
     stage_seconds: Dict[str, float] = field(default_factory=dict)
     peak_rss_bytes: Optional[int] = None
+    vad_applied: bool = False
 
     @property
     def full_text(self) -> str:

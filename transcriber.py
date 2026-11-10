@@ -56,6 +56,7 @@ _SENTENCE_END_RE = re.compile(r"[.!?…][\"'”’»)]*$")
 
 # Sent as progress when auto-detection fails and English is used instead.
 LANGUAGE_FALLBACK_MESSAGE = "Language detection failed, using English"
+LANGUAGE_UNCERTAIN_MESSAGE = "The automatic language choice is uncertain"
 
 
 def _error_text(msg: tuple) -> str:
@@ -192,6 +193,58 @@ def _build_initial_prompt(vocabulary: list[str]) -> Optional[str]:
     return joined or None
 
 
+def _vad_params(models_dir: str) -> dict[str, Any]:
+    from core.model_manifest import MANIFEST, VAD_MODEL_KEY
+
+    entry = MANIFEST[VAD_MODEL_KEY]
+    path = os.path.join(models_dir, entry.filename)
+    try:
+        from pywhispercpp.constants import PARAMS_SCHEMA
+
+        if {"vad", "vad_model_path"} <= PARAMS_SCHEMA.keys() and os.path.getsize(path) == entry.size_bytes:
+            return {"vad": True, "vad_model_path": path}
+    except (ImportError, OSError):
+        pass
+    logger.warning("File VAD unavailable: the Silero model or a compatible whisper binding is missing")
+    return {}
+
+
+def _detect_language_in_windows(model: Any, path: str) -> Optional[tuple[str, float, bool]]:
+    """Vote across bounded, non-quiet windows of normalized PCM."""
+    import numpy as np
+
+    votes: dict[str, list[float]] = {}
+    try:
+        with wave.open(path, "rb") as wav:
+            if (wav.getframerate(), wav.getsampwidth(), wav.getnchannels()) != (16000, 2, 1):
+                return None
+            window = 5 * wav.getframerate()
+            total = wav.getnframes()
+            if total < 2 * window:
+                return None
+            remaining = total - window
+            offsets = (0, remaining // 2, remaining) if total >= 3 * window else (0, remaining)
+            for offset in offsets:
+                wav.setpos(offset)
+                pcm = np.frombuffer(wav.readframes(window), dtype="<i2").astype(np.float32) / 32768
+                if len(pcm) < 16000 or float(pcm.std()) < 0.003:
+                    continue
+                try:
+                    (language, probability), _ = model.auto_detect_language(pcm)
+                except (RuntimeError, ValueError, TypeError, IndexError):
+                    continue
+                confidence = float(probability)
+                if language and math.isfinite(confidence):
+                    votes.setdefault(language, []).append(confidence)
+    except (OSError, EOFError, wave.Error):
+        return None
+    if not votes:
+        return None
+    best = max(votes, key=lambda lang: (len(votes[lang]), sum(votes[lang])))
+    confidence = sum(votes[best]) / len(votes[best])
+    return best, confidence, len(votes) > 1 or confidence < 0.65
+
+
 def _run_transcription_process(
     filepath: str,
     model_name: str,
@@ -204,6 +257,8 @@ def _run_transcription_process(
     initial_prompt: Optional[str] = None,
     word_timestamps: bool = False,
     use_gpu: bool = True,
+    batch_vad: bool = False,
+    language_windows: bool = False,
 ):
     """Run transcription in a separate process to allow hard cancellation."""
     temp_wav_path = None
@@ -262,6 +317,8 @@ def _run_transcription_process(
         params: dict[str, Any] = {
             'n_threads': n_threads,
         }
+        if batch_vad and not word_timestamps:
+            params.update(_vad_params(models_dir))
 
         # Resolve language before transcribing. pywhispercpp defaults to an
         # empty language ('' — not real auto-detection) when the parameter is
@@ -276,7 +333,14 @@ def _run_transcription_process(
             q.put(('progress', 16, "Detecting language..."))
             started = time.monotonic()
             try:
-                (detected_lang, confidence), _ = model.auto_detect_language(audio_path)
+                detected = _detect_language_in_windows(model, audio_path) if language_windows else None
+                if detected is None:
+                    (detected_lang, probability), _ = model.auto_detect_language(audio_path)
+                    confidence = float(probability)
+                else:
+                    detected_lang, confidence, uncertain = detected
+                    if uncertain:
+                        q.put(('progress', 16, LANGUAGE_UNCERTAIN_MESSAGE))
                 logger.info("Auto-detected language: %s (p=%.3f)", detected_lang, confidence)
                 params['language'] = detected_lang
             except Exception as e:
@@ -411,6 +475,7 @@ def _run_transcription_process(
             source_duration=duration or None,
             stage_seconds=stage_seconds,
             peak_rss_bytes=peak_rss,
+            vad_applied=bool(params.get("vad")),
         )
 
         q.put(('progress', 100, "Complete!"))
@@ -470,7 +535,10 @@ class TranscriptionWorker(BaseWorker):
         initial_prompt: Optional[str] = None,
         word_timestamps: bool = False,
         use_gpu: bool = True,
-        parent: Optional[QObject] = None
+        parent: Optional[QObject] = None,
+        *,
+        batch_vad: bool = False,
+        language_windows: bool = False,
     ):
         super().__init__(parent)
         self.filepath = filepath
@@ -483,6 +551,8 @@ class TranscriptionWorker(BaseWorker):
         self.initial_prompt = initial_prompt
         self.word_timestamps = word_timestamps
         self.use_gpu = use_gpu
+        self.batch_vad = batch_vad
+        self.language_windows = language_windows
         self._process = None
 
     def _on_error(self, msg: str) -> None:
@@ -508,6 +578,8 @@ class TranscriptionWorker(BaseWorker):
                 self.initial_prompt,
                 self.word_timestamps,
                 self.use_gpu,
+                self.batch_vad,
+                self.language_windows,
             )
         )
         self._process.start()
@@ -614,6 +686,8 @@ class Transcriber:
         on_error: Optional[Callable[[str], None]] = None,
         models_ready: bool = False,
         direct_callbacks: bool = False,
+        batch_vad: Optional[bool] = None,
+        language_windows: Optional[bool] = None,
     ) -> Optional[TranscriptionWorker]:
         """
         Start a transcription job.
@@ -647,6 +721,13 @@ class Transcriber:
                 on_error("Model download was cancelled or failed.")
             return None
 
+        if batch_vad is None or language_windows is None:
+            from config import get_config
+
+            cfg = get_config()
+            batch_vad = cfg.batch_vad_enabled if batch_vad is None else batch_vad
+            language_windows = cfg.file_language_windows if language_windows is None else language_windows
+
         # Create new worker
         worker = TranscriptionWorker(
             filepath=filepath,
@@ -659,6 +740,8 @@ class Transcriber:
             initial_prompt=initial_prompt,
             word_timestamps=word_timestamps,
             use_gpu=use_gpu,
+            batch_vad=batch_vad,
+            language_windows=language_windows,
         )
 
         # Connect signals

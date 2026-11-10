@@ -493,6 +493,17 @@ class SettingsDialog(QDialog):
         )
         self._row(layout, "settings_performance", self._perf_combo)
 
+        self._batch_vad_chk = QCheckBox()
+        self._tt(self._batch_vad_chk, "settings_batch_vad")
+        layout.addRow(self._batch_vad_chk)
+        vad_download = QPushButton()
+        self._tt(vad_download, "settings_vad_download")
+        vad_download.clicked.connect(self._download_vad)
+        layout.addRow(vad_download)
+        self._language_windows_chk = QCheckBox()
+        self._tt(self._language_windows_chk, "settings_language_windows")
+        layout.addRow(self._language_windows_chk)
+
         # Models directory (read-only)
         models_row = QHBoxLayout()
         self._models_dir_label = ElidedLabel(mode=Qt.TextElideMode.ElideMiddle)
@@ -766,6 +777,8 @@ class SettingsDialog(QDialog):
         self._lang_combo.setCurrentIndex(idx if idx >= 0 else 0)
         idx = self._perf_combo.findData(cfg.performance_mode)
         self._perf_combo.setCurrentIndex(idx if idx >= 0 else 1)
+        self._batch_vad_chk.setChecked(cfg.batch_vad_enabled)
+        self._language_windows_chk.setChecked(cfg.file_language_windows)
         vocab = cfg.custom_vocabulary or []
         self._vocab_edit.setPlainText("\n".join(vocab))
         saved_mic = cfg.mic_device_index
@@ -837,6 +850,8 @@ class SettingsDialog(QDialog):
         cfg.default_model = self._model_combo.currentData() or "large-v3-turbo"
         cfg.default_language = self._lang_combo.currentData() or "auto"
         cfg.performance_mode = self._perf_combo.currentData() or "balanced"
+        cfg.batch_vad_enabled = self._batch_vad_chk.isChecked()
+        cfg.file_language_windows = self._language_windows_chk.isChecked()
         raw_vocab = self._vocab_edit.toPlainText()
         cfg.custom_vocabulary = [t.strip() for t in raw_vocab.splitlines() if t.strip()]
         cfg.mic_device_index = self._mic_combo.currentData()
@@ -1068,6 +1083,14 @@ class SettingsDialog(QDialog):
         from ui.ai_profiles_dialog import AiProfilesDialog
 
         AiProfilesDialog(self).exec()
+
+    def _download_vad(self) -> None:
+        from core.model_manifest import VAD_MODEL_KEY
+        from ui.model_downloader import ModelDownloaderDialog
+
+        dialog = ModelDownloaderDialog("Silero VAD", parent=self, manifest_key=VAD_MODEL_KEY)
+        dialog.start_download()
+        dialog.exec()
 
     def _open_models_dir(self):
         path = get_models_dir()

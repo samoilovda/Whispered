@@ -45,6 +45,7 @@ from domain.artifact_provenance import (
     transcript_revision as _transcript_revision,
 )
 from core.logger import get_logger
+from core.glossary import recipe_glossary_lines
 from core.prompts import prompt_version
 from application.job_engine import JobRun
 from domain.artifact import Artifact
@@ -218,6 +219,10 @@ def _generation_key(context: StepContext, step: str, version: str) -> str:
                     inputs["custom_prompt"] = {"missing": custom}
     elif step in ("insights", "youtube_package"):
         inputs["context_chars"] = params.get("insights_context_chars", 48000)
+    if step in ("clean", "insights", "youtube_package") and _provider_label(context, step) == "lmstudio":
+        terms = recipe_glossary_lines(params.get("recipe_terms"))
+        if terms:
+            inputs["recipe_terms"] = terms
     return "v2:" + hashlib.sha256(
         json.dumps(inputs, sort_keys=True, ensure_ascii=False).encode("utf-8")
     ).hexdigest()
@@ -459,6 +464,7 @@ def _clean_runner(context: StepContext) -> StepRunner:
         )
         processor.lm_client.is_cancelled = context.is_cancelled
         processor.lm_client._model = _model_label(context, "clean")
+        processor.recipe_terms = recipe_glossary_lines(context.params.get("recipe_terms"))
         use_ai = bool(context.params.get("use_ai", True))
         checkpoints: set[Path] = set()
         if use_ai and artifact.model:
@@ -697,6 +703,7 @@ def _insights_runner(context: StepContext) -> StepRunner:
                 model=_model_label(context, "insights"),
                 max_transcript_chars=context.params.get("insights_context_chars"),
                 is_cancelled=context.is_cancelled, notes=notes,
+                recipe_terms=recipe_glossary_lines(context.params.get("recipe_terms")),
             )
             if not isinstance(items, list):
                 from core.i18n import tr
@@ -799,6 +806,7 @@ def _youtube_package_runner(context: StepContext) -> StepRunner:
                 model=_model_label(context, "youtube_package"),
                 max_transcript_chars=context.params.get("insights_context_chars"),
                 is_cancelled=context.is_cancelled, style_examples=examples,
+                recipe_terms=recipe_glossary_lines(context.params.get("recipe_terms")),
             )
             if not isinstance(items, list):
                 from core.i18n import tr

@@ -97,3 +97,38 @@ def test_asr_metrics_use_recording_duration_including_trailing_silence(tmp_path,
     assert row["rtf"] == 0.1
     assert row["silence_words"] == 1
     assert set(row["stage_seconds"]) == {"model_load", "decode"}
+
+
+def test_file_vad_needs_both_a_model_and_a_compatible_binding(tmp_path, monkeypatch):
+    from types import ModuleType
+
+    from core.model_manifest import MANIFEST, VAD_MODEL_KEY
+    from transcriber import _vad_params
+
+    constants = ModuleType("pywhispercpp.constants")
+    constants.PARAMS_SCHEMA = {}
+    monkeypatch.setitem(sys.modules, "pywhispercpp.constants", constants)
+    assert _vad_params(str(tmp_path)) == {}
+    constants.PARAMS_SCHEMA.update(vad={}, vad_model_path={})
+    assert _vad_params(str(tmp_path)) == {}
+    entry = MANIFEST[VAD_MODEL_KEY]
+    path = tmp_path / entry.filename
+    path.write_bytes(bytes(entry.size_bytes))
+    assert _vad_params(str(tmp_path)) == {"vad": True, "vad_model_path": str(path)}
+
+
+def test_language_windows_skip_silent_intro_and_report_disagreement(tmp_path):
+    import wave
+    from types import SimpleNamespace
+
+    from transcriber import _detect_language_in_windows
+
+    path = tmp_path / "windows.wav"
+    quiet = bytes(5 * 16000 * 2)
+    audible = b"\x00\x10\x00\xf0" * (15 * 16000 // 2)
+    with wave.open(str(path), "wb") as wav:
+        wav.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
+        wav.writeframes(quiet + audible)
+    votes = iter([(("en", 0.7), {}), (("ru", 0.9), {})])
+    model = SimpleNamespace(auto_detect_language=lambda pcm: next(votes))
+    assert _detect_language_in_windows(model, str(path)) == ("ru", 0.9, True)

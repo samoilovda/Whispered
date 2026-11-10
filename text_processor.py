@@ -162,6 +162,7 @@ class TextCleaner:
         # The transcript's language code ("ru", "en", ...); picks the prompt.
         self.language = language
         self.checkpoint: Optional[ChunkCheckpoint] = None
+        self.recipe_terms: tuple[str, ...] = ()
         self.ai_chunks = 0
         self.fallback_chunks = 0
 
@@ -273,7 +274,7 @@ class TextCleaner:
                     on_progress(progress, tr("llm_progress_chunk", current=i + 1, total=len(chunks)))
 
             result = _rewrite_chunk(
-                self.lm_client, chunk, _cleaning_prompt(chunk, template), system, self.checkpoint,
+                self.lm_client, chunk, _cleaning_prompt(chunk, template, self.recipe_terms), system, self.checkpoint,
             )
             if result is not None:
                 self.ai_chunks += 1
@@ -325,10 +326,12 @@ Text:
 Output the organized text with clear paragraph breaks:"""
 
 
-def _cleaning_prompt(text: str, template: str = CLEANING_PROMPT_TEMPLATE) -> str:
+def _cleaning_prompt(
+    text: str, template: str = CLEANING_PROMPT_TEMPLATE, recipe_terms: tuple[str, ...] = (),
+) -> str:
     """The cleaning request for *text*, with the glossary terms that occur
     in it (core/glossary.py) between the text and the closing line."""
-    block = glossary_block(text)
+    block = glossary_block(text, recipe_terms=recipe_terms)
     return template.format(text=text, glossary=f"\n{block}\n" if block else "")
 
 
@@ -507,6 +510,7 @@ class TextProcessor:
         self.cleaner = TextCleaner(self.lm_client, language=language)
         self.coherence = CoherenceProcessor(self.lm_client)
         self.checkpoint: Optional[ChunkCheckpoint] = None
+        self.recipe_terms: tuple[str, ...] = ()
 
     def is_available(self) -> bool:
         """Check if LM Studio is available for processing."""
@@ -537,6 +541,7 @@ class TextProcessor:
         start_time = time.time()
 
         self.cleaner.checkpoint = self.coherence.checkpoint = self.checkpoint
+        self.cleaner.recipe_terms = self.recipe_terms
 
         # Stage 1: Clean text
         def clean_progress(pct, msg):

@@ -20,6 +20,7 @@
   "recipe_editor_steps_label": "Steps",
   "recipe_editor_article_formats": "Article formats",
   "recipe_editor_choose_article_format": "Choose at least one article format.",
+  "recipe_editor_vocabulary_hint": "Terms for this recipe, one per line. Use «term | heard as» to add a variant.",
   "recipe_editor_transcription_label": "Transcription",
   "recipe_editor_name_label": "Name",
   "recipe_editor_default_name": "{base} (edited)",
@@ -161,6 +162,9 @@
   "settings_default_model": "Default model:",
   "settings_default_language": "Default language:",
   "settings_performance": "Performance mode:",
+  "settings_batch_vad": "Detect speech before file transcription (experimental)",
+  "settings_vad_download": "Download Silero speech detector",
+  "settings_language_windows": "Check several excerpts to detect the language (experimental)",
   "settings_models_dir": "Models directory:",
   "settings_diarization_enable": "Enable speaker diarization",
   "settings_num_speakers": "Number of speakers:",
@@ -1594,5 +1598,6 @@
   "transcribe_error_no_speech": "No speech detected in the audio file.",
   "transcribe_error_cuda": "{error}\n\nTip: try CPU mode in Settings.",
   "progress_language_fallback": "Language detection failed — transcribing as English",
+  "progress_language_uncertain": "The language is uncertain. You can select it explicitly and retry.",
   "transcribe_language_fallback_warning": "The language could not be detected, so the recording was transcribed as English. If it is in another language, choose it explicitly and transcribe again."
 }

@@ -20,6 +20,7 @@
   "recipe_editor_steps_label": "Шаги",
   "recipe_editor_article_formats": "Форматы статьи",
   "recipe_editor_choose_article_format": "Выберите хотя бы один формат статьи.",
+  "recipe_editor_vocabulary_hint": "Термины для этого рецепта, по одному на строке. Формат варианта — «термин | ослышка».",
   "recipe_editor_transcription_label": "Расшифровка",
   "recipe_editor_name_label": "Название",
   "recipe_editor_default_name": "{base} (изменённый)",
@@ -162,6 +163,9 @@
   "settings_default_model": "Модель по умолчанию:",
   "settings_default_language": "Язык по умолчанию:",
   "settings_performance": "Режим производительности:",
+  "settings_batch_vad": "Определять участки речи в файлах (экспериментально)",
+  "settings_vad_download": "Скачать детектор речи Silero",
+  "settings_language_windows": "Определять язык по нескольким фрагментам (экспериментально)",
   "settings_models_dir": "Папка моделей:",
   "settings_diarization_enable": "Включить диаризацию спикеров",
   "settings_num_speakers": "Число спикеров:",
@@ -1598,5 +1602,6 @@
   "transcribe_error_no_speech": "В записи не найдено речи.",
   "transcribe_error_cuda": "{error}\n\nСовет: попробуйте режим CPU в настройках.",
   "progress_language_fallback": "Язык не определился — расшифровываю как английский",
+  "progress_language_uncertain": "Язык определён неуверенно. Его можно указать явно и повторить расшифровку.",
   "transcribe_language_fallback_warning": "Язык записи не определился, поэтому она расшифрована как английская. Если язык другой, выберите его явно и запустите расшифровку снова."
 }
