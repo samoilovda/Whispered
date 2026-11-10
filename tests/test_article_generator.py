@@ -288,6 +288,21 @@ class TestTopicExtractionSurvivesWrongShapedJson:
 
 
 class TestGetFormatPromptUsesFullDocument:
+    def test_formats_share_one_condensation(self, monkeypatch):
+        gen = ArticleGenerator(lm_client=FakeLMClient("Finished article"))
+        monkeypatch.setattr(gen, "extract_topics", lambda *_: TopicAnalysis())
+        calls = []
+
+        def condense(text, budget):
+            calls.append((text, budget))
+            return "prepared context"
+
+        monkeypatch.setattr(gen, "_condense_for_prompt", condense)
+        source = "Long transcript " * 2000
+        result = gen.generate_all_formats(source, [ArticleFormat.BLOG_POST, ArticleFormat.FAQ])
+        assert calls == [(source, 12000)]
+        assert [item.format for item in result.articles] == [ArticleFormat.BLOG_POST, ArticleFormat.FAQ]
+
     def test_summary_prompt_reflects_condensed_full_text(self):
         long_text = "Point about the meeting. " * 1500
         assert len(long_text) > 12000

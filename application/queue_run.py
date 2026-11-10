@@ -66,7 +66,8 @@ def prepare_follow_up(
         item.source_path, result, record_id,
         artifact_source=item.source_path,
         params={**llm_params(cfg, result, provider=provider, insights_cache=insights_cache,
-                             profile=_queued_profile(item)),
+                             profile=_queued_profile(item),
+                             article_formats=recipe.params.get("article_formats")),
                 **_frozen_default(item), **(extra_params or {})},
         get_result=get_result, is_cancelled=run.is_cancelled,
     )

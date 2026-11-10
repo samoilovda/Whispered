@@ -18,6 +18,8 @@
   "start_recipe_change": "Change",
   "recipe_editor_title": "Configure recipe",
   "recipe_editor_steps_label": "Steps",
+  "recipe_editor_article_formats": "Article formats",
+  "recipe_editor_choose_article_format": "Choose at least one article format.",
   "recipe_editor_transcription_label": "Transcription",
   "recipe_editor_name_label": "Name",
   "recipe_editor_default_name": "{base} (edited)",

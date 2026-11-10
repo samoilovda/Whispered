@@ -55,6 +55,7 @@ from domain.transcription import TranscriptionResult
 
 if TYPE_CHECKING:
     from application.style_examples import StyleExamples
+    from article_generator import ArticleFormat
 
 logger = get_logger(__name__)
 
@@ -201,11 +202,7 @@ def _generation_key(context: StepContext, step: str, version: str) -> str:
     elif step in ("article", "book"):
         inputs["upstream"] = hashlib.sha256(_input_text(context).encode("utf-8")).hexdigest()
         if step == "article":
-            from article_generator import ArticleFormat
-
-            inputs["formats"] = [
-                getattr(fmt, "value", fmt) for fmt in params.get("article_formats") or list(ArticleFormat)
-            ]
+            inputs["formats"] = [fmt.value for fmt in _article_formats(context)]
         else:
             inputs.update({
                 "unwrap": bool(params.get("do_unwrap", True)),
@@ -527,9 +524,20 @@ def _clean_load(context: StepContext) -> Optional[Any]:
 
 # ---------------------------------------------------------------- article
 
+def _article_formats(context: StepContext) -> "list[ArticleFormat]":
+    from article_generator import ArticleFormat
+
+    allowed = {fmt.value: fmt for fmt in ArticleFormat}
+    configured = context.params.get("article_formats") or ()
+    if not isinstance(configured, (list, tuple)):
+        return list(ArticleFormat)
+    values = [getattr(fmt, "value", fmt) for fmt in configured]
+    return list(dict.fromkeys(allowed[v] for v in values if isinstance(v, str) and v in allowed)) or list(ArticleFormat)
+
+
 def _article_runner(context: StepContext) -> StepRunner:
     def run():
-        from article_generator import ArticleFormat, ArticleGenerator
+        from article_generator import ArticleGenerator
         from core.lm_client import LMStudioClient
 
         check_cancelled(context.is_cancelled)
@@ -541,7 +549,7 @@ def _article_runner(context: StepContext) -> StepRunner:
         client._model = _model_label(context, "article")
         generator = ArticleGenerator(client)
         generator.lm_client.is_cancelled = context.is_cancelled
-        formats = context.params.get("article_formats") or list(ArticleFormat)
+        formats = _article_formats(context)
         result = generator.generate_all_formats(
             text, formats=formats, on_progress=context.on_progress
         )

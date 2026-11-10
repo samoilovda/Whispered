@@ -18,6 +18,8 @@
   "start_recipe_change": "Изменить",
   "recipe_editor_title": "Настройка рецепта",
   "recipe_editor_steps_label": "Шаги",
+  "recipe_editor_article_formats": "Форматы статьи",
+  "recipe_editor_choose_article_format": "Выберите хотя бы один формат статьи.",
   "recipe_editor_transcription_label": "Расшифровка",
   "recipe_editor_name_label": "Название",
   "recipe_editor_default_name": "{base} (изменённый)",

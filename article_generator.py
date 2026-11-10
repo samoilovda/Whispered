@@ -426,9 +426,12 @@ class ArticleGenerator:
         if topics is None:
             topics = self.extract_topics(text, on_progress)
 
-        # Select prompt based on format
-        prompt = self._get_format_prompt(text, format, topics)
+        return self._write_article(self._get_format_prompt(text, format, topics), format, topics, on_progress)
 
+    def _write_article(
+        self, prompt: str, format: ArticleFormat, topics: TopicAnalysis,
+        on_progress: Optional[Callable[[int, str], None]],
+    ) -> Article:
         if on_progress:
             on_progress(40, tr("llm_progress_article_writing", format=format.value))
 
@@ -491,6 +494,7 @@ class ArticleGenerator:
 
         # Extract topics once for all articles
         topics = self.extract_topics(text, on_progress)
+        analysis_text = self._condense_for_prompt(text, 12000) if formats else ""
 
         articles = []
         total_formats = len(formats)
@@ -503,7 +507,9 @@ class ArticleGenerator:
                     actual = _base + int(pct * 0.6 / total_formats)
                     on_progress(actual, msg)
 
-            article = self.generate_article(text, fmt, topics, format_progress)
+            format_progress(0, tr("llm_progress_article_start", format=fmt.value))
+            prompt = self._get_format_prompt(analysis_text, fmt, topics, prepared=True)
+            article = self._write_article(prompt, fmt, topics, format_progress)
             articles.append(article)
 
         generation_time = time.time() - start_time
@@ -545,13 +551,13 @@ class ArticleGenerator:
         self,
         text: str,
         format: ArticleFormat,
-        topics: TopicAnalysis
+        topics: TopicAnalysis,
+        *,
+        prepared: bool = False,
     ) -> str:
         """Get the appropriate prompt for the format."""
 
-        max_text_len = 12000
-        analysis_text = self._condense_for_prompt(text, max_text_len)
-
+        analysis_text = text if prepared else self._condense_for_prompt(text, 12000)
         if format == ArticleFormat.BLOG_POST:
             return BLOG_POST_PROMPT.format(
                 topics=", ".join(topics.main_topics),

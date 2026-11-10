@@ -31,6 +31,8 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (
     QCheckBox,
     QDialog,
+    QGridLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -114,6 +116,20 @@ class RecipeEditorDialog(QDialog):
             self._checks[step.name] = check
             root.addWidget(check)
 
+        from article_generator import ArticleFormat
+
+        self._article_options = QGroupBox(tr("recipe_editor_article_formats"))
+        formats_layout = QGridLayout(self._article_options)
+        self._formats: dict[str, QCheckBox] = {}
+        selected_formats = recipe.params.get("article_formats") or [fmt.value for fmt in ArticleFormat]
+        for index, fmt in enumerate(ArticleFormat):
+            check = QCheckBox(tr(f"article_format_{fmt.value}"))
+            check.setChecked(fmt.value in selected_formats)
+            self._formats[fmt.value] = check
+            formats_layout.addWidget(check, index // 3, index % 3)
+        self._article_options.setVisible(self._checks["article"].isChecked())
+        self._checks["article"].toggled.connect(self._article_options.setVisible)
+        root.addWidget(self._article_options)
         root.addStretch()
 
         buttons_row = QHBoxLayout()
@@ -154,11 +170,16 @@ class RecipeEditorDialog(QDialog):
                 self._checks[dependent].setChecked(False)
 
     def _on_save(self) -> None:
-        self.result_action = "save"
-        self.accept()
+        self._save("save")
 
     def _on_save_as_new(self) -> None:
-        self.result_action = "save_as_new"
+        self._save("save_as_new")
+
+    def _save(self, action: str) -> None:
+        if self._checks["article"].isChecked() and not any(c.isChecked() for c in self._formats.values()):
+            QMessageBox.warning(self, self.windowTitle(), tr("recipe_editor_choose_article_format"))
+            return
+        self.result_action = action
         self.accept()
 
     def _on_delete(self) -> None:
@@ -188,4 +209,7 @@ class RecipeEditorDialog(QDialog):
     def recipe_params(self) -> dict:
         """The transcription options widget's current selections (B4) —
         what the caller saves into the edited recipe's Recipe.params."""
-        return self._transcribe_options.params()
+        params = self._transcribe_options.params()
+        if self._checks["article"].isChecked():
+            params["article_formats"] = [fmt for fmt, check in self._formats.items() if check.isChecked()]
+        return params

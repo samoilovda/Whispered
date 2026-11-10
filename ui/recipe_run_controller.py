@@ -37,6 +37,7 @@ from config import get_config
 from core.i18n import tr
 from core.logger import get_logger
 from domain.job import JobSpec, StepOutcome, StepStatus
+from domain.recipe import Recipe
 from domain.transcription import TranscriptionResult
 from ui.job_runner import JobRunner
 from ui.option_labels import recipe_label
@@ -88,7 +89,9 @@ class RecipeRunController:
 
     # ------------------------------------------------------------ start
 
-    def _build_context(self, result: TranscriptionResult, record_id: Any, run: JobRun) -> StepContext:
+    def _build_context(
+        self, result: TranscriptionResult, record_id: Any, run: JobRun, recipe: Recipe,
+    ) -> StepContext:
         """The StepContext every step of *run* reads — the window's current
         source, generation settings and Cover workspace."""
         from core.ai_provider import provider_from_config
@@ -111,6 +114,7 @@ class RecipeRunController:
                 do_unwrap=host.book_panel.chk_unwrap.isChecked(),
                 do_custom=host.book_panel.chk_custom.isChecked(),
                 custom_prompt_path=host.book_panel.custom_prompt_edit.text().strip(),
+                article_formats=recipe.params.get("article_formats"),
                 # The "YouTube video" recipe includes the cover step, so it
                 # has to render what the Cover workspace is actually set to
                 # rather than _cover_runner's own fallback defaults.
@@ -159,7 +163,7 @@ class RecipeRunController:
         self.job_run = run
         self._spec = spec
         self._step_names = step_names
-        self._context = self._build_context(result, record_id, run)
+        self._context = self._build_context(result, record_id, run, recipe)
         self._run_id = None
         self.record_id = host._last_record_id
         host.run_view.bind_run(run)
@@ -214,7 +218,7 @@ class RecipeRunController:
         self.job_run = run
         self._spec = spec
         self._step_names = step_names
-        self._context = self._build_context(result, record_id, run)
+        self._context = self._build_context(result, record_id, run, recipe)
         self._run_id = stored.id
         prepare_resumed_run(run, self._context)
         self.record_id = record_id
