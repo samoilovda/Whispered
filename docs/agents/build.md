@@ -23,8 +23,10 @@ Read before changing `build.py`, `main.py` startup, `packaging/`, `appimage/`,
 - Signing: `build.py` uses the self-signed "Whispered Local Signing"
   certificate from the login keychain when it exists (create it once with
   `tools/create_signing_cert.sh`) or the identity in `WHISPERED_SIGN_IDENTITY`,
-  else ad-hoc. Ad-hoc builds change identity on every rebuild, so macOS asks
-  for the keychain password again to read the stored YouTube login.
+  else ad-hoc. Secrets do not depend on it: on macOS `core/secrets_store.py`
+  writes them through `/usr/bin/security` (partition `apple-tool:`), because
+  an item the app writes itself is bound to its `cdhash` — a self-signed
+  build has no Team ID — and every rebuild asked for the password again.
 
 ## Release
 

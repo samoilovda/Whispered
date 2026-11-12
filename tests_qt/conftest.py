@@ -63,6 +63,9 @@ def _install_in_memory_keyring() -> None:
 
 
 _install_in_memory_keyring()
+# On macOS core.secrets_store would otherwise bypass the stand-in above
+# and talk to the real Keychain through /usr/bin/security.
+os.environ["WHISPERED_KEYRING_BACKEND"] = "keyring"
 
 
 @pytest.fixture(scope="session", autouse=True)

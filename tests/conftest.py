@@ -21,6 +21,7 @@ wins over the generic default installed here, so those are unaffected.
 
 from __future__ import annotations
 
+import os
 import sys
 import types
 
@@ -141,6 +142,9 @@ def _install_in_memory_keyring() -> None:
 
 
 _install_in_memory_keyring()
+# On macOS core.secrets_store would otherwise bypass the stand-in above
+# and talk to the real Keychain through /usr/bin/security.
+os.environ["WHISPERED_KEYRING_BACKEND"] = "keyring"
 
 
 def _install_pyqt6_stubs() -> None:
