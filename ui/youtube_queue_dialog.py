@@ -43,8 +43,10 @@ class YouTubeQueueDialog(QDialog):
     run_requested = pyqtSignal(bool)     # update: push texts instead of uploading
     cancel_requested = pyqtSignal()
     settings_requested = pyqtSignal()
+    connect_requested = pyqtSignal()
 
     def __init__(self, root: Path, *, connected: bool, running: bool = False,
+                 client_configured: bool = True,
                  parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle(tr("yt_queue_title"))
@@ -52,6 +54,10 @@ class YouTubeQueueDialog(QDialog):
         self._root = root
         self._connected = connected
         self._running = running
+        # With the OAuth client imported, signing in again happens right
+        # here; without one the user is sent to Settings to import it.
+        self._client_configured = client_configured
+        self._connecting = False
         self._rows: dict[Path, QTreeWidgetItem] = {}
         self._items: list[QueuedUpload] = []
         layout = QVBoxLayout(self)
@@ -85,6 +91,10 @@ class YouTubeQueueDialog(QDialog):
         self._settings_btn = QPushButton(tr("yt_queue_settings"))
         self._settings_btn.clicked.connect(self.settings_requested.emit)
         buttons.addWidget(self._settings_btn)
+        self._connect_btn = QPushButton(tr("yt_queue_connect"))
+        self._connect_btn.setToolTip(tr("yt_queue_connect_tip"))
+        self._connect_btn.clicked.connect(self._request_connect)
+        buttons.addWidget(self._connect_btn)
         buttons.addStretch(1)
         self._update_btn = QPushButton(tr("yt_queue_update"))
         self._update_btn.setToolTip(tr("yt_queue_update_tip"))
@@ -105,7 +115,8 @@ class YouTubeQueueDialog(QDialog):
 
         self.reload()
         if not connected:
-            self._show_message(tr("yt_queue_not_connected"), error=True)
+            self._show_message(tr("yt_queue_not_connected" if client_configured
+                                  else "yt_queue_no_client"), error=True)
 
     # ------------------------------------------------------------ state
 
@@ -144,16 +155,46 @@ class YouTubeQueueDialog(QDialog):
             tr_count("yt_queue_upload_n", waiting) if waiting else tr("yt_queue_upload"))
         self._update_btn.setEnabled(self._connected and not running and uploaded > 0)
         self._cancel_btn.setVisible(running)
-        self._settings_btn.setVisible(not self._connected)
+        self._settings_btn.setVisible(not self._connected and not self._client_configured)
+        self._connect_btn.setVisible(not self._connected and self._client_configured)
+        self._connect_btn.setEnabled(not self._connecting and not running)
+        self._connect_btn.setText(
+            tr("yt_queue_connecting") if self._connecting else tr("yt_queue_connect"))
         self._progress.setVisible(running)
 
     def _request(self, update: bool) -> None:
         self._message.setVisible(False)
         self.run_requested.emit(update)
 
-    def set_connected(self, connected: bool) -> None:
+    def _request_connect(self) -> None:
+        self._message.setVisible(False)
+        self.connect_requested.emit()
+
+    def set_connected(self, connected: bool, *, client_configured: Optional[bool] = None) -> None:
         self._connected = connected
+        if client_configured is not None:
+            self._client_configured = client_configured
         if connected:
+            self._message.setVisible(False)
+        self._refresh_buttons()
+
+    def set_connecting(self, connecting: bool) -> None:
+        """The browser sign-in started from this window is running."""
+        self._connecting = connecting
+        if connecting:
+            self._show_message(tr("yt_queue_connect_wait"))
+        self._refresh_buttons()
+
+    def set_login_result(self, channel: Optional[str], error: str = "") -> None:
+        """The sign-in ended: *channel* is set on success ("" when its name
+        could not be read), None when it was cancelled or failed."""
+        self._connecting = False
+        if channel is not None:
+            self._connected = True
+            self._show_message(tr("yt_queue_connected", channel=channel or "\u2014"))
+        elif error:
+            self._show_message(tr("settings_yt_connect_failed", detail=error), error=True)
+        else:
             self._message.setVisible(False)
         self._refresh_buttons()
 
@@ -196,7 +237,7 @@ class YouTubeQueueDialog(QDialog):
                 self._set_status(row, outcome.detail)
         if relogin:
             self._connected = False
-            self._show_message(tr("yt_publish_relogin"), error=True)
+            self._show_message(tr("yt_queue_relogin"), error=True)
         else:
             sent = sum(1 for o in outcomes if o.status in ("uploaded", "updated"))
             failed = sum(1 for o in outcomes if o.status == "failed")

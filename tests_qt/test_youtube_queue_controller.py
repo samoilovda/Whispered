@@ -123,3 +123,39 @@ def test_closing_the_window_keeps_the_upload_going(controller, tmp_path):
     assert controller.queue_dialog is None and controller.queue_running()
     _wait_until(lambda: not controller.queue_running())
     assert (tmp_path / "out" / "talk-1" / "youtube_upload.json").is_file()
+
+
+def test_connect_from_the_queue_window_signs_in_again(controller, tmp_path, monkeypatch):
+    import config
+    from core import youtube_oauth
+
+    connected = {"now": False}
+    monkeypatch.setattr(youtube_oauth, "is_connected", lambda: connected["now"])
+
+    def authorize(client_id, client_secret, *, open_browser, is_cancelled):
+        assert (client_id, client_secret) == ("id", "secret")
+        connected["now"] = True
+        return "refresh"
+
+    class _Provider:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def access_token(self):
+            return "token"
+
+    monkeypatch.setattr(youtube_oauth, "authorize", authorize)
+    monkeypatch.setattr(youtube_oauth, "TokenProvider", _Provider)
+    monkeypatch.setattr(youtube_oauth, "fetch_channel_title", lambda token: "Channel")
+    monkeypatch.setattr(config, "save_config", lambda: None)
+    import ui.youtube_publish_controller as module
+    monkeypatch.setattr(module, "save_config", lambda: None)
+
+    _queue(tmp_path)
+    controller.open_queue()
+    dialog = controller.queue_dialog
+    assert not dialog._connect_btn.isHidden()
+    dialog._connect_btn.click()
+    _wait_until(lambda: controller.login is None)
+    assert config.get_config().yt_channel_title == "Channel"
+    assert dialog._upload_btn.isEnabled() and not controller.queue_running()

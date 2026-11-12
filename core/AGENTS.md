@@ -21,7 +21,8 @@ read `docs/agents/llm.md`.
   root rule 1. Tokens live in the OS keyring (`core/secrets_store.py`: on
   macOS through `/usr/bin/security` so updates keep access, elsewhere
   `keyring`, required on Windows); without one the login lasts only for the
-  process and Settings says so.
+  process and Settings says so. An expired login is reconnected from the
+  upload queue window (`YouTubePublishController.connect_from_queue`).
 - `recording_watch.py` watches `Config.source_folder` and emits each finished
   new recording; `MainWindow` then offers a recipe via
   `ui/recording_offer_dialog.py` (opt-in: `Config.recording_offer_enabled`).

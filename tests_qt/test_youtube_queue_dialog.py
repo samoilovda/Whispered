@@ -60,11 +60,12 @@ def test_a_deleted_record_is_not_listed(tmp_path, monkeypatch):
     assert dialog._tree.topLevelItemCount() == 1
 
 
-def test_not_connected_points_to_settings(tmp_path):
+def test_no_oauth_client_points_to_settings(tmp_path):
     _queue(tmp_path, "new", 1)
-    dialog = YouTubeQueueDialog(tmp_path / "output", connected=False)
+    dialog = YouTubeQueueDialog(tmp_path / "output", connected=False, client_configured=False)
     assert not dialog._upload_btn.isEnabled()
     assert not dialog._settings_btn.isHidden()
+    assert dialog._connect_btn.isHidden()
     requested = []
     dialog.settings_requested.connect(lambda: requested.append(True))
     dialog._settings_btn.click()
@@ -93,8 +94,21 @@ def test_an_expired_login_asks_to_connect_again(tmp_path):
     dialog = YouTubeQueueDialog(tmp_path / "output", connected=True)
     item = find_queued(tmp_path / "output")[0]
     dialog.set_outcomes([Outcome(item, "failed", "expired", relogin=True)])
-    assert not dialog._settings_btn.isHidden()
+    # Signing in again happens right here, not in Settings.
+    assert not dialog._connect_btn.isHidden() and dialog._settings_btn.isHidden()
     assert not dialog._upload_btn.isEnabled()
+    asked = []
+    dialog.connect_requested.connect(lambda: asked.append(True))
+    dialog._connect_btn.click()
+    assert asked == [True]
+    dialog.set_connecting(True)
+    assert not dialog._connect_btn.isEnabled()
+    dialog.set_login_result(None)                 # cancelled in the browser
+    assert dialog._connect_btn.isEnabled() and not dialog._upload_btn.isEnabled()
+    dialog.set_login_result("My channel")
+    assert dialog._connect_btn.isHidden()
+    # Connected, but the upload still waits for the user's click (rule 1).
+    assert dialog._upload_btn.isEnabled() and "My channel" in dialog._message.text()
 
 
 def test_worker_runs_the_queue(tmp_path, monkeypatch):

@@ -41,6 +41,8 @@ class YouTubePublishController:
         # the worker, like the single upload, outlives the dialog.
         self.queue_dialog: Any = None
         self.queue: Any = None
+        # A YouTube sign-in started from the queue window (expired login).
+        self.login: Any = None
 
     # ------------------------------------------------------------ wizard
 
@@ -203,7 +205,7 @@ class YouTubePublishController:
         """Shutdownable (ui/shutdownable.py): cancel a running upload (or
         queue run) and wait a bounded time; one that outlives it is
         retired, not dropped."""
-        for worker in (self.upload, self.queue):
+        for worker in (self.upload, self.queue, self.login):
             if worker is None or not worker.isRunning():
                 continue
             worker.cancel()
@@ -215,6 +217,11 @@ class YouTubePublishController:
                 self._host._registry.retire(worker)
 
     # ------------------------------------------------------------ queue
+
+    @staticmethod
+    def queue_client_configured() -> bool:
+        cfg = get_config()
+        return bool(cfg.yt_oauth_client_id and cfg.yt_oauth_client_secret)
 
     def queue_connected(self) -> bool:
         """The OAuth client is imported and an account is signed in — all
@@ -242,13 +249,14 @@ class YouTubePublishController:
         if dialog is None:
             dialog = YouTubeQueueDialog(
                 output_dir(), connected=self.queue_connected(), running=self.queue_running(),
-                parent=self._host,
+                client_configured=self.queue_client_configured(), parent=self._host,
             )
             dialog.setModal(False)
             dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
             dialog.run_requested.connect(self.start_queue)
             dialog.cancel_requested.connect(self.cancel_queue)
             dialog.settings_requested.connect(lambda: self._queue_settings(dialog))
+            dialog.connect_requested.connect(self.connect_from_queue)
             dialog.finished.connect(lambda _result: self._on_queue_closed(dialog))
             self.queue_dialog = dialog
         dialog.show()
@@ -264,7 +272,47 @@ class YouTubePublishController:
 
     def _queue_settings(self, dialog) -> None:
         self._host._open_settings("settings_category_ai")
-        dialog.set_connected(self.queue_connected())
+        dialog.set_connected(self.queue_connected(),
+                             client_configured=self.queue_client_configured())
+
+    def connect_from_queue(self) -> None:
+        """Sign in to YouTube again right from the queue window (the login
+        expired or was revoked): the browser consent flow runs on
+        ``YouTubeLoginWorker``. The upload itself still waits for the
+        user's "Upload" (root rule 1)."""
+        from core.youtube_oauth_worker import YouTubeLoginWorker
+
+        if self.login is not None and self.login.isRunning():
+            return
+        cfg = get_config()
+        if not self.queue_client_configured():
+            return
+        worker = YouTubeLoginWorker(cfg.yt_oauth_client_id, cfg.yt_oauth_client_secret,
+                                    parent=self._host)
+        worker.connected.connect(self._on_login_connected)
+        worker.cancelled.connect(lambda: self._on_login_ended(None))
+        worker.failed.connect(lambda message: self._on_login_ended(None, message))
+        self._host._registry.register(worker, name="youtube_login")
+        self.login = worker
+        if self.queue_dialog is not None:
+            self.queue_dialog.set_connecting(True)
+        worker.start()
+
+    def _on_login_connected(self, channel_title: str) -> None:
+        cfg = get_config()
+        cfg.yt_channel_title = channel_title
+        save_config()
+        self._on_login_ended(channel_title)
+
+    def _on_login_ended(self, channel: Optional[str], error: str = "") -> None:
+        self.login = None
+        if self.queue_dialog is not None:
+            self.queue_dialog.set_login_result(channel, error)
+        elif channel is not None:
+            show_toast(self._host, tr("yt_queue_connected", channel=channel or "\u2014"),
+                       kind="success")
+        elif error:
+            show_toast(self._host, tr("settings_yt_connect_failed", detail=error), kind="error")
 
     def start_queue(self, update: bool = False) -> None:
         """Run the queue on a worker: upload what is waiting, or with
