@@ -119,6 +119,7 @@ def test_save_as_new_disambiguates_a_colliding_name(window, monkeypatch, process
 
 def test_save_upserts_an_existing_custom_recipe_in_place(window, monkeypatch, process_events):
     from PyQt6.QtWidgets import QDialog
+    from core.i18n import tr
     from ui.recipe_editor import RecipeEditorDialog
     import config
 
@@ -132,6 +133,8 @@ def test_save_upserts_an_existing_custom_recipe_in_place(window, monkeypatch, pr
     def fake_exec(dialog):
         dialog._checks["clean"].setChecked(True)
         dialog._name_edit.setText("My recipe")
+        combo = dialog._transcribe_options.language_combo
+        combo.setCurrentIndex(combo.findData("ru"))
         dialog.result_action = "save"
         return QDialog.DialogCode.Accepted
 
@@ -143,6 +146,14 @@ def test_save_upserts_an_existing_custom_recipe_in_place(window, monkeypatch, pr
     assert len(recipes) == 1
     assert recipes[0]["name"] == "My recipe"
     assert recipes[0]["steps"] == ["transcribe", "clean"]
+    saved = config.Config.load()
+    assert saved.recipes[0]["params"]["language"] == "ru"
+    assert saved.default_language == "auto"
+    assert tr("whisper_language_ru") in window.start_view._summary_label.text()
+    assert window.queue_controller.snapshot_now().transcription["language"] == "ru"
+
+    window.start_view.select_recipe("transcript_only")
+    assert tr("whisper_language_auto") in window.start_view._summary_label.text()
 
 
 def test_delete_removes_the_recipe_and_falls_back_to_transcript_only(

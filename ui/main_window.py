@@ -53,9 +53,6 @@ from ui.run_view import RunView
 from ui.recipe_editor import RecipeEditorDialog
 from transcriber import Transcriber, TranscriptionResult
 from utils import (
-    WHISPER_MODELS,
-    WHISPER_LANGUAGES,
-    PERFORMANCE_MODES,
     detect_gpu,
     format_duration,
     get_thread_count,
@@ -770,8 +767,8 @@ class MainWindow(QMainWindow):
         self.diarization_checkbox = self.transcribe_options.diarization_checkbox
 
         # Recorder widget lives on its own sidebar section now; still
-        # created here so _connect_signals/_apply_config_defaults and the
-        # Ctrl+R shortcut keep a single stable reference.
+        # created here so the settings handler and the Ctrl+R shortcut
+        # keep a single stable reference.
         self.recorder_widget = RecorderWidget()
         self.recorder_widget.file_ready.connect(self._on_recording_ready)
         self.recorder_widget.error.connect(self._on_recording_error)
@@ -990,6 +987,7 @@ class MainWindow(QMainWindow):
             self.live_view.options_panel,
             folder_source,
             self.transcribe_options,
+            self._resolve_recipe,
         )
         self.start_view.process_requested.connect(self._start_transcription)
         self.start_view.configure_recipe_requested.connect(self._open_recipe_editor)
@@ -1787,7 +1785,7 @@ class MainWindow(QMainWindow):
 
     def _on_settings_applied(self) -> None:
         """Apply saved preferences without requiring an application restart."""
-        self._apply_config_defaults()
+        self.transcribe_options.reload_defaults()
         self.transcript_view.apply_display_settings()
         cfg = get_config()
         self.recorder_widget.set_device(cfg.mic_device_index)
@@ -1802,7 +1800,7 @@ class MainWindow(QMainWindow):
         self.status_bar.set_whisper_model(cfg.default_model)
         self.course_capture_panel.setup.refresh_model_state()
         self.live_view.setup.refresh_model_state()
-        self.start_view.refresh_readiness()
+        self.start_view.refresh_summary()
         self._apply_tray_config()
 
     def _refresh_folder_hint(self) -> None:
@@ -1946,25 +1944,9 @@ class MainWindow(QMainWindow):
             self.start_view.show_first_run()
 
     def _on_asr_profile_applied(self) -> None:
-        self._apply_config_defaults()
+        self.transcribe_options.reload_defaults()
+        self.status_bar.set_whisper_model(get_config().default_model)
         self.start_view.refresh_summary()
-
-    def _apply_config_defaults(self):
-        """Re-seed header controls from the saved config (after settings change)."""
-        cfg = get_config()
-        idx = next((i for i, (k, _) in enumerate(WHISPER_MODELS)
-                    if k == cfg.default_model), None)
-        if idx is not None:
-            self.model_combo.setCurrentIndex(idx)
-        idx = next((i for i, (k, _) in enumerate(WHISPER_LANGUAGES)
-                    if k == cfg.default_language), None)
-        if idx is not None:
-            self.language_combo.setCurrentIndex(idx)
-        idx = next((i for i, (k, *_) in enumerate(PERFORMANCE_MODES)
-                    if k == cfg.performance_mode), None)
-        if idx is not None:
-            self.perf_combo.setCurrentIndex(idx)
-        self.diarization_checkbox.setChecked(cfg.diarization_enabled)
 
     # ------------------------------------------------------------------ drag & drop
 
@@ -2465,15 +2447,8 @@ class MainWindow(QMainWindow):
             logger.warning("Failed to restore transcript version: %s", exc)
 
     def _header_transcription_values(self) -> dict:
-        """What the header controls currently say (the base a recipe's own
-        params override)."""
-        return {
-            "model": self.model_combo.currentData(),
-            "language": self.language_combo.currentData(),
-            "translate": self.translate_checkbox.isChecked(),
-            "performance_mode": self.perf_combo.currentData(),
-            "diarization": self.diarization_checkbox.isChecked(),
-        }
+        """Return the defaults used when a recipe omits a parameter."""
+        return self.transcribe_options.params()
 
     def _start_transcription(self):
         """Start the transcription process."""

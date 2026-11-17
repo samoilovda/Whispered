@@ -71,6 +71,44 @@ def test_choosing_a_profile_sets_the_exact_settings(env, process_events):
     process_events()
 
 
+@pytest.mark.parametrize("change_model", [False, True])
+def test_settings_keep_the_transcription_language_when_applied(
+    env, monkeypatch, process_events, change_model,
+):
+    from ui.settings_dialog import SettingsDialog
+
+    window = _window(process_events)
+    default_model = config.get_config().default_model
+    expected_model = "tiny" if change_model else default_model
+
+    def apply_settings(dialog):
+        dialog._lang_combo.setCurrentIndex(dialog._lang_combo.findData("ru"))
+        if change_model:
+            dialog._model_combo.setCurrentIndex(dialog._model_combo.findData(expected_model))
+            dialog._perf_combo.setCurrentIndex(dialog._perf_combo.findData("efficiency"))
+            dialog._diarization_chk.setChecked(True)
+            dialog._ok_button.click()
+        else:
+            dialog._apply_button.click()
+
+    monkeypatch.setattr(SettingsDialog, "exec", apply_settings)
+    try:
+        window._open_settings()
+        saved = config.Config.load()
+        assert (saved.default_model, saved.default_language) == (expected_model, "ru")
+        assert saved.performance_mode == ("efficiency" if change_model else "balanced")
+        assert saved.diarization_enabled is change_model
+        assert window.language_combo.currentData() == "ru"
+        assert window.model_combo.currentData() == expected_model
+        assert window.perf_combo.currentData() == saved.performance_mode
+        assert window.diarization_checkbox.isChecked() is change_model
+        assert tr("whisper_language_ru") in window.start_view._summary_label.text()
+        assert window.queue_controller.snapshot_now().transcription["language"] == "ru"
+    finally:
+        window.close()
+        process_events()
+
+
 def test_delete_offers_files_and_moves_them_to_trash_only_on_request(env, monkeypatch, process_events):
     store, tmp_path = env
     rid = store.add(_result(), source_path="", source_name="a.mp3")

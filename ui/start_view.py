@@ -14,6 +14,8 @@ header, since StartView's title above already covers it.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Callable
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QButtonGroup,
@@ -29,6 +31,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from application.launch_params import resolve_transcription
 from application.readiness import (
     CHECKING, MISSING, OK, WARN, ReadinessFacts, launch_blocked, recipe_checks,
 )
@@ -39,9 +42,13 @@ from domain.recipe import Recipe, TRANSCRIPT_ONLY, recipe_choices
 from ui.animated_button import AnimatedButton
 from ui.components import FlowLayout
 from ui.option_labels import (
-    recipe_label, size_label, whisper_model_name, whisper_model_options,
+    performance_mode_options, recipe_label, size_label, whisper_language_options,
+    whisper_model_name, whisper_model_options,
     whisper_model_options_with_state,
 )
+
+if TYPE_CHECKING:
+    from ui.transcribe_options import TranscribeOptions
 
 _CHECK_GLYPHS = {OK: "✓", WARN: "◌", MISSING: "✕", CHECKING: "…"}
 _CHECK_ROLES = {OK: "success-text", WARN: "warning-text", MISSING: "danger-text", CHECKING: "dim"}
@@ -73,7 +80,8 @@ class StartView(QWidget):
         live: QWidget,
         live_options: QWidget,
         folder: QWidget,
-        transcribe_options_summary_source: QWidget,
+        transcribe_options: TranscribeOptions,
+        resolve_recipe: Callable[[str], Recipe],
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -84,9 +92,9 @@ class StartView(QWidget):
         # just a file, and hiding Launch on the recorder page left it with
         # no way at all to transcribe what had just been recorded.
         self._launchable_sources = ("file", "recorder")
-        self._transcribe_options = transcribe_options_summary_source
+        self._transcribe_options = transcribe_options
+        self._resolve_recipe = resolve_recipe
         self._recipe_key = get_config().last_recipe or TRANSCRIPT_ONLY.builtin_key
-        self._recipes: dict[str, Recipe] = {}
         # Facts the readiness line needs that are slow or external:
         # LM Studio's state comes from the status bar's own probe
         # (set_llm_status); ffmpeg and the speaker model are looked up
@@ -383,10 +391,8 @@ class StartView(QWidget):
         from core.paths import models_dir
 
         cfg = get_config()
-        _label, downloaded = self._selected_model()
-        opts = self._transcribe_options
-        key = (opts.model_combo.currentData() if hasattr(opts, "model_combo") else None) \
-            or cfg.default_model
+        key = self._transcribe_options.model_combo.currentData() or cfg.default_model
+        _label, downloaded = self._model_state(key)
         # The model's name and the manifest's size, in one unit (audit
         # 2026-11-04 W10): the label's own size and description don't
         # belong inside this sentence.
@@ -552,9 +558,7 @@ class StartView(QWidget):
                 self._recipe_group.removeButton(widget)
                 widget.deleteLater()
         self._recipe_buttons = {}
-        self._recipes = {}
         for key, recipe in recipe_choices(get_config().recipes):
-            self._recipes[key] = recipe
             button = QPushButton(recipe_label(recipe))
             button.setCheckable(True)
             button.setProperty("role", "quick-chip")
@@ -600,32 +604,22 @@ class StartView(QWidget):
         rather than duplicating _select_recipe's persistence."""
         self._select_recipe(key)
 
-    def refresh_summary(self) -> None:
-        """Re-read the transcription options widget's current selections
-        into the muted summary line under the launch button — called after
-        recipe_editor.py's dialog closes, since that's where those combos
-        actually live now.
+    def _recipe_transcription(self, recipe: Recipe) -> dict:
+        return resolve_transcription(recipe.params, recipe.steps, self._transcribe_options.params())
 
-        Model text is looked up from whisper_model_options() rather than
-        read as model_combo.currentText() directly: since B10 that combo's
-        item text carries a "· downloaded"/"· will download" suffix
-        (docs/IMPROVEMENT_PLAN_2026-08.ru.md) meant for the combo itself,
-        not for this already-long one-line summary — appending it here
-        overflowed the label (a plain QLabel with no eliding or wrapping)
-        at the gallery's smallest tested width.
-        """
-        opts = self._transcribe_options
-        model = ""
-        if hasattr(opts, "model_combo"):
-            key = opts.model_combo.currentData()
-            model = next(
-                (label for k, label in whisper_model_options() if k == key),
-                opts.model_combo.currentText(),
-            )
-        language = opts.language_combo.currentText() if hasattr(opts, "language_combo") else ""
-        mode = opts.perf_combo.currentText() if hasattr(opts, "perf_combo") else ""
+    def refresh_summary(self) -> None:
+        """Show the transcription settings for the selected recipe."""
+        chosen = self._recipe_transcription(self._resolve_recipe(self._recipe_key))
+        model = chosen["model"]
+        language = chosen["language"]
+        mode = chosen["performance_mode"]
         self._summary_label.setText(
-            tr("start_recipe_summary", model=model, language=language, mode=mode)
+            tr(
+                "start_recipe_summary",
+                model=dict(whisper_model_options()).get(model, model),
+                language=dict(whisper_language_options()).get(language, language),
+                mode=next((label for key, label, *_ in performance_mode_options() if key == mode), mode),
+            )
         )
         self.refresh_readiness()
 
@@ -636,13 +630,12 @@ class StartView(QWidget):
         self._llm_reachable = bool(connected)
         self.refresh_readiness()
 
-    def _selected_model(self) -> tuple[str, bool]:
-        opts = self._transcribe_options
-        key = opts.model_combo.currentData() if hasattr(opts, "model_combo") else None
+    @staticmethod
+    def _model_state(key: str) -> tuple[str, bool]:
         for model_key, label, downloaded in whisper_model_options_with_state():
             if model_key == key:
                 return label, downloaded
-        return (opts.model_combo.currentText() if hasattr(opts, "model_combo") else ""), True
+        return key, True
 
     def _readiness_facts(self) -> ReadinessFacts:
         cfg = get_config()
@@ -655,7 +648,8 @@ class StartView(QWidget):
             self._diarize_installed = is_installed()
         provider = cfg.yt_provider or "lmstudio"
         key_field = {"openai": "yt_openai_api_key", "anthropic": "yt_anthropic_api_key"}.get(provider)
-        model_label, downloaded = self._selected_model()
+        chosen = self._recipe_transcription(self._resolve_recipe(self._recipe_key))
+        model_label, downloaded = self._model_state(chosen["model"])
         book_url = (cfg.book_lm_url or "").rstrip("/")
         main_url = (cfg.lm_studio_url or "").rstrip("/")
         return ReadinessFacts(
@@ -676,7 +670,7 @@ class StartView(QWidget):
             return
         from application.steps import STEP_REGISTRY
 
-        recipe = self._recipes.get(self._recipe_key) or TRANSCRIPT_ONLY
+        recipe = self._resolve_recipe(self._recipe_key)
         steps = [name for name in recipe.steps if name in STEP_REGISTRY]
         self._steps_label.setText(
             "  →  ".join(tr(STEP_REGISTRY[name].label_key) for name in steps)

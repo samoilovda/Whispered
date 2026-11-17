@@ -1,21 +1,11 @@
-"""Whispered - Transcribe Options
-Model / language / translate / performance / diarization controls.
-
-Since the workspace redesign these are only reachable through the recipe
-editor ("Настроить…" on the start screen, see ui/recipe_editor.py) — the
-header they used to live in, and the LaunchBar popover that replaced it,
-are both retired. That made persistence load-bearing: it is now the only
-place a user picks a Whisper model outside Settings, so a selection made
-here is written straight back to Config instead of living for the
-session and silently reverting to Settings' defaults on the next launch.
-"""
+"""Model, language, translation, performance and diarization controls."""
 
 from __future__ import annotations
 
 from PyQt6.QtWidgets import (
     QWidget, QFrame, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QCheckBox,
 )
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import QSignalBlocker, pyqtSignal
 
 from config import get_config, save_config
 from ui.i18n_helpers import Retranslator
@@ -26,7 +16,6 @@ from ui.option_labels import (
     whisper_language_options,
     whisper_model_options_with_state,
 )
-from utils import WHISPER_MODELS, WHISPER_LANGUAGES, PERFORMANCE_MODES
 
 
 def _fill_combo(combo: QComboBox, items: list) -> None:
@@ -47,28 +36,18 @@ def _fill_model_combo(combo: QComboBox) -> None:
 
 
 class TranscribeOptions(QFrame):
-    """Panel with the transcription settings (model/language/translate/
-    performance/diarization).
-
-    Embedded directly wherever it's used (currently: borrowed by
-    ui/recipe_editor.py's dialog for the duration of one edit) — it was
-    once also a floating popover anchored under a header gear button, but
-    that header (and the popover chrome for it) was retired along with
-    the pre-redesign layout, and every remaining construction site embeds
-    it. MainWindow keeps referring to its widgets under their historical
-    attribute names (self.model_combo, etc.) by aliasing to this panel's
-    widgets after construction.
-    """
+    """Transcription defaults or a draft of the recipe's settings."""
 
     changed = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None, *, persist: bool = True) -> None:
         super().__init__(parent)
         self.setProperty("role", "card")
-        self._persist_changes = persist
         self._i18n = Retranslator()
         self._setup_ui()
-        self._load_config()
+        self.reload_defaults()
+        if persist:
+            self.changed.connect(self._persist)
         self._i18n.call(self._retranslate_options)
         self._i18n.bind()
 
@@ -143,31 +122,22 @@ class TranscribeOptions(QFrame):
         self.diarization_checkbox.toggled.connect(self.changed.emit)
         layout.addWidget(self.diarization_checkbox)
 
-    def _load_config(self) -> None:
+    def reload_defaults(self) -> None:
+        """Apply saved defaults together. Each change would otherwise save
+        the controls' partially updated state back to Config."""
         cfg = get_config()
-        model_idx = next(
-            (i for i, (k, _) in enumerate(WHISPER_MODELS) if k == cfg.default_model), 6
-        )
-        self.model_combo.setCurrentIndex(model_idx)
-        lang_idx = next(
-            (i for i, (k, _) in enumerate(WHISPER_LANGUAGES) if k == cfg.default_language), 0
-        )
-        self.language_combo.setCurrentIndex(lang_idx)
-        perf_idx = next(
-            (i for i, (k, *_) in enumerate(PERFORMANCE_MODES) if k == cfg.performance_mode), 1
-        )
-        self.perf_combo.setCurrentIndex(perf_idx)
-        self.diarization_checkbox.setChecked(cfg.diarization_enabled)
-        # Connected after the initial seeding above, so restoring the saved
-        # values doesn't immediately write them back out again.
-        if self._persist_changes:
-            self.changed.connect(self._persist)
+        with QSignalBlocker(self):
+            for combo, value, fallback in (
+                (self.model_combo, cfg.default_model, "large-v3-turbo-q5_0"),
+                (self.language_combo, cfg.default_language, "auto"),
+                (self.perf_combo, cfg.performance_mode, "balanced"),
+            ):
+                idx = combo.findData(value)
+                combo.setCurrentIndex(idx if idx >= 0 else combo.findData(fallback))
+            self.diarization_checkbox.setChecked(cfg.diarization_enabled)
 
     def params(self) -> dict:
-        """The widget's current selections as a Recipe.params dict (B4,
-        docs/IMPROVEMENT_PLAN_2026-08.ru.md) — what the recipe editor
-        captures into the recipe being saved, on top of (not instead of)
-        this panel's existing auto-persist-to-Config side effect."""
+        """Return the current selections as transcription parameters."""
         return {
             "model": self.model_combo.currentData(),
             "language": self.language_combo.currentData(),
@@ -177,10 +147,7 @@ class TranscribeOptions(QFrame):
         }
 
     def apply_params(self, params: dict) -> None:
-        """Seed the widgets from a recipe's saved params, falling back to
-        whatever is already selected (i.e. Config's defaults, per
-        _load_config()) for any key the recipe doesn't override — called
-        by the recipe editor before it's shown, not on every keystroke."""
+        """Apply the recipe's saved values over the current selections."""
         model = params.get("model")
         if model:
             idx = self.model_combo.findData(model)
